@@ -1,0 +1,45 @@
+# Core ML dependencies
+torch==1.12.1
+pytorch-forecasting==0.10.3
+pytorch-lightning==1.8.6
+scikit-learn==1.2.2
+pandas==1.5.3
+numpy==1.24.3
+
+# Data infrastructure
+kafka-python==2.0.2
+redis==4.5.4
+pinotdb==0.3.3
+pydantic==1.10.7
+
+# API framework
+fastapi==0.95.1
+uvicorn==0.22.0
+python-dotenv==1.0.0
+python-jose==3.3.0
+passlib==1.7.4
+
+# Utilities
+loguru==0.7.0
+prometheus-client==0.16.0
+matplotlib==3.7.1
+seaborn==0.12.2
+
+# Development tools
+pytest==7.3.1
+pytest-asyncio==0.21.0
+pytest-cov==4.1.0
+black==23.3.0
+isort==5.12.0
+mypy==1.2.0
+flake8==6.0.0
+pre-commit==3.3.1
+
+# Jupyter environment
+jupyter==1.0.0
+ipywidgets==8.0.6
+jupyterlab==3.6.3
+
+# Documentation
+sphinx==6.2.1
+sphinx-rtd-theme==1.2.1 
