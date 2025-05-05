@@ -1,0 +1,133 @@
+# Risk Scoring Model Configuration
+
+name: adaptive_risk_scoring_model
+version: "1.0"
+
+data:
+  feature_set: "risk_scoring_features"
+  label_column: "risk_score"
+  train_test_split: 0.8
+  validation_split: 0.1
+  historical_window: 180  # Days of historical data
+
+model:
+  type: "meta_learner"  # Meta-learning framework that switches between models
+  base_models:
+    - name: "gradient_boosted_trees"
+      params:
+        n_estimators: 500
+        learning_rate: 0.01
+        max_depth: 6
+        subsample: 0.8
+        colsample_bytree: 0.8
+        objective: "reg:squarederror"
+        
+    - name: "neural_forecaster"
+      type: "n_beats"  # Neural Basis Expansion Analysis for Time Series
+      params:
+        stack_types: ["trend", "seasonality"]
+        num_blocks_per_stack: 3
+        hidden_layer_units: 128
+        thetas_dims: [5, 8]
+        share_weights_in_stack: true
+        
+    - name: "deep_ar"  # DeepAR for probabilistic forecasting
+      params:
+        rnn_layers: 2
+        hidden_size: 64
+        dropout: 0.1
+        embedding_dimension: 20
+        context_length: 60
+        prediction_length: 5
+        
+  meta_learner:
+    type: "gradient_boosted_trees"
+    params:
+      n_estimators: 100
+      max_depth: 4
+      learning_rate: 0.05
+      
+  regime_specific_models:
+    - regime: "calm_normal"
+      model_type: "nbeats"
+      
+    - regime: "volatility_driven"
+      model_type: "nbeats"
+      
+    - regime: "liquidity_crisis"
+      model_type: "deep_ar"
+      
+    - regime: "credit_driven"
+      model_type: "deep_ar"
+      
+    - regime: "rate_driven"
+      model_type: "tcn"  # Temporal Convolutional Network
+      
+    - regime: "strong_inflow"
+      model_type: "nbeats"
+      
+    - regime: "technical_dislocation"
+      model_type: "deep_ar"
+
+# Features for Risk Models
+features:
+  # Security Features
+  security:
+    - "credit_rating_numeric"
+    - "years_to_maturity"
+    - "modified_duration"
+    - "convexity"
+    - "option_adjusted_spread"
+    - "coupon_rate"
+    - "taxable_status"
+    - "issue_size"
+    - "state_code"
+    - "sector_code"
+    - "call_provisions"
+    - "years_since_issuance"
+    - "bid_ask_spread"
+    - "average_daily_volume"
+  
+  # Trade Features
+  trade:
+    - "trade_size"
+    - "trade_direction"
+    - "trade_size_relative_to_adv"
+    - "previous_trades_count"
+    - "days_since_last_trade"
+  
+  # Market Context Features
+  market:
+    - "treasury_yield_curve"
+    - "mmd_yield_curve"
+    - "market_volatility_index"
+    - "liquidity_index"
+    - "fund_flows"
+    - "issuance_volume"
+    - "seasonal_factor"
+    - "tax_season_indicator"
+    - "fomc_proximity"
+      
+training:
+  batch_size: 128
+  epochs: 150
+  early_stopping_patience: 15
+  learning_rate_scheduler: "cosine_annealing"
+  warmup_steps: 10
+  
+evaluation:
+  metrics:
+    - rmse
+    - mae
+    - mape
+    - r2_score
+    - calibration_error
+  
+inference:
+  recalibration_frequency: "daily"
+  confidence_level: 0.95
+  prediction_horizon: 5  # Days to forecast
+  quantiles: [0.05, 0.25, 0.5, 0.75, 0.95]  # Quantiles for prediction intervals
+  conformal_prediction:
+    coverage: 0.9  # 90% coverage interval
+    calibration_size: 1000  # Number of samples for calibration 
