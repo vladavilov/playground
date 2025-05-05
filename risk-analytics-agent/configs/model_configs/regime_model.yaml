@@ -1,0 +1,46 @@
+# Market Regime Model Configuration
+
+name: market_regime_predictor
+version: "1.0"
+
+data:
+  lookback_window: 90  # Days of historical data to use
+  feature_set: "market_regime_features"
+  label_column: "regime_label"
+  train_test_split: 0.8
+  validation_split: 0.1
+
+model:
+  type: "temporal_fusion_transformer"
+  params:
+    hidden_size: 128
+    attention_heads: 4
+    dropout: 0.1
+    hidden_continuous_size: 64
+    learning_rate: 0.001
+    hidden_layers: 2
+    lstm_layers: 2
+    max_encoder_length: 60
+    max_prediction_length: 30
+  
+training:
+  batch_size: 64
+  epochs: 100
+  early_stopping_patience: 10
+  learning_rate_scheduler: "reduce_on_plateau"
+  lr_scheduler_patience: 5
+  lr_scheduler_factor: 0.5
+  gradient_clip_val: 0.1
+  
+evaluation:
+  metrics:
+    - accuracy
+    - f1_score
+    - precision
+    - recall
+    - confusion_matrix
+  
+inference:
+  recalibration_frequency: "daily"  # How often to recalibrate the model
+  confidence_calibration: true  # Whether to apply confidence calibration
+  quantile_predictions: [0.1, 0.5, 0.9]  # Quantiles for prediction intervals 

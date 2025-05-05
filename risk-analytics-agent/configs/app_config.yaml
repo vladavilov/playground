@@ -1,0 +1,53 @@
+# Risk Analytics Agent Application Configuration
+
+# API Configuration
+api:
+  host: ${API_HOST:0.0.0.0}
+  port: ${API_PORT:8000}
+  debug: ${API_DEBUG:false}
+
+# Data Sources
+data_sources:
+  kafka:
+    bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    market_data_topic: ${KAFKA_MARKET_DATA_TOPIC:market-data}
+    trade_events_topic: ${KAFKA_TRADE_EVENTS_TOPIC:trade-events}
+    group_id: ${KAFKA_GROUP_ID:risk-analytics-consumer}
+    auto_offset_reset: ${KAFKA_AUTO_OFFSET_RESET:earliest}
+
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    db: ${REDIS_DB:0}
+    password: ${REDIS_PASSWORD:}
+
+  pinot:
+    controller: ${PINOT_CONTROLLER:localhost:9000}
+    broker: ${PINOT_BROKER:localhost:8099}
+
+# Model Configuration
+model:
+  registry_path: ${MODEL_REGISTRY_PATH:./models}
+  serving_port: ${MODEL_SERVING_PORT:8001}
+  
+# Feature Store
+feature_store:
+  cache_ttl: ${FEATURE_STORE_CACHE_TTL:3600}
+  use_redis_cache: ${FEATURE_STORE_USE_REDIS_CACHE:true}
+
+# Logging Configuration
+logging:
+  level: ${LOG_LEVEL:INFO}
+  format: ${LOG_FORMAT:%(asctime)s - %(name)s - %(levelname)s - %(message)s}
+  file: ${LOG_FILE:risk-analytics.log}
+
+# Monitoring Configuration
+monitoring:
+  prometheus_port: ${PROMETHEUS_PORT:9090}
+  grafana_port: ${GRAFANA_PORT:3000}
+
+# Security Configuration
+security:
+  auth_secret_key: ${AUTH_SECRET_KEY:replace_with_secure_key}
+  auth_algorithm: ${AUTH_ALGORITHM:HS256}
+  auth_token_expire_minutes: ${AUTH_ACCESS_TOKEN_EXPIRE_MINUTES:30} 

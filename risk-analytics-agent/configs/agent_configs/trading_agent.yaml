@@ -1,0 +1,103 @@
+# Trading Agent Configuration
+
+name: adaptive_trading_agent
+version: "1.0"
+
+components:
+  # Models used by the agent
+  models:
+    market_regime_model:
+      config_path: "../model_configs/regime_model.yaml"
+      update_frequency: "daily"
+      weight: 0.3
+      
+    risk_scoring_model:
+      config_path: "../model_configs/risk_model.yaml"
+      update_frequency: "daily"
+      weight: 0.7
+  
+  # Memory configuration for the agent
+  memory:
+    short_term:
+      type: "redis"
+      max_items: 1000
+      ttl_seconds: 3600  # 1 hour
+    
+    long_term:
+      type: "pinot"
+      max_age_days: 180  # 6 months
+    
+    episodic:
+      enabled: true
+      max_episodes: 100
+      features_to_store: ["trade_context", "predictions", "actual_outcomes"]
+  
+  # Reasoning configuration
+  reasoning:
+    method: "causal_graph"
+    explanation_depth: 3
+    confidence_threshold: 0.7
+    consistency_check: true
+    fallback_rules_enabled: true
+  
+  # Action space
+  actions:
+    available_actions:
+      - "approve_trade"
+      - "reject_trade"
+      - "request_additional_information"
+      - "suggest_alternative_trade"
+      - "flag_for_human_review"
+    
+    constraints:
+      max_risk_score_for_auto_approval: 70
+      min_confidence_for_auto_decisions: 0.85
+      flag_threshold: 0.6
+
+# Input and output formats
+interfaces:
+  inputs:
+    required_fields:
+      - "trade_details"
+      - "market_data"
+      - "portfolio_context"
+    
+    optional_fields:
+      - "trader_history"
+      - "similar_historical_trades"
+      - "recent_news"
+  
+  outputs:
+    format: "json"
+    fields:
+      - "decision"
+      - "confidence_score"
+      - "risk_score"
+      - "explanation"
+      - "contributing_factors"
+      - "suggested_alternatives"
+
+# Performance monitoring
+monitoring:
+  metrics:
+    - "decision_accuracy"
+    - "false_positive_rate"
+    - "false_negative_rate"
+    - "decision_latency"
+    - "model_drift"
+  
+  alerts:
+    accuracy_threshold: 0.8
+    latency_threshold_ms: 500
+    drift_threshold: 0.15
+
+# Continuous learning
+learning:
+  feedback_collection:
+    enabled: true
+    sources: ["trader_feedback", "post_trade_analysis", "risk_management_review"]
+  
+  model_updating:
+    strategy: "incremental"
+    frequency: "weekly"
+    validation_required: true 
