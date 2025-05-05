@@ -1,103 +1,89 @@
 # Trading Agent Configuration
 
-name: adaptive_trading_agent
-version: "1.0"
+# Agent identity
+agent:
+  name: "risk_analyzer_agent"
+  version: "0.1.0"
+  description: "Risk analysis agent for pre-trade risk scoring and market regime prediction"
 
-components:
-  # Models used by the agent
-  models:
-    market_regime_model:
-      config_path: "../model_configs/regime_model.yaml"
-      update_frequency: "daily"
-      weight: 0.3
-      
-    risk_scoring_model:
-      config_path: "../model_configs/risk_model.yaml"
-      update_frequency: "daily"
-      weight: 0.7
-  
-  # Memory configuration for the agent
+# Agent behavior
+behavior:
+  # Memory configuration
   memory:
-    short_term:
-      type: "redis"
-      max_items: 1000
-      ttl_seconds: 3600  # 1 hour
+    short_term_capacity: 1000  # Number of items to keep in short-term memory
+    long_term_enabled: true
+    long_term_storage: "redis"  # redis or file
     
-    long_term:
-      type: "pinot"
-      max_age_days: 180  # 6 months
-    
-    episodic:
-      enabled: true
-      max_episodes: 100
-      features_to_store: ["trade_context", "predictions", "actual_outcomes"]
-  
-  # Reasoning configuration
+  # Decision making
   reasoning:
-    method: "causal_graph"
-    explanation_depth: 3
-    confidence_threshold: 0.7
-    consistency_check: true
-    fallback_rules_enabled: true
-  
-  # Action space
-  actions:
-    available_actions:
-      - "approve_trade"
-      - "reject_trade"
-      - "request_additional_information"
-      - "suggest_alternative_trade"
-      - "flag_for_human_review"
+    # Risk scoring thresholds
+    risk_thresholds:
+      low: 30
+      medium: 70
+      high: 90
     
-    constraints:
-      max_risk_score_for_auto_approval: 70
-      min_confidence_for_auto_decisions: 0.85
-      flag_threshold: 0.6
+    # Confidence thresholds for decisions
+    confidence_thresholds:
+      low: 0.5
+      medium: 0.7
+      high: 0.9
+      
+    # Decision tree for risk analysis
+    decision_rules:
+      # Rule for high volatility regimes
+      - name: "high_volatility_rule"
+        condition: "regime in [1, 2]"  # Volatility-Driven Risk-Off or Liquidity Crisis
+        action: "increase_risk_score"
+        factor: 1.2
+        
+      # Rule for credit concerns
+      - name: "credit_concern_rule"
+        condition: "regime == 3"  # Credit-Driven Selloff
+        action: "increase_risk_score"
+        factor: 1.3
+        
+      # Rule for rate-sensitive securities
+      - name: "rate_sensitive_rule"
+        condition: "regime == 4 and security_type in ['government_bond', 'corporate_bond']"
+        action: "increase_risk_score"
+        factor: 1.5
+        
+      # Rule for favorable market conditions
+      - name: "favorable_market_rule"
+        condition: "regime == 5"  # Strong Inflow/Rally
+        action: "decrease_risk_score"
+        factor: 0.8
+        
+      # Rule for technical dislocations
+      - name: "technical_dislocation_rule"
+        condition: "regime == 6"  # Technical Positioning/Dislocation
+        action: "apply_volatility_adjustment"
+        adjustment: "dynamic"
+        
+  # Agent skills configuration
+  skills:
+    market_analysis:
+      importance: 0.4
+      data_sources: ["market_data", "regime_model"]
+      
+    security_analysis:
+      importance: 0.3
+      data_sources: ["security_data", "trade_history"]
+      
+    risk_score:
+      importance: 0.5
+      data_sources: ["risk_model", "meta_learner"]
+      
+    mitigation:
+      importance: 0.2
+      data_sources: ["rule_engine"]
 
-# Input and output formats
-interfaces:
-  inputs:
-    required_fields:
-      - "trade_details"
-      - "market_data"
-      - "portfolio_context"
-    
-    optional_fields:
-      - "trader_history"
-      - "similar_historical_trades"
-      - "recent_news"
-  
-  outputs:
-    format: "json"
-    fields:
-      - "decision"
-      - "confidence_score"
-      - "risk_score"
-      - "explanation"
-      - "contributing_factors"
-      - "suggested_alternatives"
-
-# Performance monitoring
+# Monitoring and telemetry
 monitoring:
-  metrics:
-    - "decision_accuracy"
-    - "false_positive_rate"
-    - "false_negative_rate"
-    - "decision_latency"
-    - "model_drift"
-  
-  alerts:
-    accuracy_threshold: 0.8
-    latency_threshold_ms: 500
-    drift_threshold: 0.15
-
-# Continuous learning
-learning:
-  feedback_collection:
+  log_level: "INFO"
+  metrics_enabled: true
+  trace_decisions: true
+  performance_tracking: true
+  accuracy_evaluation: 
     enabled: true
-    sources: ["trader_feedback", "post_trade_analysis", "risk_management_review"]
-  
-  model_updating:
-    strategy: "incremental"
-    frequency: "weekly"
-    validation_required: true 
+    window_size: 100  # Evaluate accuracy over last N predictions 

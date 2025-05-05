@@ -1,133 +1,91 @@
-# Risk Scoring Model Configuration
+# Configuration placeholder 
 
-name: adaptive_risk_scoring_model
-version: "1.0"
+# Risk Scoring Models Configuration
 
+# Common data parameters
 data:
-  feature_set: "risk_scoring_features"
-  label_column: "risk_score"
-  train_test_split: 0.8
-  validation_split: 0.1
-  historical_window: 180  # Days of historical data
-
-model:
-  type: "meta_learner"  # Meta-learning framework that switches between models
-  base_models:
-    - name: "gradient_boosted_trees"
-      params:
-        n_estimators: 500
-        learning_rate: 0.01
-        max_depth: 6
-        subsample: 0.8
-        colsample_bytree: 0.8
-        objective: "reg:squarederror"
-        
-    - name: "neural_forecaster"
-      type: "n_beats"  # Neural Basis Expansion Analysis for Time Series
-      params:
-        stack_types: ["trend", "seasonality"]
-        num_blocks_per_stack: 3
-        hidden_layer_units: 128
-        thetas_dims: [5, 8]
-        share_weights_in_stack: true
-        
-    - name: "deep_ar"  # DeepAR for probabilistic forecasting
-      params:
-        rnn_layers: 2
-        hidden_size: 64
-        dropout: 0.1
-        embedding_dimension: 20
-        context_length: 60
-        prediction_length: 5
-        
-  meta_learner:
-    type: "gradient_boosted_trees"
-    params:
-      n_estimators: 100
-      max_depth: 4
-      learning_rate: 0.05
-      
-  regime_specific_models:
-    - regime: "calm_normal"
-      model_type: "nbeats"
-      
-    - regime: "volatility_driven"
-      model_type: "nbeats"
-      
-    - regime: "liquidity_crisis"
-      model_type: "deep_ar"
-      
-    - regime: "credit_driven"
-      model_type: "deep_ar"
-      
-    - regime: "rate_driven"
-      model_type: "tcn"  # Temporal Convolutional Network
-      
-    - regime: "strong_inflow"
-      model_type: "nbeats"
-      
-    - regime: "technical_dislocation"
-      model_type: "deep_ar"
-
-# Features for Risk Models
-features:
-  # Security Features
-  security:
-    - "credit_rating_numeric"
-    - "years_to_maturity"
-    - "modified_duration"
-    - "convexity"
-    - "option_adjusted_spread"
-    - "coupon_rate"
-    - "taxable_status"
-    - "issue_size"
-    - "state_code"
-    - "sector_code"
-    - "call_provisions"
-    - "years_since_issuance"
-    - "bid_ask_spread"
-    - "average_daily_volume"
+  max_encoder_length: 60  # Number of time steps used as encoder inputs
+  max_prediction_length: 5  # Number of time steps to predict into future
+  time_idx: "time_idx"  # Column name for time index
+  group_ids:  # Column(s) for grouping data
+    - "security_id"
+    - "trade_type"
+  target: "risk_score"  # Target variable to predict
   
-  # Trade Features
-  trade:
+  # Variables configuration
+  categorical_variables:
+    - "security_type"
+    - "trade_type"
+    - "regime"
+  continuous_variables:
+    - "price"
+    - "volume"
+    - "volatility"
+    - "credit_spread"
+    - "liquidity_metric"
+    - "rate_change"
     - "trade_size"
-    - "trade_direction"
-    - "trade_size_relative_to_adv"
-    - "previous_trades_count"
-    - "days_since_last_trade"
+    - "portfolio_exposure"
+  static_variables:
+    - "security_type"
+    - "trade_type"
+  time_varying_known_variables:
+    - "time_idx"
+    - "regime"
+  time_varying_unknown_variables:
+    - "price"
+    - "volume"
+    - "volatility"
+    - "credit_spread"
+    - "liquidity_metric"
+    - "rate_change"
+    - "trade_size"
+    - "portfolio_exposure"
+
+# N-BEATS model parameters
+nbeats:
+  num_blocks: 3
+  num_block_layers: 4
+  expansion_coefficient_length: 5
+  trend_blocks: 2
+  generic_blocks: 1
+  backcast_loss_ratio: 0.1
   
-  # Market Context Features
-  market:
-    - "treasury_yield_curve"
-    - "mmd_yield_curve"
-    - "market_volatility_index"
-    - "liquidity_index"
-    - "fund_flows"
-    - "issuance_volume"
-    - "seasonal_factor"
-    - "tax_season_indicator"
-    - "fomc_proximity"
-      
-training:
-  batch_size: 128
-  epochs: 150
-  early_stopping_patience: 15
-  learning_rate_scheduler: "cosine_annealing"
-  warmup_steps: 10
+  # Training parameters
+  learning_rate: 0.001
+  batch_size: 64
+  max_epochs: 100
+  early_stopping_patience: 10
+  gradient_clip_val: 0.1
   
-evaluation:
-  metrics:
-    - rmse
-    - mae
-    - mape
-    - r2_score
-    - calibration_error
+  # Loss function
+  loss: "mse"  # For regression tasks
+
+# DeepAR model parameters
+deepar:
+  hidden_size: 40
+  rnn_layers: 2
+  dropout: 0.1
+  distribution: "StudentT"  # Distribution to use for likelihood loss
   
-inference:
-  recalibration_frequency: "daily"
-  confidence_level: 0.95
-  prediction_horizon: 5  # Days to forecast
-  quantiles: [0.05, 0.25, 0.5, 0.75, 0.95]  # Quantiles for prediction intervals
-  conformal_prediction:
-    coverage: 0.9  # 90% coverage interval
-    calibration_size: 1000  # Number of samples for calibration 
+  # Training parameters
+  learning_rate: 0.001
+  batch_size: 64
+  max_epochs: 100
+  early_stopping_patience: 10
+  gradient_clip_val: 0.1
+
+# Meta-learner parameters
+meta_learner:
+  regime_weights:
+    0: [0.5, 0.5]  # Calm/Normal: [nbeats_weight, deepar_weight]
+    1: [0.3, 0.7]  # Volatility-Driven Risk-Off
+    2: [0.2, 0.8]  # Liquidity Crisis
+    3: [0.3, 0.7]  # Credit-Driven Selloff
+    4: [0.4, 0.6]  # Rate-Driven Selloff
+    5: [0.6, 0.4]  # Strong Inflow/Rally
+    6: [0.5, 0.5]  # Technical Positioning/Dislocation
+  
+  # Adaptation parameters
+  adaptation_rate: 0.1  # Rate at which to adapt weights based on recent performance
+  confidence_window: 10  # Number of recent predictions to consider for confidence calculation 

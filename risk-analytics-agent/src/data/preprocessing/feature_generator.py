@@ -1,43 +1,43 @@
-# Placeholder for Feature Engineering Module
-
+# Feature Generator
 import pandas as pd
 import numpy as np
+# TODO: Import additional libraries for technical indicators if needed (e.g., ta-lib)
 
-# TODO: Load necessary data (e.g., market data, security data) from Feature Store
-# from integration_framework.feature_store_interface import read_feature
-
-def generate_temporal_fingerprints(df, date_column=\'date\'):
-    """Generates time-based features (seasonality, cycles). Req 7.1"""
+def generate_temporal_fingerprints(df, date_column='date'):
     df[date_column] = pd.to_datetime(df[date_column])
-    df[\'day_of_week\'] = df[date_column].dt.dayofweek
-    df[\'day_of_month\'] = df[date_column].dt.day
-    df[\'week_of_year\'] = df[date_column].dt.isocalendar().week.astype(int)
-    df[\'month\'] = df[date_column].dt.month
-    df[\'year\'] = df[date_column].dt.year
-    # Add other relevant fingerprints (e.g., quarter, holiday proximity)
+    df['day_of_week'] = df[date_column].dt.dayofweek
+    df['day_of_month'] = df[date_column].dt.day
+    df['week_of_year'] = df[date_column].dt.isocalendar().week.astype(int)
+    df['month'] = df[date_column].dt.month
+    df['year'] = df[date_column].dt.year
+    # TODO: Add quarter, holiday proximity, and other relevant fingerprints
     print("[Feature Engineering] Temporal fingerprints generated.")
     return df
 
 def generate_interaction_features(df):
-    """Generates interaction features based on Req 6.1."""
-    # Example: Liquidity x Market Direction (requires market direction signal)
-    # if \'liquidity_score\' in df.columns and \'market_momentum\' in df.columns:
-    #     df[\'liquidity_x_momentum\'] = df[\'liquidity_score\'] * df[\'market_momentum\']
-        
-    # Example: Credit Quality x Market Volatility (requires numeric rating and vol)
-    # if \'numeric_rating\' in df.columns and \'market_volatility\' in df.columns:
-    #     df[\'credit_x_volatility\'] = (10 - df[\'numeric_rating\'])**2 * df[\'market_volatility\']
-        
-    # Add other interactions as specified
+    # TODO: Implement actual interaction features between market indicators
     print("[Feature Engineering] Interaction features generated (Placeholder).")
     return df
 
-def apply_feature_engineering(df):
-    """Applies all feature engineering steps."""
-    df = generate_temporal_fingerprints(df)
-    df = generate_interaction_features(df)
-    # Add calls to other feature engineering functions
+def generate_volatility_momentum_features(df):
+    # TODO: Implement volatility and momentum calculations
+    print("[Feature Engineering] Volatility and momentum features generated (Placeholder).")
     return df
 
-print("Placeholder script for Feature Engineering created.")
+def generate_technical_indicators(df):
+    # TODO: Implement technical indicators (RSI, MACD, Bollinger Bands)
+    print("[Feature Engineering] Technical indicators generated (Placeholder).")
+    return df
 
+def generate_domain_specific_features(df):
+    # TODO: Implement domain-specific feature definitions from requirements 3.3
+    print("[Feature Engineering] Domain-specific features generated (Placeholder).")
+    return df
+
+def apply_feature_engineering(df):
+    df = generate_temporal_fingerprints(df)
+    df = generate_interaction_features(df)
+    df = generate_volatility_momentum_features(df)
+    df = generate_technical_indicators(df)
+    df = generate_domain_specific_features(df)
+    return df 
