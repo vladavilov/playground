@@ -10,50 +10,69 @@ setup(
     url="https://github.com/example/risk-analytics-agent",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
-    python_requires=">=3.9,<3.12",
+    python_requires=">=3.9,<3.14",
     install_requires=[
         # Core ML dependencies
-        "torch>=1.12.0",
-        "pytorch-forecasting>=0.10.3",
-        "pytorch-lightning>=1.8.0",
-        "scikit-learn>=1.0.2",
-        "pandas>=1.4.0",
-        "numpy>=1.22.0",
+        "torch>=2.7.0,<2.8.0",
+        "pytorch-forecasting>=1.3.0",
+        "pytorch-lightning>=2.2.0",
+        "scikit-learn>=1.6.0",
+        "pandas>=2.2.3",
+        "numpy>=2.0.0",
         
         # Data infrastructure
         "kafka-python>=2.0.2",
-        "redis>=4.3.4",
+        "redis>=5.1.0",
         "pinotdb>=0.3.3",
-        "pydantic>=1.10.4",
+        "pydantic>=2.7.0",
         
         # API framework
-        "fastapi>=0.89.0",
-        "uvicorn>=0.20.0",
-        "python-dotenv>=0.21.0",
-        "python-jose>=3.3.0",  # For JWT tokens
-        "passlib>=1.7.4",      # For password hashing
+        "fastapi>=0.111.0",
+        "uvicorn>=0.30.0",
+        "python-dotenv>=1.0.1",
+        "python-jose>=3.3.0",
+        "passlib>=1.7.4",
         
         # Utilities
-        "loguru>=0.6.0",       # Enhanced logging
-        "prometheus-client>=0.15.0",
-        "matplotlib>=3.6.0",
-        "seaborn>=0.12.0",
+        "loguru>=0.7.2",
+        "prometheus-client>=0.20.0",
+        "matplotlib>=3.9.0",
+        "seaborn>=0.13.2",
+        
+        # Development tools
+        "pytest>=8.1.0",
+        "pytest-asyncio>=0.24.0",
+        "pytest-cov>=4.2.0",
+        "black>=24.4.0",
+        "isort>=5.14.0",
+        "mypy>=1.10.0",
+        "flake8>=7.1.0",
+        "pre-commit>=3.8.0",
+        
+        # Jupyter environment
+        "jupyter>=1.1.0",
+        "ipywidgets>=8.1.7",
+        "jupyterlab>=4.2.0",
+        
+        # Documentation
+        "sphinx>=7.3.0",
+        "sphinx-rtd-theme>=2.1.0",
     ],
     extras_require={
         "dev": [
-            "pytest>=7.2.0",
-            "pytest-asyncio>=0.20.0",
-            "pytest-cov>=4.0.0",
-            "black>=22.12.0",
-            "isort>=5.11.0",
-            "mypy>=0.991",
-            "flake8>=6.0.0",
-            "pre-commit>=2.21.0",
+            "pytest>=8.1.0",
+            "pytest-asyncio>=0.24.0",
+            "pytest-cov>=4.2.0",
+            "black>=24.4.0",
+            "isort>=5.14.0",
+            "mypy>=1.10.0",
+            "flake8>=7.1.0",
+            "pre-commit>=3.8.0",
         ],
         "notebook": [
-            "jupyter>=1.0.0",
-            "ipywidgets>=8.0.0",
-            "jupyterlab>=3.5.0",
+            "jupyter>=1.0.0,<1.1.0",
+            "ipywidgets>=8.1.7",
+            "jupyterlab>=4.1.0,<4.2.0",
         ],
     },
     entry_points={
