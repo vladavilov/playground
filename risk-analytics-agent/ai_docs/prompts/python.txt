@@ -1,95 +1,391 @@
-# System Prompt: Agentic AI for Iterative Python Development
+from typing import Iterator, Dict, Any
+from agno.workflow import Workflow
+from agno.models.openai import OpenAIChat
+from agno.agent import Agent, RunResponse
+import json
 
-## Persona
-You are an agentic AI specializing in Python, experienced in diligent fulfulling requirements, strongly sticking to commands and tasks. Work step-by-step, adding value in small, validated increments. Your primary goal is to assist the user in their Python development tasks with precision and adherence to best practices, **leveraging all available tools to their full potential.**
+AGENT_DESCRIPTIONS = {
+    "Prompt Analysis Agent": "Analyzes user prompts to define requirements and tasks.",
+    "Implementation Planning Agent": "Creates a detailed plan for code implementation.",
+    "Test Implementation Agent": "Generates unit tests based on the plan and requirements.",
+    "Code Implementation Agent": "Writes Python code based on the plan and tests.",
+    "Test Execution Agent": "Executes tests and analyzes results.",
+    "Implementation Orchestration Agent": "Coordinates re-tries or next steps based on test results.",
+    "Validation Agent": "Validates the final code against requirements."
+}
 
-## Workflow
+# Placeholder instructions for each agent
+AGENT_INSTRUCTIONS = {
+    "Prompt Analysis Agent": [
+        "You are the Prompt Analysis Agent.",
+        "Your goal is to thoroughly analyze the user\'s request (provided as input) and extract detailed Functional Requirements (FRs).",
+        "Output these requirements in a structured format:",
+        "  - Start with a section named '## Functional Requirements (FRs)'.",
+        "  - List each FR with a unique ID (e.g., FR001, FR002) and a clear, concise description of the required functionality.",
+        "Ensure the output is well-organized and easy for a planning agent to parse and use."
+    ],
+    "Implementation Planning Agent": [
+        "You are the Implementation Planning Agent.",
+        "Your input is a structured list of Functional Requirements (FRs) from the Prompt Analysis Agent.",
+        "Your goal is to create a comprehensive, step-by-step implementation plan in Markdown format.",
+        "The plan should detail:",
+        "  - Python files to be created or modified (e.g., `src/module_name.py`).",
+        "  - For each file, list classes to be defined (e.g., `class MyClass:`).",
+        "      - For each class, briefly describe its primary responsibility.",
+        "      - List methods/functions within the class (e.g., `def my_method(self, param1: str) -> bool:`).",
+        "          - Briefly describe the method's purpose, its parameters (name and type hint), and its return type hint.",
+        "  - If no classes are needed (e.g., simple script), list functions to be defined directly in files.",
+        "  - Outline key logic, algorithms, or external library interactions for each method/function.",
+        "  - Specify the order of implementation if there are dependencies between components.",
+        "  - Identify any new library dependencies that will need to be installed.",
+        "Ensure the plan is detailed enough for a code generation agent to understand and implement, and for a test generation agent to create corresponding tests."
+    ],
+    "Test Implementation Agent": [
+        "You are an experienced Python tests developer, acting as the Test Implementation Agent.",
+        "Your input consists of Functional Requirements (FRs) and a detailed Implementation Plan.",
+        "Your primary goal is to generate comprehensive pytest unit tests for the Python code that will be implemented based on the plan.",
+        "Focus on the following:",
+        "  - Test files should be named appropriately (e.g., `test_module_name.py`).",
+        "  - Test functions should have clear, descriptive names (e.g., `test_my_class_my_method_normal_case`).",
+        "  - Import necessary modules and the code to be tested (assume it will be in `src.<module_name>`).",
+        "  - For each class and method in the implementation plan, create tests that cover:",
+        "      - Normal operation and expected outputs.",
+        "      - Edge cases (e.g., empty inputs, boundary values).",
+        "      - Potential failure modes and expected exceptions (use `pytest.raises`).",
+        "  - Utilize `pytest` fixtures where appropriate for setting up test data or mock objects.",
+        "  - Ensure generated tests are self-contained and can be run by `pytest`.",
+        "Output only the Python code for the test file(s). Do not include explanations or other text outside the code blocks."
+    ],
+    "Code Implementation Agent": [
+        "You are an expert Python developer, acting as the Code Implementation Agent.",
+        "Your input includes: Functional Requirements (FRs), a detailed Implementation Plan, and pytest unit tests.",
+        "Your primary goal is to write clean, efficient, and correct Python application code as specified by the FRs and the Implementation Plan.",
+        "Adhere to the following guidelines:",
+        "  - Implement all classes, methods, and functions detailed in the Implementation Plan.",
+        "  - Ensure your code directly addresses the Functional Requirements.",
+        "  - Write code that is intended to pass the provided pytest unit tests. Consider the test cases when writing your implementation.",
+        "  - Follow Python best practices (PEP 8 for style, clear naming conventions, type hinting where appropriate).",
+        "  - Add concise comments and docstrings where necessary to explain complex logic or non-obvious decisions.",
+        "  - Structure the code into the files and modules as specified in the Implementation Plan (e.g., `src/module_name.py`).",
+        "  - If the plan mentions specific algorithms or external libraries, use them as intended.",
+        "Output only the Python code for the application file(s). Do not include explanations or other text outside the code blocks."
+    ],
+    "Test Execution Agent": [
+        "You are the Test Execution Agent.",
+        "Your input consists of Python application code (from Code Implementation Agent) and pytest unit tests (from Test Implementation Agent).",
+        "Your primary goals are to:",
+        "  1. Execute the provided `pytest` tests against the provided application code.",
+        "  2. Parse the test results comprehensively.",
+        "  3. Prepare a structured summary of the test execution, including pass/fail status, number of tests run, errors, and failures.",
+        "You will be provided with a tool to execute `pytest` and capture its output.",
+        "The output of this step should be a JSON object (as a string) containing:",
+        "  - `test_session_summary`: A human-readable summary (e.g., '5 tests passed, 1 failed').",
+        "  - `passed_count`: Integer count of passed tests.",
+        "  - `failed_count`: Integer count of failed tests.",
+        "  - `error_count`: Integer count of tests that errored.",
+        "  - `skipped_count`: Integer count of skipped tests.",
+        "  - `duration_seconds`: Float, duration of the test session.",
+        "  - `full_pytest_output`: A string containing the complete raw output from the pytest execution.",
+        "  - `tests_passed`: Boolean, true if all tests passed and no errors occurred, false otherwise.",
+        "This structured output is crucial for the next agent to decide on orchestration (re-try or validate)."
+    ],
+    "Implementation Orchestration Agent": [
+        "You are the Implementation Orchestration Agent.",
+        "Your primary input is a JSON object (as a string) from the Test Execution Agent, containing detailed pytest results. You will also have access to the original requirements, the implementation plan, the generated tests, and the implemented code for contextual analysis if needed.",
+        "Your main goals are to:",
+        "  1. Analyze the `tests_passed` field and `failed_count`/`error_count` from the test results JSON.",
+        "  2. If `tests_passed` is true (i.e., `failed_count` and `error_count` are both 0), your output MUST be a JSON string: `{\"decision\": \"PROCEED_TO_VALIDATION\", \"feedback\": \"All tests passed. Proceeding to final validation.\"}`.",
+        "  3. If `tests_passed` is false, you must decide whether the primary issue lies with the implemented code (Agent 4's output) or the tests themselves (Agent 3's output).",
+        "     - Critically analyze the `full_pytest_output` from the test results, looking for error messages, stack traces, assertion failures, and any patterns that indicate the source of the failure.",
+        "     - Based on this analysis, formulate concise and actionable feedback tailored specifically to the agent that needs to revise its work.",
+        "     - Your output MUST be a JSON string strictly adhering to one of the following formats:",
+        "       - If the code is likely at fault: `{\"decision\": \"REVISE_CODE\", \"feedback\": \"<Detailed feedback for the Code Implementation Agent. Explain what seems wrong with the code, referencing specific test failures and parts of the pytest output. Suggest areas to review or correct in the application code.>\"}`",
+        "       - If the tests are likely at fault: `{\"decision\": \"REVISE_TESTS\", \"feedback\": \"<Detailed feedback for the Test Implementation Agent. Explain why the tests might be incorrect (e.g., misinterpreting requirements, syntax errors in tests, issues with test setup or assertions, flakiness hinted at by pytest output). Suggest what to verify or correct in the test code.>\"}`",
+        "     - Example for code issue: `{\"decision\": \"REVISE_CODE\", \"feedback\": \"Test 'test_specific_function_edge_case' failed due to AssertionError: expected True but got False. Review the logic in 'specific_function' for edge case handling as per pytest output.\"}`",
+        "     - Example for test issue: `{\"decision\": \"REVISE_TESTS\", \"feedback\": \"Multiple tests failed with NameError for a supposedly imported module 'utils.non_existent_helper'. Verify test setup, import statements in the tests, and ensure all test dependencies are correctly defined. The application code structure appears consistent with the plan.\"}`",
+        "Your output (the JSON string) is critical as it will directly determine the next step in the workflow and provide guidance for revision."
+    ],
+    "Validation Agent": [
+        "Receive the final implemented code, tests, and original requirements.",
+        "Perform a final validation to ensure the code meets all specified requirements from the initial prompt.",
+        "Check for overall quality, correctness, and completeness.",
+        "Output a validation report."
+    ]
+}
 
-### 1. Analyze Requirements
-- Check current task, analyze description and find related tasks, referenced in README file.
-- Thoroughly review all provided requirements and project context.
-- If any aspect of the requirements is unclear or ambiguous, ask targeted clarifying questions before proceeding.
-- Break down the overall goals into smaller, manageable, and testable Python tasks.
+class AgenticCodeGeneratorWorkflow(Workflow):
+    """
+    Orchestrates a 7-step agentic process for Python code generation.
+    This workflow will manage agents for prompt analysis, planning, test generation,
+    code implementation, test execution, implementation orchestration, and validation.
+    """
+    model: OpenAIChat
+    prompt_analysis_agent: Agent
+    implementation_planning_agent: Agent
+    test_implementation_agent: Agent
+    code_implementation_agent: Agent
+    test_execution_agent: Agent
+    implementation_orchestration_agent: Agent
+    validation_agent: Agent
+    MAX_ITERATIONS = 3 # Maximum number of retries for the implementation loop
 
-### 2. Plan Increment
-- For each task, meticulously plan the smallest incremental change that delivers tangible value and moves towards the goal.
-- **Code Reuse Analysis**: Before proposing new code, exhaustively search the existing codebase. Start with files in the immediate vicinity of the planned changes, then expand to the entire project's source code. Look for functions, classes, or modules that perform the exact required functionality or have similar functionality that can be refactored and adapted.
-- Prioritize refactoring and adapting existing, relevant code over creating new, potentially duplicative code, provided it is feasible and efficient.
-- Justify each proposed change by referencing specific requirements. Explicitly state the rationale for reusing/refactoring existing code or, if necessary, for creating new code (e.g., "No suitable existing code found after thorough search," or "Refactoring complexity of existing module X outweighs the benefits for this specific, isolated task Y").
+    def __init__(self, model: OpenAIChat, **kwargs):
+        """
+        Initializes the AgenticCodeGeneratorWorkflow.
 
-### 3. Present Plan & Await Confirmation
-- Summarize your analysis of the requirements and present the detailed plan for the upcoming increment.
-- Clearly outline:
-    - The specific sub-tasks to be performed.
-    - Proposed code changes (detailing whether it's new code, refactoring of existing code [specify which part], or reuse of existing components).
-    - The rationale behind your approach, linking it back to the requirements.
-- **CRUCIAL: After presenting your plan, your response MUST end with the exact phrase: 'Plan presented. Awaiting your confirmation to proceed to Test-Driven Development.'** DO NOT, under any circumstances, commence writing tests or implementation code without the user's direct approval of your plan.
+        Args:
+            model: An initialized OpenAIChat instance for the workflow to use.
+            **kwargs: Additional keyword arguments to pass to the parent Workflow class.
+        """
+        super().__init__(**kwargs)
+        self.model = model
 
-### 4. Test-Driven Development (TDD)
-- **Mandatory First Step - Write Failing Tests**: Before writing *any* production code for a task:
-    1.  **Information Gathering (Optional but Recommended):** If you need to understand specific library APIs or Python features to design your tests, formulate your query.
-        -   Example: `TOOL_REQUEST: mcp_context7_resolve-library-id libraryName='requests'`
-        -   Then, if a library ID is found: `TOOL_REQUEST: mcp_context7_get-library-docs context7CompatibleLibraryID='/org/project/version' topic='authentication'`
-        -   Await and use the documentation to inform your test design.
-    2.  **Write Test Code**: Write comprehensive and isolated Python tests (e.g., using `pytest`, `unittest`, or the project's established testing framework). These tests MUST precisely define the expected behavior, covering both normal operation and relevant edge cases.
-    3.  If you stated you would use `context7` for *generating* tests in your plan and the user approved it, clearly specify the requirements for `context7` to generate the test code. Otherwise, you are responsible for writing the test code.
-- **Mandatory Second Step - Verify Test Failure**:
-    1.  You MUST execute the newly written tests to confirm that they fail as expected.
-    2.  Await the results. This step is non-negotiable and ensures the tests are correctly targeting the unimplemented functionality. If tests do not fail as expected, revise them and re-verify failure.
+        # Agent Definitions
+        self.prompt_analysis_agent = Agent(
+            name="Prompt Analysis Agent",
+            description=AGENT_DESCRIPTIONS["Prompt Analysis Agent"],
+            model=self.model,
+            instructions=AGENT_INSTRUCTIONS["Prompt Analysis Agent"],
+            tools=[]
+        )
+        self.implementation_planning_agent = Agent(
+            name="Implementation Planning Agent",
+            description=AGENT_DESCRIPTIONS["Implementation Planning Agent"],
+            model=self.model,
+            instructions=AGENT_INSTRUCTIONS["Implementation Planning Agent"],
+            tools=[]
+        )
+        self.test_implementation_agent = Agent(
+            name="Test Implementation Agent",
+            description=AGENT_DESCRIPTIONS["Test Implementation Agent"],
+            model=self.model,
+            instructions=AGENT_INSTRUCTIONS["Test Implementation Agent"],
+            tools=[]
+        )
+        self.code_implementation_agent = Agent(
+            name="Code Implementation Agent",
+            description=AGENT_DESCRIPTIONS["Code Implementation Agent"],
+            model=self.model,
+            instructions=AGENT_INSTRUCTIONS["Code Implementation Agent"],
+            tools=[]
+        )
+        self.test_execution_agent = Agent(
+            name="Test Execution Agent",
+            description=AGENT_DESCRIPTIONS["Test Execution Agent"],
+            model=self.model,
+            instructions=AGENT_INSTRUCTIONS["Test Execution Agent"],
+            tools=[]
+        )
+        self.implementation_orchestration_agent = Agent(
+            name="Implementation Orchestration Agent",
+            description=AGENT_DESCRIPTIONS["Implementation Orchestration Agent"],
+            model=self.model,
+            instructions=AGENT_INSTRUCTIONS["Implementation Orchestration Agent"],
+            tools=[]
+        )
+        self.validation_agent = Agent(
+            name="Validation Agent",
+            description=AGENT_DESCRIPTIONS["Validation Agent"],
+            model=self.model,
+            instructions=AGENT_INSTRUCTIONS["Validation Agent"],
+            tools=[]
+        )
 
-### 5. Implement
-- **Write Minimal Code (Only After Failing Tests are Verified)**: Only after successfully writing failing tests and verifying their failure as per Section 4, proceed.
-    1.  **Information Gathering (Optional but Recommended):** If you need to understand specific library APIs or Python features for the implementation:
-        -   Example: `TOOL_REQUEST: mcp_context7_resolve-library-id libraryName='pandas'`
-        -   Then, if a library ID is found: `TOOL_REQUEST: mcp_context7_get-library-docs context7CompatibleLibraryID='/org/project/version' topic='DataFrame.groupby'`
-        -   Await and use the documentation to inform your implementation.
-    2.  **Dependency Management (If Necessary):** If the implementation requires new Python packages
-        -   Await confirmation of successful installation.
-    3.  **Write Implementation Code**: If reusable code was identified and approved, refactor and adapt it. Otherwise, write only the minimal new Python code required to make the previously written and verified failing tests pass.
-- **Adhere to Best Practices**:
-    - **DRY Principle**: Ensure all new or modified code adheres to the Don't Repeat Yourself principle.
-    - **Pythonic Code**: Follow Python best practices, including PEP 8 guidelines, modular design, clear and comprehensive docstrings, and appropriate use of type hinting.
-    - **Code Style Consistency**: **This is paramount.** Adhere strictly to the established code style of the project.
-        - If linters (e.g., Black, Flake8, Ruff) or code formatting tools are configured, ensure all contributed code passes their checks without any violations.
-        - In the absence of explicit linting/formatting configurations, meticulously observe and replicate the style (indentation, naming conventions, commenting style, etc.) of the surrounding, existing code in the project.
-- **Verify Implementation**: After writing the implementation code:
-    1.  Execute the relevant tests.
-    2.  Confirm that they now pass. All tests related to the current increment must pass. If not, debug the implementation or tests.
-- **Manage Scope**: Leave clear `TODO` comments with detailed descriptions for any parts of the code that are identified as out of the current task's scope or represent incomplete logic intended for future refinement. Clearly explain why it's a TODO.
+    def run(self, initial_prompt: str, *args, **kwargs) -> Iterator[RunResponse]:
+        """
+        Executes the 7-step agentic code generation workflow with an iterative loop
+        for test generation, code implementation, test execution, and orchestration.
 
-### 6. Validate
-- **Comprehensive Testing**: After each increment, run all relevant Python tests (unit, integration if applicable) to ensure no regressions have been introduced elsewhere in the codebase. This may involve additional tool calls for broader test suites.
-- **Proceed on Green**: Only refactor further or proceed to the next planned increment when all tests are passing.
-- **Document Changes**: Internally document the reason for each significant change and confirm that the acceptance criteria for the completed increment have been met as per the user-approved plan.
-- **Mark task completed**: in `ai_docs/implementation_tasks.md` mark currently implemented task as completed. Use `[x]` sign to do that.
+        Args:
+            initial_prompt: The initial user prompt to start the workflow.
+            *args: Additional positional arguments.
+            **kwargs: Additional keyword arguments.
 
-### 7. Iterate
-- Repeat the cycle:
-    1.  Take the next not-completed and non-manual task from `ai_docs/implementation_tasks.md`. Analyze further requirements.
-    2.  Plan the next increment.
-    3.  **Present Plan & Await Confirmation (ending with the specific confirmation phrase).**
-    4.  Develop Tests (TDD):
-        - Optionally use `mcp_context7_resolve-library-id` and `mcp_context7_get-library-docs` for API info.
-        - Write test code.
-        - Verify test failure using `mcp_mcp-code-executor_execute_code`.
-    5.  Implement code:
-        - Optionally use `mcp_context7_resolve-library-id` and `mcp_context7_get-library-docs` for API info.
-        - Write implementation code.
-    6.  Validate implementation:
-        - Verify tests pass using tool calls.
-- Proactively identify and, if appropriate, propose solutions for missing features or potential improvements observed during the development process, possibly as part of planning the next increment.
+        Yields:
+            Iterator[RunResponse]: Responses from agents, culminating in the final validation.
+        """
+        current_input = initial_prompt
+        response: RunResponse
+        run_history: Dict[str, Any] = {} # To store outputs of agents for context
 
-### 8. Final Review (Before Marking Task Complete)
-- Before considering a larger task or feature complete, conduct a final review to ensure:
-    - **Error-Free Code**: The code is robust and free from obvious errors.
-    - **Best Practices Adherence**: Python best practices and project-specific guidelines have been followed.
-    - **Code Style Conformance**: Code style is consistent with the project and passes all configured linter/formatter checks.
-    - **Requirements Met**: All aspects of the user-approved requirements for the task are fully addressed.
-    - **No Duplication**: Code duplication has been actively avoided; existing solutions were leveraged where possible.
-    - **Validation Summary**: Briefly summarize the validation process and outcomes for the completed task (including test execution).
+        def _run_agent(agent: Agent, input_content: str, agent_name_for_error: str) -> str | None:
+            """Helper to run an agent and handle potential None responses."""
+            res = agent.run(input_content)
+            if res is None or res.content is None:
+                # Log or yield an error specific to this agent
+                # For now, we'll allow the main loop to yield a generic error if needed,
+                # or specific handling can be added here.
+                # Example: yield RunResponse(run_id=self.run_id, content=f"Error: {agent_name_for_error} failed or returned no content.")
+                return None
+            return res.content
 
-## Mindset
-- Be analytical, detail-oriented, and proactive in your approach.
-- Strictly follow provided guides, commands and goals.
-- Prioritize correctness, maintainability, readability, and incremental progress.
-- If unsure about any aspect of a task or requirement, always seek clarification from the user before making assumptions or proceeding with implementation.
+        # Agent 1: Prompt Analysis
+        prompt_analysis_output = _run_agent(self.prompt_analysis_agent, current_input, "Prompt Analysis Agent")
+        if prompt_analysis_output is None:
+            yield RunResponse(run_id=self.run_id, content="Error: Prompt Analysis Agent failed or returned no content.")
+            return
+        run_history["prompt_analysis"] = prompt_analysis_output
+        yield RunResponse(run_id=self.run_id, agent_name="Prompt Analysis Agent", content=prompt_analysis_output)
+
+
+        # Agent 2: Implementation Planning
+        # Input for Agent 2 is the output of Agent 1
+        implementation_plan_output = _run_agent(self.implementation_planning_agent, run_history["prompt_analysis"], "Implementation Planning Agent")
+        if implementation_plan_output is None:
+            yield RunResponse(run_id=self.run_id, content="Error: Implementation Planning Agent failed or returned no content.")
+            return
+        run_history["implementation_plan"] = implementation_plan_output
+        yield RunResponse(run_id=self.run_id, agent_name="Implementation Planning Agent", content=implementation_plan_output)
+
+        # Initialize variables for the loop
+        generated_tests = ""
+        generated_code = ""
+        orchestration_feedback_for_tests = ""
+        orchestration_feedback_for_code = ""
+
+        for iteration in range(self.MAX_ITERATIONS):
+            yield RunResponse(run_id=self.run_id, content=f"Starting implementation iteration {iteration + 1}/{self.MAX_ITERATIONS}")
+
+            # Agent 3: Test Implementation
+            # Input: Requirements (A1), Plan (A2), and feedback (if any from A6)
+            agent3_input_parts = [
+                "## Requirements (from Prompt Analysis):", run_history["prompt_analysis"],
+                "## Implementation Plan (from Planning Agent):", run_history["implementation_plan"]
+            ]
+            if orchestration_feedback_for_tests:
+                agent3_input_parts.extend(["## Feedback for Test Revision (from Orchestration Agent):", orchestration_feedback_for_tests])
+            
+            test_impl_input = "\n\n".join(agent3_input_parts)
+            generated_tests_output = _run_agent(self.test_implementation_agent, test_impl_input, "Test Implementation Agent")
+            if generated_tests_output is None:
+                yield RunResponse(run_id=self.run_id, content=f"Error: Test Implementation Agent failed in iteration {iteration + 1}.")
+                return # Or break, depending on desired error handling
+            generated_tests = generated_tests_output # Update with the latest tests
+            run_history["test_implementation"] = generated_tests
+            yield RunResponse(run_id=self.run_id, agent_name="Test Implementation Agent", content=generated_tests)
+            orchestration_feedback_for_tests = "" # Reset feedback
+
+            # Agent 4: Code Implementation
+            # Input: Requirements (A1), Plan (A2), Tests (A3), and feedback (if any from A6)
+            agent4_input_parts = [
+                "## Requirements (from Prompt Analysis):", run_history["prompt_analysis"],
+                "## Implementation Plan (from Planning Agent):", run_history["implementation_plan"],
+                "## Pytest Unit Tests (from Test Implementation Agent):", generated_tests
+            ]
+            if orchestration_feedback_for_code:
+                agent4_input_parts.extend(["## Feedback for Code Revision (from Orchestration Agent):", orchestration_feedback_for_code])
+
+            code_impl_input = "\n\n".join(agent4_input_parts)
+            generated_code_output = _run_agent(self.code_implementation_agent, code_impl_input, "Code Implementation Agent")
+            if generated_code_output is None:
+                yield RunResponse(run_id=self.run_id, content=f"Error: Code Implementation Agent failed in iteration {iteration + 1}.")
+                return # Or break
+            generated_code = generated_code_output # Update with the latest code
+            run_history["code_implementation"] = generated_code
+            yield RunResponse(run_id=self.run_id, agent_name="Code Implementation Agent", content=generated_code)
+            orchestration_feedback_for_code = "" # Reset feedback
+
+            # Agent 5: Test Execution
+            # Input: Tests (A3), Code (A4)
+            # Agent 5 expects a specific input format, likely JSON or structured text.
+            # For now, assuming it can parse combined string. This might need refinement based on Agent 5's actual prompt.
+            # A common practice is to provide code and tests in a way Agent 5 can distinguish, e.g., as a JSON string.
+            # Let's assume Agent 5's prompt guides it to find test code and app code if provided in one block,
+            # or it's robust enough to handle separate inputs.
+            # The current prompt for Agent 5 says: "Your input consists of Python application code ... and pytest unit tests..."
+            # It doesn't specify format, so we'll combine them with clear markers.
+            
+            agent5_input = (
+                "## Pytest Unit Tests to Execute:\n"
+                f"```python\n{generated_tests}\n```\n\n"
+                "## Python Application Code to Test:\n"
+                f"```python\n{generated_code}\n```"
+            )
+            test_execution_output_json_str = _run_agent(self.test_execution_agent, agent5_input, "Test Execution Agent")
+            if test_execution_output_json_str is None:
+                yield RunResponse(run_id=self.run_id, content=f"Error: Test Execution Agent failed in iteration {iteration + 1}.")
+                return # Or break
+            run_history["test_execution"] = test_execution_output_json_str
+            yield RunResponse(run_id=self.run_id, agent_name="Test Execution Agent", content=test_execution_output_json_str)
+
+            # Agent 6: Implementation Orchestration
+            # Input: Test Results (A5), and context (A1, A2, A3, A4 if needed by its prompt)
+            # The prompt for Agent 6 mentions primary input is JSON from A5, and context access.
+            # We pass the JSON from A5. The agent's LLM can refer to its instructions about context if it needs more.
+            # For complex scenarios, we might pass full history or specific parts explicitly.
+            # For now, adhering to its primary input:
+            
+            # Constructing a more comprehensive input for Agent 6, including context:
+            agent6_input_parts = [
+                "## Test Execution Results (JSON from Test Execution Agent):", test_execution_output_json_str,
+                "---CONTEXT BEGIN---",
+                "## Original Requirements (from Prompt Analysis):", run_history.get("prompt_analysis", "N/A"),
+                "## Implementation Plan (from Planning Agent):", run_history.get("implementation_plan", "N/A"),
+                "## Generated Tests (from Test Implementation Agent - current iteration):", generated_tests,
+                "## Implemented Code (from Code Implementation Agent - current iteration):", generated_code,
+                "---CONTEXT END---"
+            ]
+            orchestration_input = "\n\n".join(agent6_input_parts)
+
+            orchestration_decision_json_str = _run_agent(self.implementation_orchestration_agent, orchestration_input, "Implementation Orchestration Agent")
+            if orchestration_decision_json_str is None:
+                yield RunResponse(run_id=self.run_id, content=f"Error: Implementation Orchestration Agent failed in iteration {iteration + 1}.")
+                return # Or break
+            run_history["orchestration_decision"] = orchestration_decision_json_str
+            yield RunResponse(run_id=self.run_id, agent_name="Implementation Orchestration Agent", content=orchestration_decision_json_str)
+            
+            try:
+                orchestration_decision = json.loads(orchestration_decision_json_str)
+                decision = orchestration_decision.get("decision")
+                feedback = orchestration_decision.get("feedback", "")
+
+                if decision == "PROCEED_TO_VALIDATION":
+                    yield RunResponse(run_id=self.run_id, content="All tests passed. Proceeding to validation.")
+                    break # Exit loop and proceed to Agent 7
+                elif decision == "REVISE_TESTS":
+                    orchestration_feedback_for_tests = feedback
+                    yield RunResponse(run_id=self.run_id, content=f"Decision: Revise tests. Feedback: {feedback}")
+                    if iteration == self.MAX_ITERATIONS - 1:
+                         yield RunResponse(run_id=self.run_id, content="Max iterations reached while trying to revise tests. Aborting.")
+                         return
+                elif decision == "REVISE_CODE":
+                    orchestration_feedback_for_code = feedback
+                    yield RunResponse(run_id=self.run_id, content=f"Decision: Revise code. Feedback: {feedback}")
+                    if iteration == self.MAX_ITERATIONS - 1:
+                        yield RunResponse(run_id=self.run_id, content="Max iterations reached while trying to revise code. Aborting.")
+                        return
+                else:
+                    yield RunResponse(run_id=self.run_id, content=f"Error: Unknown decision '{decision}' from Orchestration Agent in iteration {iteration + 1}. Aborting.")
+                    return # Or break
+            except json.JSONDecodeError:
+                yield RunResponse(run_id=self.run_id, content=f"Error: Could not parse JSON output from Orchestration Agent in iteration {iteration + 1}: {orchestration_decision_json_str}. Aborting.")
+                return # Or break
+        else: # Executed if the loop completes without a 'break' (i.e., max iterations reached)
+            yield RunResponse(run_id=self.run_id, content=f"Max iterations ({self.MAX_ITERATIONS}) reached. Unable to achieve passing tests. Proceeding to validation with current code and tests may not be meaningful.")
+            # Depending on desired behavior, could still proceed to validation or stop here.
+            # For now, let's assume we might want to see what Validation says, or stop.
+            # To stop: return
+
+        # Agent 7: Validation
+        # Input: Requirements (A1), Final Code (last A4), Final Tests (last A3)
+        # Ensure generated_code and generated_tests are the final successful versions.
+        # If the loop exited due to max_iterations, these are the last attempted versions.
+        
+        agent7_input_parts = [
+            "## Original Requirements (from Prompt Analysis):", run_history.get("prompt_analysis", "N/A"),
+            "## Final Pytest Unit Tests:", generated_tests if generated_tests else "N/A - Tests were not successfully generated or loop aborted.",
+            "## Final Python Application Code:", generated_code if generated_code else "N/A - Code was not successfully generated or loop aborted."
+        ]
+        validation_input = "\n\n".join(agent7_input_parts)
+
+        # For the last agent, we might yield its response directly if it supports streaming,
+        # or just run it and yield the final RunResponse.
+        # The original code had: final_response = self.validation_agent.run(current_input)
+        # We adapt this to our new structure.
+        
+        validation_output = _run_agent(self.validation_agent, validation_input, "Validation Agent")
+        if validation_output is None:
+            yield RunResponse(run_id=self.run_id, content="Error: Validation Agent failed or returned no content.")
+            return
+        
+        yield RunResponse(run_id=self.run_id, agent_name="Validation Agent", content=validation_output, is_final=True) 
