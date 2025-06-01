@@ -1,3 +1,9 @@
+*   **Finding 1:** [Concise summary of the most critical insight, e.g., "The dataset is relatively clean with less than 2% missing values, primarily in the `Demographics` column."]
+*   **Finding 2:** [e.g., "`Variable X` is the strongest individual predictor of `Target Y` based on correlation and initial bivariate tests."]
+*   **Finding 3:** [e.g., "Significant outliers were detected in `TransactionAmount`, potentially skewing analyses if not addressed."]
+*   **Finding 4:** [e.g., "Categorical feature `Region` shows a notable disparity in the distribution of the target variable, suggesting regional strategies might be effective."]
+*   **Finding 5:** [e.g., "No strong multicollinearity was observed among the primary numeric features."]
+
 # MSFT Next Day Log Return Prediction via Agentic Workflow Pipeline
 
 This project implements a pipeline to predict the next-day log return for Microsoft (MSFT) stock. It utilizes the AGNO framework to orchestrate a series of agents, each responsible for a specific part of the machine learning workflow: Exploratory Data Analysis (EDA), Feature Engineering, Modeling, and Evaluation.
