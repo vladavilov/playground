@@ -1,391 +1,155 @@
-from typing import Iterator, Dict, Any
-from agno.workflow import Workflow
-from agno.models.openai import OpenAIChat
-from agno.agent import Agent, RunResponse
-import json
+# Technical Requirements Document: PDF Structured Product Data Extraction System
 
-AGENT_DESCRIPTIONS = {
-    "Prompt Analysis Agent": "Analyzes user prompts to define requirements and tasks.",
-    "Implementation Planning Agent": "Creates a detailed plan for code implementation.",
-    "Test Implementation Agent": "Generates unit tests based on the plan and requirements.",
-    "Code Implementation Agent": "Writes Python code based on the plan and tests.",
-    "Test Execution Agent": "Executes tests and analyzes results.",
-    "Implementation Orchestration Agent": "Coordinates re-tries or next steps based on test results.",
-    "Validation Agent": "Validates the final code against requirements."
-}
+**Version:** 0.3
+**Date:** 2024-07-28
 
-# Placeholder instructions for each agent
-AGENT_INSTRUCTIONS = {
-    "Prompt Analysis Agent": [
-        "You are the Prompt Analysis Agent.",
-        "Your goal is to thoroughly analyze the user\'s request (provided as input) and extract detailed Functional Requirements (FRs).",
-        "Output these requirements in a structured format:",
-        "  - Start with a section named '## Functional Requirements (FRs)'.",
-        "  - List each FR with a unique ID (e.g., FR001, FR002) and a clear, concise description of the required functionality.",
-        "Ensure the output is well-organized and easy for a planning agent to parse and use."
-    ],
-    "Implementation Planning Agent": [
-        "You are the Implementation Planning Agent.",
-        "Your input is a structured list of Functional Requirements (FRs) from the Prompt Analysis Agent.",
-        "Your goal is to create a comprehensive, step-by-step implementation plan in Markdown format.",
-        "The plan should detail:",
-        "  - Python files to be created or modified (e.g., `src/module_name.py`).",
-        "  - For each file, list classes to be defined (e.g., `class MyClass:`).",
-        "      - For each class, briefly describe its primary responsibility.",
-        "      - List methods/functions within the class (e.g., `def my_method(self, param1: str) -> bool:`).",
-        "          - Briefly describe the method's purpose, its parameters (name and type hint), and its return type hint.",
-        "  - If no classes are needed (e.g., simple script), list functions to be defined directly in files.",
-        "  - Outline key logic, algorithms, or external library interactions for each method/function.",
-        "  - Specify the order of implementation if there are dependencies between components.",
-        "  - Identify any new library dependencies that will need to be installed.",
-        "Ensure the plan is detailed enough for a code generation agent to understand and implement, and for a test generation agent to create corresponding tests."
-    ],
-    "Test Implementation Agent": [
-        "You are an experienced Python tests developer, acting as the Test Implementation Agent.",
-        "Your input consists of Functional Requirements (FRs) and a detailed Implementation Plan.",
-        "Your primary goal is to generate comprehensive pytest unit tests for the Python code that will be implemented based on the plan.",
-        "Focus on the following:",
-        "  - Test files should be named appropriately (e.g., `test_module_name.py`).",
-        "  - Test functions should have clear, descriptive names (e.g., `test_my_class_my_method_normal_case`).",
-        "  - Import necessary modules and the code to be tested (assume it will be in `src.<module_name>`).",
-        "  - For each class and method in the implementation plan, create tests that cover:",
-        "      - Normal operation and expected outputs.",
-        "      - Edge cases (e.g., empty inputs, boundary values).",
-        "      - Potential failure modes and expected exceptions (use `pytest.raises`).",
-        "  - Utilize `pytest` fixtures where appropriate for setting up test data or mock objects.",
-        "  - Ensure generated tests are self-contained and can be run by `pytest`.",
-        "Output only the Python code for the test file(s). Do not include explanations or other text outside the code blocks."
-    ],
-    "Code Implementation Agent": [
-        "You are an expert Python developer, acting as the Code Implementation Agent.",
-        "Your input includes: Functional Requirements (FRs), a detailed Implementation Plan, and pytest unit tests.",
-        "Your primary goal is to write clean, efficient, and correct Python application code as specified by the FRs and the Implementation Plan.",
-        "Adhere to the following guidelines:",
-        "  - Implement all classes, methods, and functions detailed in the Implementation Plan.",
-        "  - Ensure your code directly addresses the Functional Requirements.",
-        "  - Write code that is intended to pass the provided pytest unit tests. Consider the test cases when writing your implementation.",
-        "  - Follow Python best practices (PEP 8 for style, clear naming conventions, type hinting where appropriate).",
-        "  - Add concise comments and docstrings where necessary to explain complex logic or non-obvious decisions.",
-        "  - Structure the code into the files and modules as specified in the Implementation Plan (e.g., `src/module_name.py`).",
-        "  - If the plan mentions specific algorithms or external libraries, use them as intended.",
-        "Output only the Python code for the application file(s). Do not include explanations or other text outside the code blocks."
-    ],
-    "Test Execution Agent": [
-        "You are the Test Execution Agent.",
-        "Your input consists of Python application code (from Code Implementation Agent) and pytest unit tests (from Test Implementation Agent).",
-        "Your primary goals are to:",
-        "  1. Execute the provided `pytest` tests against the provided application code.",
-        "  2. Parse the test results comprehensively.",
-        "  3. Prepare a structured summary of the test execution, including pass/fail status, number of tests run, errors, and failures.",
-        "You will be provided with a tool to execute `pytest` and capture its output.",
-        "The output of this step should be a JSON object (as a string) containing:",
-        "  - `test_session_summary`: A human-readable summary (e.g., '5 tests passed, 1 failed').",
-        "  - `passed_count`: Integer count of passed tests.",
-        "  - `failed_count`: Integer count of failed tests.",
-        "  - `error_count`: Integer count of tests that errored.",
-        "  - `skipped_count`: Integer count of skipped tests.",
-        "  - `duration_seconds`: Float, duration of the test session.",
-        "  - `full_pytest_output`: A string containing the complete raw output from the pytest execution.",
-        "  - `tests_passed`: Boolean, true if all tests passed and no errors occurred, false otherwise.",
-        "This structured output is crucial for the next agent to decide on orchestration (re-try or validate)."
-    ],
-    "Implementation Orchestration Agent": [
-        "You are the Implementation Orchestration Agent.",
-        "Your primary input is a JSON object (as a string) from the Test Execution Agent, containing detailed pytest results. You will also have access to the original requirements, the implementation plan, the generated tests, and the implemented code for contextual analysis if needed.",
-        "Your main goals are to:",
-        "  1. Analyze the `tests_passed` field and `failed_count`/`error_count` from the test results JSON.",
-        "  2. If `tests_passed` is true (i.e., `failed_count` and `error_count` are both 0), your output MUST be a JSON string: `{\"decision\": \"PROCEED_TO_VALIDATION\", \"feedback\": \"All tests passed. Proceeding to final validation.\"}`.",
-        "  3. If `tests_passed` is false, you must decide whether the primary issue lies with the implemented code (Agent 4's output) or the tests themselves (Agent 3's output).",
-        "     - Critically analyze the `full_pytest_output` from the test results, looking for error messages, stack traces, assertion failures, and any patterns that indicate the source of the failure.",
-        "     - Based on this analysis, formulate concise and actionable feedback tailored specifically to the agent that needs to revise its work.",
-        "     - Your output MUST be a JSON string strictly adhering to one of the following formats:",
-        "       - If the code is likely at fault: `{\"decision\": \"REVISE_CODE\", \"feedback\": \"<Detailed feedback for the Code Implementation Agent. Explain what seems wrong with the code, referencing specific test failures and parts of the pytest output. Suggest areas to review or correct in the application code.>\"}`",
-        "       - If the tests are likely at fault: `{\"decision\": \"REVISE_TESTS\", \"feedback\": \"<Detailed feedback for the Test Implementation Agent. Explain why the tests might be incorrect (e.g., misinterpreting requirements, syntax errors in tests, issues with test setup or assertions, flakiness hinted at by pytest output). Suggest what to verify or correct in the test code.>\"}`",
-        "     - Example for code issue: `{\"decision\": \"REVISE_CODE\", \"feedback\": \"Test 'test_specific_function_edge_case' failed due to AssertionError: expected True but got False. Review the logic in 'specific_function' for edge case handling as per pytest output.\"}`",
-        "     - Example for test issue: `{\"decision\": \"REVISE_TESTS\", \"feedback\": \"Multiple tests failed with NameError for a supposedly imported module 'utils.non_existent_helper'. Verify test setup, import statements in the tests, and ensure all test dependencies are correctly defined. The application code structure appears consistent with the plan.\"}`",
-        "Your output (the JSON string) is critical as it will directly determine the next step in the workflow and provide guidance for revision."
-    ],
-    "Validation Agent": [
-        "Receive the final implemented code, tests, and original requirements.",
-        "Perform a final validation to ensure the code meets all specified requirements from the initial prompt.",
-        "Check for overall quality, correctness, and completeness.",
-        "Output a validation report."
-    ]
-}
+## 1. Introduction
 
-class AgenticCodeGeneratorWorkflow(Workflow):
-    """
-    Orchestrates a 7-step agentic process for Python code generation.
-    This workflow will manage agents for prompt analysis, planning, test generation,
-    code implementation, test execution, implementation orchestration, and validation.
-    """
-    model: OpenAIChat
-    prompt_analysis_agent: Agent
-    implementation_planning_agent: Agent
-    test_implementation_agent: Agent
-    code_implementation_agent: Agent
-    test_execution_agent: Agent
-    implementation_orchestration_agent: Agent
-    validation_agent: Agent
-    MAX_ITERATIONS = 3 # Maximum number of retries for the implementation loop
+This document outlines the technical requirements for a system designed to parse a single PDF document containing information about a structured financial product. The system will extract a predefined, extensive list of data points (over 300 properties), organized into logical groups, and save the aggregated data into a structured Excel file. The system will leverage a Python-based workflow, incorporating an AI agent with a Retrieval Augmented Generation (RAG) approach for the core data extraction task.
 
-    def __init__(self, model: OpenAIChat, **kwargs):
-        """
-        Initializes the AgenticCodeGeneratorWorkflow.
+## 2. System Overview
 
-        Args:
-            model: An initialized OpenAIChat instance for the workflow to use.
-            **kwargs: Additional keyword arguments to pass to the parent Workflow class.
-        """
-        super().__init__(**kwargs)
-        self.model = model
+The system will operate through a sequential pipeline for each PDF processed:
 
-        # Agent Definitions
-        self.prompt_analysis_agent = Agent(
-            name="Prompt Analysis Agent",
-            description=AGENT_DESCRIPTIONS["Prompt Analysis Agent"],
-            model=self.model,
-            instructions=AGENT_INSTRUCTIONS["Prompt Analysis Agent"],
-            tools=[]
-        )
-        self.implementation_planning_agent = Agent(
-            name="Implementation Planning Agent",
-            description=AGENT_DESCRIPTIONS["Implementation Planning Agent"],
-            model=self.model,
-            instructions=AGENT_INSTRUCTIONS["Implementation Planning Agent"],
-            tools=[]
-        )
-        self.test_implementation_agent = Agent(
-            name="Test Implementation Agent",
-            description=AGENT_DESCRIPTIONS["Test Implementation Agent"],
-            model=self.model,
-            instructions=AGENT_INSTRUCTIONS["Test Implementation Agent"],
-            tools=[]
-        )
-        self.code_implementation_agent = Agent(
-            name="Code Implementation Agent",
-            description=AGENT_DESCRIPTIONS["Code Implementation Agent"],
-            model=self.model,
-            instructions=AGENT_INSTRUCTIONS["Code Implementation Agent"],
-            tools=[]
-        )
-        self.test_execution_agent = Agent(
-            name="Test Execution Agent",
-            description=AGENT_DESCRIPTIONS["Test Execution Agent"],
-            model=self.model,
-            instructions=AGENT_INSTRUCTIONS["Test Execution Agent"],
-            tools=[]
-        )
-        self.implementation_orchestration_agent = Agent(
-            name="Implementation Orchestration Agent",
-            description=AGENT_DESCRIPTIONS["Implementation Orchestration Agent"],
-            model=self.model,
-            instructions=AGENT_INSTRUCTIONS["Implementation Orchestration Agent"],
-            tools=[]
-        )
-        self.validation_agent = Agent(
-            name="Validation Agent",
-            description=AGENT_DESCRIPTIONS["Validation Agent"],
-            model=self.model,
-            instructions=AGENT_INSTRUCTIONS["Validation Agent"],
-            tools=[]
-        )
+1.  **PDF Ingestion & Text Preprocessing/Chunking:** The input PDF file is processed to extract clean text, which is then chunked for efficient RAG processing.
+2.  **AI-Powered Data Extraction (Iterative & Grouped with RAG):** An AI agent iterates through predefined logical groups of properties. For each group, it uses a RAG approach to find relevant text sections and then prompts an LLM to extract the specific properties of that group into a JSON structure. Includes validation and refinement loops.
+3.  **Data Aggregation & Output:** The extracted JSON data from all groups is aggregated and then formatted and saved into an Excel spreadsheet.
 
-    def run(self, initial_prompt: str, *args, **kwargs) -> Iterator[RunResponse]:
-        """
-        Executes the 7-step agentic code generation workflow with an iterative loop
-        for test generation, code implementation, test execution, and orchestration.
+The PDF preprocessing/chunking and Excel output components will be implemented as Python scripts. The data extraction component will constitute the AI agent workflow.
 
-        Args:
-            initial_prompt: The initial user prompt to start the workflow.
-            *args: Additional positional arguments.
-            **kwargs: Additional keyword arguments.
+## 3. Core Components & Technical Specifications
 
-        Yields:
-            Iterator[RunResponse]: Responses from agents, culminating in the final validation.
-        """
-        current_input = initial_prompt
-        response: RunResponse
-        run_history: Dict[str, Any] = {} # To store outputs of agents for context
+### 3.1. PDF Processing & Text Preprocessing/Chunking (Script)
 
-        def _run_agent(agent: Agent, input_content: str, agent_name_for_error: str) -> str | None:
-            """Helper to run an agent and handle potential None responses."""
-            res = agent.run(input_content)
-            if res is None or res.content is None:
-                # Log or yield an error specific to this agent
-                # For now, we'll allow the main loop to yield a generic error if needed,
-                # or specific handling can be added here.
-                # Example: yield RunResponse(run_id=self.run_id, content=f"Error: {agent_name_for_error} failed or returned no content.")
-                return None
-            return res.content
+*   **Description:** This component is responsible for ingesting a PDF file, converting it into clean, usable text, and then splitting it into manageable chunks suitable for the RAG process.
+*   **Input:** A single PDF file (all PDFs have selectable text).
+*   **Output:** A list of cleaned text chunks from the PDF.
+*   **Technical Implementation:**
+    *   **Language:** Python
+    *   **Libraries (Recommended):**
+        *   `PyMuPDF` (Fitz): For robust text extraction from PDFs.
+            *   **Reasoning:** Efficient for extracting raw text and potentially layout information if needed to guide advanced cleaning or chunking.
+    *   **Text Cleaning:**
+        *   **Standard Practices:**
+            *   Remove excessive whitespace (multiple spaces, tabs, newlines not contributing to structure).
+                *   **Multiple Spaces:** Replace sequences of two or more space characters with a single space (e.g., `re.sub(r'  +', ' ', text)`).
+                *   **Tabs:** Replace tab characters (`\t`) with a single space (or a fixed number of spaces, e.g., 4, if consistent indentation is sometimes meaningful, using `text.replace('\t', ' ')`).
+                *   **Excessive Newlines:** Replace sequences of three or more newline characters (`\n`) with exactly two newlines to preserve paragraph breaks while removing unnecessary empty lines (e.g., `re.sub(r'\n{3,}', '\n\n', text)`).
+                *   **Leading/Trailing Whitespace:** Remove all whitespace (spaces, tabs, newlines) from the beginning and end of the entire extracted text. Also, strip leading/trailing spaces and tabs from each individual line after initial newline normalization.
+            *   Normalize Unicode characters (e.g., `NFKC` normalization).
+            *   Handle hyphenation: Rejoin words broken across lines.
+                *   **Approach:** Use regular expressions (Python's `re` module) to find patterns of a word ending with a hyphen, followed immediately by a newline, and then continuing with a letter on the next line. 
+                *   **Example Regex:** `re.sub(r'([a-zA-Z]+)-\n([a-zA-Z]+)', r'\1\2', text)` would catch many common cases. This can be refined to handle punctuation or specific edge cases.
+            *   `ftfy`: fixing Mojibake and other Unicode inconsistencies.
+        *   **Advanced Cleaning (using NLTK - `nltk`):**
+            *   **Sentence Tokenization:** NLTK's `sent_tokenize` can be used to split the extracted text into individual sentences *before* or *as part of* the chunking process. This can help create more semantically coherent chunks for RAG, as chunks are less likely to abruptly cut off mid-sentence.
+                *   **Implementation:** After initial text extraction with `PyMuPDF` and basic cleaning, pass the text to `nltk.sent_tokenize()`. These sentences can then be grouped by the chunker.
+        *   **Reasoning:** Clean, well-structured text is crucial. Sentence tokenization with NLTK can improve the quality of chunks for RAG by ensuring they respect sentence boundaries, leading to better context for the LLM.
+    *   **Text Chunking (for RAG):**
+        *   **Method:** `RecursiveCharacterTextSplitter` from `LangChain`.
+        *   **Configuration:**
+            *   `chunk_size`: To be determined based on typical property density and LLM context window considerations (e.g., 500-1000 characters/tokens).
+            *   `chunk_overlap`: A small overlap (e.g., 50-100 characters/tokens) helps maintain context between chunks.
+            *   `separators`: Prioritize common structural separators like `["\n\n", "\n", ". ", " ", ""]`. If NLTK sentence tokenization is used prior, the input to the splitter might already be a list of sentences, which can then be grouped by the splitter.
+        *   **Reasoning for Recursive Character Text Splitting for RAG:** It's a versatile method that tries to split on larger semantic units (like paragraphs marked by `\n\n`) first, then smaller ones. When combined with pre-processing like sentence tokenization or by carefully choosing separators, it can create chunks that are semantically relevant, which is vital for effective RAG retrieval. The goal is for each chunk to be a self-contained piece of information that the retriever can effectively match against queries related to property groups.
+    *   **Error Handling:** Log errors for PDFs that cannot be parsed.
 
-        # Agent 1: Prompt Analysis
-        prompt_analysis_output = _run_agent(self.prompt_analysis_agent, current_input, "Prompt Analysis Agent")
-        if prompt_analysis_output is None:
-            yield RunResponse(run_id=self.run_id, content="Error: Prompt Analysis Agent failed or returned no content.")
-            return
-        run_history["prompt_analysis"] = prompt_analysis_output
-        yield RunResponse(run_id=self.run_id, agent_name="Prompt Analysis Agent", content=prompt_analysis_output)
+### 3.2. AI Data Extraction Agent (AI Workflow)
 
+*   **Description:** This component iteratively extracts over 300 predefined financial data points, organized into logical groups, using an LLM with a RAG strategy. It includes validation and refinement for extracted data.
+*   **Input:**
+    *   A list of cleaned text chunks from the PDF (from Section 3.1).
+    *   A predefined, hardcoded structure defining logical groups of properties to be extracted. Each group contains a subset of the total 300+ properties.
+*   **Output:** A single aggregated JSON object containing all extracted key-value pairs from all groups. Missing values should be explicitly indicated (e.g., `null` or "Not Found").
+*   **Technical Implementation:**
+    *   **Language:** Python
+    *   **AI Model:** Azure OpenAI Service (e.g., GPT-4o, GPT-4 Turbo).
+    *   **Overall Workflow:**
+        1.  **Embedding Chunks (Once per PDF):**
+            *   Use an embedding model (e.g., Azure OpenAI's `text-embedding-ada-002` or newer) to create vector embeddings for all text chunks of the current PDF. Store these in memory (e.g., a simple list or a lightweight vector store like FAISS if performance becomes an issue for many chunks, though less likely for a single PDF).
+        2.  **Iterate Through Property Groups:** For each predefined logical group of properties:
+            a.  **RAG - Retrieval Step for the Current Group:**
+                i  **Formulate Query:** Create a descriptive query representing the information needed for the current property group (e.g., "Extract issuer details and identifiers," "What are the terms and conditions related to the underlying assets?"). This query should be designed to retrieve chunks containing information for the *entire group*.
+                ii. **Embed Query:** Convert this group-specific query into an embedding using the same embedding model.
+                iii. **Similarity Search:** Perform a similarity search (e.g., cosine similarity) between the group query embedding and all text chunk embeddings. Stick with the LangChain + FAISS approach. LangChain's FAISS wrapper (FAISS.similarity_search()) abstracts the complexity of the similarity search for you and is well-suited for the in-memory processing of chunks from a single PDF
+                iv. **Retrieve Top-K Chunks:** Select the top K most relevant text chunks (K is tunable, e.g., 3-5 chunks). These chunks form the context for the LLM for this group.
+            b.  **LLM - Extraction Step for the Current Group:**
+                i.  **Construct Prompt:** Create a prompt for the Azure OpenAI LLM that includes:
+                    *   The retrieved relevant text chunks (the RAG context).
+                    *   Clear instructions to extract *only the specific properties listed in the current logical group*.
+                    *   A request for the output to be a JSON object containing these properties.
+                    *   Examples (few-shot) if helpful for consistency.
+                ii. **LLM Call:** Send the prompt to the LLM.
+            c.  **Validation and Refinement Loop for the Current Group:**
+                i.  **Parse Output:** Attempt to parse the LLM's response as JSON. Handle potential parsing errors.
+                ii. **Validate Fields:** For each successfully extracted property in the current group's JSON, apply predefined validation rules (see Section 5).
+                iii. **Refinement (Max 2 Retries per Failed Property, Skip Empty):** If a non-empty property fails validation:
+                    *   Construct a new, targeted prompt. Include:
+                        *   The whole RAG context (retrieved chunks).
+                        *   Clear feedback on why it failed (e.g., "The 'Issue Date' {value} is not a valid YYYY-MM-DD date.").
+                        *   Instruct the LLM to correct *only that specific property*.
+                    *   Re-invoke the LLM. Re-validate. Repeat up to 2 times.
+                    *   If a property is consistently returned as empty/null/"Not Found" by the LLM, do not attempt to refine it; assume it's not present or not found in the provided context.
+            d.  **Store Group Result:** Store the validated (or best-effort refined) JSON for the current group.
+        3.  **Aggregate Results:** After iterating through all property groups, merge the individual JSON outputs from each group into a single, comprehensive JSON object.
+    *   **Prompt Engineering:** Critical for each group. Prompts must be highly specific about the properties to extract for *that group* and the desired JSON structure for *that subgroup*.
+    
+### 3.3. Data Aggregation & Excel Output (Script)
 
-        # Agent 2: Implementation Planning
-        # Input for Agent 2 is the output of Agent 1
-        implementation_plan_output = _run_agent(self.implementation_planning_agent, run_history["prompt_analysis"], "Implementation Planning Agent")
-        if implementation_plan_output is None:
-            yield RunResponse(run_id=self.run_id, content="Error: Implementation Planning Agent failed or returned no content.")
-            return
-        run_history["implementation_plan"] = implementation_plan_output
-        yield RunResponse(run_id=self.run_id, agent_name="Implementation Planning Agent", content=implementation_plan_output)
+*   **Description:** This component takes the final aggregated JSON data from the AI Extraction Agent and writes it into an Excel file.
+*   **Input:** The single, aggregated JSON object containing all extracted properties.
+*   **Output:** An Excel file (.xlsx).
+*   **Technical Implementation:**
+    *   **Language:** Python
+    *   **Library:** `openpyxl`
+    *   **Excel Structure:**
+        *   A single row representing the processed PDF.
+        *   Columns will correspond to all 300+ extracted data fields.
+        *   *(Placeholder: Specific column names, order, and data types will be filled in by stakeholders later).*
+    *   **Process:**
+        1.  Flatten the aggregated JSON if it has nested structures from groups, ensuring each property maps to a column.
+        2.  Create a new Excel workbook.
+        3.  Write a header row with all property names.
+        4.  Write the extracted data into the appropriate cells in a new row.
+    *   **Error Handling:** Log any errors during Excel file generation.
+    *   **Reasoning:** `openpyxl` is suitable for direct Excel generation.
 
-        # Initialize variables for the loop
-        generated_tests = ""
-        generated_code = ""
-        orchestration_feedback_for_tests = ""
-        orchestration_feedback_for_code = ""
+### 3.4. Orchestration (Master Script)
 
-        for iteration in range(self.MAX_ITERATIONS):
-            yield RunResponse(run_id=self.run_id, content=f"Starting implementation iteration {iteration + 1}/{self.MAX_ITERATIONS}")
+*   **Description:** Manages the end-to-end workflow for processing a single PDF file.
+*   **Technical Implementation:**
+    *   **Method:** A master Python script.
+    *   **Logic:**
+        1.  Accept the input PDF file path.
+        2.  Call the PDF Processing & Text Preprocessing/Chunking component (Section 3.1).
+        3.  Receive the list of text chunks.
+        4.  Pass the chunks and the predefined property group structure to the AI Data Extraction Agent (Section 3.2).
+        5.  Receive the final aggregated JSON data.
+        6.  Call the Data Aggregation & Excel Output component (Section 3.3) with the JSON data.
+        7.  Provide a success/failure message.
+    *   **Reasoning:** A single master script is adequate for this linear, single-file workflow.
 
-            # Agent 3: Test Implementation
-            # Input: Requirements (A1), Plan (A2), and feedback (if any from A6)
-            agent3_input_parts = [
-                "## Requirements (from Prompt Analysis):", run_history["prompt_analysis"],
-                "## Implementation Plan (from Planning Agent):", run_history["implementation_plan"]
-            ]
-            if orchestration_feedback_for_tests:
-                agent3_input_parts.extend(["## Feedback for Test Revision (from Orchestration Agent):", orchestration_feedback_for_tests])
-            
-            test_impl_input = "\n\n".join(agent3_input_parts)
-            generated_tests_output = _run_agent(self.test_implementation_agent, test_impl_input, "Test Implementation Agent")
-            if generated_tests_output is None:
-                yield RunResponse(run_id=self.run_id, content=f"Error: Test Implementation Agent failed in iteration {iteration + 1}.")
-                return # Or break, depending on desired error handling
-            generated_tests = generated_tests_output # Update with the latest tests
-            run_history["test_implementation"] = generated_tests
-            yield RunResponse(run_id=self.run_id, agent_name="Test Implementation Agent", content=generated_tests)
-            orchestration_feedback_for_tests = "" # Reset feedback
+## 4. Non-Functional Requirements
 
-            # Agent 4: Code Implementation
-            # Input: Requirements (A1), Plan (A2), Tests (A3), and feedback (if any from A6)
-            agent4_input_parts = [
-                "## Requirements (from Prompt Analysis):", run_history["prompt_analysis"],
-                "## Implementation Plan (from Planning Agent):", run_history["implementation_plan"],
-                "## Pytest Unit Tests (from Test Implementation Agent):", generated_tests
-            ]
-            if orchestration_feedback_for_code:
-                agent4_input_parts.extend(["## Feedback for Code Revision (from Orchestration Agent):", orchestration_feedback_for_code])
+*   **Accuracy:** The system must achieve high precision. The grouped, RAG-based, and iterative refinement approach is designed to maximize this.
+*   **Configuration (Minimal):** Azure OpenAI Service API key, endpoint, model deployment name, and embedding model name should be configurable.
+*   **Logging:** Detailed logging for all stages: PDF processing, chunking, RAG retrieval (e.g., group query, number of chunks retrieved), each LLM call (prompt snippets, response snippets, validation outcomes, refinement attempts), JSON aggregation, and Excel generation.
+*   **Error Handling:** Graceful error handling and clear logging for all foreseeable issues.
 
-            code_impl_input = "\n\n".join(agent4_input_parts)
-            generated_code_output = _run_agent(self.code_implementation_agent, code_impl_input, "Code Implementation Agent")
-            if generated_code_output is None:
-                yield RunResponse(run_id=self.run_id, content=f"Error: Code Implementation Agent failed in iteration {iteration + 1}.")
-                return # Or break
-            generated_code = generated_code_output # Update with the latest code
-            run_history["code_implementation"] = generated_code
-            yield RunResponse(run_id=self.run_id, agent_name="Code Implementation Agent", content=generated_code)
-            orchestration_feedback_for_code = "" # Reset feedback
+## 5. Data Requirements (To Be Provided by Stakeholders)
 
-            # Agent 5: Test Execution
-            # Input: Tests (A3), Code (A4)
-            # Agent 5 expects a specific input format, likely JSON or structured text.
-            # For now, assuming it can parse combined string. This might need refinement based on Agent 5's actual prompt.
-            # A common practice is to provide code and tests in a way Agent 5 can distinguish, e.g., as a JSON string.
-            # Let's assume Agent 5's prompt guides it to find test code and app code if provided in one block,
-            # or it's robust enough to handle separate inputs.
-            # The current prompt for Agent 5 says: "Your input consists of Python application code ... and pytest unit tests..."
-            # It doesn't specify format, so we'll combine them with clear markers.
-            
-            agent5_input = (
-                "## Pytest Unit Tests to Execute:\n"
-                f"```python\n{generated_tests}\n```\n\n"
-                "## Python Application Code to Test:\n"
-                f"```python\n{generated_code}\n```"
-            )
-            test_execution_output_json_str = _run_agent(self.test_execution_agent, agent5_input, "Test Execution Agent")
-            if test_execution_output_json_str is None:
-                yield RunResponse(run_id=self.run_id, content=f"Error: Test Execution Agent failed in iteration {iteration + 1}.")
-                return # Or break
-            run_history["test_execution"] = test_execution_output_json_str
-            yield RunResponse(run_id=self.run_id, agent_name="Test Execution Agent", content=test_execution_output_json_str)
+*   **Definitive List of All 300+ Fields:** A complete, precise list.
+*   **Property Grouping Definition:** A clear definition of how the 300+ properties are logically grouped. For each group, list the specific properties it contains. This structure will be hardcoded.
+*   **Sample PDFs:** Representative set (5-10) for development and testing.
+*   **Excel Output Structure (Placeholder):** Sheet name, column headers (all 300+ fields), order, data types. *(Stakeholder to provide).*
+*   **Gold Standard Data (Highly Recommended):** For each sample PDF, manually extracted "gold standard" aggregated JSON data.
+*   **Validation Rules:** For each individual property: data type, regex patterns, allowed ranges/values, checksums, etc.
 
-            # Agent 6: Implementation Orchestration
-            # Input: Test Results (A5), and context (A1, A2, A3, A4 if needed by its prompt)
-            # The prompt for Agent 6 mentions primary input is JSON from A5, and context access.
-            # We pass the JSON from A5. The agent's LLM can refer to its instructions about context if it needs more.
-            # For complex scenarios, we might pass full history or specific parts explicitly.
-            # For now, adhering to its primary input:
-            
-            # Constructing a more comprehensive input for Agent 6, including context:
-            agent6_input_parts = [
-                "## Test Execution Results (JSON from Test Execution Agent):", test_execution_output_json_str,
-                "---CONTEXT BEGIN---",
-                "## Original Requirements (from Prompt Analysis):", run_history.get("prompt_analysis", "N/A"),
-                "## Implementation Plan (from Planning Agent):", run_history.get("implementation_plan", "N/A"),
-                "## Generated Tests (from Test Implementation Agent - current iteration):", generated_tests,
-                "## Implemented Code (from Code Implementation Agent - current iteration):", generated_code,
-                "---CONTEXT END---"
-            ]
-            orchestration_input = "\n\n".join(agent6_input_parts)
+## 6. Assumptions
 
-            orchestration_decision_json_str = _run_agent(self.implementation_orchestration_agent, orchestration_input, "Implementation Orchestration Agent")
-            if orchestration_decision_json_str is None:
-                yield RunResponse(run_id=self.run_id, content=f"Error: Implementation Orchestration Agent failed in iteration {iteration + 1}.")
-                return # Or break
-            run_history["orchestration_decision"] = orchestration_decision_json_str
-            yield RunResponse(run_id=self.run_id, agent_name="Implementation Orchestration Agent", content=orchestration_decision_json_str)
-            
-            try:
-                orchestration_decision = json.loads(orchestration_decision_json_str)
-                decision = orchestration_decision.get("decision")
-                feedback = orchestration_decision.get("feedback", "")
+*   System processes one PDF at a time.
+*   All PDFs have selectable text.
+*   Azure OpenAI Service access is available.
+*   The list of fields and their grouping is fixed and hardcoded.
 
-                if decision == "PROCEED_TO_VALIDATION":
-                    yield RunResponse(run_id=self.run_id, content="All tests passed. Proceeding to validation.")
-                    break # Exit loop and proceed to Agent 7
-                elif decision == "REVISE_TESTS":
-                    orchestration_feedback_for_tests = feedback
-                    yield RunResponse(run_id=self.run_id, content=f"Decision: Revise tests. Feedback: {feedback}")
-                    if iteration == self.MAX_ITERATIONS - 1:
-                         yield RunResponse(run_id=self.run_id, content="Max iterations reached while trying to revise tests. Aborting.")
-                         return
-                elif decision == "REVISE_CODE":
-                    orchestration_feedback_for_code = feedback
-                    yield RunResponse(run_id=self.run_id, content=f"Decision: Revise code. Feedback: {feedback}")
-                    if iteration == self.MAX_ITERATIONS - 1:
-                        yield RunResponse(run_id=self.run_id, content="Max iterations reached while trying to revise code. Aborting.")
-                        return
-                else:
-                    yield RunResponse(run_id=self.run_id, content=f"Error: Unknown decision '{decision}' from Orchestration Agent in iteration {iteration + 1}. Aborting.")
-                    return # Or break
-            except json.JSONDecodeError:
-                yield RunResponse(run_id=self.run_id, content=f"Error: Could not parse JSON output from Orchestration Agent in iteration {iteration + 1}: {orchestration_decision_json_str}. Aborting.")
-                return # Or break
-        else: # Executed if the loop completes without a 'break' (i.e., max iterations reached)
-            yield RunResponse(run_id=self.run_id, content=f"Max iterations ({self.MAX_ITERATIONS}) reached. Unable to achieve passing tests. Proceeding to validation with current code and tests may not be meaningful.")
-            # Depending on desired behavior, could still proceed to validation or stop here.
-            # For now, let's assume we might want to see what Validation says, or stop.
-            # To stop: return
-
-        # Agent 7: Validation
-        # Input: Requirements (A1), Final Code (last A4), Final Tests (last A3)
-        # Ensure generated_code and generated_tests are the final successful versions.
-        # If the loop exited due to max_iterations, these are the last attempted versions.
-        
-        agent7_input_parts = [
-            "## Original Requirements (from Prompt Analysis):", run_history.get("prompt_analysis", "N/A"),
-            "## Final Pytest Unit Tests:", generated_tests if generated_tests else "N/A - Tests were not successfully generated or loop aborted.",
-            "## Final Python Application Code:", generated_code if generated_code else "N/A - Code was not successfully generated or loop aborted."
-        ]
-        validation_input = "\n\n".join(agent7_input_parts)
-
-        # For the last agent, we might yield its response directly if it supports streaming,
-        # or just run it and yield the final RunResponse.
-        # The original code had: final_response = self.validation_agent.run(current_input)
-        # We adapt this to our new structure.
-        
-        validation_output = _run_agent(self.validation_agent, validation_input, "Validation Agent")
-        if validation_output is None:
-            yield RunResponse(run_id=self.run_id, content="Error: Validation Agent failed or returned no content.")
-            return
-        
-        yield RunResponse(run_id=self.run_id, agent_name="Validation Agent", content=validation_output, is_final=True) 
+---
