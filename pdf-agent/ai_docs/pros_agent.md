@@ -91,8 +91,10 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
             b.  Embed the query and use the vector store to retrieve relevant text chunks (Top-K).
             c.  Invoke the `PropertyExtractionAgent` with RAG context and the list of properties for the group.
             d.  Receive JSON output from the `PropertyExtractionAgent`.
-            e.  Validate the JSON against predefined rules (Section 5).
-            f.  If validation fails for any non-null property, initiate a refinement loop (max 3 attempts total for the group): construct a refinement prompt with context and feedback, re-invoke the `PropertyExtractionAgent`, and re-validate.
+            e.  **Validate Agent Output:** The workflow shall perform a multi-step validation of the agent's output. First, it validates that the output is a structurally correct JSON. If so, it then validates the content against rules defined in the configuration, including:
+                *   **Schema Adherence:** Checks that all properties marked as `required` are present and that no unexpected properties are included.
+                *   **Per-Property Rules:** Enforces specific rules for each property's value, such as matching a `regex` pattern or belonging to a predefined `enum` list.
+            f.  If validation fails, initiate a refinement loop (max 3 attempts total for the group): construct a detailed refinement prompt that includes the specific validation errors (e.g., "Missing required property: 'isin_code'", "Value 'XYZ' does not match regex") to guide the `PropertyExtractionAgent`, re-invoke the agent, and re-validate.
             g.  Store the validated (or best-effort refined) JSON for the group.
         6.  Aggregate JSON results from all groups.
         7.  Return the final aggregated JSON data to the API layer.
@@ -134,7 +136,7 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
     *   A hardcoded, specific RAG query string for context retrieval.
     (This structure shall be maintained in a configuration source).
 *   **Sample PDFs:** 5-10 representative PDFs for development/testing.
-*   **Validation Rules:** Specific criteria for each property (e.g., data type, regex, range).
+*   **Validation Rules:** Specific criteria for each property (e.g., data type, `required` flag, `regex` pattern for format validation, a list of allowed values for an `enum`).
 *   **Gold Standard Data (Highly Recommended):** Manually extracted, validated JSON for sample PDFs.
 
 ## 6. Assumptions

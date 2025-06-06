@@ -1,4 +1,6 @@
 import functools
+import yaml
+from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
@@ -7,6 +9,7 @@ class AppSettings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     TEMP_FILE_DIR: Path = Path("./temp_files")
+    MAX_FILE_SIZE_MB: int = 10  # Max file size in megabytes
 
     # Azure OpenAI Settings (sensitive, no defaults, loaded from env)
     AZURE_OPENAI_API_KEY: str
@@ -15,11 +18,28 @@ class AppSettings(BaseSettings):
     AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME: str
 
     PROPERTY_GROUPS_CONFIG_PATH: Path = Path("config/property_groups.yaml")
+    property_groups: list[dict] = Field(default_factory=list)
+
+    @field_validator("property_groups", mode="before")
+    def load_property_groups(cls, v, values):
+        """Loads and parses the property groups YAML file."""
+        config_path = values.data.get("PROPERTY_GROUPS_CONFIG_PATH")
+        if config_path and config_path.exists():
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+                return config.get("property_groups", [])
+        return []
+
+    # Text chunking settings
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
+
+    # RAG settings
+    TOP_K: int = 3
 
     # Pydantic-settings configuration
-    # This tells Pydantic to load variables from a .env file if it exists
     # and to treat environment variable names as case-insensitive (though by default they are case-sensitive on Linux/macOS and case-insensitive on Windows for pydantic-settings).
-    model_config = SettingsConfigDict(env_file='.env', extra='ignore', case_sensitive=False)
+    model_config = SettingsConfigDict(extra='ignore', case_sensitive=False)
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> AppSettings:

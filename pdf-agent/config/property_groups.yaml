@@ -1,0 +1,10 @@
+property_groups:
+  - group_name: "General Information"
+    properties:
+      - "document_title"
+      - "isin"
+    rag_query: "Extract general information about the financial product, such as its title and ISIN."
+  - group_name: "Risk Factors"
+    properties:
+      - "main_risks"
+    rag_query: "Identify and list the primary risk factors associated with this investment."
