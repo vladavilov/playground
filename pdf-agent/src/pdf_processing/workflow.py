@@ -5,7 +5,7 @@ import json
 import re
 from agno.workflow import Workflow, RunResponse
 from agno.embedder.azure_openai import AzureOpenAIEmbedder
-from agno.models.openai import OpenAIChat
+from agno.models.azure.ai_foundry import AzureAIFoundry
 import faiss
 import numpy as np
 from src.config import get_settings
@@ -61,16 +61,19 @@ class PDFExtractionWorkflow(Workflow):
         
         settings = get_settings()
         self.embedder = AzureOpenAIEmbedder(
-            id='text-embedding-ada-002',
+            id=settings.AZURE_OPENAI_EMBEDDING_MODEL_NAME,
             api_key=settings.AZURE_OPENAI_API_KEY,
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-            azure_deployment=settings.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME,
+            api_version=settings.AZURE_OPENAI_API_VERSION,
+            azure_endpoint=settings.AZURE_OPENAI_EMBEDDING_ENDPOINT,
+            azure_deployment=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME,
         )
         # Initialize the chat model. The agent will be created on-the-fly for each run.
-        self.chat_model = OpenAIChat(
-            id=settings.AZURE_OPENAI_LLM_DEPLOYMENT_NAME,
+        self.chat_model = AzureAIFoundry(
+            id=settings.AZURE_OPENAI_LLM_MODEL_NAME,
             api_key=settings.AZURE_OPENAI_API_KEY,
-            base_url=settings.AZURE_OPENAI_ENDPOINT,
+            azure_endpoint=settings.AZURE_OPENAI_CHAT_ENDPOINT,
+            api_version=settings.AZURE_OPENAI_API_VERSION,
+            temperature=0.0,
         )
         self.property_groups = settings.property_groups
         self.top_k = settings.TOP_K
