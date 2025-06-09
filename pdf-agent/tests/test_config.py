@@ -28,7 +28,6 @@ def test_app_settings_from_env_vars(monkeypatch):
     monkeypatch.setenv("API_PORT", "9000")
     monkeypatch.setenv("TEMP_FILE_DIR", "/var/tmp_test")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "env_key")
-    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-05-01")
     monkeypatch.setenv("AZURE_OPENAI_CHAT_ENDPOINT", "https://env-chat.openai.azure.com/")
     monkeypatch.setenv("AZURE_OPENAI_LLM_MODEL_NAME", "env_llm")
     monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_ENDPOINT", "https://env-embed.openai.azure.com/")
@@ -40,7 +39,6 @@ def test_app_settings_from_env_vars(monkeypatch):
     assert settings.API_PORT == 9000
     assert settings.TEMP_FILE_DIR == Path("/var/tmp_test")
     assert settings.AZURE_OPENAI_API_KEY == "env_key"
-    assert settings.AZURE_OPENAI_API_VERSION == "2024-05-01"
     assert settings.AZURE_OPENAI_CHAT_ENDPOINT == "https://env-chat.openai.azure.com/"
     assert settings.AZURE_OPENAI_LLM_MODEL_NAME == "env_llm"
     assert settings.AZURE_OPENAI_EMBEDDING_ENDPOINT == "https://env-embed.openai.azure.com/"

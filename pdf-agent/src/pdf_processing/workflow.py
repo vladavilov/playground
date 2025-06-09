@@ -63,7 +63,6 @@ class PDFExtractionWorkflow(Workflow):
         self.embedder = AzureOpenAIEmbedder(
             id=settings.AZURE_OPENAI_EMBEDDING_MODEL_NAME,
             api_key=settings.AZURE_OPENAI_API_KEY,
-            api_version=settings.AZURE_OPENAI_API_VERSION,
             azure_endpoint=settings.AZURE_OPENAI_EMBEDDING_ENDPOINT,
             azure_deployment=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME,
         )
@@ -72,7 +71,6 @@ class PDFExtractionWorkflow(Workflow):
             id=settings.AZURE_OPENAI_LLM_MODEL_NAME,
             api_key=settings.AZURE_OPENAI_API_KEY,
             azure_endpoint=settings.AZURE_OPENAI_CHAT_ENDPOINT,
-            api_version=settings.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
         )
         self.property_groups = settings.property_groups
