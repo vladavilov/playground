@@ -16,6 +16,37 @@ The service is built to be scalable and is containerized using Docker for easy d
 -   **RESTful API**: Provides a simple, secure endpoint for uploading PDFs and receiving structured JSON data.
 -   **Dockerized**: Fully containerized for portability and scalable deployment.
 
+## Property Group Configuration (`property_groups.yaml`)
+
+The core of the extraction logic is driven by the `config/property_groups.yaml` file. This file allows you to define what data to look for without changing any Python code.
+
+Each group consists of:
+- `group_name`: A logical name for the category of data.
+- `rag_query`: A natural language question that guides the AI in finding the relevant text chunks for this group.
+- `properties`: A list of the specific data points to extract for this group.
+
+### Property Validation
+
+For each property, you can specify a `validation` block to ensure data quality:
+
+- `required` (boolean): If `true`, the extraction will fail if this property is not found.
+- `enum` (list): Provides a list of allowed values for the property.
+- `regex` (string): A regular expression pattern that the extracted value must match.
+
+Example:
+```yaml
+- group_name: "General Information"
+  rag_query: "Extract general information about the financial product, such as its title and ISIN."
+  properties:
+    - name: "document_title"
+      validation:
+        required: true
+    - name: "isin"
+      validation:
+        required: true
+        regex: "^[A-Z]{2}[A-Z0-9]{9}[0-9]{1}$"
+```
+
 ## Environment Setup
 
 ### Prerequisites

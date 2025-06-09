@@ -110,10 +110,10 @@
     *   Considerations: The validation rules are now data-driven and can be defined in the `property_groups.yaml` configuration, allowing for flexible and maintainable data quality checks.
     *   NFRs Addressed: Accuracy, Error Handling.
 
-8.  [x] **Task 3.8: `PDFExtractionWorkflow` - Refinement Loop Stub**
-    *   Description: Implement a placeholder for the refinement loop (max 3 attempts). This will involve constructing a refinement prompt and re-invoking the agent.
+8.  [x] **Task 3.8: `PDFExtractionWorkflow` - Refinement Loop**
+    *   Description: Implemented a refinement loop (max 3 attempts). If the agent's output fails validation, the workflow constructs a specific feedback prompt detailing the errors and re-invokes the agent, asking it to correct the output.
     *   TRD Ref: Section 3.2 (Core Responsibilities item 5f: Initiate a refinement loop if validation fails).
-    *   Considerations: The logic for constructing effective refinement prompts will be complex.
+    *   Considerations: The logic for constructing effective refinement prompts is key to improving accuracy on complex documents.
     *   NFRs Addressed: Accuracy.
 
 9.  [x] **Task 3.9: `PDFExtractionWorkflow` - Aggregation & Return**
