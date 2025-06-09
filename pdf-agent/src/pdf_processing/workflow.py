@@ -61,6 +61,7 @@ class PDFExtractionWorkflow(Workflow):
         
         settings = get_settings()
         self.embedder = AzureOpenAIEmbedder(
+            id='text-embedding-ada-002',
             api_key=settings.AZURE_OPENAI_API_KEY,
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
             azure_deployment=settings.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME,
@@ -86,14 +87,14 @@ class PDFExtractionWorkflow(Workflow):
         aggregated_data = {}
 
         if chunks:
-            chunk_embeddings = self.embedder.embed_documents(chunks)
+            chunk_embeddings = [self.embedder.get_embedding(chunk) for chunk in chunks]
             self.vector_store = self._create_vector_store(chunk_embeddings)
 
             if self.vector_store:
                 for group in self.property_groups:
                     rag_query = group.get("rag_query")
                     if rag_query:
-                        query_embedding = self.embedder.embed_query(rag_query)
+                        query_embedding = self.embedder.get_embedding(rag_query)
                         
                         # Ensure top_k is not greater than the number of chunks
                         effective_top_k = min(self.top_k, len(chunks))
