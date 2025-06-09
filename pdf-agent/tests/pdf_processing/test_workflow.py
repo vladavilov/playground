@@ -35,7 +35,9 @@ def test_pdf_extraction_workflow_agent_integration(
     settings.TOP_K = 1
 
     mock_embedder_instance = MagicMock()
-    mock_embedder_instance.embed_documents.return_value = [[0.1, 0.2], [0.3, 0.4]]
+    mock_embedder_instance.get_embedding.side_effect = [
+        [0.1, 0.2], [0.3, 0.4], [0.1, 0.2]
+    ]
     mock_azure_embedder.return_value = mock_embedder_instance
 
     mock_search_vector_store.return_value = [0]
@@ -45,6 +47,14 @@ def test_pdf_extraction_workflow_agent_integration(
 
     with patch("src.pdf_processing.workflow.get_settings", return_value=settings):
         workflow = PDFExtractionWorkflow()
+        
+        mock_azure_embedder.assert_called_once_with(
+            id='text-embedding-ada-002',
+            api_key=settings.AZURE_OPENAI_API_KEY,
+            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+            azure_deployment=settings.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME,
+        )
+
         # Replace the workflow's chat model with our mock
         workflow.chat_model = mock_chat_model
         result = workflow.run(pdf_file_path=pdf_path)
@@ -85,8 +95,9 @@ def test_workflow_aggregates_results(
     settings.TOP_K = 1
 
     mock_embedder_instance = MagicMock()
-    mock_embedder_instance.embed_documents.return_value = [[0.1, 0.2]]
-    mock_embedder_instance.embed_query.side_effect = [[0.1], [0.2]]
+    mock_embedder_instance.get_embedding.side_effect = [
+        [0.1, 0.2], [0.3, 0.4], [0.1, 0.2], [0.3, 0.4]
+    ]
     mock_azure_embedder.return_value = mock_embedder_instance
 
     # Configure the mock model to return different responses on subsequent calls
@@ -107,6 +118,14 @@ def test_workflow_aggregates_results(
             mock_search.return_value = [0]
             
             workflow = PDFExtractionWorkflow()
+            
+            mock_azure_embedder.assert_called_once_with(
+                id='text-embedding-ada-002',
+                api_key=settings.AZURE_OPENAI_API_KEY,
+                azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                azure_deployment=settings.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME,
+            )
+
             workflow.chat_model = mock_chat_model
             result = workflow.run(pdf_file_path=pdf_path)
 
