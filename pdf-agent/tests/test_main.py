@@ -5,7 +5,6 @@ os.environ["AZURE_OPENAI_LLM_DEPLOYMENT_NAME"] = "fake_llm"
 os.environ["AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME"] = "fake_embeddings"
 
 import pytest
-from httpx import AsyncClient, ASGITransport
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from src.main import app

@@ -49,7 +49,6 @@ The service is built to be scalable and is containerized using Docker for easy d
     ```env
     # Azure OpenAI Settings
     AZURE_OPENAI_API_KEY="your_azure_api_key"
-    AZURE_OPENAI_API_VERSION="2024-06-01" # Or other supported version
     
     # Chat Model (AzureAIFoundry)
     AZURE_OPENAI_CHAT_ENDPOINT="https://your-resource.openai.azure.com/"

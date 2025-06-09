@@ -13,7 +13,6 @@ class AppSettings(BaseSettings):
 
     # Azure OpenAI Settings
     AZURE_OPENAI_API_KEY: str
-    AZURE_OPENAI_API_VERSION: str = "2024-06-01"
     
     # Chat Model Settings
     AZURE_OPENAI_CHAT_ENDPOINT: str

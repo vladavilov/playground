@@ -6,9 +6,8 @@ from agno.models.response import ModelResponse
 from src.pdf_processing.workflow import PDFExtractionWorkflow
 from src.config import get_settings
 
-# Set environment variables for the test session
+# Set new environment variables for the test session
 os.environ["AZURE_OPENAI_API_KEY"] = "test_key"
-os.environ["AZURE_OPENAI_API_VERSION"] = "2024-06-01"
 os.environ["AZURE_OPENAI_CHAT_ENDPOINT"] = "https://test-chat.openai.azure.com/"
 os.environ["AZURE_OPENAI_LLM_MODEL_NAME"] = "test-llm"
 os.environ["AZURE_OPENAI_EMBEDDING_ENDPOINT"] = "https://test-embed.openai.azure.com/"
@@ -53,7 +52,6 @@ def test_pdf_extraction_workflow_agent_integration(
         mock_azure_embedder.assert_called_once_with(
             id=settings.AZURE_OPENAI_EMBEDDING_MODEL_NAME,
             api_key=settings.AZURE_OPENAI_API_KEY,
-            api_version=settings.AZURE_OPENAI_API_VERSION,
             azure_endpoint=settings.AZURE_OPENAI_EMBEDDING_ENDPOINT,
             azure_deployment=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME,
         )
@@ -61,7 +59,6 @@ def test_pdf_extraction_workflow_agent_integration(
             id=settings.AZURE_OPENAI_LLM_MODEL_NAME,
             api_key=settings.AZURE_OPENAI_API_KEY,
             azure_endpoint=settings.AZURE_OPENAI_CHAT_ENDPOINT,
-            api_version=settings.AZURE_OPENAI_API_VERSION,
             temperature=0.0,
         )
 
@@ -114,7 +111,6 @@ def test_workflow_aggregates_results(
             mock_azure_embedder.assert_called_once_with(
                 id=settings.AZURE_OPENAI_EMBEDDING_MODEL_NAME,
                 api_key=settings.AZURE_OPENAI_API_KEY,
-                api_version=settings.AZURE_OPENAI_API_VERSION,
                 azure_endpoint=settings.AZURE_OPENAI_EMBEDDING_ENDPOINT,
                 azure_deployment=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME,
             )
@@ -122,7 +118,6 @@ def test_workflow_aggregates_results(
                 id=settings.AZURE_OPENAI_LLM_MODEL_NAME,
                 api_key=settings.AZURE_OPENAI_API_KEY,
                 azure_endpoint=settings.AZURE_OPENAI_CHAT_ENDPOINT,
-                api_version=settings.AZURE_OPENAI_API_VERSION,
                 temperature=0.0,
             )
 
