@@ -1,7 +1,13 @@
 import pytest
 import json
 from unittest.mock import patch
+import os
 from src.pdf_processing.workflow import PDFExtractionWorkflow
+
+# Set dummy env vars to allow instantiation of the workflow object
+# The tested method `_validate_agent_output` does not use them.
+os.environ["AZURE_OPENAI_API_KEY"] = "test_key"
+os.environ["AZURE_OPENAI_CHAT_ENDPOINT"] = "https://test-chat.openai.azure.com/"
 
 # Sample property definitions with validation rules for testing
 SAMPLE_PROPERTIES = [
@@ -12,26 +18,11 @@ SAMPLE_PROPERTIES = [
 ]
 
 @pytest.fixture
-def workflow():
-    """Provides a PDFExtractionWorkflow instance for testing."""
-    # Mock get_settings to avoid dependency on environment variables for tests
-    with patch('src.pdf_processing.workflow.get_settings') as mock_get_settings:
-        # Mock the return value of get_settings if needed by the workflow's __init__
-        # For now, a simple mock object might suffice if settings are not used heavily in __init__
-        # that is not relevant to the validation logic.
-        from unittest.mock import MagicMock
-        mock_settings = MagicMock()
-        mock_settings.property_groups = []
-        mock_settings.TOP_K = 3
-        mock_settings.AZURE_OPENAI_API_KEY = "test"
-        mock_settings.AZURE_OPENAI_ENDPOINT = "test"
-        mock_settings.AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME = "test"
-        mock_settings.AZURE_OPENAI_LLM_DEPLOYMENT_NAME = "test"
-        mock_get_settings.return_value = mock_settings
-        instance = PDFExtractionWorkflow()
-    return instance
+def workflow_instance():
+    """Provides a direct instance of PDFExtractionWorkflow for testing its methods."""
+    return PDFExtractionWorkflow()
 
-def test_valid_json_and_rules(workflow):
+def test_valid_json_and_rules(workflow_instance):
     """
     Tests successful validation when JSON is valid and all rules are met.
     """
@@ -42,24 +33,24 @@ def test_valid_json_and_rules(workflow):
     }
     json_string = json.dumps(valid_data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data == valid_data
     assert not errors, f"Expected no validation errors, but got: {errors}"
 
-def test_invalid_json_structure(workflow):
+def test_invalid_json_structure(workflow_instance):
     """
     Tests failure when the string is not valid JSON.
     """
     invalid_json_string = '{"key": "value",}' # trailing comma
     
-    parsed_data, errors = workflow._validate_agent_output(invalid_json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(invalid_json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is None
     assert len(errors) == 1
     assert "Invalid JSON structure" in errors[0]
 
-def test_missing_required_property(workflow):
+def test_missing_required_property(workflow_instance):
     """
     Tests failure when a required property is missing.
     """
@@ -70,13 +61,13 @@ def test_missing_required_property(workflow):
     }
     json_string = json.dumps(data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
     assert len(errors) == 1
     assert "Missing required property: 'isin_code'" in errors[0]
 
-def test_unexpected_property(workflow):
+def test_unexpected_property(workflow_instance):
     """
     Tests failure when an unexpected property is included in the output.
     """
@@ -88,13 +79,13 @@ def test_unexpected_property(workflow):
     }
     json_string = json.dumps(data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
     assert len(errors) == 1
     assert "Unexpected property: 'extra_field'" in errors[0]
 
-def test_enum_validation_failure(workflow):
+def test_enum_validation_failure(workflow_instance):
     """
     Tests failure when a property's value is not in its defined enum.
     """
@@ -105,13 +96,13 @@ def test_enum_validation_failure(workflow):
     }
     json_string = json.dumps(data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
     assert len(errors) == 1
     assert "Value 'Mutual Fund' for property 'instrument_type' is not in the allowed enum" in errors[0]
 
-def test_regex_validation_failure(workflow):
+def test_regex_validation_failure(workflow_instance):
     """
     Tests failure when a property's value does not match its defined regex.
     """
@@ -122,13 +113,13 @@ def test_regex_validation_failure(workflow):
     }
     json_string = json.dumps(data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
     assert len(errors) == 1
     assert "Value 'INVALID-CODE' for property 'isin_code' does not match regex pattern" in errors[0]
 
-def test_multiple_validation_errors(workflow):
+def test_multiple_validation_errors(workflow_instance):
     """
     Tests that multiple validation errors are reported correctly.
     """
@@ -140,7 +131,7 @@ def test_multiple_validation_errors(workflow):
     }
     json_string = json.dumps(data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
     assert len(errors) == 3
@@ -149,7 +140,7 @@ def test_multiple_validation_errors(workflow):
     assert any("Unexpected property: 'another_extra'" in e for e in errors)
     assert any("not in the allowed enum" in e for e in errors)
 
-def test_optional_property_validation_success(workflow):
+def test_optional_property_validation_success(workflow_instance):
     """
     Tests that an optional property passes validation when present and correct.
     """
@@ -161,12 +152,12 @@ def test_optional_property_validation_success(workflow):
     }
     json_string = json.dumps(data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
     assert not errors
 
-def test_optional_property_validation_failure(workflow):
+def test_optional_property_validation_failure(workflow_instance):
     """
     Tests that an optional property fails validation when present but incorrect.
     """
@@ -178,7 +169,7 @@ def test_optional_property_validation_failure(workflow):
     }
     json_string = json.dumps(data)
     
-    parsed_data, errors = workflow._validate_agent_output(json_string, SAMPLE_PROPERTIES)
+    parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
     assert len(errors) == 1

@@ -16,5 +16,6 @@ langchain-text-splitters
 faiss-cpu
 numpy
 PyYAML
-openai
 azure-ai-inference
+sentence-transformers
+torch

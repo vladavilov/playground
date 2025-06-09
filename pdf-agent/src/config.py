@@ -18,10 +18,8 @@ class AppSettings(BaseSettings):
     AZURE_OPENAI_CHAT_ENDPOINT: str
     AZURE_OPENAI_LLM_MODEL_NAME: str = "gpt-4o"
     
-    # Embedding Model Settings
-    AZURE_OPENAI_EMBEDDING_ENDPOINT: str
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME: str
-    AZURE_OPENAI_EMBEDDING_MODEL_NAME: str = "text-embedding-ada-002"
+    # Local Embedding Model Settings
+    EMBEDDING_MODEL_PATH: str = "./embedding_model"
 
     PROPERTY_GROUPS_CONFIG_PATH: Path = Path("config/property_groups.yaml")
     property_groups: list[dict] = Field(default_factory=list)

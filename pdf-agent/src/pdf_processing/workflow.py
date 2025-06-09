@@ -4,7 +4,7 @@ Defines the core PDF extraction workflow using the AGNO framework.
 import json
 import re
 from agno.workflow import Workflow, RunResponse
-from agno.embedder.azure_openai import AzureOpenAIEmbedder
+from agno.embedder.sentence_transformer import SentenceTransformerEmbedder
 from agno.models.azure.ai_foundry import AzureAIFoundry
 import faiss
 import numpy as np
@@ -31,6 +31,12 @@ class PDFExtractionWorkflowResult(TypedDict):
     rag_results: list[PropertyGroupResult]
     aggregated_data: dict
 
+def to_json_template(properties: list[dict]) -> dict:
+    """
+    Converts a list of property dictionaries to a JSON template for extraction.
+    """
+    return {prop["name"]: prop["rag_query"] for prop in properties}
+
 class PDFExtractionWorkflow(Workflow):
     """
     Orchestrates the entire data extraction process from a PDF file.
@@ -43,7 +49,7 @@ class PDFExtractionWorkflow(Workflow):
     pipeline.
 
     The `run` method executes the main logic of the workflow, and the class
-    is initialized with the path to the PDF file. The `AzureOpenAIEmbedder`
+    is initialized with the path to the PDF file. The `SentenceTransformerEmbedder`
 
     is used to generate the embeddings, and the configuration for the
     embedder is automatically loaded from the environment variables.
@@ -54,17 +60,14 @@ class PDFExtractionWorkflow(Workflow):
     """
     def __init__(self):
         """
-        Initializes the workflow and the AzureOpenAIEmbedder.
+        Initializes the workflow and the SentenceTransformerEmbedder.
         """
         super().__init__()
         self.vector_store = None
         
         settings = get_settings()
-        self.embedder = AzureOpenAIEmbedder(
-            id=settings.AZURE_OPENAI_EMBEDDING_MODEL_NAME,
-            api_key=settings.AZURE_OPENAI_API_KEY,
-            azure_endpoint=settings.AZURE_OPENAI_EMBEDDING_ENDPOINT,
-            azure_deployment=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME,
+        self.embedder = SentenceTransformerEmbedder(
+            id=settings.EMBEDDING_MODEL_PATH
         )
         # Initialize the chat model. The agent will be created on-the-fly for each run.
         self.chat_model = AzureAIFoundry(
@@ -93,67 +96,72 @@ class PDFExtractionWorkflow(Workflow):
 
             if self.vector_store:
                 for group in self.property_groups:
-                    rag_query = group.get("rag_query")
-                    if rag_query:
-                        query_embedding = self.embedder.get_embedding(rag_query)
-                        
-                        # Ensure top_k is not greater than the number of chunks
-                        effective_top_k = min(self.top_k, len(chunks))
-                        
-                        relevant_indices = self._search_vector_store(
-                            np.array([query_embedding]).astype("float32"), top_k=effective_top_k
-                        )
-                        relevant_chunks = [
-                            chunks[i] for i in relevant_indices
-                        ]
-                        
-                        # Create a new agent for each property group with the specific context
-                        rag_context = "\n\n".join(relevant_chunks)
-                        properties_to_extract = group.get("properties", [])
-                        
-                        agent = create_property_extraction_agent(
-                            model=self.chat_model,
-                            session_state={
-                                "rag_context": rag_context,
-                                "properties": properties_to_extract,
-                            },
-                        )
+                    properties_to_extract = group.get("properties", [])
+                    if not properties_to_extract:
+                        continue
 
-                        agent_response = agent.run(
-                            message="Extract the data based on the provided context and properties."
-                        )
-                        
-                        extracted_data = {}
-                        if agent_response.content:
-                            for attempt in range(self.max_retries):
-                                parsed_data, validation_errors = self._validate_agent_output(
-                                    agent_response.content, properties_to_extract
-                                )
-
-                                if not validation_errors:
-                                    extracted_data = parsed_data
-                                    break
-                                
-                                if attempt < self.max_retries - 1:
-                                    # Construct a refinement prompt with specific errors
-                                    error_list = "; ".join(validation_errors)
-                                    refinement_message = (
-                                        f"The previous JSON output was invalid. Please correct it. "
-                                        f"Errors: {error_list}"
-                                    )
-                                    agent_response = agent.run(message=refinement_message)
-                                else:
-                                    error_msg = f"Invalid JSON after multiple retries: {validation_errors}"
-                                    extracted_data = {"error": error_msg}
-
-                        rag_results.append(
-                            PropertyGroupResult(
-                                group_name=group.get("group_name"),
-                                rag_query=rag_query,
-                                relevant_chunks=relevant_chunks,
-                                extracted_data=extracted_data,
+                    all_relevant_indices = set()
+                    for prop in properties_to_extract:
+                        rag_query = prop.get("rag_query")
+                        if rag_query:
+                            query_embedding = self.embedder.get_embedding(rag_query)
+                            effective_top_k = min(self.top_k, len(chunks))
+                            relevant_indices = self._search_vector_store(
+                                np.array([query_embedding]).astype("float32"), top_k=effective_top_k
                             )
+                            all_relevant_indices.update(relevant_indices)
+                    
+                    if not all_relevant_indices:
+                        continue
+
+                    relevant_chunks = [chunks[i] for i in sorted(list(all_relevant_indices))]
+                    
+                    rag_context = "\\n\\n".join(relevant_chunks)
+                    json_template = to_json_template(properties_to_extract)
+
+                    agent = create_property_extraction_agent(
+                        model=self.chat_model,
+                        session_state={
+                            "rag_context": rag_context,
+                            "json_template": json_template,
+                        },
+                    )
+
+                    agent_response = agent.run(
+                        message="Extract the data based on the provided context and properties."
+                    )
+                    
+                    extracted_data = {}
+                    if agent_response.content:
+                        for attempt in range(self.max_retries):
+                            parsed_data, validation_errors = self._validate_agent_output(
+                                agent_response.content, properties_to_extract
+                            )
+
+                            if not validation_errors:
+                                extracted_data = parsed_data
+                                break
+                            
+                            if attempt < self.max_retries - 1:
+                                # Construct a refinement prompt with specific errors
+                                error_list = "; ".join(validation_errors)
+                                refinement_message = (
+                                    f"The previous JSON output was invalid. Please correct it. "
+                                    f"Errors: {error_list}"
+                                )
+                                agent_response = agent.run(message=refinement_message)
+                            else:
+                                error_msg = f"Invalid JSON after multiple retries: {validation_errors}"
+                                extracted_data = {"error": error_msg}
+
+                    rag_results.append(
+                        PropertyGroupResult(
+                            group_name=group.get("group_name"),
+                            rag_query=rag_query,
+                            relevant_chunks=relevant_chunks,
+                            extracted_data=extracted_data,
                         )
+                    )
 
             # Aggregate all successful extractions
             for result in rag_results:

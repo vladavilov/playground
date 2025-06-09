@@ -15,8 +15,8 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 1.  **File Ingestion & Temporary Storage:** The API layer shall receive the PDF file, save it to a temporary location, and log this event.
 2.  **Core Data Extraction (AGNO Workflow & Agent):** The AGNO `Workflow` shall be invoked with the temporary file path.
     a.  The Workflow shall manage PDF text extraction, preprocessing, and chunking (see Section 3.1).
-    b.  The Workflow shall iterate through predefined logical groups of properties, managing the RAG process (embedding, retrieval) for each group to gather relevant context.
-    c.  The Workflow shall invoke an AGNO `Agent` with the RAG context to extract properties for each group into a JSON structure.
+    b.  The Workflow shall iterate through predefined logical groups of properties. For each group, it will perform a RAG search for each individual property, then merge the results to gather a comprehensive context.
+    c.  The Workflow shall invoke an AGNO `Agent` with the combined RAG context to extract all properties for that group into a JSON structure.
     d.  The Workflow shall validate the agent's JSON output. If validation fails for any property, the Workflow shall re-invoke the agent with feedback for refinement (max 3 attempts per group extraction).
     e.  The Workflow shall aggregate the validated JSON data from all groups.
 3.  **Response & Cleanup:** The aggregated JSON data from the AGNO Workflow shall be returned by the API layer as the HTTP response. The API layer shall then delete the temporary PDF file and log these actions.
@@ -84,12 +84,12 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
     *   **Core Responsibilities:**
         1.  Receive the temporary PDF file path from the API layer.
         2.  Invoke PDF processing and chunking functions (as defined in Section 3.1) to obtain text chunks.
-        3.  Manage the creation of vector embeddings for all text chunks (e.g., using a model like `text-embedding-ada-002` via AGNO's model integration, such as `agno.models.openai.OpenAIEmbedder`) and set up an in-memory vector store (using directly managed `FAISS`).
+        3.  Manage the creation of vector embeddings for all text chunks using a local sentence-transformer model (`BAAI/bge-small-en-v1.5`) via AGNO's `SentenceTransformerEmbedder`, and set up an in-memory vector store (using directly managed `FAISS`).
         4.  Iterate through predefined logical groups of properties (defined in a configuration accessible to the workflow).
         5.  For each property group:
-            a.  Retrieve the hardcoded RAG query string for the group (from configuration).
-            b.  Embed the query and use the vector store to retrieve relevant text chunks (Top-K).
-            c.  Invoke the `PropertyExtractionAgent` with RAG context and the list of properties for the group.
+            a.  Iterate through each property within the group. For each property, retrieve its `rag_query` string from the configuration.
+            b.  Embed each property's query and use the vector store to retrieve relevant text chunks (Top-K). All unique chunks retrieved for the group are merged into a single context.
+            c.  Invoke the `PropertyExtractionAgent` with the combined RAG context and the list of properties for the group.
             d.  Receive JSON output from the `PropertyExtractionAgent`.
             e.  **Validate Agent Output:** The workflow shall perform a multi-step validation of the agent's output. First, it validates that the output is a structurally correct JSON. If so, it then validates the content against rules defined in the configuration, including:
                 *   **Schema Adherence:** Checks that all properties marked as `required` are present and that no unexpected properties are included.
@@ -102,8 +102,8 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 
 *   **AGNO Agent Definition (`PropertyExtractionAgent`):**
     *   An AGNO `Agent` shall be defined (e.g., as part of the Workflow).
-    *   **Core Task:** Given a text context and specific instructions (e.g., list of properties to extract, or properties to refine with feedback), the Agent shall interact with the configured LLM to produce a JSON string output.
-    *   **Instructions:** The Agent's base instructions shall define its role (e.g., financial data extractor) and JSON output requirement. Specific task details (context, property lists, refinement feedback) shall be passed dynamically in the `run` call from the Workflow.
+    *   **Core Task:** Given a text context and specific instructions, the Agent shall interact with the configured LLM to produce a JSON string output.
+    *   **Instructions:** The Agent's base instructions shall define its role as an expert in filling a JSON template based on provided text. The prompt will include a few-shot example (with sample input text, a JSON template, and the filled JSON output) to improve accuracy. Specific task details (context, property lists) shall be passed dynamically in the `run` call from the Workflow.
 
 ### 3.3. Orchestration
 
@@ -113,10 +113,11 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 
 *   **Accuracy:** The system must achieve high precision in extracting data.
 *   **Configuration:** The following shall be externalized (in Python config files or environment variables):
-    *   Azure OpenAI settings (API key, endpoint, model deployment names for LLM and embeddings).
+    *   Azure OpenAI settings for the chat model (API key, endpoint, model deployment name).
     *   Property group definitions (including RAG queries and property lists) **should be in separate .yaml file**.
     *   API service settings (e.g., port).
     *   Temporary file directory path.
+    *   Local embedding model path.
 *   **Logging:** Comprehensive logging shall be implemented for all major steps, including API requests, file handling, PDF processing, RAG operations, AGNO Agent invocations (input prompts/context, raw LLM responses), validation outcomes, refinement attempts, and errors. AGNO's logging utilities (e.g., `agno.utils.log.logger`) should be used where appropriate.
 *   **Error Handling:** The system (API layer and AGNO Workflow) shall implement robust error handling and return appropriate HTTP error responses or log failures clearly.
 *   **Security:**
@@ -133,8 +134,7 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 *   **Definitive List of All 300+ Fields:** A complete, precise list.
 *   **Property Grouping Definition & RAG Queries:** For each logical group:
     *   A list of the specific properties it contains.
-    *   A hardcoded, specific RAG query string for context retrieval.
-    (This structure shall be maintained in a configuration source).
+    *   Each property must have a hardcoded, specific `rag_query` string for context retrieval.
 *   **Sample PDFs:** 5-10 representative PDFs for development/testing.
 *   **Validation Rules:** Specific criteria for each property (e.g., data type, `required` flag, `regex` pattern for format validation, a list of allowed values for an `enum`).
 *   **Gold Standard Data (Highly Recommended):** Manually extracted, validated JSON for sample PDFs.
@@ -145,7 +145,8 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 *   The system processes one PDF file per API request; concurrent requests result in parallel, independent processing instances (each creating its own temporary file).
 *   The AGNO framework (compatible with `agno.workflow.Workflow`, `agno.agent.Agent`) is the primary tool for AI agent definition and workflow orchestration.
 *   All input PDFs contain selectable text.
-*   Azure OpenAI Service access is configured and available.
+*   Azure OpenAI Service access for the chat model is configured and available.
+*   The embedding model is loaded from a local path.
 *   Field lists, groupings, RAG queries, and validation rules are managed via externalized configuration.
 
 ---
