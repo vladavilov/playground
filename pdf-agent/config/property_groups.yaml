@@ -1,10 +1,24 @@
 property_groups:
   - group_name: "General Information"
-    properties:
-      - "document_title"
-      - "isin"
     rag_query: "Extract general information about the financial product, such as its title and ISIN."
-  - group_name: "Risk Factors"
     properties:
-      - "main_risks"
+      - name: "document_title"
+        validation:
+          required: true
+      - name: "isin"
+        validation:
+          required: true
+          regex: "^[A-Z]{2}[A-Z0-9]{9}[0-9]{1}$"
+  - group_name: "Risk Factors"
     rag_query: "Identify and list the primary risk factors associated with this investment."
+    properties:
+      - name: "main_risks"
+        validation:
+          required: false
+  - group_name: "Document Classification"
+    rag_query: "Classify the type of this document. Is it a Prospectus, a Key Information Document (KID), an Annual Report, or something else?"
+    properties:
+      - name: "document_type"
+        validation:
+          required: true
+          enum: ["Prospectus", "KID", "Annual Report", "Other"]
