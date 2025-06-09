@@ -65,11 +65,11 @@
 ### Phase 3: AGNO Agent & Workflow Development
 
 1.  [x] **Task 3.1: `PropertyExtractionAgent` Definition**
-    *   Description: Define the `PropertyExtractionAgent` (`agno.agent.Agent`) as outlined in Section 3.2.
+    *   Description: Defined the `PropertyExtractionAgent` (`agno.agent.Agent`). The agent's instructions have been updated to be an expert in filling JSON templates, including a few-shot example to improve accuracy.
     *   TRD Ref: Section 3.2 (AGNO Agent Definition (`PropertyExtractionAgent`)).
     *   Configuration: Configure with an AGNO model integration for Azure OpenAI (e.g., `agno.models.openai.OpenAIChat`).
     *   Core Task: Design the base instructions for its role (financial data extractor, JSON output). The agent will receive dynamic context and property lists per `run` call.
-    *   NFRs Addressed: Accuracy (core extraction logic).
+    *   NFRs Addressed: Accuracy (RAG).
 
 2.  [x] **Task 3.2: `PDFExtractionWorkflow` - Core Orchestration Setup**
     *   Description: Define the `PDFExtractionWorkflow` class inheriting from `agno.workflow.Workflow`. Implement the initial structure to receive a PDF file path.
@@ -91,16 +91,13 @@
     *   NFRs Addressed: Accuracy (RAG).
 
 5.  [x] **Task 3.5: `PDFExtractionWorkflow` - Property Group Iteration & RAG**
-    *   Description: Implement the loop to iterate through predefined logical groups of properties (this will require a placeholder or sample configuration for property groups from Section 5). For each group:
-        *   Retrieve the hardcoded RAG query string.
-        *   Embed the query.
-        *   Use the vector store to retrieve relevant text chunks (Top-K).
+    *   Description: Implemented the loop to iterate through predefined logical groups of properties. For each property in a group, the workflow now uses the property-specific `rag_query` to retrieve relevant text chunks. These chunks are then merged to create a comprehensive context for the agent.
     *   TRD Ref: Section 3.2 (Core Responsibilities item 4, 5a, 5b: Iterate groups, retrieve RAG query, embed query, retrieve chunks). Also relevant: Section 5 (Data Requirements - Property Grouping Definition & RAG Queries).
     *   Configuration: Property group definitions (YAML file structure from Section 4).
     *   NFRs Addressed: Accuracy (RAG).
 
 6.  [x] **Task 3.6: `PDFExtractionWorkflow` - Agent Invocation**
-    *   Description: Within the property group loop, invoke the `PropertyExtractionAgent` with the RAG context and the list of properties for the current group.
+    *   Description: Within the property group loop, the `PropertyExtractionAgent` is invoked with the aggregated RAG context (from all properties in the group) and the list of properties for the current group.
     *   TRD Ref: Section 3.2 (Core Responsibilities item 5c: Invoke the `PropertyExtractionAgent`).
     *   NFRs Addressed: Accuracy (extraction).
 

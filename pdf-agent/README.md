@@ -11,6 +11,7 @@ The service is built to be scalable and is containerized using Docker for easy d
 -   **PDF Parsing**: Extracts raw text from uploaded PDF files.
 -   **Text Cleaning**: Normalizes and cleans extracted text to improve accuracy.
 -   **AI-Powered Extraction**: Uses an AI agent (powered by Azure OpenAI) with a RAG pipeline to intelligently extract data based on configurable property groups.
+-   **Local Embeddings**: Generates vector embeddings using a self-hosted model (`BAAI/bge-small-en-v1.5`) for semantic search, ensuring data privacy and removing dependency on external embedding services.
 -   **Dynamic Property Groups**: Extraction logic is defined in `config/property_groups.yaml`, allowing for easy customization without code changes.
 -   **Data Validation**: Includes a robust, rule-based validation system for the extracted JSON data.
 -   **RESTful API**: Provides a simple, secure endpoint for uploading PDFs and receiving structured JSON data.
@@ -22,8 +23,10 @@ The core of the extraction logic is driven by the `config/property_groups.yaml` 
 
 Each group consists of:
 - `group_name`: A logical name for the category of data.
-- `rag_query`: A natural language question that guides the AI in finding the relevant text chunks for this group.
-- `properties`: A list of the specific data points to extract for this group.
+- `properties`: A list of the specific data points to extract for this group. Each property must contain its own `rag_query`.
+
+### RAG (Retrieval-Augmented Generation) Logic
+The service performs a RAG search for each individual property defined in a group using its specific `rag_query`. The text chunks retrieved from all searches within the group are then merged into a single context, which is passed to the AI agent to extract all properties for that group at once.
 
 ### Property Validation
 
@@ -36,12 +39,13 @@ For each property, you can specify a `validation` block to ensure data quality:
 Example:
 ```yaml
 - group_name: "General Information"
-  rag_query: "Extract general information about the financial product, such as its title and ISIN."
   properties:
     - name: "document_title"
+      rag_query: "Extract the title of the document."
       validation:
         required: true
     - name: "isin"
+      rag_query: "Extract the ISIN (International Securities Identification Number)."
       validation:
         required: true
         regex: "^[A-Z]{2}[A-Z0-9]{9}[0-9]{1}$"
@@ -75,8 +79,14 @@ Example:
     python scripts/download_nltk_data.py
     ```
 
-5.  **Configure Environment Variables**
-    `.env` file in the `/env` directory. The service requires Azure OpenAI credentials to function.
+5.  **Download Embedding Model**
+    The service uses a local sentence transformer model. This command downloads the model to the `embedding_model` directory and needs to be run once.
+    ```bash
+    python scripts/download_model.py
+    ```
+
+6.  **Configure Environment Variables**
+    Create a `.env` file in the project's root directory. The service requires Azure OpenAI credentials for the chat model to function. The embedding model runs locally and requires no keys.
     ```env
     # Azure OpenAI Settings
     AZURE_OPENAI_API_KEY="your_azure_api_key"
@@ -84,11 +94,6 @@ Example:
     # Chat Model (AzureAIFoundry)
     AZURE_OPENAI_CHAT_ENDPOINT="https://your-resource.openai.azure.com/"
     AZURE_OPENAI_LLM_MODEL_NAME="your_chat_deployment_name" # e.g., gpt-4o
-
-    # Embedding Model (AzureOpenAIEmbedder)
-    AZURE_OPENAI_EMBEDDING_ENDPOINT="https://your-resource.openai.azure.com/"
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="your_embedding_deployment_name"
-    AZURE_OPENAI_EMBEDDING_MODEL_NAME="your_embedding_model_name" # e.g., text-embedding-ada-002
 
     # Optional Overrides
     API_PORT=8000

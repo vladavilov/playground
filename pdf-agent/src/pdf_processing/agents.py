@@ -14,18 +14,29 @@ def create_property_extraction_agent(
 
     Args:
         model: An instance of an AGNO-compatible model, e.g., OpenAIChat.
-        session_state: Optional initial session state for the agent.
+        session_state: Optional initial session state for the agent, which must
+                       contain 'rag_context' and 'json_template'.
 
     Returns:
         A configured instance of agno.agent.Agent.
     """
     instructions = (
-        "You are an expert financial data extractor. "
-        "Your task is to extract specific properties from the provided text context. "
-        "You must return the extracted data in a valid JSON format. "
-        "Do not include any explanatory text or markdown formatting around the JSON.\n\n"
-        "Please extract the values for these properties: {properties}\n\n"
-        "Context:\n---\n{rag_context}\n---"
+        "You are an expert at extracting information from text and filling in a JSON template. "
+        "Given a text and a JSON template, you must extract the required information from the text "
+        "and fill in the corresponding values in the JSON template. You must return only a valid JSON object, no explanations, no yapping.\n\n"
+        "--- EXAMPLE START ---\n"
+        "**Example input:**",
+        "Text: 'The ISIN for the new bond is US1234567890. The title of the document is `Prospectus`.`\n\n"
+        "JSON Template: {'isin': '<Extract the ISIN>', 'document_title': '<Extract the document title>'}\n\n"
+        "**Example output:**",
+        "{\n"
+        "  \"isin\": \"US1234567890\",\n"
+        "  \"document_title\": \"Prospectus\"\n"
+        "}\n"
+        "--- EXAMPLE END ---\n\n"
+        "--- TASK START ---\n"
+        "Text: '{rag_context}'\n\n"
+        "JSON Template: {json_template}\n\n"
     )
 
     agent = Agent(
