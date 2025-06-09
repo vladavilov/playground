@@ -49,9 +49,16 @@ The service is built to be scalable and is containerized using Docker for easy d
     ```env
     # Azure OpenAI Settings
     AZURE_OPENAI_API_KEY="your_azure_api_key"
-    AZURE_OPENAI_ENDPOINT="your_azure_endpoint"
-    AZURE_OPENAI_LLM_DEPLOYMENT_NAME="your_llm_deployment_name"
-    AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME="your_embeddings_deployment_name"
+    AZURE_OPENAI_API_VERSION="2024-06-01" # Or other supported version
+    
+    # Chat Model (AzureAIFoundry)
+    AZURE_OPENAI_CHAT_ENDPOINT="https://your-resource.openai.azure.com/"
+    AZURE_OPENAI_LLM_MODEL_NAME="your_chat_deployment_name" # e.g., gpt-4o
+
+    # Embedding Model (AzureOpenAIEmbedder)
+    AZURE_OPENAI_EMBEDDING_ENDPOINT="https://your-resource.openai.azure.com/"
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="your_embedding_deployment_name"
+    AZURE_OPENAI_EMBEDDING_MODEL_NAME="your_embedding_model_name" # e.g., text-embedding-ada-002
 
     # Optional Overrides
     API_PORT=8000
