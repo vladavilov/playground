@@ -109,8 +109,9 @@ class PDFExtractionWorkflow(Workflow):
         This method checks for:
         1.  Valid JSON structure.
         2.  Presence of all required properties.
-        3.  Absence of unexpected properties.
-        4.  Compliance with 'enum' and 'regex' validation rules.
+        3.  Compliance with 'enum' and 'regex' validation rules.
+
+        Unexpected properties in the JSON output are silently removed.
 
         Args:
             response_content: The string output from the agent, expected to be JSON.
@@ -139,10 +140,9 @@ class PDFExtractionWorkflow(Workflow):
             if is_required and prop_name not in provided_prop_names:
                 errors.append(f"Missing required property: '{prop_name}'")
 
-        # Check for unexpected properties
         for prop_name in provided_prop_names:
             if prop_name not in expected_prop_names:
-                errors.append(f"Unexpected property: '{prop_name}'")
+                del data[prop_name]
 
         # Perform per-property validation
         for prop in properties_to_extract:

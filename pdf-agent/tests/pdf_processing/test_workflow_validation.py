@@ -67,9 +67,10 @@ def test_missing_required_property(workflow_instance):
     assert len(errors) == 1
     assert "Missing required property: 'isin_code'" in errors[0]
 
-def test_unexpected_property(workflow_instance):
+def test_unexpected_property_is_removed(workflow_instance):
     """
-    Tests failure when an unexpected property is included in the output.
+    Tests that an unexpected property is silently removed without causing a
+    validation error.
     """
     data = {
         "instrument_type": "Stock",
@@ -81,9 +82,12 @@ def test_unexpected_property(workflow_instance):
     
     parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
-    assert parsed_data is not None
-    assert len(errors) == 1
-    assert "Unexpected property: 'extra_field'" in errors[0]
+    # Check that the extra field was removed
+    expected_data = data.copy()
+    del expected_data["extra_field"]
+    
+    assert parsed_data == expected_data
+    assert not errors, "Expected no validation errors for an unexpected property."
 
 def test_enum_validation_failure(workflow_instance):
     """
@@ -127,18 +131,18 @@ def test_multiple_validation_errors(workflow_instance):
         # isin_code is missing
         "instrument_type": "Crypto", # Enum violation
         "issuer": "Apple Inc.",
-        "another_extra": "field" # Unexpected property
+        "another_extra": "field"
     }
     json_string = json.dumps(data)
     
     parsed_data, errors = workflow_instance._validate_agent_output(json_string, SAMPLE_PROPERTIES)
     
     assert parsed_data is not None
-    assert len(errors) == 3
+    assert len(errors) == 2
     # Order isn't guaranteed, so check for presence of each error
     assert any("Missing required property: 'isin_code'" in e for e in errors)
-    assert any("Unexpected property: 'another_extra'" in e for e in errors)
     assert any("not in the allowed enum" in e for e in errors)
+    assert "another_extra" not in parsed_data
 
 def test_optional_property_validation_success(workflow_instance):
     """
