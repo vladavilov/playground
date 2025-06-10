@@ -25,7 +25,6 @@ def test_app_settings_defaults(monkeypatch):
     assert settings.TEMP_FILE_DIR == Path("./temp_files")
     assert settings.PROPERTY_GROUPS_CONFIG_PATH == Path("config/property_groups.yaml")
     assert settings.AZURE_OPENAI_LLM_MODEL_NAME == "gpt-4o"
-    assert settings.EMBEDDING_MODEL_PATH == "./embedding_model"
     
     # Assert required fields
     assert settings.AZURE_OPENAI_API_KEY == "test_key"
@@ -39,7 +38,6 @@ def test_app_settings_from_env_vars(monkeypatch):
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "env_key")
     monkeypatch.setenv("AZURE_OPENAI_CHAT_ENDPOINT", "https://env-chat.openai.azure.com/")
     monkeypatch.setenv("AZURE_OPENAI_LLM_MODEL_NAME", "env_llm")
-    monkeypatch.setenv("EMBEDDING_MODEL_PATH", "env_embed_path")
     monkeypatch.setenv("PROPERTY_GROUPS_CONFIG_PATH", "env_config/props.yaml")
 
     settings = AppSettings()
@@ -49,7 +47,6 @@ def test_app_settings_from_env_vars(monkeypatch):
     assert settings.AZURE_OPENAI_API_KEY == "env_key"
     assert settings.AZURE_OPENAI_CHAT_ENDPOINT == "https://env-chat.openai.azure.com/"
     assert settings.AZURE_OPENAI_LLM_MODEL_NAME == "env_llm"
-    assert settings.EMBEDDING_MODEL_PATH == "env_embed_path"
     assert settings.PROPERTY_GROUPS_CONFIG_PATH == Path("env_config/props.yaml")
 
 def test_app_settings_missing_required_env_vars(monkeypatch):

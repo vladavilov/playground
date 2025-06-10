@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+import json
 from agno.agent import Agent
 from src.pdf_processing.agents import create_property_extraction_agent
 
@@ -8,37 +9,34 @@ def test_create_property_extraction_agent(mock_chat_model: MagicMock):
     assert isinstance(agent, Agent)
     assert agent.model is mock_chat_model
     
-    # The instructions are a tuple, so join them for the check
-    instruction_string = "".join(agent.instructions)
-    assert "You are an expert at extracting information" in instruction_string
-    assert "--- EXAMPLE START ---" in instruction_string
+    assert "You are a hyper-specialized financial data extraction engine." in agent.instructions
+    assert "**Critical Directives:**" in agent.instructions
 
-def test_property_extraction_agent_run_with_context(mock_chat_model: MagicMock):
+def test_property_extraction_agent_run(mock_chat_model: MagicMock):
     """
-    Tests the run method of the created agent, ensuring it calls model.response()
-    with the correctly formatted messages.
+    Tests the run method of the created agent, ensuring it calls the model
+    with the correctly formatted message.
     """
-    rag_context = "Some financial text containing property1 and property2."
-    json_template = {"prop1": "Extract property 1", "prop2": "Extract property 2"}
-    user_prompt = "Extract data based on the provided context and properties."
+    cleaned_text = "Some financial text containing property1 and property2."
+    json_template = {"prop1": "description1", "prop2": "description2"}
+    
+    # Expected message format that the agent will receive
+    expected_message = (
+        f"Text: '{cleaned_text}'\n\n"
+        f"JSON Template: {json.dumps(json_template, indent=2)}\n\n"
+    )
 
     # Mock the response from the agent's run
     mock_chat_model.response.return_value.content = '{"prop1": "value1", "prop2": "value2"}'
 
-    agent = create_property_extraction_agent(
-        model=mock_chat_model,
-        session_state={
-            "rag_context": rag_context,
-            "json_template": json_template,
-        },
-    )
+    agent = create_property_extraction_agent(model=mock_chat_model)
 
-    # Verify the session state was set correctly
-    assert agent.session_state["rag_context"] == rag_context
-    assert agent.session_state["json_template"] == json_template
+    run_response = agent.run(message=expected_message)
 
-    run_response = agent.run(message=user_prompt)
-
-    # Verify the agent was called and returned the mocked response
+    # Verify the agent's model was called with the correct message
     mock_chat_model.response.assert_called_once()
+    called_messages = mock_chat_model.response.call_args.kwargs['messages']
+    # The user message should be the last one in the list
+    assert called_messages[-1].content == expected_message
+    
     assert run_response.content == '{"prop1": "value1", "prop2": "value2"}' 

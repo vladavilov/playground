@@ -1,12 +1,12 @@
 # Technical Requirements Document: PDF Structured Product Data Extraction Microservice
 
-**Version:** 0.7
+**Version:** 0.8
 **Date:** 2024-07-28
 
 ## 1. Introduction
 
 This document outlines the technical requirements for a microservice that parses PDF documents containing structured financial product information. The microservice shall accept a PDF file via an HTTP request, extract a predefined list of over 300 properties (organized into logical groups), and respond with a JSON object containing the extracted data.
-The system shall be implemented using the AGNO framework, with an AGNO `Workflow` orchestrating an AGNO `Agent` for the core data extraction task, including Retrieval Augmented Generation (RAG). The microservice shall be deployable via Docker.
+The system shall be implemented using the AGNO framework, with an AGNO `Workflow` orchestrating an AGNO `Agent` for the core data extraction task. The microservice shall be deployable via Docker.
 
 ## 2. System Overview
 
@@ -14,9 +14,9 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 
 1.  **File Ingestion & Temporary Storage:** The API layer shall receive the PDF file, save it to a temporary location, and log this event.
 2.  **Core Data Extraction (AGNO Workflow & Agent):** The AGNO `Workflow` shall be invoked with the temporary file path.
-    a.  The Workflow shall manage PDF text extraction, preprocessing, and chunking (see Section 3.1).
-    b.  The Workflow shall iterate through predefined logical groups of properties. For each group, it will perform a RAG search for each individual property, then merge the results to gather a comprehensive context.
-    c.  The Workflow shall invoke an AGNO `Agent` with the combined RAG context to extract all properties for that group into a JSON structure.
+    a.  The Workflow shall manage PDF text extraction and cleaning (see Section 3.1).
+    b.  The Workflow shall iterate through predefined logical groups of properties.
+    c.  For each group, the Workflow shall invoke an AGNO `Agent` with the full, cleaned text from the PDF to extract all properties for that group into a JSON structure.
     d.  The Workflow shall validate the agent's JSON output. If validation fails for any property, the Workflow shall re-invoke the agent with feedback for refinement (max 3 attempts per group extraction).
     e.  The Workflow shall aggregate the validated JSON data from all groups.
 3.  **Response & Cleanup:** The aggregated JSON data from the AGNO Workflow shall be returned by the API layer as the HTTP response. The API layer shall then delete the temporary PDF file and log these actions.
@@ -40,13 +40,13 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
     6.  Ensure the temporary PDF file is deleted after processing (successful or failed).
     7.  Log file reception, processing initiation, completion (or failure), and deletion.
 
-### 3.1. PDF Processing & Text Preprocessing/Chunking (Functions/Modules)
+### 3.1. PDF Processing & Text Preprocessing (Functions/Modules)
 
-*   **Description:** This component, invoked by the AGNO Workflow, transforms a PDF file (from a given temporary path) into cleaned, chunked text suitable for RAG.
+*   **Description:** This component, invoked by the AGNO Workflow, transforms a PDF file (from a given temporary path) into cleaned text.
 *   **Input:** A PDF file path.
-*   **Output:** A list of cleaned text chunks.
+*   **Output:** A single string of cleaned text.
 *   **Technical Implementation (Python functions/modules):**
-    *   Libraries: `PyMuPDF` (Fitz), `ftfy`, `nltk`, `langchain_text_splitters.RecursiveCharacterTextSplitter`.
+    *   Libraries: `PyMuPDF` (Fitz), `ftfy`.
     *   **Text Cleaning Requirements:**
         *   **Remove Excessive Whitespace:**
             *   Multiple consecutive space characters shall be replaced with a single space.
@@ -64,17 +64,6 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
             *   *Python Example:* `re.sub(r'([a-zA-Z]+)-\\n([a-zA-Z]+)', r'\\1\\2', text)` (This pattern can be refined for more complex cases).
         *   **Fix Text Inconsistencies:** The `ftfy` library should be used to address common text issues like Mojibake and other Unicode inconsistencies.
             *   *Python Example:* `ftfy.fix_text(text)`
-        *   **Advanced Cleaning (using `nltk`):**
-            *   **Sentence Tokenization:** The system shall use NLTK's `sent_tokenize` to split extracted text into individual sentences prior to chunking.
-                *   **Implementation Note:** After initial text extraction and basic cleaning, pass the text to `nltk.sent_tokenize()`.
-            *   **Reasoning:** Sentence tokenization aims to improve the semantic coherence of text chunks for RAG.
-    *   **Text Chunking (for RAG):**
-        *   **Method:** The system shall use `RecursiveCharacterTextSplitter` from `LangChain`.
-        *   **Configuration:**
-            *   `chunk_size`: To be determined (e.g., 500-1000 characters/tokens), need to keep LLM context small enough, but rich enough to be useful.
-            *   `chunk_overlap`: To be determined (e.g., 50-100 characters/tokens), need to keep context chunks joined for sequential processing.
-            *   `separators`: Configured with common structural separators (`["\\n\\n", "\\n", ". ", " ", ""]`).
-        *   **Reasoning:** `RecursiveCharacterTextSplitter` attempts to split text along semantic boundaries, which is beneficial for RAG.
     *   **Error Handling:** Functions shall raise exceptions or return error indicators for PDFs that cannot be parsed, to be handled by the AGNO Workflow.
 
 ### 3.2. AGNO-Based AI Data Extraction Workflow and Agent
@@ -83,27 +72,25 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 *   **AGNO Workflow Definition (`PDFExtractionWorkflow(agno.workflow.Workflow)`):**
     *   **Core Responsibilities:**
         1.  Receive the temporary PDF file path from the API layer.
-        2.  Invoke PDF processing and chunking functions (as defined in Section 3.1) to obtain text chunks.
-        3.  Manage the creation of vector embeddings for all text chunks using a local sentence-transformer model (`BAAI/bge-small-en-v1.5`) via AGNO's `SentenceTransformerEmbedder`, and set up an in-memory vector store (using directly managed `FAISS`).
-        4.  Iterate through predefined logical groups of properties (defined in a configuration accessible to the workflow).
-        5.  For each property group:
-            a.  Iterate through each property within the group. For each property, retrieve its `rag_query` string from the configuration.
-            b.  Embed each property's query and use the vector store to retrieve relevant text chunks (Top-K). All unique chunks retrieved for the group are merged into a single context.
-            c.  Invoke the `PropertyExtractionAgent` with the combined RAG context and the list of properties for the group.
-            d.  Receive JSON output from the `PropertyExtractionAgent`.
-            e.  **Validate Agent Output:** The workflow shall perform a multi-step validation of the agent's output. First, it validates that the output is a structurally correct JSON. If so, it then validates the content against rules defined in the configuration, including:
+        2.  Invoke PDF processing and cleaning functions (as defined in Section 3.1) to obtain a single cleaned text string.
+        3.  Iterate through predefined logical groups of properties (defined in a configuration accessible to the workflow).
+        4.  For each property group:
+            a.  Construct a JSON template for the properties within the group.
+            b.  Invoke the `PropertyExtractionAgent` with the full cleaned text and the JSON template for the group.
+            c.  Receive JSON output from the `PropertyExtractionAgent`.
+            d.  **Validate Agent Output:** The workflow shall perform a multi-step validation of the agent's output. First, it validates that the output is a structurally correct JSON. If so, it then validates the content against rules defined in the configuration, including:
                 *   **Schema Adherence:** Checks that all properties marked as `required` are present and that no unexpected properties are included.
                 *   **Per-Property Rules:** Enforces specific rules for each property's value, such as matching a `regex` pattern or belonging to a predefined `enum` list.
-            f.  If validation fails, initiate a refinement loop (max 3 attempts total for the group): construct a detailed refinement prompt that includes the specific validation errors (e.g., "Missing required property: 'isin_code'", "Value 'XYZ' does not match regex") to guide the `PropertyExtractionAgent`, re-invoke the agent, and re-validate.
-            g.  Store the validated (or best-effort refined) JSON for the group.
-        6.  Aggregate JSON results from all groups.
-        7.  Return the final aggregated JSON data to the API layer.
+            e.  If validation fails, initiate a refinement loop (max 3 attempts total for the group): construct a detailed refinement prompt that includes the specific validation errors (e.g., "Missing required property: 'isin_code'", "Value 'XYZ' does not match regex") to guide the `PropertyExtractionAgent`, re-invoke the agent, and re-validate.
+            f.  Store the validated (or best-effort refined) JSON for the group.
+        5.  Aggregate JSON results from all groups.
+        6.  Return the final aggregated JSON data to the API layer.
     *   **AGNO Components:** The implementation shall utilize `agno.workflow.Workflow` for orchestration and `agno.agent.Agent` for LLM interactions, configured with an appropriate AGNO model integration (`agno.models.openai.OpenAIChat` for Azure OpenAI).
 
 *   **AGNO Agent Definition (`PropertyExtractionAgent`):**
     *   An AGNO `Agent` shall be defined (e.g., as part of the Workflow).
     *   **Core Task:** Given a text context and specific instructions, the Agent shall interact with the configured LLM to produce a JSON string output.
-    *   **Instructions:** The Agent's base instructions shall define its role as an expert in filling a JSON template based on provided text. The prompt will include a few-shot example (with sample input text, a JSON template, and the filled JSON output) to improve accuracy. Specific task details (context, property lists) shall be passed dynamically in the `run` call from the Workflow.
+    *   **Instructions:** The Agent's base instructions shall define its role as an expert in filling a JSON template based on provided text. Specific task details (the full text and the JSON template) shall be passed dynamically in the `run` call from the Workflow.
 
 ### 3.3. Orchestration
 
@@ -114,11 +101,10 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 *   **Accuracy:** The system must achieve high precision in extracting data.
 *   **Configuration:** The following shall be externalized (in Python config files or environment variables):
     *   Azure OpenAI settings for the chat model (API key, endpoint, model deployment name).
-    *   Property group definitions (including RAG queries and property lists) **should be in separate .yaml file**.
+    *   Property group definitions (including property names and descriptions) **should be in separate .yaml file**.
     *   API service settings (e.g., port).
     *   Temporary file directory path.
-    *   Local embedding model path.
-*   **Logging:** Comprehensive logging shall be implemented for all major steps, including API requests, file handling, PDF processing, RAG operations, AGNO Agent invocations (input prompts/context, raw LLM responses), validation outcomes, refinement attempts, and errors. AGNO's logging utilities (e.g., `agno.utils.log.logger`) should be used where appropriate.
+*   **Logging:** Comprehensive logging shall be implemented for all major steps, including API requests, file handling, PDF processing, AGNO Agent invocations (input prompts/context, raw LLM responses), validation outcomes, refinement attempts, and errors. AGNO's logging utilities (e.g., `agno.utils.log.logger`) should be used where appropriate.
 *   **Error Handling:** The system (API layer and AGNO Workflow) shall implement robust error handling and return appropriate HTTP error responses or log failures clearly.
 *   **Security:**
     *   Temporary file storage shall be secure, and files shall be deleted promptly after processing.
@@ -132,9 +118,9 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 ## 5. Data Requirements (To Be Provided by Stakeholders)
 
 *   **Definitive List of All 300+ Fields:** A complete, precise list.
-*   **Property Grouping Definition & RAG Queries:** For each logical group:
+*   **Property Grouping Definition & Descriptions:** For each logical group:
     *   A list of the specific properties it contains.
-    *   Each property must have a hardcoded, specific `rag_query` string for context retrieval.
+    *   Each property must have a `description` string to guide the LLM.
 *   **Sample PDFs:** 5-10 representative PDFs for development/testing.
 *   **Validation Rules:** Specific criteria for each property (e.g., data type, `required` flag, `regex` pattern for format validation, a list of allowed values for an `enum`).
 *   **Gold Standard Data (Highly Recommended):** Manually extracted, validated JSON for sample PDFs.
@@ -147,6 +133,6 @@ The microservice shall expose a REST API endpoint. Upon receiving a PDF file, th
 *   All input PDFs contain selectable text.
 *   Azure OpenAI Service access for the chat model is configured and available.
 *   The embedding model is loaded from a local path.
-*   Field lists, groupings, RAG queries, and validation rules are managed via externalized configuration.
+*   Field lists, groupings, property descriptions, and validation rules are managed via externalized configuration.
 
 ---
