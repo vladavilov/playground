@@ -18,9 +18,6 @@ class AppSettings(BaseSettings):
     AZURE_OPENAI_CHAT_ENDPOINT: str
     AZURE_OPENAI_LLM_MODEL_NAME: str = "gpt-4o"
     
-    # Local Embedding Model Settings
-    EMBEDDING_MODEL_PATH: str = "./embedding_model"
-
     PROPERTY_GROUPS_CONFIG_PATH: Path = Path("config/property_groups.yaml")
     property_groups: list[dict] = Field(default_factory=list)
 
@@ -33,13 +30,6 @@ class AppSettings(BaseSettings):
                 config = yaml.safe_load(f)
                 return config.get("property_groups", [])
         return []
-
-    # Text chunking settings
-    CHUNK_SIZE: int = 1000
-    CHUNK_OVERLAP: int = 200
-
-    # RAG settings
-    TOP_K: int = 3
 
     # Pydantic-settings configuration
     # and to treat environment variable names as case-insensitive (though by default they are case-sensitive on Linux/macOS and case-insensitive on Windows for pydantic-settings).

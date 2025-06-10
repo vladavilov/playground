@@ -1,10 +1,6 @@
 import re
 import unicodedata
 import ftfy
-import nltk
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-from src.config import get_settings
 
 def clean_text(text: str) -> str:
     """
@@ -46,55 +42,3 @@ def clean_text(text: str) -> str:
     text = re.sub(r'\s+([,.!?;:])', r'\1', text)
 
     return text 
-
-def chunk_text(text: str, chunk_size: int = None, chunk_overlap: int = None) -> list[str]:
-    """
-    Splits a given text into smaller chunks based on sentence boundaries.
-
-    This function first tokenizes the text into individual sentences using
-    NLTK's 'punkt' tokenizer. It then uses a RecursiveCharacterTextSplitter
-    to group these sentences into chunks of a specified size with a defined
-    overlap between them.
-
-    The chunk size and overlap can be provided directly or will be taken
-    from the application's configuration if not specified.
-
-    Args:
-        text: The input text string to be chunked.
-        chunk_size: The target maximum size of each chunk (in characters).
-                    Defaults to the value in the application settings.
-        chunk_overlap: The desired overlap between consecutive chunks
-                       (in characters). Defaults to the value in the
-                       application settings.
-
-    Returns:
-        A list of strings, where each string is a text chunk. Returns an
-        empty list if the input text is empty or None.
-    """
-    if not text:
-        return []
-
-    settings = get_settings()
-    
-    # Use provided values or fall back to settings
-    final_chunk_size = chunk_size if chunk_size is not None else settings.CHUNK_SIZE
-    final_chunk_overlap = chunk_overlap if chunk_overlap is not None else settings.CHUNK_OVERLAP
-
-    # First, split the text into sentences
-    sentences = nltk.sent_tokenize(text)
-
-    # Initialize the text splitter
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=final_chunk_size,
-        chunk_overlap=final_chunk_overlap,
-        length_function=len,
-        is_separator_regex=False,
-        separators=["\n\n", "\n", ". ", " ", ""],
-    )
-
-    # Create documents from sentences to feed into the splitter
-    # The splitter works best with a list of documents (strings)
-    chunks = text_splitter.create_documents(sentences)
-    
-    # The splitter returns Document objects, so we extract the page_content
-    return [chunk.page_content for chunk in chunks] 
