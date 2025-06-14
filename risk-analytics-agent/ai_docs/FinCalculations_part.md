@@ -170,6 +170,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
         -   **Maturity:** Within ±2 years of the target bond.
     2.  **Validation:** The group must contain at least 3 comparables. If not, relax filters in this order: 1) Rating (allow ±1 notch), 2) Maturity (widen to ±3 years).
 - **Rating Notch Definition:** To programmatically handle "±1 notch", the following ordinal rating scale **shall** be used. A difference of 1 on this scale is one notch.
+
 | Rating (S&P/Fitch) | Rating (Moody's) | Scale Value |
 |:---|:---|:---|
 | AAA | Aaa | 1 |
@@ -182,7 +183,9 @@ The choice of benchmark is critical and determined by the instrument's type and 
 | BBB+ | Baa1 | 8 |
 | BBB | Baa2 | 9 |
 | BBB- | Baa3 | 10 |
-| *Lower ratings follow a similar pattern* |
+
+*Lower ratings follow a similar pattern*
+
 - **Output:** A list of CUSIPs for the identified peers.
 
 ### 4.3. Formula: Liquidity Score Calculation
