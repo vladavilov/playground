@@ -1,20 +1,27 @@
-# Financial Data Calculation and Modeling
+# Financial Calculation Engine: Requirements Specification
 
-## 1. Purpose
+**Version: 1.0**
+
+## 1. Overview
+
+### 1.1. Purpose
 This document defines the data models, sources, and calculation methodologies required to produce a comprehensive financial data object for a single fixed-income instrument. This process can be executed for the **current, real-time state** or for any **historical date**, providing a consistent output for trend analysis and back-testing. The output object serves as the standardized input for all downstream risk analysis, forecasting, and narrative generation systems.
 
-## 2. Operating Modes
+## 2. System-Level Requirements
+
+### 2.1. Operating Modes
 The calculation service must support two distinct operating modes:
-- **Current Mode:** All input data reflects the most recent, real-time information available.
-- **Historical Mode:** The service accepts a specific date (e.g., "T-10") as a parameter. All input data (`SecurityMaster`, `MarketData`, `TradeHistory`) must be sourced *as of* that specified historical date. The calculation logic remains identical, but the inputs are historical, producing a snapshot of the instrument's characteristics on that day.
+- **FR-01:** The system **shall** operate in **Current Mode**, using the most recent, real-time information available for all inputs.
+- **FR-02:** The system **shall** operate in **Historical Mode**, accepting a specific date as a parameter and sourcing all input data (`SecurityMaster`, `MarketData`, `TradeHistory`) *as of* that specified historical date.
 
-## 3. Input Data Models
-This section defines the raw data structures required from upstream sources. For **Historical Mode**, all data must be retrieved as it was on the specified date.
+### 2.2. Data Sourcing
+- **FR-03:** The system **shall** consolidate input data from the following market-wide data providers: **msrb, trace, bloomberg, ice**.
 
-### 3.1. Sources
-Data must be consolidated from the following market-wide data providers: **msrb, trace, bloomberg, ice**.
+## 3. Data Models & Schemas
 
-### 3.2. SecurityMaster
+### 3.1. Input Models
+
+#### 3.1.1. SecurityMaster Model
 Static reference data for a specific instrument.
 - `cusip`: `string` - Unique identifier for the security.
 - `instrument_type`: `string` - The primary instrument classification. Must be one of: 'MUNI', 'TFI_CORPORATE', 'TFI_TREASURY', 'TFI_AGENCY'.
@@ -32,7 +39,7 @@ Static reference data for a specific instrument.
     - `call_price`: `float`
     - `call_type`: `string` - The exercise type. Must be one of: 'AMERICAN', 'EUROPEAN', 'BERMUDAN', 'NO_CALL'.
 
-### 3.3. MarketData
+#### 3.1.2. MarketData Model
 Real-time market data for a specific instrument and for broader market context.
 - `last_trade_price`: `float`
 - `bid_price`: `float`
@@ -45,8 +52,8 @@ Real-time market data for a specific instrument and for broader market context.
     - `state_tax_receipts_yoy_growth`: `float` - Year-over-year growth in tax receipts for the relevant state. Sourced from state financial reports or rating agency data.
     - `state_budget_surplus_deficit_as_pct_of_gsp`: `float` - The state's budget surplus or deficit as a percentage of Gross State Product. Sourced from state financial reports or rating agency data.
 
-### 3.4. TradeHistory
-A list of individual trade records for a specific instrument over a 20-day look-back period preceding the calculation date. This longer period allows for summaries across multiple time horizons (1-day, 5-day, 20-day).
+#### 3.1.3. TradeHistory Model
+A list of individual trade records for a specific instrument over a 20-day look-back period preceding the calculation date.
 - `trades`: `array` - An array of trade objects, where each object contains:
     - `trade_datetime`: `datetime`
     - `price`: `float`
@@ -55,90 +62,8 @@ A list of individual trade records for a specific instrument over a 20-day look-
     - `counterparty_type`: `string` - The counterparty classification. Must be one of: 'CUSTOMER_BUY', 'CUSTOMER_SELL', 'INTER_DEALER'.
     - `trade_size_category`: `string` - The trade size classification. Must be one of: 'BLOCK' (>=$1MM), 'ROUND_LOT' ($100k-$999k), 'ODD_LOT' (<$100k).
 
-## 4. Risk Feature Calculations
-This section defines the logic for transforming input data into the calculated risk features required by the output model. The choice of benchmark is critical and determined by the instrument's type and tax status:
-- **UST Benchmark:** Used for `instrument_type` in ('TFI_CORPORATE', 'TFI_AGENCY') and for `instrument_type` = 'MUNI' with `tax_status` = 'TAXABLE'.
-- **MMD Benchmark:** Used for `instrument_type` = 'MUNI' with `tax_status` in ('TAX_EXEMPT_FEDERAL', 'AMT', 'TAX_EXEMPT_FEDERAL_AND_STATE').
-- **No Benchmark:** `instrument_type` = 'TFI_TREASURY' instruments are the benchmark themselves; spread-based calculations (OAS, Relative Value) are not applicable and their results shall be 0 or null.
-
-| Feature | Calculation Method | Key Data Inputs |
-|---|---|---|
-| Price | Mid-point of Bid/Ask, or last traded price if unavailable. | MarketData: Bid, Ask, LastTradePrice |
-| YTM | IRR solving for yield given current price and all cash flows to maturity. | SecurityMaster: Coupon, Maturity, Face; MarketData: Price |
-| YTC | IRR solving for yield to each specific call date and call price. | SecurityMaster: CallSchedule; MarketData: Price |
-| YTW | The minimum of the calculated YTM and all calculated YTCs. | Calculated YTM, YTCs |
-| DV01 | Price change of the bond given a one basis point (0.01%) decrease in yield. | SecurityMaster: Cash flows; MarketData: Price |
-| CS01 | Price change of the bond given a one basis point (0.01%) increase in credit spread. | SecurityMaster: Cash flows; MarketData: Price, BenchmarkCurve |
-| OAS | The spread that equates the theoretical price (with options) to the market price, calculated against the appropriate benchmark as defined above. | See Section 4.3 for full detail. |
-| Relative Value (MMD) | (For MUNI instruments using the MMD benchmark) YTW of the bond minus the yield of the MMD benchmark curve at the same duration. | Calculated YTW; MarketData: MMD Curve |
-| Relative Value (UST) | (For all instruments using the UST benchmark) YTW of the bond minus the yield of the UST benchmark curve at the same duration (I-spread). | Calculated YTW; MarketData: UST Curve |
-| Relative Value (Peer) | The bond's OAS minus the average OAS of its identified peer group. | Calculated OAS; Peer Group OAS |
-| Liquidity Score | Composite score based on bid/ask spread, trade volume, and dealer count. | MarketData, Output of Trade History Aggregation |
-| Trade History Summary | Aggregated metrics derived from raw trade data. | See Section 4.4 for full detail. |
-
-### 4.1. Peer Group Identification
-- **Purpose:** To identify a set of comparable bonds for relative value analysis. The peer universe is determined based on the specified calculation date (current or historical).
-- **Logic:**
-    1.  **Filter Criteria:**
-        -   **`instrument_type`:** Must be an exact match.
-        -   **State:** (for `instrument_type` = 'MUNI' only) Exact match.
-        -   **Sector/Industry:** Exact match.
-        -   **Maturity:** Within ±2 years of the target bond.
-    2.  **Validation:** The group must contain at least 3 comparables. If not, relax filters in this order: 1) Rating (allow ±1 notch), 2) Maturity (widen to ±3 years).
-- **Output:** A list of CUSIPs for the identified peers.
-
-### 4.2. Liquidity Score Calculation
-- **Purpose:** To generate a single, normalized score representing an instrument's market liquidity.
-- **Formula:** `Score = 0.4 * (Bid/Ask Spread Score) + 0.4 * (Composite Volume Score) + 0.2 * (Composite Dealer Count Score)`
-- **Component Logic:**
-    - **Bid/Ask Spread Score:** The instrument's current bid/ask spread (in bps) is normalized against its sector average (z-score). This is a point-in-time metric.
-    - **Composite Trade Volume Score:** This is a weighted average of normalized scores from multiple time horizons.
-        - `Score_1d` = z-score of `t1d.total_par_volume` vs. sector average 1-day volume.
-        - `Score_5d` = z-score of `t5d.total_par_volume` vs. sector average 5-day volume.
-        - `Score_20d` = z-score of `t20d.total_par_volume` vs. sector average 20-day volume.
-        - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
-    - **Composite Dealer Count Score:** This is a weighted average of normalized scores from multiple time horizons.
-        - `Score_1d` = z-score of `t1d.unique_dealer_count` vs. sector average 1-day dealer count.
-        - `Score_5d` = z-score of `t5d.unique_dealer_count` vs. sector average 5-day dealer count.
-        - `Score_20d` = z-score of `t20d.unique_dealer_count` vs. sector average 20-day dealer count.
-        - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
-- **Output:** A single float value representing the composite liquidity score.
-
-### 4.3. Option-Adjusted Spread (OAS) Calculation
-- **Purpose:** To calculate the spread over a benchmark yield curve that equates a bond's theoretical price (accounting for embedded call options) to its observed market price.
-- **Input Model:**
-    - `market_price`: `float`
-    - `cash_flows`: `array` (derived from SecurityMaster)
-    - `call_schedule`: `array` (from SecurityMaster, including `call_type`)
-    - `benchmark_yield_curve`: `object` (from MarketData - the appropriate UST or MMD curve as per rules in Section 4)
-    - `interest_rate_volatility`: `float` (derived from the volatility surface in MarketData)
-- **Calculation Method:**
-    1.  This calculation is not performed for `instrument_type` = 'TFI_TREASURY'.
-    2.  A binomial interest rate lattice is constructed based on the instrument's appropriate benchmark yield curve and interest rate volatility. This lattice models the potential paths of future interest rates.
-    3.  The bond's cash flows are valued backwards through the lattice, from maturity to the present.
-    4.  At each node representing a call date, the model checks if the issuer's optimal action is to call the bond based on its `call_type` (e.g., if the bond's price is higher than its call price for an American call). The cash flow is adjusted accordingly.
-    5.  A numerical root-finding solver is used to find the `OAS` value. The `OAS` is the constant spread that, when added to all interest rates in the lattice, makes the calculated present value of the bond equal to its current `market_price`.
-- **Output:** A single float value, `oas_in_bps`.
-
-### 4.4. Trade History Aggregation
-- **Purpose:** To process the raw trade list from the `TradeHistory` input into structured summaries for multiple time horizons (1-day, 5-day, 20-day).
-- **Input:** A list of trade objects from `TradeHistory` for the last 20 trading days.
-- **Output:** The `trade_history_summary` object as defined in the Output Data Model (Section 5), containing `t1d`, `t5d`, and `t20d` sub-objects.
-- **Calculation Logic:**
-    - The following aggregations are performed independently for three filtered lists of trades: those within the last 1 day, 5 days, and 20 days.
-        - `total_par_volume`: Sum of `par_volume` for all trades in the filtered list.
-        - `trade_count`: Total count of trade objects in the filtered list.
-        - `unique_dealer_count`: Count of unique `dealer_id` values from all trades in the filtered list.
-        - `block_trade_par_volume`: Sum of `par_volume` for trades where `trade_size_category` is 'BLOCK'.
-        - `odd_lot_par_volume`: Sum of `par_volume` for trades where `trade_size_category` is 'ODD_LOT'.
-        - `customer_buy_par_volume`: Sum of `par_volume` for trades where `counterparty_type` is 'CUSTOMER_BUY'.
-        - `customer_sell_par_volume`: Sum of `par_volume` for trades where `counterparty_type` is 'CUSTOMER_SELL'.
-        - `high_trade_price`: The maximum `price` from all trades in the filtered list.
-        - `low_trade_price`: The minimum `price` from all trades in the filtered list.
-        - `trade_price_volatility`: Calculated as `(high_trade_price - low_trade_price) / low_trade_price`.
-
-## 5. Output Data Model
-This section defines the final, consolidated JSON object produced by the data processing pipeline. This object is the standard input for all downstream consumers and serves as the definitive schema for generating training, validation, and testing datasets for all downstream GenAI models.
+### 3.2. Output Model: FinancialDataObject
+This section defines the final, consolidated JSON object produced by the data processing pipeline. This object is the standard input for all downstream consumers.
 
 ```json
 {
@@ -224,3 +149,133 @@ This section defines the final, consolidated JSON object produced by the data pr
   }
 }
 ```
+
+## 4. Core Logic & Business Rules
+This section defines the key business logic, formulas, and methodologies for transforming input data into the calculated features.
+
+### 4.1. Business Rule: Benchmark Selection
+The choice of benchmark is critical and determined by the instrument's type and tax status:
+- **BR-01:** The **UST Benchmark** **shall** be used for `instrument_type` in ('TFI_CORPORATE', 'TFI_AGENCY') and for `instrument_type` = 'MUNI' with `tax_status` = 'TAXABLE'.
+- **BR-02:** The **MMD Benchmark** **shall** be used for `instrument_type` = 'MUNI' with `tax_status` in ('TAX_EXEMPT_FEDERAL', 'AMT', 'TAX_EXEMPT_FEDERAL_AND_STATE').
+- **BR-03:** **No Benchmark** is applicable for `instrument_type` = 'TFI_TREASURY'. Spread-based calculations (OAS, Relative Value) are not applicable and their results shall be 0 or null.
+
+### 4.2. Business Rule: Peer Group Identification
+- **BR-04:** A peer group of comparable bonds **shall** be identified for relative value analysis. The peer universe is determined based on the specified calculation date (current or historical).
+- **Logic:**
+    1.  **Filter Criteria:**
+        -   **`instrument_type`:** Must be an exact match.
+        -   **State:** (for `instrument_type` = 'MUNI' only) Exact match.
+        -   **Sector/Industry:** Exact match.
+        -   **Maturity:** Within ±2 years of the target bond.
+    2.  **Validation:** The group must contain at least 3 comparables. If not, relax filters in this order: 1) Rating (allow ±1 notch), 2) Maturity (widen to ±3 years).
+- **Output:** A list of CUSIPs for the identified peers.
+
+### 4.3. Formula: Liquidity Score Calculation
+- **Purpose:** To generate a single, normalized score representing an instrument's market liquidity.
+- **Formula:** `Score = 0.4 * (Bid/Ask Spread Score) + 0.4 * (Composite Volume Score) + 0.2 * (Composite Dealer Count Score)`
+- **Component Logic:**
+    - **Bid/Ask Spread Score:** The instrument's current bid/ask spread (in bps) is normalized against its sector average (z-score). This is a point-in-time metric.
+    - **Composite Trade Volume Score:** This is a weighted average of normalized scores from multiple time horizons.
+        - `Score_1d` = z-score of `t1d.total_par_volume` vs. sector average 1-day volume.
+        - `Score_5d` = z-score of `t5d.total_par_volume` vs. sector average 5-day volume.
+        - `Score_20d` = z-score of `t20d.total_par_volume` vs. sector average 20-day volume.
+        - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
+    - **Composite Dealer Count Score:** This is a weighted average of normalized scores from multiple time horizons.
+        - `Score_1d` = z-score of `t1d.unique_dealer_count` vs. sector average 1-day dealer count.
+        - `Score_5d` = z-score of `t5d.unique_dealer_count` vs. sector average 5-day dealer count.
+        - `Score_20d` = z-score of `t20d.unique_dealer_count` vs. sector average 20-day dealer count.
+        - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
+- **Output:** A single float value representing the composite liquidity score.
+
+### 4.4. Methodology: Option-Adjusted Spread (OAS) Calculation
+- **Purpose:** To calculate the spread over a benchmark yield curve that equates a bond's theoretical price (accounting for embedded call options) to its observed market price.
+- **Input Model:**
+    - `market_price`: `float`
+    - `cash_flows`: `array` (derived from SecurityMaster)
+    - `call_schedule`: `array` (from SecurityMaster, including `call_type`)
+    - `benchmark_yield_curve`: `object` (from MarketData - the appropriate UST or MMD curve as per rule BR-01/BR-02)
+    - `interest_rate_volatility`: `float` (derived from the volatility surface in MarketData)
+- **Calculation Method:**
+    1.  This calculation is not performed for `instrument_type` = 'TFI_TREASURY'.
+    2.  A binomial interest rate lattice is constructed based on the instrument's appropriate benchmark yield curve and interest rate volatility. This lattice models the potential paths of future interest rates.
+    3.  The bond's cash flows are valued backwards through the lattice, from maturity to the present.
+    4.  At each node representing a call date, the model checks if the issuer's optimal action is to call the bond based on its `call_type` (e.g., if the bond's price is higher than its call price for an American call). The cash flow is adjusted accordingly.
+    5.  A numerical root-finding solver is used to find the `OAS` value. The `OAS` is the constant spread that, when added to all interest rates in the lattice, makes the calculated present value of the bond equal to its current `market_price`.
+- **Output:** A single float value, `oas_in_bps`.
+
+### 4.5. Methodology: Trade History Aggregation
+- **Purpose:** To process the raw trade list from the `TradeHistory` input into structured summaries for multiple time horizons (1-day, 5-day, 20-day).
+- **Input:** A list of trade objects from `TradeHistory` for the last 20 trading days.
+- **Output:** The `trade_history_summary` object as defined in the Output Model (Section 3.2).
+- **Calculation Logic:**
+    - The following aggregations are performed independently for three filtered lists of trades: those within the last 1 day, 5 days, and 20 days.
+        - `total_par_volume`: Sum of `par_volume` for all trades in the filtered list.
+        - `trade_count`: Total count of trade objects in the filtered list.
+        - `unique_dealer_count`: Count of unique `dealer_id` values from all trades in the filtered list.
+        - `block_trade_par_volume`: Sum of `par_volume` for trades where `trade_size_category` is 'BLOCK'.
+        - `odd_lot_par_volume`: Sum of `par_volume` for trades where `trade_size_category` is 'ODD_LOT'.
+        - `customer_buy_par_volume`: Sum of `par_volume` for trades where `counterparty_type` is 'CUSTOMER_BUY'.
+        - `customer_sell_par_volume`: Sum of `par_volume` for trades where `counterparty_type` is 'CUSTOMER_SELL'.
+        - `high_trade_price`: The maximum `price` from all trades in the filtered list.
+        - `low_trade_price`: The minimum `price` from all trades in the filtered list.
+        - `trade_price_volatility`: Calculated as `(high_trade_price - low_trade_price) / low_trade_price`.
+
+### 4.6. Methodology: Benchmark Yield Interpolation
+- **Purpose:** To determine the precise benchmark yield for a bond's specific duration when that duration falls between the standard tenors of the benchmark curve.
+- **Method:** The system **shall** use **linear interpolation** to calculate the yield.
+- **Logic:**
+    1. Identify the bond's duration.
+    2. From the appropriate benchmark curve (`UST` or `MMD`), find the two consecutive tenors (`T_lower`, `T_upper`) that bracket the bond's duration. Let their corresponding yields be `Y_lower` and `Y_upper`.
+    3. Calculate the interpolated yield using the following formula:
+       `Interpolated_Yield = Y_lower + ((Bond_Duration - T_lower) * (Y_upper - Y_lower)) / (T_upper - T_lower)`
+- **Edge Case Handling:**
+    - If the bond's duration is less than the shortest tenor on the benchmark curve, the system **shall** use the yield of the shortest tenor.
+    - If the bond's duration is greater than the longest tenor on the benchmark curve, the system **shall** use the yield of the longest tenor.
+    - Extrapolation **shall not** be used.
+
+## 5. Functional Requirements: Feature Calculation
+- **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
+  - **Formula:** `Price = (Bid_Price + Ask_Price) / 2`. If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
+
+- **FR-05:** The system **shall** calculate **Yield to Maturity (YTM)** as the internal rate of return (IRR) solving for the yield given the current price and all cash flows to maturity.
+  - **Formula:** Solve for `y` in the equation: `Market_Price = Σ [C_t / (1 + y/f)^(t)] + [Face_Value / (1 + y/f)^(N)]`
+    - `C_t`: Coupon payment at time `t`
+    - `y`: Yield to Maturity (annualized)
+    - `f`: Payment frequency per year
+    - `N`: Total number of periods to maturity
+    - `t`: Period when cash flow is received
+
+- **FR-06:** The system **shall** calculate **Yield to Call (YTC)** as the IRR solving for yield to each specific call date and call price.
+  - **Formula:** For each call date in the `call_schedule`, solve for `y_c` in the equation: `Market_Price = Σ [C_t / (1 + y_c/f)^(t)] + [Call_Price / (1 + y_c/f)^(N_c)]`
+    - `y_c`: Yield to Call (annualized)
+    - `N_c`: Total number of periods to the call date
+    - `Call_Price`: The price at which the bond can be called
+
+- **FR-07:** The system **shall** calculate **Yield to Worst (YTW)** as the minimum of the calculated YTM and all calculated YTCs.
+  - **Formula:** `YTW = min(YTM, YTC_1, YTC_2, ..., YTC_n)`
+
+- **FR-08:** The system **shall** calculate **DV01** as the price change of the bond given a one basis point (0.01%) decrease in yield.
+  - **Formula:** `DV01 = |Price(y - 0.0001) - Price(y)|`, where `y` is the bond's current yield.
+
+- **FR-09:** The system **shall** calculate **CS01** as the price change of the bond given a one basis point (0.01%) increase in its credit spread.
+  - **Formula:** `CS01 = |Price(spread) - Price(spread + 0.0001)|`, where `spread` is the bond's current credit spread over the benchmark.
+
+- **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.4.
+
+- **FR-11:** The system **shall** calculate **Relative Value** against the appropriate benchmark (MMD or UST) by subtracting the benchmark yield at the same duration from the bond's YTW.
+  - **Formula:** `Relative_Value_bps = (YTW * 100) - Interpolated_Benchmark_Yield_bps`. The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.6.
+
+- **FR-12:** The system **shall** calculate **Relative Value** against the identified peer group by subtracting the average OAS of the peer group from the bond's OAS.
+  - **Formula:** `Relative_Value_vs_Peers_bps = option_adjusted_spread_bps - AVG(peer_OAS_1, ..., peer_OAS_n)`
+
+- **FR-13:** The system **shall** calculate a composite **Liquidity Score** based on the formula in Section 4.3.
+
+- **FR-14:** The system **shall** produce a **Trade History Summary** by aggregating raw trade data as per the methodology in Section 4.5.
+
+## 6. Non-Functional Requirements
+### 6.1. Data Consistency
+- **NFR-DC-01:** Calculations for a given historical date **must** be immutable and reproducible, using the exact data available as of that date's cutoff.
+### 6.2. Accuracy
+- **NFR-AC-01:** All financial calculations (e.g., YTM, OAS, DV01) **must** adhere to industry-standard formulas and achieve a precision of at least 4 decimal places.
+### 6.3. Performance
+- **NFR-PE-01:** In **Current Mode**, the end-to-end calculation for a single instrument **should** complete in under 500ms.
