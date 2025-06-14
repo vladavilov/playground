@@ -1,6 +1,6 @@
 # Financial Calculation Engine: Requirements Specification
 
-**Version: 1.0**
+**Version: 1.1**
 
 ## 1. Overview
 
@@ -44,8 +44,9 @@ Real-time market data for a specific instrument and for broader market context.
 - `last_trade_price`: `float`
 - `bid_price`: `float`
 - `ask_price`: `float`
-- `ust_benchmark_curve`: `object` - U.S. Treasury yields, keyed by tenor. Used as the primary benchmark for instrument types 'TFI_CORPORATE', 'TFI_AGENCY', and for 'MUNI' where tax_status is 'TAXABLE'.
-- `mmd_benchmark_curve`: `object` - MMD yields for munis, keyed by tenor. Used as the primary benchmark for 'MUNI' where tax_status is any value other than 'TAXABLE'.
+- `duration`: `float` - The instrument's effective duration, provided as an input.
+- `ust_benchmark_curve`: `object` - U.S. Treasury yields, keyed by tenor. Used as the primary benchmark for instrument types 'TFI_CORPORATE', 'TFI_AGENCY', and for 'MUNI' where `tax_status` is 'TAXABLE'.
+- `mmd_benchmark_curve`: `object` - MMD yields for munis, keyed by tenor. Used as the primary benchmark for 'MUNI' where `tax_status` is any value other than 'TAXABLE'.
 - `sector_credit_spread_curve`: `object` - A curve of credit spreads for various sectors/industries, used for more specific relative value in TFI.
 - `interest_rate_volatility_surface`: `object` - A matrix of implied volatilities for different tenors and strikes, used for options modeling.
 - `state_level_fiscal_indicators`: `object` - (for `instrument_type` = 'MUNI' only) Populated only for municipal securities.
@@ -168,12 +169,27 @@ The choice of benchmark is critical and determined by the instrument's type and 
         -   **Sector/Industry:** Exact match.
         -   **Maturity:** Within ±2 years of the target bond.
     2.  **Validation:** The group must contain at least 3 comparables. If not, relax filters in this order: 1) Rating (allow ±1 notch), 2) Maturity (widen to ±3 years).
+- **Rating Notch Definition:** To programmatically handle "±1 notch", the following ordinal rating scale **shall** be used. A difference of 1 on this scale is one notch.
+| Rating (S&P/Fitch) | Rating (Moody's) | Scale Value |
+|:---|:---|:---|
+| AAA | Aaa | 1 |
+| AA+ | Aa1 | 2 |
+| AA | Aa2 | 3 |
+| AA- | Aa3 | 4 |
+| A+ | A1 | 5 |
+| A | A2 | 6 |
+| A- | A3 | 7 |
+| BBB+ | Baa1 | 8 |
+| BBB | Baa2 | 9 |
+| BBB- | Baa3 | 10 |
+| *Lower ratings follow a similar pattern* |
 - **Output:** A list of CUSIPs for the identified peers.
 
 ### 4.3. Formula: Liquidity Score Calculation
 - **Purpose:** To generate a single, normalized score representing an instrument's market liquidity.
 - **Formula:** `Score = 0.4 * (Bid/Ask Spread Score) + 0.4 * (Composite Volume Score) + 0.2 * (Composite Dealer Count Score)`
 - **Component Logic:**
+    - All "sector average" metrics (for spread, volume, dealer count) **shall** be calculated by taking the average of that metric across all bonds in the peer group identified in Section 4.2.
     - **Bid/Ask Spread Score:** The instrument's current bid/ask spread (in bps) is normalized against its sector average (z-score). This is a point-in-time metric.
     - **Composite Trade Volume Score:** This is a weighted average of normalized scores from multiple time horizons.
         - `Score_1d` = z-score of `t1d.total_par_volume` vs. sector average 1-day volume.
@@ -187,6 +203,9 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
 - **Output:** A single float value representing the composite liquidity score.
 
+#### 4.3.1. Business Rule: Illiquidity Flag
+- **BR-05:** The `is_illiquid_flag` **shall** be set to `true` if the calculated `liquidity.composite_score` is less than -1.5. This threshold indicates that the instrument's liquidity is significantly below the average of its peer group. Otherwise, the flag **shall** be `false`.
+
 ### 4.4. Methodology: Option-Adjusted Spread (OAS) Calculation
 - **Purpose:** To calculate the spread over a benchmark yield curve that equates a bond's theoretical price (accounting for embedded call options) to its observed market price.
 - **Input Model:**
@@ -194,13 +213,17 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - `cash_flows`: `array` (derived from SecurityMaster)
     - `call_schedule`: `array` (from SecurityMaster, including `call_type`)
     - `benchmark_yield_curve`: `object` (from MarketData - the appropriate UST or MMD curve as per rule BR-01/BR-02)
-    - `interest_rate_volatility`: `float` (derived from the volatility surface in MarketData)
+    - `interest_rate_volatility_surface`: `object` (from MarketData)
 - **Calculation Method:**
     1.  This calculation is not performed for `instrument_type` = 'TFI_TREASURY'.
-    2.  A binomial interest rate lattice is constructed based on the instrument's appropriate benchmark yield curve and interest rate volatility. This lattice models the potential paths of future interest rates.
-    3.  The bond's cash flows are valued backwards through the lattice, from maturity to the present.
-    4.  At each node representing a call date, the model checks if the issuer's optimal action is to call the bond based on its `call_type` (e.g., if the bond's price is higher than its call price for an American call). The cash flow is adjusted accordingly.
-    5.  A numerical root-finding solver is used to find the `OAS` value. The `OAS` is the constant spread that, when added to all interest rates in the lattice, makes the calculated present value of the bond equal to its current `market_price`.
+    2.  An `interest_rate_volatility` float **shall** be derived from the input `interest_rate_volatility_surface`. The logic is as follows:
+        -   The goal is to find the implied volatility that corresponds to the bond's duration at an at-the-money strike.
+        -   From the volatility surface, which is a matrix of tenor and strike, select the volatilities for the 'at-the-money' strike (e.g., strike = 100).
+        -   Using this list of volatilities keyed by tenor, perform a **linear interpolation** to find the volatility at the specific duration of the bond. This is identical to the benchmark yield interpolation logic in Section 4.6.
+    3.  A binomial interest rate lattice is constructed based on the instrument's appropriate benchmark yield curve and the interpolated `interest_rate_volatility` derived in the previous step. This lattice models the potential paths of future interest rates.
+    4.  The bond's cash flows are valued backwards through the lattice, from maturity to the present.
+    5.  At each node representing a call date, the model checks if the issuer's optimal action is to call the bond based on its `call_type` (e.g., if the bond's price is higher than its call price for an American call). The cash flow is adjusted accordingly.
+    6.  A numerical root-finding solver is used to find the `OAS` value. The `OAS` is the constant spread that, when added to all interest rates in the lattice, makes the calculated present value of the bond equal to its current `market_price`.
 - **Output:** A single float value, `oas_in_bps`.
 
 ### 4.5. Methodology: Trade History Aggregation
@@ -255,15 +278,20 @@ The choice of benchmark is critical and determined by the instrument's type and 
   - **Formula:** `YTW = min(YTM, YTC_1, YTC_2, ..., YTC_n)`
 
 - **FR-08:** The system **shall** calculate **DV01** as the price change of the bond given a one basis point (0.01%) decrease in yield.
-  - **Formula:** `DV01 = |Price(y - 0.0001) - Price(y)|`, where `y` is the bond's current yield.
+  - **Formula:** `DV01 = |Price(y - 0.0001) - Price(y)|`, where `y` is the bond's current **Yield to Worst (YTW)**.
 
 - **FR-09:** The system **shall** calculate **CS01** as the price change of the bond given a one basis point (0.01%) increase in its credit spread.
-  - **Formula:** `CS01 = |Price(spread) - Price(spread + 0.0001)|`, where `spread` is the bond's current credit spread over the benchmark.
+  - **Formula Logic:** CS01 measures price sensitivity to credit spread changes. Its calculation requires re-pricing the bond after widening the spread.
+    1.  **Determine the Bond's Discount Rate:** A bond's price is determined by its cash flows and a discount rate. This discount rate is a sum of the benchmark rate and the bond's credit spread.
+    2.  **Calculate the Interpolated Benchmark Yield:** Using the methodology in Section 4.6, calculate the `Interpolated_Benchmark_Yield` for the bond's specific duration from the appropriate benchmark curve. This is a float value (e.g., 0.035).
+    3.  **Calculate the Initial Credit Spread:** The bond's implied credit spread is `Initial_Spread = YTW - Interpolated_Benchmark_Yield`.
+    4.  **Calculate Price with Widened Spread:** Calculate a new theoretical price for the bond (`Price_New`) by discounting all of its cash flows using a new, widened discount rate. The formula for the discount rate at each cash flow is: `New_Discount_Rate = Interpolated_Benchmark_Yield + Initial_Spread + 0.0001`.
+    5.  **Calculate CS01:** The CS01 value is the absolute difference between the bond's current market price and the new theoretical price. `CS01 = |Market_Price - Price_New|`.
 
 - **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.4.
 
 - **FR-11:** The system **shall** calculate **Relative Value** against the appropriate benchmark (MMD or UST) by subtracting the benchmark yield at the same duration from the bond's YTW.
-  - **Formula:** `Relative_Value_bps = (YTW * 100) - Interpolated_Benchmark_Yield_bps`. The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.6.
+  - **Formula:** `Relative_Value_bps = (YTW - Interpolated_Benchmark_Yield) * 10000`. The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.6.
 
 - **FR-12:** The system **shall** calculate **Relative Value** against the identified peer group by subtracting the average OAS of the peer group from the bond's OAS.
   - **Formula:** `Relative_Value_vs_Peers_bps = option_adjusted_spread_bps - AVG(peer_OAS_1, ..., peer_OAS_n)`
@@ -271,6 +299,9 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-13:** The system **shall** calculate a composite **Liquidity Score** based on the formula in Section 4.3.
 
 - **FR-14:** The system **shall** produce a **Trade History Summary** by aggregating raw trade data as per the methodology in Section 4.5.
+
+- **FR-15:** The system **shall** calculate the **Bid/Ask Spread in BPS**.
+  - **Formula:** `bid_ask_spread_bps = (ask_price - bid_price) / ((ask_price + bid_price) / 2) * 10000`
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency
