@@ -54,7 +54,7 @@ Real-time market data for a specific instrument and for broader market context.
     - `state_budget_surplus_deficit_as_pct_of_gsp`: `float` - The state's budget surplus or deficit as a percentage of Gross State Product. Sourced from state financial reports or rating agency data.
 
 #### 3.1.3. TradeHistory Model
-A list of individual trade records for a specific instrument over a 20-day look-back period preceding the calculation date.
+A list of individual trade records for a specific instrument over a 25-calendar-day look-back period preceding the calculation date to ensure sufficient data for 20-trading-day calculations.
 - `trades`: `array` - An array of trade objects, where each object contains:
     - `trade_datetime`: `datetime`
     - `price`: `float`
@@ -93,7 +93,9 @@ This section defines the final, consolidated JSON object produced by the data pr
     "yield_to_worst": "float",
     "dv01": "float",
     "cs01": "float",
-    "option_adjusted_spread_bps": "float"
+    "option_adjusted_spread_bps": "float",
+    "downside_price_volatility_5d": "float",
+    "downside_price_volatility_20d": "float"
   },
   "liquidity": {
     "composite_score": "float",
@@ -275,6 +277,29 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - **Logic:** Retrieve the 10-year MMD yield (`MMD_Yield_10Y`) and the 10-year Treasury yield (`UST_Yield_10Y`).
         - **Formula:** `mmd_ust_ratio_10y = MMD_Yield_10Y / UST_Yield_10Y`
 
+### 4.8. Methodology: Downside Price Volatility Calculation
+- **Purpose:** To calculate the realized downside volatility (or semi-deviation) of an instrument's returns over a trailing window. This metric quantifies downside risk by focusing only on negative price movements.
+- **Inputs:**
+  - `TradeHistory`: `array[object]` - The raw trade history for the lookback window.
+  - `calculation_date` (`T`): `date` - The date for which the volatility is being calculated.
+  - `lookback_window`: `integer` - The number of trading days to include in the calculation (e.g., 5, 20).
+
+**Business Rule: Deriving Daily Closing Prices**
+- **BR-19:** A daily closing price **shall** be derived from the `TradeHistory` data. For each trading day in the lookback period, the closing price is defined as the `price` of the last trade recorded on that calendar day. If no trades occurred on a given trading day, the closing price from the most recent previous day with a trade **shall** be carried forward.
+
+- **Algorithm:**
+  1.  **Derive Daily Price Series:** Following rule **BR-19**, process the `TradeHistory` input to generate a time-series of daily closing prices for the `lookback_window + 1` trading days ending on `calculation_date`. Let this series be `P`.
+  2.  **Calculate Log Returns:** Create a new series, `R`, of `lookback_window` daily logarithmic returns:
+      `R_t = ln(P_t / P_{t-1})`.
+  3.  **Calculate Downside Volatility (Semi-Deviation):** The semi-deviation is calculated as the square root of the semi-variance. The semi-variance is the average of the squared deviations of returns that are below a target (in this case, zero).
+      \[ \sigma_{downside} = \sqrt{\frac{1}{N-1} \sum_{r_i \in R, r_i < 0}^{} (r_i)^2} \]
+      Where:
+      - `N` is the `lookback_window` size (the total number of returns in the period).
+      - `r_i` are the individual log returns in the series `R`. The summation is only over returns less than zero.
+      - We use `N-1` in the denominator for the sample-based calculation, which is standard practice to get an unbiased estimator of the variance.
+- **Output:**
+  - `downside_price_volatility`: `float` - The calculated trailing daily downside volatility.
+
 ## 5. Functional Requirements: Feature Calculation
 - **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
   - **Formula:** `Price = (Bid_Price + Ask_Price) / 2`. If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
@@ -325,6 +350,8 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-16:** The system **shall** calculate the **10Y/2Y U.S. Treasury Yield Curve Slope** as per the methodology in Section 4.7.
 
 - **FR-17:** The system **shall** calculate the **10Y MMD/UST Ratio** as per the methodology in Section 4.7.
+
+- **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.8.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency
