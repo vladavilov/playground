@@ -39,6 +39,7 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 ### 3.1. Architectural Mandate
 - **MDF-AR-01:** As per requirement **MR-NFR-01**, a dedicated **Market Data Ingestion Service** **shall** be implemented and used to source all externally-provided indicators.
 - **MDF-AR-02:** The Market Regime Classification Model **shall not** connect directly to any external data vendor. It **shall** consume data exclusively from the Market Data Ingestion Service.
+- **MDF-AR-03:** The Market Data Ingestion Service **shall** continuously poll and persist all external market indicators into an internal time-series data store.
 
 ### 3.2. Sourcing Requirements
 - **MDF-SR-01:** The Market Data Ingestion Service **shall** source each indicator from the systems and vendors specified in the table below.
@@ -60,8 +61,9 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 ## 4. Data Delivery Contract
 
 ### 4.1. Real-Time Delivery
-- **MDF-DC-01:** For real-time requests, the Market Data Ingestion Service **shall** provide the data via a synchronous API call.
-- **MDF-DC-02:** The API response **shall** conform to the following JSON schema, containing the timestamp of the data and a flat object of the required indicators.
+- **MDF-DC-01:** The service **shall** expose a synchronous API endpoint that accepts a target `date` to retrieve market data.
+- **MDF-DC-02:** Upon receiving a request, the service **shall** query its internal data store and return the latest available set of market indicators recorded on or before the specified `date`.
+- **MDF-DC-03:** The API response **shall** conform to the following JSON schema, where `data_timestamp` reflects the actual timestamp of the retrieved data from the internal store.
 
 ```json
 {
@@ -80,8 +82,8 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 ```
 
 ### 4.2. Historical Delivery
-- **MDF-DC-03:** For historical data requests, the service **shall** provide a file (e.g., CSV) containing a `timestamp` column and a column for each of the eight indicators.
-- **MDF-DC-04:** The column headers in the historical file **shall** exactly match the field names specified in the data dictionary (Section 2.1).
+- **MDF-DC-04:** For historical data requests, the service **shall** provide a file (e.g., CSV) containing a `timestamp` column and a column for each of the eight indicators.
+- **MDF-DC-05:** The column headers in the historical file **shall** exactly match the field names specified in the data dictionary (Section 2.1).
 
 ---
 
