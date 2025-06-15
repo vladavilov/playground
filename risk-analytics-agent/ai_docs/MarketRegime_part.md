@@ -40,20 +40,20 @@ The regime classification model requires the following real-time market indicato
 - `us_cpi_yoy`: `float` - Year-over-year change in the Consumer Price Index.
 
 #### 3.2. Data Sourcing
-- **MR-DS-01:** The input features **shall** be sourced as specified in the table below. For external data, the system's dependency on a dedicated ingestion service is specified in requirement **MR-NFR-01**.
+- **MR-DS-01:** The input features **shall** be sourced as specified in the table below. The `FinancialDataObject` features are provided by the internal `FinCalculations` Engine. All other features are considered external and **shall** be provided by the **Market Data Ingestion Service**, whose requirements are detailed in the `MarketDataFeed_part.md` document.
 
-| Feature Name                     | Source System         | Primary Source / Ticker                                       |
-|:---------------------------------|:----------------------|:--------------------------------------------------------------|
-| `yield_curve_slope_10y2y`        | `FinancialDataObject` | `FinCalculations` Engine                                      |
-| `mmd_ust_ratio_10y`              | `FinancialDataObject` | `FinCalculations` Engine                                      |
-| `vix_index`                      | External Data Vendor  | **CBOE** (e.g., `VIX Index`)                       |
-| `move_index`                     | External Data Vendor  | **ICE/BofA** (e.g., `MOVE Index`)                  |
-| `investment_grade_credit_spread` | External Data Vendor  | **Bloomberg** (e.g., LQD ETF spread vs. Treasury)             |
-| `high_yield_credit_spread`       | External Data Vendor  | **Bloomberg** (e.g., HYG ETF spread vs. Treasury)             |
-| `tips_breakeven_5y`              | External Data Vendor  | **U.S. Treasury / FRED** (Ticker: `T5YIE`)                    |
-| `swap_spread_10y`                | External Data Vendor  | Market Data Aggregator (e.g., **Bloomberg**)       |
-| `muni_fund_flows_net`            | External Data Vendor  | **Refinitiv Lipper** or **ICI**|
-| `us_cpi_yoy`                     | External Data Vendor  | **U.S. Bureau of Labor Statistics (BLS)**                     |
+| Feature Name                     | Source System                    | Primary Source / Ticker                                       |
+|:---------------------------------|:---------------------------------|:--------------------------------------------------------------|
+| `yield_curve_slope_10y2y`        | `FinancialDataObject`            | `FinCalculations` Engine                                      |
+| `mmd_ust_ratio_10y`              | `FinancialDataObject`            | `FinCalculations` Engine                                      |
+| `vix_index`                      | `Market Data Ingestion Service`  | **CBOE** (e.g., `VIX Index`)                       |
+| `move_index`                     | `Market Data Ingestion Service`  | **ICE/BofA** (e.g., `MOVE Index`)                  |
+| `investment_grade_credit_spread` | `Market Data Ingestion Service`  | **Bloomberg** (e.g., LQD ETF spread vs. Treasury)             |
+| `high_yield_credit_spread`       | `Market Data Ingestion Service`  | **Bloomberg** (e.g., HYG ETF spread vs. Treasury)             |
+| `tips_breakeven_5y`              | `Market Data Ingestion Service`  | **U.S. Treasury / FRED** (Ticker: `T5YIE`)                    |
+| `swap_spread_10y`                | `Market Data Ingestion Service`  | Market Data Aggregator (e.g., **Bloomberg**)       |
+| `muni_fund_flows_net`            | `Market Data Ingestion Service`  | **Refinitiv Lipper** or **ICI**|
+| `us_cpi_yoy`                     | `Market Data Ingestion Service`  | **U.S. Bureau of Labor Statistics (BLS)**                     |
 
 ### 4. Output Data: Market Regime Classification
 
@@ -198,7 +198,7 @@ This part covers system-wide constraints related to performance, operation, and 
 - **MR-NFR-04:** In **Historical Mode**, the system **should** be optimized for throughput and be capable of processing at least 10,000 records per minute.
 
 ### 11. Model Governance & Maintenance
-- **MR-NFR-01:** The Agent **shall** rely on a dedicated **Market Data Ingestion Service** to source all externally-provided indicators, as specified in the sourcing table in Section 3.2.
+- **MR-NFR-01:** The Agent **shall** rely on a dedicated **Market Data Ingestion Service** to source all externally-provided indicators. The requirements for this service are defined in the `MarketDataFeed_part.md` document.
 - **MR-NFR-03:** The HMM **must** be periodically retrained and validated.
 - **MR-AI-06:** The model **shall** be retrained on a **semi-annual basis** (every 6 months).
 - **MR-AI-07:** A retraining cycle **shall** also be triggered by a significant structural market event, as determined by the Model Governance committee.
