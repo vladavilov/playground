@@ -2,6 +2,11 @@
 
 **Version: 1.0**
 
+---
+To analyze: 
+tradingeconomics.com
+---
+
 ## 1. Overview
 This document specifies the requirements for a News Sentiment feature that ingests, processes, and serves aggregated news sentiment scores for fixed-income instruments. The system comprises four services for scoring, calculation, historical processing, and on-demand API access. The primary objective is to enhance risk analysis and provide training data for predictive models.
 
