@@ -144,6 +144,10 @@ This section defines the final, consolidated JSON object produced by the data pr
     "peer_group_size": "integer",
     "peer_group_cusips": "array"
   },
+  "market_context": {
+    "yield_curve_slope_10y2y": "float",
+    "mmd_ust_ratio_10y": "float"
+  },
   "state_fiscal_health": {
       "tax_receipts_yoy_growth": "float",
       "budget_surplus_deficit_pct_gsp": "float"
@@ -259,6 +263,18 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - If the bond's duration is greater than the longest tenor on the benchmark curve, the system **shall** use the yield of the longest tenor.
     - Extrapolation **shall not** be used.
 
+### 4.7. Methodology: Market Context Calculation
+- **Purpose:** To calculate broad market indicators using the benchmark curves available to the engine.
+- **Calculations:**
+    - **Yield Curve Slope (10Y-2Y):**
+        - **Input:** `ust_benchmark_curve`
+        - **Logic:** Retrieve the 10-year yield (`Yield_10Y`) and the 2-year yield (`Yield_2Y`) from the curve.
+        - **Formula:** `yield_curve_slope_10y2y = Yield_10Y - Yield_2Y`
+    - **MMD/UST Ratio (10Y):**
+        - **Inputs:** `ust_benchmark_curve`, `mmd_benchmark_curve`
+        - **Logic:** Retrieve the 10-year MMD yield (`MMD_Yield_10Y`) and the 10-year Treasury yield (`UST_Yield_10Y`).
+        - **Formula:** `mmd_ust_ratio_10y = MMD_Yield_10Y / UST_Yield_10Y`
+
 ## 5. Functional Requirements: Feature Calculation
 - **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
   - **Formula:** `Price = (Bid_Price + Ask_Price) / 2`. If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
@@ -305,6 +321,10 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 - **FR-15:** The system **shall** calculate the **Bid/Ask Spread in BPS**.
   - **Formula:** `bid_ask_spread_bps = (ask_price - bid_price) / ((ask_price + bid_price) / 2) * 10000`
+
+- **FR-16:** The system **shall** calculate the **10Y/2Y U.S. Treasury Yield Curve Slope** as per the methodology in Section 4.7.
+
+- **FR-17:** The system **shall** calculate the **10Y MMD/UST Ratio** as per the methodology in Section 4.7.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency
