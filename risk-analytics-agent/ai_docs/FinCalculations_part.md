@@ -1,6 +1,6 @@
 # Financial Calculation Engine: Requirements Specification
 
-**Version: 1.1**
+**Version: 1.2**
 
 ## 1. Overview
 
@@ -94,8 +94,14 @@ This section defines the final, consolidated JSON object produced by the data pr
     "dv01": "float",
     "cs01": "float",
     "option_adjusted_spread_bps": "float",
-    "downside_price_volatility_5d": "float",
-    "downside_price_volatility_20d": "float"
+    "downside_price_volatility_5d": {
+      "metric_type": "string",
+      "value": "float"
+    },
+    "downside_price_volatility_20d": {
+      "metric_type": "string",
+      "value": "float"
+    }
   },
   "liquidity": {
     "composite_score": "float",
@@ -300,6 +306,12 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **Output:**
   - `downside_price_volatility`: `float` - The calculated trailing daily downside volatility.
 
+**Business Rule: Populating `metric_type`**
+- **Purpose:** To provide a human-readable description of the calculation methodology for the downside price volatility metric, selected as trailing 5D or 20D for day-to-day risk monitoring.
+- **BR-20:** The `metric_type` field for each `downside_price_volatility` object **shall** be populated with a string that clearly describes the calculation methodology.
+  - For the 5-day calculation, the value **shall** be `"Trailing 5D Downside Volatility (Log-Returns)"`.
+  - For the 20-day calculation, the value **shall** be `"Trailing 20D Downside Volatility (Log-Returns)"`.
+
 ## 5. Functional Requirements: Feature Calculation
 - **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
   - **Formula:** `Price = (Bid_Price + Ask_Price) / 2`. If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
@@ -352,6 +364,8 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-17:** The system **shall** calculate the **10Y MMD/UST Ratio** as per the methodology in Section 4.7.
 
 - **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.8.
+
+- **FR-19:** The system **shall** populate the `relative_value.peer_group_cusips` field with the list of CUSIPs identified in the peer group process (Section 4.2) and the `relative_value.peer_group_size` field with the count of that list.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency
