@@ -49,11 +49,13 @@ Real-time market data for a specific instrument and for broader market context.
 - `mmd_benchmark_curve`: `object` - MMD yields for munis, keyed by tenor. Used as the primary benchmark for 'MUNI' where `tax_status` is any value other than 'TAXABLE'.
 - `sector_credit_spread_curve`: `object` - A curve of credit spreads for various sectors/industries, used for more specific relative value in TFI.
 - `interest_rate_volatility_surface`: `object` - A matrix of implied volatilities for different tenors and strikes, used for options modeling.
-- `state_level_fiscal_indicators`: `object` - (for `instrument_type` = 'MUNI' only) Populated only for municipal securities.
-    - `state_tax_receipts_yoy_growth`: `float` - Year-over-year growth in tax receipts for the relevant state. Sourced from state financial reports or rating agency data.
-    - `state_budget_surplus_deficit_as_pct_of_gsp`: `float` - The state's budget surplus or deficit as a percentage of Gross State Product. Sourced from state financial reports or rating agency data.
 
-#### 3.1.3. TradeHistory Model
+#### 3.1.3. StateFiscalFeed Model
+- `state_level_fiscal_indicators`: `object` - (for `instrument_type` = 'MUNI' only) Populated only for municipal securities. This object **shall** be retrieved from the `StateFiscalFeed` service for the relevant U.S. state.
+    - `state_tax_receipts_yoy_growth`: `float` - Year-over-year growth in tax receipts for the relevant state.
+    - `state_budget_surplus_deficit_as_pct_of_gsp`: `float` - The state's budget surplus or deficit as a percentage of Gross State Product.
+
+#### 3.1.4. TradeHistory Model
 A list of individual trade records for a specific instrument over a 25-calendar-day look-back period preceding the calculation date to ensure sufficient data for 20-trading-day calculations.
 - `trades`: `array` - An array of trade objects, where each object contains:
     - `trade_datetime`: `datetime`
