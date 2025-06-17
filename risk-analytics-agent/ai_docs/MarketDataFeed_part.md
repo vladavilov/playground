@@ -91,9 +91,4 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 
 ### 5.1. Timeliness & Freshness
 - **MDF-NFR-01:** For the **Real-Time Mode**, the `data_timestamp` for any provided data point **should** be no more than 60 minutes older than the request time.
-- **MDF-NFR-02:** The end-to-end latency for the real-time API call (from request to response) **should** be under 500ms.
-
-### 5.2. Reliability & Availability
-- **MDF-NFR-03:** The Market Data Ingestion Service API **shall** have an availability of 99.9% or higher.
-- **MDF-NFR-04:** The service **shall** implement robust error handling and logging for failures in connecting to or retrieving data from any upstream source.
-- **MDF-NFR-05:** The service **shall** include a health check endpoint for monitoring purposes. 
+- **MDF-NFR-02:** The end-to-end latency for the real-time API call (from request to response) **should** be under 100ms.

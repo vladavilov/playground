@@ -374,5 +374,3 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **NFR-DC-01:** Calculations for a given historical date **must** be immutable and reproducible, using the exact data available as of that date's cutoff.
 ### 6.2. Accuracy
 - **NFR-AC-01:** All financial calculations (e.g., YTM, OAS, DV01) **must** adhere to industry-standard formulas and achieve a precision of at least 4 decimal places.
-### 6.3. Performance
-- **NFR-PE-01:** In **Current Mode**, the end-to-end calculation for a single instrument **should** complete in under 500ms.

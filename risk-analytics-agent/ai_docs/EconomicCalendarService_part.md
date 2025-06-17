@@ -14,7 +14,7 @@ The primary purpose of the Economic Calendar Service is to act as a centralized,
 - **EC-FR-02:** The service **shall** filter events upon ingestion, storing only those that meet the predefined criteria for high market impact.
 - **EC-FR-03:** The service **shall** provide a single API endpoint to retrieve a time-series feature matrix for a given date range.
 - **EC-FR-04:** The service **shall** maintain a historical record of all *filtered* ingested events.
-- **EC-FR-05:** The service **shall** automatically refresh its data on a daily basis.
+- **EC-FR-05:** The service **shall** trigger a data ingestion job **once every 24 hours** to fetch new and updated future events from the external provider (`tradingeconomics.com`). This ensures the calendar data is kept current.
 
 ---
 
@@ -88,9 +88,4 @@ The primary purpose of the Economic Calendar Service is to act as a centralized,
   }
   ```
 
----
-
-## Part 4: Non-Functional Requirements
-
-### 7. Data Freshness
-- **EC-NFR-01:** The service **shall** trigger a data ingestion job **once every 24 hours** to fetch new and updated future events from the external provider (`tradingeconomics.com`). This ensures the calendar data is kept current. 
+--- 
