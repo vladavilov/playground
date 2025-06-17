@@ -76,9 +76,3 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 
 ### 5.1. Timeliness & Freshness
 - **SFF-NFR-01:** Given the low frequency of source data publication (quarterly/annually), the data in the internal store **should** be updated within 5 business days of its publication by the source entity.
-- **SFF-NFR-02:** The end-to-end latency for the API call (from request to response) **should** be under 500ms.
-
-### 5.2. Reliability & Availability
-- **SFF-NFR-03:** The State Fiscal Data Ingestion Service API **shall** have an availability of 99.9% or higher.
-- **SFF-NFR-04:** The service **shall** implement robust error handling and logging for failures in connecting to or retrieving data from any upstream source.
-- **SFF-NFR-05:** The service **shall** include a health check endpoint for monitoring purposes. 
