@@ -124,8 +124,6 @@ This part describes the business logic and mathematical foundations for the clas
 |                            | `investment_grade_credit_spread`    |             N/A             | Special condition: This regime is identified by relative credit spread moves. |
 
 ### 6. Mathematical Formulas & Validation
-- **MR-MF-01:** Key input features **shall** be calculated as:
-  - Yield Curve Slope: \( \text{yield\_curve\_slope\_10y2y} = \text{Yield}_{10Y} - \text{Yield}_{2Y} \)
 - **MR-MF-03:** The final output values **shall** be determined from the HMM's raw probability vector \( P \):
   - \( \text{regime\_label} = \arg\max(P) \)
   - \( \text{confidence\_score} = \max(P) \)
@@ -160,9 +158,19 @@ This part provides a prescriptive guide for developers for training and running 
 1.  **Calculate Global Statistics:** From the training data, calculate the global mean and standard deviation for each indicator.
 2.  **Extract State Means:** From the trained HMM, extract the mean value of each indicator for each of the 6 hidden states.
 3.  **Compute State Z-Scores:** For each state, calculate the z-score of its indicator means relative to the global statistics from Step 1.
-    \[ Z_{S,I} = \frac{\mu_{S,I} - \mu_{I}}{\sigma_{I}} \]
+$$
+Z_{S,I} = \frac{\mu_{S,I} - \mu_{I}}{\sigma_{I}}
+$$
+
+    Where:
+    - \(Z_{S,I}\) is the final **Z-score** for Indicator \(I\) within a specific hidden State \(S\).
+    - \(\mu_{S,I}\) is the **State Mean**: The average value of Indicator \(I\) learned by the HMM for that State.
+    - \(\mu_{I}\) is the **Global Mean**: The average value of Indicator \(I\) across the entire historical dataset.
+    - \(\sigma_{I}\) is the **Global Standard Deviation**: The historical volatility of Indicator \(I\) across the entire dataset.
 4.  **Match to Target Profiles:** For each HMM state, find the regime label from the table in Section 5 that has the minimum Euclidean distance between its target z-score profile and the state's calculated z-score profile.
-    \[ \text{Score}(S, R) = \sqrt{\sum_{I \in R} (Z_{S,I} - T_{R,I})^2} \]
+$$
+\text{Score}(S, R) = \sqrt{\sum_{I \in R} (Z_{S,I} - T_{R,I})^2}
+$$
 5.  **Assign via Optimal Matching:** Use the Hungarian method (or a similar optimal assignment algorithm) on the matrix of all state-to-regime distances to find the lowest-cost global assignment. This produces the final, definitive mapping.
 
 ### 9. Inference Modes
@@ -193,14 +201,9 @@ This part covers system-wide constraints related to performance, operation, and 
 - **MR-SR-01:** The system **shall** support a **Real-Time Mode**, using the most recent market data available to provide an immediate classification.
 - **MR-SR-02:** The system **shall** support a **Historical Mode** for the asynchronous batch processing of historical datasets.
 
-#### 10.2. Performance
-- **MR-NFR-02:** In **Real-Time Mode**, the end-to-end classification for a single observation **should** complete in under 1000ms.
-- **MR-NFR-04:** In **Historical Mode**, the system **should** be optimized for throughput and be capable of processing at least 10,000 records per minute.
-
 ### 11. Model Governance & Maintenance
 - **MR-NFR-01:** The Agent **shall** rely on a dedicated **Market Data Ingestion Service** to source all externally-provided indicators. The requirements for this service are defined in the `MarketDataFeed_part.md` document.
 - **MR-NFR-03:** The HMM **must** be periodically retrained and validated.
 - **MR-AI-06:** The model **shall** be retrained on a **semi-annual basis** (every 6 months).
-- **MR-AI-07:** A retraining cycle **shall** also be triggered by a significant structural market event, as determined by the Model Governance committee.
 - **MR-AI-08:** Following each retraining, the State-to-Label Mapping procedure (detailed in Section 8) **must** be re-executed to ensure the mapping remains valid.
 - **MR-BR-07:** The final mapping of HMM states to `Regime Label`s **shall** be validated and signed-off by a designated subject matter expert (SME) after initial training and after every subsequent retraining.
