@@ -124,10 +124,10 @@ This part describes the business logic and mathematical foundations for the clas
 |                            | `investment_grade_credit_spread`    |             N/A             | Special condition: This regime is identified by relative credit spread moves. |
 
 ### 6. Mathematical Formulas & Validation
-- **MR-MF-03:** The final output values **shall** be determined from the HMM's raw probability vector \( P \):
-  - \( \text{regime\_label} = \arg\max(P) \)
-  - \( \text{confidence\_score} = \max(P) \)
-- **MR-VR-01:** The sum of all probabilities in `regime_probabilities` **shall** sum to 1.0 (with a tolerance of \( \pm 0.01 \)).
+- **MR-MF-03:** The final output values **shall** be determined from the HMM's raw probability vector $P$:
+  - $ \text{regime\_label} = \arg\max(P) $
+  - $ \text{confidence\_score} = \max(P) $
+- **MR-VR-01:** The sum of all probabilities in `regime_probabilities` **shall** sum to 1.0 (with a tolerance of $ \pm 0.01 $).
 - **MR-VR-02:** The `confidence_score` **shall** be a value between 0 and 1.
 
 ---
@@ -163,10 +163,10 @@ Z_{S,I} = \frac{\mu_{S,I} - \mu_{I}}{\sigma_{I}}
 $$
 
     Where:
-    - \(Z_{S,I}\) is the final **Z-score** for Indicator \(I\) within a specific hidden State \(S\).
-    - \(\mu_{S,I}\) is the **State Mean**: The average value of Indicator \(I\) learned by the HMM for that State.
-    - \(\mu_{I}\) is the **Global Mean**: The average value of Indicator \(I\) across the entire historical dataset.
-    - \(\sigma_{I}\) is the **Global Standard Deviation**: The historical volatility of Indicator \(I\) across the entire dataset.
+    - $Z_{S,I}$ is the final **Z-score** for Indicator $I$ within a specific hidden State $S$.
+    - $\mu_{S,I}$ is the **State Mean**: The average value of Indicator $I$ learned by the HMM for that State.
+    - $\mu_{I}$ is the **Global Mean**: The average value of Indicator $I$ across the entire historical dataset.
+    - $\sigma_{I}$ is the **Global Standard Deviation**: The historical volatility of Indicator $I$ across the entire dataset.
 4.  **Match to Target Profiles:** For each HMM state, find the regime label from the table in Section 5 that has the minimum Euclidean distance between its target z-score profile and the state's calculated z-score profile.
 $$
 \text{Score}(S, R) = \sqrt{\sum_{I \in R} (Z_{S,I} - T_{R,I})^2}
