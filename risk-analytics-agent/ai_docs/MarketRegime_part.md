@@ -97,7 +97,7 @@ This part describes the business logic and mathematical foundations for the clas
 - **MR-BR-02:** The system **shall** use a **Hidden Markov Model (HMM)** to perform the classification on the input features defined in Section 3.1.
 - **MR-BR-01:** The system **shall** classify the market into one of the six discrete regimes whose quantitative signatures are defined in the table below.
 
-| Regime Label               | Indicator                           | Target Z-Score (\(T_{R,I}\)) | Economic Signature Interpretation                                           |
+| Regime Label               | Indicator                           | Target Z-Score ($T_{R,I}$) | Economic Signature Interpretation                                           |
 |:---------------------------|:------------------------------------|:---------------------------:|:----------------------------------------------------------------------------|
 | `Bull_Steepener`           | `yield_curve_slope_10y2y`           |            +1.0             | High / Steepening                                                           |
 |                            | `investment_grade_credit_spread`    |            -1.0             | Low / Tightening                                                            |
@@ -124,7 +124,9 @@ This part describes the business logic and mathematical foundations for the clas
 |                            | `investment_grade_credit_spread`    |             N/A             | Special condition: This regime is identified by relative credit spread moves. |
 
 ### 6. Mathematical Formulas & Validation
-- **MR-MF-03:** The final output values **shall** be determined from the HMM's raw probability vector $P$:
+- **MR-MF-01:** Key input features **shall** be calculated as:
+  - Yield Curve Slope: $ \text{yield\_curve\_slope\_10y2y} = \text{Yield}_{10Y} - \text{Yield}_{2Y} $
+- **MR-MF-03:** The final output values **shall** be determined from the HMM's raw probability vector $ P $:
   - $ \text{regime\_label} = \arg\max(P) $
   - $ \text{confidence\_score} = \max(P) $
 - **MR-VR-01:** The sum of all probabilities in `regime_probabilities` **shall** sum to 1.0 (with a tolerance of $ \pm 0.01 $).
@@ -158,19 +160,18 @@ This part provides a prescriptive guide for developers for training and running 
 1.  **Calculate Global Statistics:** From the training data, calculate the global mean and standard deviation for each indicator.
 2.  **Extract State Means:** From the trained HMM, extract the mean value of each indicator for each of the 6 hidden states.
 3.  **Compute State Z-Scores:** For each state, calculate the z-score of its indicator means relative to the global statistics from Step 1.
-$$
-Z_{S,I} = \frac{\mu_{S,I} - \mu_{I}}{\sigma_{I}}
-$$
-
+    ```math
+    Z_{S,I} = \frac{\mu_{S,I} - \mu_{I}}{\sigma_{I}}
+    ```
     Where:
     - $Z_{S,I}$ is the final **Z-score** for Indicator $I$ within a specific hidden State $S$.
     - $\mu_{S,I}$ is the **State Mean**: The average value of Indicator $I$ learned by the HMM for that State.
     - $\mu_{I}$ is the **Global Mean**: The average value of Indicator $I$ across the entire historical dataset.
     - $\sigma_{I}$ is the **Global Standard Deviation**: The historical volatility of Indicator $I$ across the entire dataset.
 4.  **Match to Target Profiles:** For each HMM state, find the regime label from the table in Section 5 that has the minimum Euclidean distance between its target z-score profile and the state's calculated z-score profile.
-$$
-\text{Score}(S, R) = \sqrt{\sum_{I \in R} (Z_{S,I} - T_{R,I})^2}
-$$
+    ```math
+    \text{Score}(S, R) = \sqrt{\sum_{I \in R} (Z_{S,I} - T_{R,I})^2}
+    ```
 5.  **Assign via Optimal Matching:** Use the Hungarian method (or a similar optimal assignment algorithm) on the matrix of all state-to-regime distances to find the lowest-cost global assignment. This produces the final, definitive mapping.
 
 ### 9. Inference Modes
