@@ -130,12 +130,32 @@ The standard output for a single forecast run **shall** conform to the following
   },
   "forecasted_values": [
     {
-      "horizon": "string", // e.g., "1-day", "5-day", "20-day"
+      "horizon": "1-day",
       "credit_spread_oas_bps": "float",
       "bid_ask_spread_pct": "float",
       "probability_negative_news_pct": "float",
       "downside_price_volatility": {
-        "metric_type": "string", // e.g., "5-day VaR", "Expected Shortfall"
+        "metric_type": "1-day VaR",
+        "value": "float"
+      }
+    },
+    {
+      "horizon": "5-day",
+      "credit_spread_oas_bps": "float",
+      "bid_ask_spread_pct": "float",
+      "probability_negative_news_pct": "float",
+      "downside_price_volatility": {
+        "metric_type": "5-day VaR",
+        "value": "float"
+      }
+    },
+    {
+      "horizon": "20-day",
+      "credit_spread_oas_bps": "float",
+      "bid_ask_spread_pct": "float",
+      "probability_negative_news_pct": "float",
+      "downside_price_volatility": {
+        "metric_type": "20-day VaR",
         "value": "float"
       }
     }
@@ -194,7 +214,7 @@ This part provides a guide for developers for training and running the predictio
 This part covers system-wide constraints related to performance, operation, and maintenance.
 
 ### 9. System Requirements
-- **RP-NFR-01:** The model **must** be performant enough to support real-time inference requests with acceptable latency (e.g., < 2 seconds per instrument).
+- **RP-NFR-01:** The model **must** be performant enough to support real-time inference requests with acceptable latency (e.g., < 1 second per instrument).
 - **RP-NFR-02:** The model architecture **must** support explainability.
 - **RP-NFR-03:** The model **must** be periodically retrained on new data to prevent drift and maintain accuracy. Retraining frequency should be evaluated on a quarterly basis.
 - **RP-NFR-04:** The model's predictions **shall** be versioned and logged to allow for reproducibility and auditability.
