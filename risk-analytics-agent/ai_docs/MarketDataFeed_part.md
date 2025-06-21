@@ -21,16 +21,16 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 - **MDF-DR-02:** All indicators **shall** be delivered as `float` data types.
 - **MDF-DR-03:** The feed **shall** guarantee that no values are null or missing. The data ingestion service is responsible for handling any upstream data gaps.
 
-| Field Name                       | Data Type | Description                                                                 |
-|:---------------------------------|:----------|:----------------------------------------------------------------------------|
-| `vix_index`                      | `float`   | CBOE Volatility Index.                                                      |
-| `move_index`                     | `float`   | Merrill Lynch Option Volatility Estimate Index.                             |
-| `investment_grade_credit_spread` | `float`   | The spread of the Bloomberg U.S. Corporate Investment Grade Index.          |
-| `high_yield_credit_spread`       | `float`   | The spread of the Bloomberg U.S. Corporate High Yield Index.                |
-| `tips_breakeven_5y`              | `float`   | The 5-Year TIPS Breakeven Rate.                                             |
-| `swap_spread_10y`                | `float`   | The 10-year U.S. Dollar interest rate swap vs. Treasury spread.             |
-| `muni_fund_flows_net`            | `float`   | Net flows into municipal bond funds.                                        |
-| `us_cpi_yoy`                     | `float`   | Year-over-year change in the Consumer Price Index.                          |
+| Field Name                       | Data Type | Description                                                            | Update Frequency                |
+|:---------------------------------|:----------|:-----------------------------------------------------------------------|---------------------------------|
+| `vix_index`                      | `float`   | CBOE Volatility Index.                                                 | Daily                           |
+| `move_index`                     | `float`   | Merrill Lynch Option Volatility Estimate Index.                        | Real-time during trading hours  |
+| `investment_grade_credit_spread` | `float`   | The spread of the Bloomberg U.S. Corporate Investment Grade Index.     | Daily                           |
+| `high_yield_credit_spread`       | `float`   | The spread of the Bloomberg U.S. Corporate High Yield Index.           | Daily                           |
+| `tips_breakeven_5y`              | `float`   | The 5-Year TIPS Breakeven Rate.                                        | Daily                           |
+| `swap_spread_10y`                | `float`   | The 10-year U.S. Dollar interest rate swap vs. Treasury spread.        | Daily                           |
+| `muni_fund_flows_net`            | `float`   | Net flows into municipal bond funds.                                   | Daily                           |
+| `us_cpi_yoy`                     | `float`   | Year-over-year change in the Consumer Price Index.                     | Monthly, mid-month              |
 
 ---
 
