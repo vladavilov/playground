@@ -314,6 +314,24 @@ The choice of benchmark is critical and determined by the instrument's type and 
   - For the 5-day calculation, the value **shall** be `"Trailing 5D Downside Volatility (Log-Returns)"`.
   - For the 20-day calculation, the value **shall** be `"Trailing 20D Downside Volatility (Log-Returns)"`.
 
+### 4.9. Methodology: Supplemental Data Calculation
+
+#### 4.9.3. Cross-Asset Correlation
+- **Purpose (Trader View):** To understand the instrument's systematic risk and how it behaves relative to broader market benchmarks. A high correlation to a risk asset (like a high-yield ETF) indicates it may not provide diversification benefits in a market sell-off.
+- **Inputs:**
+    - A 60-trading-day time series of the instrument's daily total returns, derived from its price history.
+    - A 60-trading-day time series of a benchmark's daily total returns.
+- **Logic:**
+    1.  Select the appropriate `benchmark_ticker` based on **Business Rule BR-22**.
+    2.  Calculate the 60-day Pearson correlation coefficient between the instrument's return series and the benchmark's return series.
+- **BR-22:** The `benchmark_ticker` for correlation calculation **shall** be selected based on the instrument's `instrument_type` and `sector`:
+    - 'TFI_CORPORATE' (Investment Grade): **LQD**
+    - 'TFI_CORPORATE' (High Yield): **HYG**
+    - 'MUNI': **MUB**
+    - 'TFI_TREASURY' / 'TFI_AGENCY': **GOVT**
+- **Formula (Pearson Correlation):**
+    \[ \rho(R_{bond}, R_{bench}) = \frac{\text{Cov}(R_{bond}, R_{bench})}{\sigma_{R_{bond}} \cdot \sigma_{R_{bench}}} \]
+
 ## 5. Functional Requirements: Feature Calculation
 - **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
   - **Formula:** `Price = (Bid_Price + Ask_Price) / 2`. If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
@@ -368,6 +386,8 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.8.
 
 - **FR-19:** The system **shall** populate the `relative_value.peer_group_cusips` field with the list of CUSIPs identified in the peer group process (Section 4.2) and the `relative_value.peer_group_size` field with the count of that list.
+
+- **FR-22:** The system **shall** calculate the **Cross-Asset Correlation** as per the methodology in Section 4.9.3.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency
