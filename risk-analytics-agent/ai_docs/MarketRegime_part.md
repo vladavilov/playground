@@ -17,6 +17,7 @@ The primary purpose of this feature is to classify the current market state into
 - **MR-FR-03:** The calculated `regime_label` **shall** be explicitly included in the final narrative synthesis provided to the end-user.
 - **MR-FR-04:** The system **shall** provide the full `Market Regime Classification` object (specified in Section 4.1) for all primary use cases.
 - **MR-FR-05:** To support the training of other models, the system **shall** support a **Historical Mode** to perform batch classification on a historical dataset, enriching it with `regime_label` assignments for each observation.
+- **MR-FR-06:** The system **shall** classify the market's volatility into a discrete regime ("Low", "Medium", "High") and provide this as part of its standard output.
 
 ---
 
@@ -60,14 +61,21 @@ This part defines the data contracts for the system, including all inputs and ou
       "Recession_Easing": "float",
       "Idiosyncratic_Distress": "float"
     }
+  },
+  "volatility_classification": {
+    "volatility_regime": "string",
+    "volatility_index_name": "string",
+    "volatility_index_value": "float"
   }
 }
 ```
 
 #### 4.2. Historical Mode Output Schema
-- **MR-DS-03:** For historical batch classification, the output **shall** be a structured data file (e.g., CSV) containing all the columns from the input dataset, with the following two columns appended:
+- **MR-DS-03:** For historical batch classification, the output **shall** be a structured data file (e.g., CSV) containing all the columns from the input dataset, with the following **four** columns appended:
     - `regime_label`: `string` - The assigned regime label for the historical observation.
     - `confidence_score`: `float` - The model's confidence in the assignment.
+    - `volatility_regime`: `string` - The assigned volatility regime for the observation.
+    - `volatility_index_value`: `float` - The value of the VIX index for the observation.
 
 #### 4.3. Output Interpretation
 - **MR-AI-01:** The `regime_label` **shall** be used as the system's best estimate of the market state.
@@ -110,7 +118,17 @@ This part describes the business logic and mathematical foundations for the clas
 |                            | `muni_fund_flows_net`               |            -1.5             | Very Low (Large Muni Outflows)                                              |
 |                            | `high_yield_credit_spread`          |             N/A             | Relative divergence condition defined in **MR-BR-03**.                      |
 
-### 6. Mathematical Formulas & Validation
+### 6. Volatility Regime Calculation
+- **MR-BR-06:** The system **shall** calculate the `volatility_regime` based on the value of the `vix_index` input. The logic **shall** be as follows:
+    - IF `vix_index` < 20, `volatility_regime` = "Low"
+    - IF 20 <= `vix_index` < 30, `volatility_regime` = "Medium"
+    - IF `vix_index` >= 30, `volatility_regime` = "High"
+- **MR-BR-07:** The `volatility_classification` output object **shall** be populated as follows:
+    - `volatility_regime`: The value calculated in **MR-BR-06**.
+    - `volatility_index_name`: The static string "VIX".
+    - `volatility_index_value`: The raw `vix_index` value from the input feed.
+
+### 7. Mathematical Formulas & Validation
 - **MR-MF-01:** The final output values **shall** be determined from the HMM's raw probability vector $ P $:
   - $ \text{regime\_label} = \arg\max(P) $
   - $ \text{confidence\_score} = \max(P) $
@@ -123,12 +141,12 @@ This part describes the business logic and mathematical foundations for the clas
 
 This part provides a prescriptive guide for developers for training and running the HMM.
 
-### 7. Model Training
+### 8. Model Training
 
-#### 7.1. Training Dataset Format
+#### 8.1. Training Dataset Format
 - **MR-IMPL-01:** The training data **shall** be a chronologically sorted CSV or DataFrame with a `timestamp` column and columns for each indicator specified in Section 3.1, with no missing values.
 
-#### 7.2. HMM Configuration for Training
+#### 8.2. HMM Configuration for Training
 - **MR-IMPL-02:** The system **shall** use a Gaussian HMM with the following training configuration:
     - `n_components`: **6**
     - `covariance_type`: **"full"**
@@ -136,7 +154,7 @@ This part provides a prescriptive guide for developers for training and running 
     - `tol`: **1e-4**
     - `random_state`: A fixed integer (e.g., `42`) for reproducibility.
 
-### 8. State-to-Label Mapping
+### 9. State-to-Label Mapping
 - **MR-BR-04:** After the HMM is trained, its anonymous hidden states **must** be mapped to the semantic regime labels (defined in Section 5) using the objective, quantitative z-score methodology detailed here. This ensures reproducibility.
 - **MR-IMPL-03:** The one-time mapping **shall** be executed via the following algorithm to produce a final `state_mapping` dictionary (e.g., `{0: 'Recession_Easing', 1: 'Bull_Steepener', ...}`).
 
@@ -161,21 +179,22 @@ $$
 
 5.  **Assign via Optimal Matching:** Use the Hungarian method (or a similar optimal assignment algorithm) on the matrix of all state-to-regime distances to find the lowest-cost global assignment. This produces the final, definitive mapping.
 
-### 9. Inference Modes
+### 10. Inference Modes
 
-#### 9.1. Real-Time Inference
+#### 10.1. Real-Time Inference
 - **MR-IMPL-04:** The input for real-time classification **shall** be a single observation with feature columns ordered identically to the training data.
 - **MR-IMPL-05:** The real-time inference process **shall** execute as follows:
     1. Pass the input to the trained HMM to get a raw probability array for the 6 hidden states.
     2. Identify the index of the highest probability.
-    3. Use the `state_mapping` dictionary (from Section 8) to look up the `regime_label` for that index.
+    3. Use the `state_mapping` dictionary (from Section 9) to look up the `regime_label` for that index.
     4. Assign the highest probability value to `confidence_score`.
     5. Map the raw probabilities to their corresponding labels to construct the `regime_probabilities` object for the final JSON output (defined in Section 4.1).
+    6. Apply the logic from Section 6 to calculate and populate the `volatility_classification` object.
 
-#### 9.2. Historical (Batch) Inference
+#### 10.2. Historical (Batch) Inference
 - **MR-IMPL-06:** The input for historical batch classification **shall** be a file (e.g., CSV) conforming to the training dataset format defined in **MR-IMPL-01**.
-- **MR-IMPL-07:** The processing logic **shall** iterate through each row of the input dataset, apply the core inference logic (steps 1-4 from **MR-IMPL-05**) to each row, and generate the final output file.
-- **MR-IMPL-08:** The output **shall** be a new file containing the data from the input file plus the appended `regime_label` and `confidence_score` columns, as specified in **MR-DS-03**.
+- **MR-IMPL-07:** The processing logic **shall** iterate through each row of the input dataset, apply the core inference logic (steps 1-4 from **MR-IMPL-05**) and the volatility classification logic (from Section 6) to each row, and generate the final output file.
+- **MR-IMPL-08:** The output **shall** be a new file containing the data from the input file plus the appended `regime_label`, `confidence_score`, `volatility_regime`, and `volatility_index_value` columns, as specified in **MR-DS-03**.
 
 ---
 
@@ -183,8 +202,8 @@ $$
 
 This part covers system-wide constraints related to performance, operation, and maintenance.
 
-### 10. Model Governance & Maintenance
+### 11. Model Governance & Maintenance
 - **MR-NFR-01:** The HMM **must** be periodically retrained and validated.
 - **MR-AI-04:** The model **shall** be retrained on a **semi-annual basis** (every 6 months).
-- **MR-AI-05:** Following each retraining, the State-to-Label Mapping procedure (detailed in Section 8) **must** be re-executed to ensure the mapping remains valid.
+- **MR-AI-05:** Following each retraining, the State-to-Label Mapping procedure (detailed in Section 9) **must** be re-executed to ensure the mapping remains valid.
 - **MR-BR-05:** The final mapping of HMM states to `Regime Label`s **shall** be validated and signed-off by a designated subject matter expert (SME) after initial training and after every subsequent retraining.

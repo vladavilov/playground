@@ -1,7 +1,5 @@
 # Risk Synthesis & Narrative Generation Service
 
-**Version: 4.1**
-
 ---
 
 ## 1. Overview & Purpose
@@ -25,7 +23,26 @@ The process begins with a single, comprehensive input object containing the comp
 {
   "financial_data_object": {
     "cusip": "string",
-    "security_details": { "instrument_type": "string", "state": "string" },
+    "security_details": {
+        "instrument_type": "string",
+        "state": "string",
+        "maturity": "date",
+        "tax_profile": {
+            "is_amt": "boolean",
+            "in_state_tax_exempt": "boolean",
+            "de_minimis_issue": "boolean",
+            "bank_qualified": "boolean"
+        },
+        "issuer_details": {
+            "debt_service_coverage_ratio": "float",
+            "is_dsr_covenant_breached": "boolean"
+        },
+        "call_features": {
+            "is_callable": "boolean",
+            "next_call_date": "date",
+            "next_call_price": "float"
+        }
+    },
     "market_data": { "price": "float", "bid_ask_spread_bps": "float" },
     "calculated_risk_metrics": {
         "yield_to_maturity": "float",
@@ -36,7 +53,14 @@ The process begins with a single, comprehensive input object containing the comp
         "downside_price_volatility_5d": "float",
         "downside_price_volatility_20d": "float"
     },
-    "liquidity": { "composite_score": "float", "is_illiquid_flag": "boolean" },
+    "liquidity": {
+        "composite_score": "float",
+        "is_illiquid_flag": "boolean",
+        "market_depth": {
+            "bid_size_par": "float",
+            "ask_size_par": "float"
+        }
+    },
     "trade_history_summary": {
         "t1d": {
             "trade_price_volatility": "float",
@@ -66,10 +90,16 @@ The process begins with a single, comprehensive input object containing the comp
     }
   },
   "market_regime": {
-    // The full output from the MarketRegime service
+    "data_timestamp": "datetime",
     "regime_classification": {
       "regime_label": "string",
+      "confidence_score": "float",
       "regime_probabilities": { "Bear_Steepener": "float", "...": "..." }
+    },
+    "volatility_classification": {
+      "volatility_regime": "string",
+      "volatility_index_name": "string",
+      "volatility_index_value": "float"
     }
   },
   "news_sentiment": {
@@ -77,6 +107,11 @@ The process begins with a single, comprehensive input object containing the comp
     "top_articles": ["string"] // list of summaries from the top_articles
   },
   "risk_forecasts": {
+    "model_performance": {
+        "negative_news_forecast_accuracy": { "precision": "float", "recall": "float" },
+        "spread_widening_forecast_accuracy": { "precision": "float", "recall": "float" },
+        "volatility_forecast_accuracy": { "precision": "float", "recall": "float" }
+    },
     "forecasted_values": [
       {
         "horizon": "1-day",
@@ -144,8 +179,51 @@ The process begins with a single, comprehensive input object containing the comp
 ### 2.2. Feature: Risk Factor Derivation & Standardization
 The system standardizes the consolidated input into a uniform structure for analysis.
 
-- **SYS-R-03:** The system **shall** transform the `Consolidated Input Data Model` into a standardized `risk_factors` array. Each element in the array represents a distinct risk, normalized to a common 0-1 scale where higher scores indicate higher risk.
-- **SYS-R-03A:** The system **shall** utilize a `risk_normalization_scales` object to define the high-risk thresholds for `dv01` and `cs01` based on instrument class and maturity. This object **shall** be externally configurable.
+- **SYS-R-04:** The system **shall** transform the `Consolidated Input Data Model` into a standardized `risk_factors` array. Each element in the array represents a distinct risk, normalized to a common 0-1 scale where higher scores indicate higher risk.
+- **SYS-R-05:** The system **shall** utilize a `risk_normalization_scales` object to define the high-risk thresholds for `dv01` and `cs01` based on instrument class and maturity. This object **shall** be externally configurable.
+
+#### Risk Factors Data Model
+The `risk_factors` array **shall** contain a series of objects, where each object represents a single, standardized risk factor. The structure for each object **must** conform to the following JSON schema:
+
+```json
+{
+  "risk_type": "string",
+  "description": "string",
+  "score": "float",
+  "evidence": [
+    {
+      "name": "string",
+      "value": "string"
+    }
+  ]
+}
+```
+
+- **`risk_type`**: The standardized name of the risk factor (e.g., "Valuation Risk", "News Risk").
+- **`description`**: A brief, one-sentence explanation of what this risk represents and why it is important.
+- **`score`**: The normalized 0-1 score for the risk, where 1 indicates the highest level of risk.
+- **`evidence`**: An array of key data points that were used to calculate the score. This provides transparency and allows for drill-down analysis.
+    - **`name`**: The human-readable name of the data point (e.g., "Peer Spread vs. Avg (bps)").
+    - **`value`**: The value of the data point, formatted as a string for display (e.g., "18.5", "High", "Concentrated").
+
+**Example:**
+```json
+{
+  "risk_type": "Valuation Risk",
+  "description": "Measures if the instrument is overvalued ('rich') relative to its peers and benchmark.",
+  "score": 0.85,
+  "evidence": [
+    {
+      "name": "Spread vs. Peers (bps)",
+      "value": "22.3"
+    },
+    {
+      "name": "Spread vs. MMD Curve (bps)",
+      "value": "31.7"
+    }
+  ]
+}
+```
 
 #### Risk Normalization Scales Data Model
 This object would typically be loaded from a configuration file at startup.
@@ -211,36 +289,91 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
 2.  Find the correct bucket from `maturity_buckets_years`. For example, with buckets `[5, 15]` and a maturity of 8 years, the instrument falls into the second bucket (5-15 years).
 3.  Select the corresponding threshold from `dv01_high_risk_thresholds` or `cs01_high_risk_thresholds`.
 
-- **SYS-R-04:** The following logic **shall** be used to derive and normalize each risk factor into a standardized 0-1 score:
-    - **Valuation Risk:** This risk quantifies if an instrument is overvalued ("trading rich") relative to its peers and the appropriate market benchmark. A high score indicates significant overvaluation, suggesting a higher risk of price correction. The score is a weighted average of two components: peer relative value and benchmark relative value.
-        - **Component 1: Peer Valuation (`vs_peers_bps`)**
-            - *Logic:* Compares the instrument's yield to a curated group of similar securities. A positive value indicates the instrument is trading at a lower yield (richer) than its peers.
-            - *Threshold for High Risk:* `vs_peers_bps > 15 bps`. A value above 15 bps is considered a strong indicator of overvaluation.
-        - **Component 2: Benchmark Valuation (`vs_mmd_bps` or `vs_ust_bps`)**
-            - *Logic:* The benchmark is selected based on the instrument type: Municipal Market Data (MMD) for `MUNI` instruments and US Treasuries (UST) for `TFI` instruments. A positive value means the instrument is trading rich to its benchmark curve.
-            - *Threshold for High Risk:* A spread vs. the benchmark of `> 25 bps` is considered a strong indicator.
-            - **Score Calculation:** The individual components are normalized and combined into a final score.
+- **SYS-R-06:** The following logic **shall** be used to derive and normalize each risk factor into a standardized 0-1 score:
+    - **Valuation Risk:** This risk quantifies if an instrument is overvalued ("trading rich") relative to its peers and the appropriate market benchmark. A high score indicates significant overvaluation, suggesting a higher risk of price correction. The score is a weighted average of two components: peer relative value and benchmark relative value, with thresholds that adjust based on market volatility.
+        - **SYS-R-06A:** The system **shall** utilize a `valuation_risk_thresholds` object to define the high-risk thresholds for valuation based on the market's volatility regime. This object **shall** be externally configurable.
+
+        #### Valuation Risk Thresholds Data Model
+        This object defines the basis point (bps) spread considered to be "rich" (high risk) under different market volatility regimes.
+        ```json
+        {
+          "valuation_risk_thresholds": {
+            "by_volatility_regime": {
+              "Low":    { "peer_bps": 10, "benchmark_bps": 20 },
+              "Medium": { "peer_bps": 15, "benchmark_bps": 25 },
+              "High":   { "peer_bps": 25, "benchmark_bps": 40 }
+            }
+          }
+        }
+        ```
+        - ***Rationale:*** In low-volatility environments, spreads are typically tighter, so a smaller deviation (`10 bps` vs. peers) is significant. In high-volatility environments, spreads widen across the board, so a much larger deviation (`25 bps` vs. peers) is required to confidently flag a bond as overvalued. The system uses the `market_regime.volatility_classification.volatility_regime` input to select the appropriate set of thresholds.
+
+        - **Score Calculation:** The individual components are normalized using the dynamically selected thresholds and combined into a final score.
             ```math
             \begin{aligned}
+            \text{VolatilityRegime} &= \text{market\_regime.volatility\_classification.volatility\_regime} \\
+            \text{Thresholds} &= \text{LookupThresholds}(\text{VolatilityRegime}, \text{"valuation\_risk\_thresholds"}) \\
+            \\
             \text{BenchmarkSpread} &= \begin{cases} \text{vs\_mmd\_bps} & \text{if instrument\_type is MUNI} \\ \text{vs\_ust\_bps} & \text{if instrument\_type is TFI} \end{cases} \\
-            \text{PeerScore} &= \text{Normalize}(\text{vs\_peers\_bps}, 15) \\
-            \text{BenchmarkScore} &= \text{Normalize}(\text{BenchmarkSpread}, 25) \\
+            \text{PeerScore} &= \text{Normalize}(\text{vs\_peers\_bps}, \text{Thresholds.peer\_bps}) \\
+            \text{BenchmarkScore} &= \text{Normalize}(\text{BenchmarkSpread}, \text{Thresholds.benchmark\_bps}) \\
             \text{ValuationRiskScore} &= (0.6 \cdot \text{PeerScore}) + (0.4 \cdot \text{BenchmarkScore})
             \end{aligned}
             ```
             - *Where the `Normalize(value, threshold)` function scales the input `value` to a 0-1 score, such as `min(max(value, 0) / threshold, 1)`. Negative values (trading cheap) result in a score of 0.*
+        - **Output Definition:**
+            - **`risk_type`**: "Valuation"
+            - **`description`**: "Measures if the instrument is overvalued ('rich') relative to its peers and benchmark, adjusted for market volatility."
+            - **`evidence`**:
+                - `name`: "Spread vs. Peers (bps)", `value`: `financial_data_object.relative_value.vs_peers_bps`
+                - `name`: "Peer Valuation Threshold (bps)", `value`: The looked-up `Thresholds.peer_bps` value.
+                - `name`: "Spread vs. Benchmark (bps)", `value`: The value of `vs_mmd_bps` or `vs_ust_bps` used in the calculation. Name should differ based on what benchmark is used.
+                - `name`: "Benchmark Valuation Threshold (bps)", `value`: The looked-up `Thresholds.benchmark_bps` value.
+                - `name`: `market_regime.volatility_classification.volatility_index_name`, `value`: `market_regime.volatility_classification.volatility_index_name`
+                - `name`: "Volatility Regime", `value`: `market_regime.volatility_classification.volatility_regime`
     - **News Risk:** This risk measures the impact of negative news sentiment surrounding an instrument. The score is derived from `news_sentiment.aggregated_sentiment_score`, which is a sophisticated metric weighted by event type, source credibility, and timeliness. A highly negative score indicates significant risk.
         - *Threshold for High Risk:* An `aggregated_sentiment_score < -0.5` is considered a strong indicator of high risk.
         - *Score Calculation:* The sentiment score is normalized to the standard 0-1 risk scale. Since lower (more negative) sentiment scores represent higher risk, the sign is inverted before normalization.
         ```math
         \text{NewsRiskScore} = \text{Normalize}(-\text{aggregated\_sentiment\_score}, 0.5)
         ```
-    - **Illiquidity Risk:** This risk measures how difficult it might be to trade the instrument at a fair price. It is assessed by categorizing the `liquidity.composite_score` (a z-score of liquidity vs. peers) into distinct levels. The `is_illiquid_flag` (triggered when score is `< -1.5`) is a key input, corresponding to the 'Medium' and 'High' risk tiers.
-        - **Risk Level Definitions:** The `liquidity.composite_score` is mapped to a qualitative risk level as follows:
-            - **High:** `composite_score < -2.0`. Represents extreme illiquidity (more than 2 standard deviations below the peer average).
-            - **Medium:** `-2.0 <= composite_score < -1.0`. Represents significant illiquidity. The `is_illiquid_flag` is typically `true` in this range.
-            - **Low:** `composite_score >= -1.0`. Represents normal liquidity relative to peers.
-        - *Note: This factor provides a qualitative level (High/Medium/Low) instead of a normalized 0-1 score to directly support narrative generation.*
+        - **Output Definition:**
+            - **`risk_type`**: "News Sentiment"
+            - **`description`**: "Measures the risk from negative news sentiment surrounding the instrument, weighted by source credibility and timeliness."
+            - **`evidence`**:
+                - `name`: "Aggregated Sentiment Score", `value`: `news_sentiment.aggregated_sentiment_score`
+                - `name`: "Aggregated Relevant Articles", `value`: `news_sentiment.top_articles`
+    - **Illiquidity Risk:** This risk measures how difficult it might be to trade the instrument at a fair price. The score is a weighted average of two components: its liquidity relative to peers and the absolute, observable market depth.
+        - **Component 1: Relative Liquidity Score (60% weight)**
+            - *Logic:* The `liquidity.composite_score` (a z-score of liquidity vs. peers) is mapped to a qualitative risk level.
+            - *Risk Level Mapping:*
+                - **High:** `composite_score < -2.0`. Score = 0.9
+                - **Medium:** `-2.0 <= composite_score < -1.0`. Score = 0.6
+                - **Low:** `composite_score >= -1.0`. Score = 0.2
+        - **Component 2: Market Depth Score (40% weight)**
+            - *Logic:* The score is derived from the total par value available on the bid and ask sides.
+            - *Risk Level Mapping:*
+                - **High:** `TotalDepth < $250,000`. Score = 0.9
+                - **Medium:** `$250,000 <= TotalDepth < $1,000,000`. Score = 0.5
+                - **Low:** `TotalDepth >= $1,000,000`. Score = 0.1
+        - **Final Score Calculation:**
+        ```math
+        \begin{aligned}
+        \text{RelativeScore} &= \text{MapToScore}(\text{liquidity.composite\_score}) \\
+        \text{TotalDepth} &= \text{liquidity.market\_depth.bid\_size\_par} + \text{liquidity.market\_depth.ask\_size\_par} \\
+        \text{DepthScore} &= \text{MapToScore}(\text{TotalDepth}) \\
+        \\
+        \text{IlliquidityRiskScore} &= (0.6 \cdot \text{RelativeScore}) + (0.4 \cdot \text{DepthScore})
+        \end{aligned}
+        ```
+        - **Output Definition:**
+            - **`risk_type`**: "Illiquidity"
+            - **`description`**: "Measures the difficulty of trading at a fair price, based on a blend of liquidity relative to peers and absolute market depth."
+            - **`score`**: The final `IlliquidityRiskScore`.
+            - **`evidence`**:
+                - `name`: "Liquidity Score vs. Peers (z-score)", `value`: `financial_data_object.liquidity.composite_score`
+                - `name`: "Bid Size (Par)", `value`: `financial_data_object.liquidity.market_depth.bid_size_par`
+                - `name`: "Ask Size (Par)", `value`: `financial_data_object.liquidity.market_depth.ask_size_par`
     - **Volatility Trend Risk:** This risk measures the acceleration of recent price volatility by synthesizing two different standpoints: downside-specific volatility (a forward-looking risk measure) and realized trade price volatility (a backward-looking market measure). A high score indicates that short-term volatility is increasing rapidly, confirmed by multiple sources.
         - *Logic:* The final score is a weighted average of two independently calculated acceleration scores. Each score is derived by comparing the 5-day volatility against its 20-day baseline. A ratio greater than 1 signifies accelerating risk.
         - *Threshold for High Risk:* For each component, a 5-day volatility that is **100% higher** than its 20-day baseline is considered high risk, mapping to a component score of 1.0.
@@ -262,6 +395,14 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
         ```
         - *Where the `Normalize(value, threshold)` function is `min(max(value, 0) / threshold, 1)`. The threshold of `1.0` ensures a 100% increase in volatility maps to the maximum component score.*
         - *A sudden appearance of volatility (where the 20-day baseline is zero) signifies a regime change and is treated as a high-risk event by assigning a component score of 1.0.*
+        - **Output Definition:**
+            - **`risk_type`**: "Volatility Trend"
+            - **`description`**: "Measures the acceleration of recent price volatility by comparing short-term (5d) to long-term (20d) volatility."
+            - **`evidence`**:
+                - `name`: "5d Downside Volatility", `value`: `calculated_risk_metrics.downside_price_volatility_5d`
+                - `name`: "20d Downside Volatility", `value`: `calculated_risk_metrics.downside_price_volatility_20d`
+                - `name`: "5d Trade Volatility", `value`: `trade_history_summary.t5d.trade_price_volatility`
+                - `name`: "20d Trade Volatility", `value`: `trade_history_summary.t20d.trade_price_volatility`
     - **Order Flow Pressure:** This factor measures the direction and magnitude of sustained trading pressure by analyzing net customer order flow. The score ranges from -1 (intense, sustained buying pressure) to +1 (intense, sustained selling pressure), with values near 0 indicating balanced flow. A positive score indicates risk from selling pressure, while a negative score can highlight opportunities or squeeze dynamics.
         - **Step 1: Calculate Net Flows & Average Daily Volume (ADV)**
             - Net Flow (`NF`) is the difference between customer sell and buy volumes for a given period. The `ADV_20d` provides the baseline for typical volume.
@@ -286,9 +427,20 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
             ```math
             \text{OrderFlowPressureScore} = (0.5 \cdot \text{NormFlow}_{20d}) + (0.3 \cdot \text{NormFlow}_{5d}) + (0.2 \cdot \text{NormFlow}_{1d})
             ```
+        - **Output Definition:**
+            - **`risk_type`**: "Order Flow Pressure"
+            - **`description`**: "Measures the direction and magnitude of sustained trading pressure by analyzing net customer order flow. The score ranges from -1 (intense buying pressure) to +1 (intense selling pressure)."
+            - **`score`**: The raw `OrderFlowPressureScore` is used directly, as its full range from -1 to +1 is required for downstream analysis. A positive score indicates risk from selling pressure, while a negative score indicates buying pressure, which is used to detect contradictions (e.g., 'Rich & Squeezing Higher').
+            - **`evidence`**:
+                - `name`: "1d Customer Buy Volume", `value`: `trade_history_summary.t1d.customer_buy_par_volume`
+                - `name`: "1d Customer Sell Volume", `value`: `trade_history_summary.t1d.customer_sell_par_volume`
+                - `name`: "5d Customer Buy Volume", `value`: `trade_history_summary.t5d.customer_buy_par_volume`
+                - `name`: "5d Customer Sell Volume", `value`: `trade_history_summary.t5d.customer_sell_par_volume`
+                - `name`: "20d Customer Buy Volume", `value`: `trade_history_summary.t20d.customer_buy_par_volume`
+                - `name`: "20d Customer Sell Volume", `value`: `trade_history_summary.t20d.customer_sell_par_volume`
     - **State Credit Risk:** (For MUNIs only) This risk is derived from the `state_fiscal_health` indicators from the `financial_data_object`. A high score indicates deteriorating fiscal health. The calculation uses a weighted average of two sub-scores: one for revenue growth and one for the state's budget balance.
         - **Component 1: Tax Receipts Growth Risk (`GrowthScore`)**
-            - *Logic:* This score assesses the risk from changes in year-over-year state tax receipts. Negative growth is a significant red flag.
+            - *Logic:* This score assesses the risk from changes in year-over-year state tax receipts. Negative growth is a significant red flag. (Note: While these buckets provide a clear, simple implementation, a future enhancement could use a continuous function, such as a sigmoid function, for normalization to provide a more granular risk score.)
             - *Score Calculation:* The `state_tax_receipts_yoy_growth` is mapped to a 0-10 risk score.
             ```math
             \text{GrowthScore} = \begin{cases} 1 & \text{if growth > 2\%} \\ 3 & \text{if 0\% < growth} \le \text{2\%} \\ 7 & \text{if -2\% < growth} \le \text{0\%} \\ 10 & \text{if growth} \le \text{-2\%} \end{cases}
@@ -310,6 +462,12 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
                 - *Rationale:* This level indicates that at least one key fiscal indicator is showing weakness. It serves as a warning sign that requires monitoring.
             - **Low Risk:** `StateCreditRiskScore < 0.35`
                 - *Rationale:* The state's fiscal indicators are stable or positive. No risk is triggered.
+        - **Output Definition:**
+            - **`risk_type`**: "State Credit"
+            - **`description`**: "Measures the risk of deteriorating fiscal health for the issuer's state (for municipal bonds only)."
+            - **`evidence`**:
+                - `name`: "Tax Receipts YoY Growth (%)", `value`: `financial_data_object.state_fiscal_health.tax_receipts_yoy_growth`
+                - `name`: "Budget Surplus/Deficit (% of GSP)", `value`: `financial_data_object.state_fiscal_health.budget_surplus_deficit_pct_gsp`
     - **Interest Rate Risk:** This risk measures the instrument's sensitivity to a 1 basis point change in interest rates. A high absolute `dv01` relative to the instrument's class and maturity indicates higher risk. The score is normalized using a configurable threshold.
         - *Logic:* The system retrieves the appropriate `dv01_high_risk_threshold` from the `risk_normalization_scales` configuration based on the instrument's type and maturity. This threshold represents the `dv01` value that corresponds to a maximum risk score of 1.0.
         - *Score Calculation:*
@@ -320,6 +478,12 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
         \end{aligned}
         ```
         - *Where `Normalize(value, threshold)` is `min(value / threshold, 1)`.*
+        - **Output Definition:**
+            - **`risk_type`**: "Interest Rate Sensitivity"
+            - **`description`**: "Measures the instrument's price sensitivity to a 1 basis point change in interest rates (DV01)."
+            - **`evidence`**:
+                - `name`: "DV01", `value`: `financial_data_object.calculated_risk_metrics.dv01`
+                - `name`: "DV01 High Risk Threshold", `value`: The looked-up `dv01_threshold`.
     - **Spread Duration Risk:** This risk measures the instrument's sensitivity to a 1 basis point change in its credit spread. A high absolute `cs01` relative to its peers indicates higher risk. The score is normalized using a configurable threshold.
         - *Logic:* The system retrieves the appropriate `cs01_high_risk_threshold` from the `risk_normalization_scales` configuration based on the instrument's type and maturity. This threshold represents the `cs01` value that corresponds to a maximum risk score of 1.0.
         - *Score Calculation:*
@@ -330,6 +494,12 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
         \end{aligned}
         ```
         - *Where `Normalize(value, threshold)` is `min(value / threshold, 1)`.*
+        - **Output Definition:**
+            - **`risk_type`**: "Credit Spread Sensitivity"
+            - **`description`**: "Measures the instrument's price sensitivity to a 1 basis point change in its credit spread (CS01)."
+            - **`evidence`**:
+                - `name`: "CS01", `value`: `financial_data_object.calculated_risk_metrics.cs01`
+                - `name`: "CS01 High Risk Threshold", `value`: The looked-up `cs01_threshold`.
     - **Predicted Event Risk:** This risk measures the likelihood of a negative news event over multiple time horizons. It is derived by calculating a weighted average of the forecasted probabilities for the 1-day, 5-day, and 20-day periods, giving more weight to the near-term forecast.
         - *Logic:* The score is a weighted average of the `probability_negative_news_pct` from each forecast horizon. A composite score greater than 0.65 can be considered to indicate high risk.
         - *Score Calculation:*
@@ -342,8 +512,17 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
         \text{PredictedEventRiskScore} &= (0.5 \cdot \text{Prob}_{1d}) + (0.3 \cdot \text{Prob}_{5d}) + (0.2 \cdot \text{Prob}_{20d})
         \end{aligned}
         ```
+        - **Output Definition:**
+            - **`risk_type`**: "Predicted Negative Event"
+            - **`description`**: "Measures the model-forecasted probability of a negative news event over multiple time horizons."
+            - **`evidence`**:
+                - `name`: "1d Prob. Negative News (%)", `value`: `risk_forecasts.forecasted_values[0].probability_negative_news_pct`
+                - `name`: "5d Prob. Negative News (%)", `value`: `risk_forecasts.forecasted_values[1].probability_negative_news_pct`
+                - `name`: "20d Prob. Negative News (%)", `value`: `risk_forecasts.forecasted_values[2].probability_negative_news_pct`
+                - *The system shall iterate through the `risk_forecasts.forecast_explainability.feature_attributions.probability_negative_news_pct` array and create an evidence item for each feature, using the format:*
+                - `name`: "Driver: {feature_name}", `value`: "{attribution}"
     - **Predicted Spread Widening Risk:** This risk measures the potential for the instrument's credit spread to increase across multiple time horizons. A high score indicates a significant risk of underperformance due to spread widening.
-        - **SYS-R-04A:** The system **shall** utilize a `predicted_spread_widening_thresholds` object to define the high-risk thresholds for forecasted spread widening based on instrument class. This object **shall** be externally configurable.
+        - **SYS-R-07:** The system **shall** utilize a `predicted_spread_widening_thresholds` object to define the high-risk thresholds for forecasted spread widening based on instrument class. This object **shall** be externally configurable.
 
         #### Predicted Spread Widening Thresholds Data Model
         This object defines the basis point (bps) change in credit spread over a given forecast horizon that is considered high risk (mapping to a normalized score of 1.0).
@@ -369,7 +548,6 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
         3.  Retrieve the `threshold_1d_bps`, `threshold_5d_bps`, and `threshold_20d_bps` for the given class. These values will be used in the `Predicted Spread Widening Risk` calculation.
 
         #### Rationale for Thresholds
-        // ... existing code ...
         - *Logic:* The score is a weighted average of normalized spread changes for each forecast horizon (1d, 5d, 20d). Because a small widening in the short term can be more significant than a larger widening over the long term, each horizon is normalized against a different, configurable threshold that is looked up based on the instrument's class.
         - *Score Calculation:*
         ```math
@@ -388,22 +566,194 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
         \end{aligned}
         ```
         - *Where `Normalize(value, threshold)` is `min(max(value, 0) / threshold, 1)`.*
+        - **Output Definition:**
+            - **`risk_type`**: "Predicted Spread Widening"
+            - **`description`**: "Measures the risk of underperformance due to a model-forecasted increase in the instrument's credit spread."
+            - **`evidence`**:
+                - `name`: "1d Forecast Spread Widening (bps)", `value`: The `Spread_1d` value.
+                - `name`: "1d Spread Widening Threshold (bps)", `value`: The `Thresholds.threshold_1d_bps` value.
+                - `name`: "5d Forecast Spread Widening (bps)", `value`: The `Spread_5d` value.
+                - `name`: "5d Spread Widening Threshold (bps)", `value`: The `Thresholds.threshold_5d_bps` value.
+                - `name`: "20d Forecast Spread Widening (bps)", `value`: The `Spread_20d` value.
+                - `name`: "20d Spread Widening Threshold (bps)", `value`: The `Thresholds.threshold_20d_bps` value.
+                - *The system shall iterate through the `risk_forecasts.forecast_explainability.feature_attributions.credit_spread_oas_bps` array and create an evidence item for each feature, using the format:*
+                - `name`: "Driver: {feature_name}", `value`: "{attribution}"
+                - `name`: "Model Precision", `value`: `risk_forecasts.model_performance.spread_widening_forecast_accuracy.precision`
+                - `name`: "Model Recall", `value`: `risk_forecasts.model_performance.spread_widening_forecast_accuracy.recall`
     - **Predicted Volatility Risk:** This risk measures the forecasted downside price volatility, adjusted for time. VaR estimates from different horizons are not directly comparable, so they are first scaled to a "daily-equivalent" volatility before being scored and combined.
-        - *Logic:* The VaR value for each horizon is divided by the square root of the number of days in its period. These daily-equivalent volatilities are then normalized against a single threshold and combined in a weighted average.
+        - **SYS-R-07A:** The system **shall** utilize a `predicted_volatility_thresholds` object to define the high-risk thresholds for daily-equivalent forecasted volatility based on instrument class. This object **shall** be externally configurable.
+
+        #### Predicted Volatility Thresholds Data Model
+        This object defines the daily-equivalent VaR (%) that is considered high risk (mapping to a normalized score of 1.0). A `0.5%` daily VaR might be trivial for a High-Yield bond but would be catastrophic for a pre-refunded MUNI.
+        ```json
+        {
+          "predicted_volatility_thresholds": {
+            "by_instrument_class": {
+              "MUNI_GO":              { "threshold_daily_equiv_var_pct": 0.3 },
+              "MUNI_REVENUE":         { "threshold_daily_equiv_var_pct": 0.4 },
+              "MUNI_PREREFUNDED":     { "threshold_daily_equiv_var_pct": 0.1 },
+              "CORP_IG":              { "threshold_daily_equiv_var_pct": 0.5 },
+              "CORP_HY":              { "threshold_daily_equiv_var_pct": 1.0 },
+              "US_TREASURY":          { "threshold_daily_equiv_var_pct": 0.2 },
+              "DEFAULT":              { "threshold_daily_equiv_var_pct": 0.6 }
+            }
+          }
+        }
+        ```
+
+        - *Logic:* The VaR value for each horizon is divided by the square root of the number of days in its period. These daily-equivalent volatilities are then normalized against a single, class-specific threshold and combined in a weighted average.
         - *Score Calculation:*
         ```math
         \begin{aligned}
+        \text{VolatilityThreshold} &= \text{LookupThreshold}(\text{instrument\_class}, \text{"volatility"}) \\
+        \\
         \text{DailyEquivVol}_{1d} &= \frac{\text{forecasts.values[0].downside\_price\_volatility.value}}{\sqrt{1}} \\
         \text{DailyEquivVol}_{5d} &= \frac{\text{forecasts.values[1].downside\_price\_volatility.value}}{\sqrt{5}} \\
         \text{DailyEquivVol}_{20d} &= \frac{\text{forecasts.values[2].downside\_price\_volatility.value}}{\sqrt{20}} \\
         \\
-        \text{Score}_{1d} &= \text{Normalize}(\text{DailyEquivVol}_{1d}, \text{Threshold: 0.5\%}) \\
-        \text{Score}_{5d} &= \text{Normalize}(\text{DailyEquivVol}_{5d}, \text{Threshold: 0.5\%}) \\
-        \text{Score}_{20d} &= \text{Normalize}(\text{DailyEquivVol}_{20d}, \text{Threshold: 0.5\%}) \\
+        \text{Score}_{1d} &= \text{Normalize}(\text{DailyEquivVol}_{1d}, \text{VolatilityThreshold}) \\
+        \text{Score}_{5d} &= \text{Normalize}(\text{DailyEquivVol}_{5d}, \text{VolatilityThreshold}) \\
+        \text{Score}_{20d} &= \text{Normalize}(\text{DailyEquivVol}_{20d}, \text{VolatilityThreshold}) \\
         \\
         \text{PredictedVolatilityRiskScore} &= (0.5 \cdot \text{Score}_{1d}) + (0.3 \cdot \text{Score}_{5d}) + (0.2 \cdot \text{Score}_{20d})
         \end{aligned}
         ```
+        - **Output Definition:**
+            - **`risk_type`**: "Predicted Volatility"
+            - **`description`**: "Measures the model-forecasted downside price volatility, adjusted for time."
+            - **`evidence`**:
+                - `name`: "1d Forecasted VaR", `value`: `risk_forecasts.forecasted_values[0].downside_price_volatility.value`
+                - `name`: "5d Forecasted VaR", `value`: `risk_forecasts.forecasted_values[1].downside_price_volatility.value`
+                - `name`: "20d Forecasted VaR", `value`: `risk_forecasts.forecasted_values[2].downside_price_volatility.value`
+                - `name`: "Volatility Normalization Threshold (Daily-Eq.)", `value`: The looked-up `VolatilityThreshold`.
+                - *The system shall iterate through the `risk_forecasts.forecast_explainability.feature_attributions.downside_price_volatility` array and create an evidence item for each feature, using the format:*
+                - `name`: "Driver: {feature_name}", `value`: "{attribution}"
+                - `name`: "Model Precision", `value`: `risk_forecasts.model_performance.volatility_forecast_accuracy.precision`
+                - `name`: "Model Recall", `value`: `risk_forecasts.model_performance.volatility_forecast_accuracy.recall`
+    - **Predicted Liquidity Degradation:** This risk measures the potential for transaction costs to increase due to a forecasted widening of the bid-ask spread.
+        - *Logic:* The score is a weighted average of the forecasted percentage increase in the bid-ask spread over multiple horizons, compared to the current spread. A significant forecasted widening indicates higher risk.
+        - *Score Calculation:*
+        ```math
+        \begin{aligned}
+        \text{Spread}_{\text{current}} &= \frac{\text{market\_data.bid\_ask\_spread\_bps}}{10000} \\
+        \text{Spread}_{\text{1d}} &= \text{risk\_forecasts.forecasted\_values[0].bid\_ask\_spread\_pct} / 100 \\
+        \text{Spread}_{\text{5d}} &= \text{risk\_forecasts.forecasted\_values[1].bid\_ask\_spread\_pct} / 100 \\
+        \text{Spread}_{\text{20d}} &= \text{risk\_forecasts.forecasted\_values[2].bid\_ask\_spread\_pct} / 100 \\
+        \\
+        \text{Widening}_{\text{1d}} &= \text{Spread}_{\text{1d}} - \text{Spread}_{\text{current}} \\
+        \text{Widening}_{\text{5d}} &= \text{Spread}_{\text{5d}} - \text{Spread}_{\text{current}} \\
+        \text{Widening}_{\text{20d}} &= \text{Spread}_{\text{20d}} - \text{Spread}_{\text{current}} \\
+        \\
+        \text{Threshold} &= 0.5 \cdot \text{Spread}_{\text{current}} \\
+        \text{Score}_{1d} &= \text{Normalize}(\text{Widening}_{\text{1d}}, \text{Threshold}) \\
+        \text{Score}_{5d} &= \text{Normalize}(\text{Widening}_{\text{5d}}, \text{Threshold}) \\
+        \text{Score}_{20d} &= \text{Normalize}(\text{Widening}_{\text{20d}}, \text{Threshold}) \\
+        \\
+        \text{PredictedLiquidityRiskScore} &= (0.5 \cdot \text{Score}_{1d}) + (0.3 \cdot \text{Score}_{5d}) + (0.2 \cdot \text{Score}_{20d})
+        \end{aligned}
+        ```
+        - *Where `Normalize(value, threshold)` is `min(max(value, 0) / threshold, 1)`. A 50% increase in spread maps to a component score of 1.0.*
+        - **Output Definition:**
+            - **`risk_type`**: "Predicted Liquidity Degradation"
+            - **`description`**: "Measures the risk of increasing transaction costs due to a forecasted widening of the bid-ask spread."
+            - **`evidence`**:
+                - `name`: "Current Bid-Ask Spread (bps)", `value`: `financial_data_object.market_data.bid_ask_spread_bps`
+                - `name`: "1d Forecast Bid-Ask Spread (%)", `value`: `risk_forecasts.forecasted_values[0].bid_ask_spread_pct`
+                - `name`: "5d Forecast Bid-Ask Spread (%)", `value`: `risk_forecasts.forecasted_values[1].bid_ask_spread_pct`
+                - `name`: "20d Forecast Bid-Ask Spread (%)", `value`: `risk_forecasts.forecasted_values[2].bid_ask_spread_pct`
+    - **Negative Carry:** This risk indicates if the bond's yield is less than the financing cost, resulting in a daily loss if the price does not appreciate.
+        - *Logic:* This is a binary risk factor. Any negative carry is flagged as high risk.
+        - *Score Calculation:* The score is 1.0 if `cost_of_carry_bps` is negative, and 0 otherwise.
+        ```math
+        \text{NegativeCarryScore} = \begin{cases} 1.0 & \text{if supplemental\_data.cost\_of\_carry\_bps < 0} \\ 0.0 & \text{otherwise} \end{cases}
+        ```
+        - **Output Definition:**
+            - **`risk_type`**: "Negative Carry"
+            - **`description`**: "Indicates if the bond's yield is less than the financing cost, resulting in a daily loss if the price does not appreciate."
+            - **`evidence`**:
+                - `name`: "Cost of Carry (bps)", `value`: `supplemental_data.cost_of_carry_bps`
+    - **Ownership Concentration:** This risk measures price fragility due to a small number of entities holding a large percentage of the bond's outstanding issue.
+        - *Logic:* This is a binary risk factor based on the pre-calculated `is_concentrated_flag`.
+        - *Score Calculation:* The score is 1.0 if `is_concentrated_flag` is true, and 0 otherwise.
+        ```math
+        \text{OwnershipConcentrationScore} = \begin{cases} 1.0 & \text{if supplemental\_data.ownership\_concentration.is\_concentrated\_flag} \\ 0.0 & \text{otherwise} \end{cases}
+        ```
+        - **Output Definition:**
+            - **`risk_type`**: "Ownership Concentration"
+            - **`description`**: "Measures the risk of price fragility due to a small number of entities holding a large percentage of the bond's outstanding issue."
+            - **`evidence`**:
+                - `name`: "Top 3 Holders Ownership (%)", `value`: `supplemental_data.ownership_concentration.top_3_holders_pct`
+    - **Market Contagion:** This risk measures the likelihood that the bond's price will be negatively impacted by broader market movements due to high correlation with a major market benchmark.
+        - *Logic:* The risk score is derived from the 60-day correlation to a benchmark asset. A correlation above 0.7 is considered high risk.
+        - *Score Calculation:*
+        ```math
+        \text{MarketContagionScore} = \text{Normalize}(\text{supplemental\_data.cross\_asset\_correlation.correlation\_60d}, 0.7)
+        ```
+        - *Where `Normalize(value, threshold)` is `min(max(value, 0) / threshold, 1)`.*
+        - **Output Definition:**
+            - **`risk_type`**: "Market Contagion"
+            - **`description`**: "Measures the risk that the bond's price will be negatively impacted by broader market movements due to high correlation with a major market benchmark."
+            - **`evidence`**:
+                - `name`: "Benchmark Ticker", `value`: `supplemental_data.cross_asset_correlation.benchmark_ticker`
+                - `name`: "60-day Correlation", `value`: `supplemental_data.cross_asset_correlation.correlation_60d`
+    - **Tax Profile Risk:** (For MUNIs only) This risk quantifies the negative impact of an instrument's tax features on its value to the broadest base of investors. A high score indicates features that limit its appeal (e.g., subject to AMT), potentially justifying a lower price or indicating a narrower, specialized buyer base.
+        - *Logic:* This risk is scored based on a penalty system. Each negative tax feature adds points to a total score, which is then normalized. A bond's attractiveness is highly dependent on its tax status for its natural buyer base. The absence of key favorable features (like in-state exemption or Bank-Qualified status) is a significant risk factor.
+        - *Score Calculation:*
+            ```math
+            \begin{aligned}
+            \text{TaxPenaltyScore} &= 0 \\
+            \text{if is\_amt is true:} & \quad \text{TaxPenaltyScore} += 5 \\
+            \text{if in\_state\_tax\_exempt is false:} & \quad \text{TaxPenaltyScore} += 7 \\
+            \text{if de\_minimis\_issue is true:} & \quad \text{TaxPenaltyScore} += 3 \\
+            \text{if bank\_qualified is false:} & \quad \text{TaxPenaltyScore} += 2 \\
+            \\
+            \text{TaxProfileRiskScore} &= \frac{\text{TaxPenaltyScore}}{17}
+            \end{aligned}
+            ```
+        - **Output Definition:**
+            - **`risk_type`**: "Tax Profile"
+            - **`description`**: "Measures the risk that specific tax features (e.g., AMT, De Minimis, In-State Taxability) could limit the instrument's investor base and negatively impact its value."
+            - **`evidence`**:
+                - `name`: "Subject to AMT", `value`: `financial_data_object.security_details.tax_profile.is_amt`
+                - `name`: "In-State Tax Exempt", `value`: `financial_data_object.security_details.tax_profile.in_state_tax_exempt`
+                - `name`: "De Minimis Issue", `value`: `financial_data_object.security_details.tax_profile.de_minimis_issue`
+                - `name`: "Bank Qualified", `value`: `financial_data_object.security_details.tax_profile.bank_qualified`
+    - **Issuer & Covenant Risk:** (For MUNI Revenue and Corporate bonds) This risk measures the creditworthiness of the specific issuer based on key financial ratios and adherence to bond covenants, rather than relying on broad, state-level metrics.
+        - *Logic:* Risk is assessed based on the Debt Service Coverage Ratio (DSCR). A ratio close to or below 1.0x indicates severe risk, as the issuer may not be generating enough cash to cover its debt payments.
+        - *Threshold for High Risk:* A `debt_service_coverage_ratio < 1.2` is a significant warning sign. A breach of the covenant is a critical risk event.
+        - *Score Calculation:*
+        ```math
+        \text{IssuerCovenantRiskScore} = \begin{cases} 1.0 & \text{if is\_dsr\_covenant\_breached is true} \\
+        \text{NormalizeInverted}((\text{dscr} - 1.0), 0.5) & \text{otherwise} \end{cases}
+        ```
+        - *Where `NormalizeInverted(value, range)` is `1 - min(max(value, 0) / range, 1)`. As DSCR falls from 1.5 towards 1.0, the score rises from 0 towards 1.0.*
+        - **Output Definition:**
+            - **`risk_type`**: "Issuer & Covenant"
+            - **`description`**: "Measures issuer-specific credit risk based on financial health (DSCR) and adherence to debt covenants."
+            - **`evidence`**:
+                - `name`: "Debt Service Coverage Ratio", `value`: `financial_data_object.security_details.issuer_details.debt_service_coverage_ratio`
+                - `name`: "DSR Covenant Breached", `value`: `financial_data_object.security_details.issuer_details.is_dsr_covenant_breached`
+    - **Call Risk:** This risk measures the likelihood that the issuer will redeem the bond before its maturity date, which is especially pertinent in a falling interest rate environment. This can negatively impact a holder's total return by forcing reinvestment at lower rates.
+        - *Logic:* The risk is highest when a callable bond's market price is at or above its next call price, and the next call date is approaching.
+        - *Score Calculation:* The score is a combination of a price factor and a time factor.
+        ```math
+        \begin{aligned}
+        \text{price\_ratio} &= \frac{\text{market\_data.price}}{\text{call\_features.next\_call\_price}} \\
+        \text{PriceScore} &= \text{Normalize}(\text{price\_ratio} - 1.0, 0.03) \\
+        \text{TimeScore} &= \max(1 - \frac{\text{DaysUntil}(\text{next\_call\_date})}{365}, 0) \\
+        \\
+        \text{CallRiskScore} &= \begin{cases} \sqrt{\text{PriceScore} \cdot \text{TimeScore}} & \text{if is\_callable is true} \\ 0 & \text{otherwise} \end{cases}
+        \end{aligned}
+        ```
+        - *Where `Normalize(value, threshold)` is `min(max(value, 0) / threshold, 1)`. A price 3% above the call price gets a max score. `TimeScore` increases as the call date gets closer.*
+        - **Output Definition:**
+            - **`risk_type`**: "Call Risk"
+            - **`description`**: "Measures the risk of the bond being called by the issuer, potentially leading to lower-than-expected returns."
+            - **`evidence`**:
+                - `name`: "Is Callable", `value`: `financial_data_object.security_details.call_features.is_callable`
+                - `name`: "Market Price", `value`: `financial_data_object.market_data.price`
+                - `name`: "Next Call Date", `value`: `financial_data_object.security_details.call_features.next_call_date`
+                - `name`: "Next Call Price", `value`: `financial_data_object.security_details.call_features.next_call_price`
 
 ### 2.2.1. Feature: Supplemental Data Surfacing
 - **SYS-R-05:** The system **shall** surface key supplemental data points in the final output. The following mappings from the `supplemental_data` input object to the `quantitative_risk_factors` output object **shall** be applied, with sample formatting:
@@ -412,36 +762,68 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
     - `cross_asset_correlation` -> `correlation`: e.g., "60d Corr. to HYG: 0.6".
     - `key_covenants` -> `key_covenants`: Formatted as a comma-separated string.
 
-### 2.3. Feature: Evidence Extraction & Conflict Detection
-The system extracts key data points to identify and score conflicts between market signals and the derived fundamental risk factors.
+### 2.2.2 Feature: Market Regime Contextualization
+This feature uses the overall market regime, as determined by the `MarketRegime` service, to provide context and dynamically adjust risk scores and narrative focus.
 
-- **SYS-R-06:** The system **shall** calculate a `conflict_score` for the instrument based on the generalized `Conflict Scoring Algorithm`, using the derived `risk_factors` from feature 2.2.
-- **SYS-R-07:** Any detected conflicts, along with their scores and primary contributing risk factor, **must** be explicitly identified and reported in the `conflicts` field of the final output. (See **Feature 2.6**)
-- **SYS-R-08:** To provide qualitative evidence for the `News Risk` score, the system **shall** list of summaries from `news_sentiment.top_articles`. This excerpt **shall** be made available for inclusion in the `key_evidence` section of the output.
+- **SYS-R-08**: The system **shall** use the `market_regime.regime_label` as a contextual multiplier to adjust specific, calculated `risk_factors` scores. The regime acts as an amplifier or dampener for risks that are particularly sensitive to the prevailing market environment.
+- **SYS-R-09**: The system **shall** apply the following adjustments based on the detected market regime:
 
+    #### Bearish Rate Regimes
+    - **IF** `regime_label` is `Bear_Steepener` or `Bear_Flattener`:
+        - `InterestRateRiskScore` **shall** be amplified by a factor of **1.25**.
+        - `CallRiskScore` **shall** be dampened by a factor of **0.8**.
+        - *Rationale:* In a rising rate environment, sensitivity to interest rate changes (DV01) is the most critical risk. Conversely, the probability of a bond being called decreases, dampening call risk.
+
+    #### Bullish Rate Regimes
+    - **IF** `regime_label` is `Bull_Steepener`, `Bull_Flattener`, or `Recession_Easing`:
+        - `InterestRateRiskScore` **shall** be dampened by a factor of **0.8**.
+        - `CallRiskScore` **shall** be amplified by a factor of **1.3**.
+        - *Rationale:* In a falling rate environment, high duration becomes a positive attribute, reducing the immediate risk. Conversely, the probability of a bond being called increases significantly, amplifying the risk.
+
+    #### Risk-Off Credit Regimes
+    - **IF** `regime_label` is `Bear_Steepener`, `Bear_Flattener`, or `Bull_Flattener`:
+        - `SpreadDurationRiskScore` and `PredictedSpreadWideningRiskScore` **shall** be amplified by a factor of **1.3**.
+        - `MarketContagionRiskScore` **shall** be amplified by a factor of **1.5**.
+        - `CallRiskScore` **shall** be amplified by a factor of **1.3**.
+        - *Rationale:* In a flight-to-quality or general risk-off environment, credit risk is severely punished and correlations to broader markets spike.
+
+    #### Risk-On Credit Regimes
+    - **IF** `regime_label` is `Bull_Steepener` or `Recession_Easing`:
+        - `SpreadDurationRiskScore` and `PredictedSpreadWideningRiskScore` **shall** be dampened by a factor of **0.85**.
+        - `IlliquidityRisk` score **shall** be dampened by a factor of **0.8**.
+        - `CallRiskScore` **shall** be amplified by a factor of **1.3**.
+        - *Rationale:* In a risk-seeking environment, credit spreads tend to tighten and liquidity improves, making these risks less acute.
+
+    #### Neutral Regimes
+    - **IF** `regime_label` is `Idiosyncratic_Distress`:
+        - No risk score adjustments **shall** be applied.
+        - *Rationale:* This regime implies that risk is specific to the asset or its sector, and broad macro-based adjustments are not applicable.
 
 ### 2.4. Feature: Cross-Factor Confirmation & Contradiction Analysis
 This feature provides deeper, non-obvious insights by analyzing the relationships *between* different risk factors, moving beyond a single conflict score.
 
-- **SYS-R-09:** The system **shall** implement a rule-based engine to detect pre-defined patterns of confirmation and contradiction among the derived `risk_factors`.
-- **SYS-R-10:** The engine **shall** evaluate the following patterns:
+- **SYS-R-13:** The system **shall** implement a rule-based engine to detect pre-defined patterns of confirmation and contradiction among the derived `risk_factors`.
+- **SYS-R-14:** The engine **shall** evaluate the following patterns:
     - **Confirmation (Fundamental + Forecast):** Detects when a current fundamental weakness is predicted to worsen.
         - *Logic:* `Valuation Risk Score > 0.7` AND `Predicted Spread Widening Risk Score > 0.7`.
         - *Output Insight:* "Instrument is trading rich and models forecast further spread widening, confirming valuation concerns."
+    - **Confirmation (Covenant Pressure):** Detects when deteriorating issuer fundamentals are confirmed by predictive models.
+        - *Logic:* `Issuer & Covenant Risk Score > 0.7` AND `Predicted Spread Widening Risk Score > 0.7`.
+        - *Output Insight:* "Deteriorating issuer-level metrics, like a declining debt coverage ratio, are confirmed by models forecasting significant spread widening."
     - **Confirmation (Volatility Cluster):** Detects when recent and predicted volatility are both high.
         - *Logic:* `Volatility Trend Risk Score > 0.7` AND `Predicted Volatility Risk Score > 0.7`.
         - *Output Insight:* "Accelerating realized volatility is confirmed by forecasts, suggesting a sustained high-risk volatility regime."
     - **Contradiction (Sentiment vs. Flow):** Detects when positive news is met with heavy selling.
-        - *Logic:* `News Risk Score < 0.3` (i.e., positive sentiment) AND `Order Flow Imbalance Risk Score > 0.7`.
+        - *Logic:* `News Risk Score < 0.3` (i.e., positive sentiment) AND `Order Flow Pressure Score > 0.7`.
         - *Output Insight:* "Despite positive news sentiment, order flows show significant net selling, indicating market participants may be disbelieving the news or using it as a liquidity event."
     - **Contradiction (Credit vs. Forecast):** Detects when strong state-level fundamentals are contradicted by negative model forecasts.
         - *Logic:* `State Credit Risk Score < 0.3` AND `Predicted Event Risk Score > 0.7`.
         - *Output Insight:* "While state fiscal health appears strong, predictive models are flagging a high probability of a negative event, suggesting a potential disconnect or forward-looking risk not yet in fundamental data."
     - **Confirmation (Falling Knife):** Detects when accelerating price instability is met with heavy selling pressure.
-        - *Logic:* `Volatility Trend Risk Score > 0.7` AND `Order Flow Imbalance Risk Score > 0.7`.
+        - *Logic:* `Volatility Trend Risk Score > 0.7` AND `Order Flow Pressure Score > 0.7`.
         - *Output Insight:* "Price instability is accelerating amidst heavy, persistent selling pressure, suggesting sellers are becoming more aggressive and are willing to accept lower prices."
     - **Confirmation (Smart Money):** Detects when institutional selling pressure is validated by predictive models.
-        - *Logic:* `Order Flow Imbalance Risk Score > 0.7` AND `Predicted Spread Widening Risk Score > 0.7`.
+        - *Logic:* `Order Flow Pressure Score > 0.7` AND `Predicted Spread Widening Risk Score > 0.7`.
         - *Output Insight:* "Persistent selling by market participants is confirmed by models forecasting significant spread widening, suggesting the negative sentiment is well-founded."
     - **Contradiction (Deceptive Calm):** Detects when a quiet market masks a high probability of future volatility.
         - *Logic:* `Volatility Trend Risk Score < 0.3` AND `Predicted Volatility Risk Score > 0.7`.
@@ -452,13 +834,25 @@ This feature provides deeper, non-obvious insights by analyzing the relationship
     - **Contradiction (Rich & Squeezing Higher):** Detects when an already overvalued instrument is subject to extreme buying pressure.
         - *Logic:* `Valuation Risk Score > 0.7` AND `OrderFlowPressureScore < -0.7`.
         - *Output Insight:* "Instrument is already trading rich to its peers, but persistent, strong buying pressure continues. This could indicate a short squeeze, asset scarcity, or a large, non-economic buyer forcing the price higher."
-- **SYS-R-11:** Detected patterns **shall** be stored in a `pattern_analysis` array within the final output object, including the pattern type, a description of the finding, and the contributing factors.
+    - **Contradiction (Tax-Driven Value):** Detects when a bond appears overvalued but has a highly favorable tax status.
+        - *Logic:* `Valuation Risk Score > 0.7` AND `Tax Profile Risk Score < 0.2`.
+        - *Output Insight:* "The 'rich' valuation is likely justified by its highly favorable tax status (e.g., non-AMT, in-state exempt), which attracts a specific and less price-sensitive buyer base."
+    - **Confirmation (Bottom Fishing / Contrarian Buying):** Detects when market participants are buying into weakness.
+        - *Logic:* `(Issuer & Covenant Risk Score > 0.7 OR State Credit Risk Score > 0.7)` AND `Order Flow Pressure Score < -0.7`.
+        - *Output Insight:* "Despite deteriorating fundamentals (e.g., low DSCR or poor state finances), order flow shows persistent net buying. This may indicate some market participants believe the risks are fully priced in and are buying on weakness, potentially seeing value where others see risk."
+    - **Contradiction (Value Trap / Negative Carry):** Detects when a 'cheap' bond's low price is offset by its negative carry.
+        - *Logic:* `Valuation Risk Score < 0.2` AND `Negative Carry Score == 1.0`.
+        - *Output Insight:* "The bond appears cheap relative to its peers, but its negative cost of carry will erode total return unless its price appreciates. This could be a value trap if spreads fail to tighten."
+    - **Contradiction (Technicals vs. Fundamentals Divergence):** Detects when market appetite contradicts model-based forecasts.
+        - *Logic:* `(Predicted Spread Widening Risk Score > 0.7 OR Predicted Event Risk Score > 0.7)` AND `OrderFlowPressureScore < -0.7`.
+        - *Output Insight:* "Predictive models are forecasting significant spread widening or a negative event, yet order flow shows strong, persistent buying pressure. This highlights a sharp divergence between model-based forecasts and current market appetite."
+- **SYS-R-15:** Detected patterns **shall** be stored in a `pattern_analysis` array within the final output object, including the pattern type, a description of the finding, and the contributing factors.
 
-### 2.6. Feature: Final Output Assembly
+### 2.5. Feature: Final Output Assembly
 The system populates the final user-facing output by combining raw quantitative data with the LLM-generated narrative.
 
-- **SYS-R-15:** The final output **must** conform to the structured `Output Data Model`.
-- **SYS-R-16:** The Agent **must** provide explainable, structured, and actionable output to ensure trader trust and usability, as rendered in the `Output Display Template`.
+- **SYS-R-16:** The final output **must** conform to the structured `Output Data Model`.
+- **SYS-R-17:** The Agent **must** provide explainable, structured, and actionable output to ensure trader trust and usability, as rendered in the `Output Display Template`.
 
 #### Output Data Model
 The feature's output **shall** conform to the following structured JSON schema.
@@ -491,7 +885,10 @@ The feature's output **shall** conform to the following structured JSON schema.
     "cost_of_carry": "string",
     "ownership": "string",
     "correlation": "string",
-    "key_covenants": "string"
+    "key_covenants": "string",
+    "tax_profile": "string",
+    "issuer_covenant_risk": "string",
+    "call_risk": "string"
   },
   "pattern_analysis": [
     {
@@ -531,12 +928,12 @@ Key Patterns:
 Key Evidence:
  • Market Fact: [e.g., Realized downside volatility is low at 0.2%]
  • Primary Conflicting Risk ([Risk Type]): [e.g., Aggregated news sentiment is highly negative]
- • Valuation: [e.g., Trading 20bps rich vs. peers (Show Peers)]
- • Liquidity: [e.g., Bid/Ask is 2 points wide. Marked as ILLIQUID]
+ • Valuation: [e.g., Trading 20bps rich vs. peers (Show/Edit Peers)]
+ • Liquidity: [e.g., Bid/Ask is 2 points wide. Marked as ILLIQUID. Size: $100k/$150k]
  • Order Flow: [e.g., Net customer selling of $5M in last day]
 
 Quantitative Risk Factors:
- • Forecast (5d): [e.g., 85% prob. of negative news; Volatility predicted at 0.8% (Show Drivers)]
+ • Forecast (5d, 82% Acc): [e.g., 85% prob. of negative news; Volatility predicted at 0.8% (Show Drivers)]
  • YTW / YTM: {financial_data_object.calculated_risk_metrics.yield_to_worst} / {financial_data_object.calculated_risk_metrics.yield_to_maturity}
  • DV01 / CS01: {financial_data_object.calculated_risk_metrics.dv01} / {financial_data_object.calculated_risk_metrics.cs01}
  • OAS: {financial_data_object.calculated_risk_metrics.option_adjusted_spread_bps} bps
@@ -544,6 +941,9 @@ Quantitative Risk Factors:
  • Ownership: [e.g., Concentrated (Top 3 holders own 75%)]
  • Correlation: [e.g., 60d Corr. to HYG: 0.6]
  • Key Covenants: [e.g., Sinking fund begins 2025]
+ • Issuer Risk: [e.g., DSCR at 1.3x]
+ • Call Risk: [e.g., High - Trading to 2y call]
+ • Tax Profile: [e.g., AMT / In-State Taxable]
 
 Suggested Actions:
  • [Investigate] price/fundamental divergence.
@@ -553,32 +953,22 @@ Suggested Actions:
 ------------------------------------------------------------------
 ```
 
-### 2.7. Feature: Data Transparency
-This feature ensures that valuation metrics are transparent and trustworthy.
-
-- **SYS-R-17:** For any valuation metric derived from a peer comparison, the system **must** make the `peer_group_definition` from the `financial_data_object` available.
-- **SYS-R-18:** The UI **shall** provide a mechanism to display the full `financial_data_object` on user request to allow for complete data drill-down.
-
-### 2.8. Feature: Forecast Explainability
-This feature ensures that predictive models are not "black boxes."
-
-- **SYS-R-19:** Any predictive forecast displayed in the output **must** be accompanied by its primary drivers, sourced from `risk_forecasts.forecast_explainability`.
-- **SYS-R-20:** Each driver **must** include its name, its contribution to the outcome, and a human-readable description.
-
-### 2.9. Feature: Actionable Insights Generation
+### 2.8. Feature: Actionable Insights Generation
 This feature translates the risk synthesis into concrete, actionable suggestions for the trader.
 
-- **SYS-R-21:** The system **shall** generate a list of `suggested_actions` based on the synthesized risk profile and detected patterns using a rule-based engine.
-- **SYS-R-22:** The rule engine **shall** implement, at a minimum, the following logic:
+- **SYS-R-24:** The system **shall** generate a list of `suggested_actions` based on the synthesized risk profile and detected patterns using a rule-based engine.
+- **SYS-R-25:** The rule engine **shall** implement, at a minimum, the following logic:
     - **IF** a `CONFLICT` is detected with a score > 0.7, **THEN** generate an `[Investigate]` action to analyze the price/fundamental divergence.
     - **IF** the `Valuation Risk` score is > 0.7, **THEN** generate a `[Review]` action to find cheaper alternatives in the peer group, attaching `relative_value.peer_group_cusips`.
     - **IF** the `Interest Rate Risk` score is > 0.8, **THEN** generate a `[Hedge]` action to mitigate interest rate exposure.
     - **IF** a `Contradiction (Sentiment vs. Flow)` pattern is detected, **THEN** generate an `[Investigate]` action to understand the source of the selling pressure.
-    - **IF** an `Order Flow Imbalance Risk` score is > 0.7, **THEN** generate a `[Monitor]` action to track the persistent selling/buying pressure and its impact on price.
+    - **IF** an `Order Flow Pressure Score` is > 0.7, **THEN** generate a `[Monitor]` action to track the persistent selling/buying pressure and its impact on price.
     - **IF** an `Illiquidity Risk` score is > 0.8, **THEN** generate a `[Review]` action to consider the impact of wide bid/ask spreads on execution cost.
-- **SYS-R-23:** Actions **shall** be categorized (e.g., Investigate, Review, Execute, Hedge) and provide context, such as referencing peer CUSIPs for a swap.
+    - **IF** a `Tax Profile Risk` score is > 0.7, **THEN** generate a `[Review]` action to assess tax implications and suitability for client portfolios.
+    - **IF** an `Issuer & Covenant Risk` score is > 0.8, **THEN** generate an `[Investigate]` action to review issuer financials and covenant details.
+    - **IF** a `Call Risk` score is > 0.8, **THEN** generate a `[Review]` action to analyze yield-to-call and reinvestment risk.
+- **SYS-R-26:** Actions **shall** be categorized (e.g., Investigate, Review, Execute, Hedge) and provide context, such as referencing peer CUSIPs for a swap.
 
 ## 3. Integration Points
 The output of the Risk Synthesis service is consumed by:
 - The final UI component presenting information to the trader.
-- Idea generation workflows, using `suggested_actions` as input.
