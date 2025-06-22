@@ -3,7 +3,7 @@
 ---
 
 ## 1. Overview & Purpose
-The Risk Synthesis service aggregates and interprets all computed risk factors for a given fixed-income instrument to generate a single, actionable, and explainable narrative for a trader. This service acts as the final analytical step, translating quantitative data into a concise, qualitative risk summary. Its primary goal is to highlight the most salient and non-obvious risks by interpreting a consolidated data object, flag conflicts between market behavior and derived fundamental risks with enhanced nuance, provide transparency into underlying data, and suggest concrete next steps to support trading decisions.
+The Risk Synthesis service aggregates and interprets all computed risk factors for a given fixed-income instrument to generate a single, actionable, and explainable narrative for a trader. This service acts as the final analytical step, translating quantitative data into a concise, qualitative risk summary. Its primary goal is to highlight the most salient and non-obvious risks by interpreting a consolidated data object, flag conflicts between market behavior and derived fundamental risks with enhanced nuance, provide transparency into underlying data.
 
 ## 2. Feature Specifications
 The service's functionality is broken down into the following distinct features.
@@ -860,54 +860,19 @@ The feature's output **shall** conform to the following structured JSON schema.
 {
   "headline": "string",
   "synthesized_narrative": "string",
-  "key_evidence": {
-    "market_fact": { "value": "string", "timestamp": "ISO8601" },
-    "underlying_risk": { "value": "string", "timestamp": "ISO8601" },
-    "valuation": {
-      "value": "string",
-      "peer_group_id": "string",
-      "peer_group_definition": "string"
-    },
-    "liquidity": "string"
-  },
-  "quantitative_risk_factors": {
-    "forecast": {
-      "display_text": "string",
-      "drivers": [
-        { "feature_name": "string", "contribution": "float", "description": "string" }
-      ]
-    },
-    "yield_to_worst_ytw": "string",
-    "yield_to_maturity_ytm": "string",
-    "dv01": "string",
-    "cs01": "string",
-    "option_adjusted_spread_oas": "string",
-    "cost_of_carry": "string",
-    "ownership": "string",
-    "correlation": "string",
-    "key_covenants": "string",
-    "tax_profile": "string",
-    "issuer_covenant_risk": "string",
-    "call_risk": "string"
-  },
+  "risk_factors": [
+    {
+      "risk_type": "string",
+      "description": "string",
+      "score": "float",
+      "evidence": ["string"]
+    }
+  ],
   "pattern_analysis": [
     {
       "pattern_type": "string",
       "insight_summary": "string",
       "contributing_factors": ["string"]
-    }
-  ],
-  "conflicts": [
-    {
-      "conflict_score": "float",
-      "contributing_factors": ["string"]
-    }
-  ],
-  "suggested_actions": [
-    {
-      "action_type": "string", // e.g., Investigate, Review
-      "description": "string",
-      "related_cusips": ["string"]
     }
   ]
 }
@@ -916,58 +881,54 @@ The feature's output **shall** conform to the following structured JSON schema.
 #### Output Display Template
 This template defines how the final structured data **shall** be rendered for the end-user.
 ```
-------------------------------------------------------------------
-HEADLINE: [e.g., CONTRADICTION (Score: 0.85)] IN [e.g., RISK-OFF] MARKET
+---------------------------------------------------------------------------------------------------
+**[headline]**
 
-[Synthesized Narrative - e.g., "Despite positive news headlines, order flows show heavy institutional selling over the last 20 days, suggesting a potential distribution."]
+**Market-Adjusted Risk Narrative:**
+[synthesized_narrative]
 
-Key Patterns:
- • [Confirmation]: [e.g., High realized volatility is confirmed by model forecasts, suggesting sustained risk.]
- • [Contradiction]: [e.g., Positive news sentiment is contradicted by heavy net selling.]
+**Context: [market_regime.regime_label] ([market_regime.volatility_classification.volatility_regime] Volatility)**
+*Note: Risk scores for factors like Interest Rate Sensitivity, Spread Duration, and Call Risk have been adjusted based on the current market regime.*
 
-Key Evidence:
- • Market Fact: [e.g., Realized downside volatility is low at 0.2%]
- • Primary Conflicting Risk ([Risk Type]): [e.g., Aggregated news sentiment is highly negative]
- • Valuation: [e.g., Trading 20bps rich vs. peers (Show/Edit Peers)]
- • Liquidity: [e.g., Bid/Ask is 2 points wide. Marked as ILLIQUID. Size: $100k/$150k]
- • Order Flow: [e.g., Net customer selling of $5M in last day]
+**Key Insights (Cross-Factor Analysis):**
+ • **[pattern_analysis[0].pattern_type]:** [pattern_analysis[0].insight_summary]
+   *Contributing Factors: [pattern_analysis[0].contributing_factors.join(', ')]*
+ • **[pattern_analysis[1].pattern_type]:** [pattern_analysis[1].insight_summary]
+   *Contributing Factors: [pattern_analysis[1].contributing_factors.join(', ')]*
 
-Quantitative Risk Factors:
- • Forecast (5d, 82% Acc): [e.g., 85% prob. of negative news; Volatility predicted at 0.8% (Show Drivers)]
- • YTW / YTM: {financial_data_object.calculated_risk_metrics.yield_to_worst} / {financial_data_object.calculated_risk_metrics.yield_to_maturity}
- • DV01 / CS01: {financial_data_object.calculated_risk_metrics.dv01} / {financial_data_object.calculated_risk_metrics.cs01}
- • OAS: {financial_data_object.calculated_risk_metrics.option_adjusted_spread_bps} bps
- • Cost of Carry: [e.g., 15 bps]
- • Ownership: [e.g., Concentrated (Top 3 holders own 75%)]
- • Correlation: [e.g., 60d Corr. to HYG: 0.6]
- • Key Covenants: [e.g., Sinking fund begins 2025]
- • Issuer Risk: [e.g., DSCR at 1.3x]
- • Call Risk: [e.g., High - Trading to 2y call]
- • Tax Profile: [e.g., AMT / In-State Taxable]
+**Top Risk Factors (Normalized 0-1 Score):**
+ • **[risk_factors[0].risk_type]: [risk_factors[0].score]** - *[risk_factors[0].description]*
+   *Evidence: [risk_factors[0].evidence[0].name]: [risk_factors[0].evidence[0].value], [risk_factors[0].evidence[1].name]: [risk_factors[0].evidence[1].value]*
+ • **[risk_factors[1].risk_type]: [risk_factors[1].score]** - *[risk_factors[1].description]*
+   *Evidence: [risk_factors[1].evidence[0].name]: [risk_factors[1].evidence[0].value], [risk_factors[1].evidence[1].name]: [risk_factors[1].evidence[1].value]*
+ • **[risk_factors[2].risk_type]: [risk_factors[2].score]** - *[risk_factors[2].description]*
+   *Evidence: [risk_factors[2].evidence[0].name]: [risk_factors[2].evidence[0].value], [risk_factors[2].evidence[1].name]: [risk_factors[2].evidence[1].value]*
 
-Suggested Actions:
- • [Investigate] price/fundamental divergence.
- • [Review] cheaper alternatives in peer group.
- • [Hedge] interest rate risk given the high DV01.
- • [Monitor] for continuation of 20-day selling pressure before adding risk.
-------------------------------------------------------------------
+**Quantitative Metrics Summary:**
+
+| Category       | Metric                                 | Value                                                                                                     |
+|----------------|----------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| **Valuation**  | YTW / YTM                              | {financial_data_object.calculated_risk_metrics.yield_to_worst} / {financial_data_object.calculated_risk_metrics.yield_to_maturity} |
+|                | OAS (bps)                              | {financial_data_object.calculated_risk_metrics.option_adjusted_spread_bps}                                    |
+|                | Relative Value vs Peers (bps)          | {financial_data_object.relative_value.vs_peers_bps}                                                       |
+|                | Relative Value vs Benchmark (bps)      | {financial_data_object.relative_value.vs_mmd_bps} or {financial_data_object.relative_value.vs_ust_bps}          |
+| **Sensitivity**| DV01 / CS01                            | {financial_data_object.calculated_risk_metrics.dv01} / {financial_data_object.calculated_risk_metrics.cs01} |
+| **Liquidity**  | Composite Score (z-score)              | {financial_data_object.liquidity.composite_score}                                                         |
+|                | Bid / Ask Depth ($)                    | {financial_data_object.liquidity.market_depth.bid_size_par} / {financial_data_object.liquidity.market_depth.ask_size_par} |
+| **Fundamentals** | Issuer DSCR                            | {financial_data_object.security_details.issuer_details.debt_service_coverage_ratio}                       |
+|                | State Fiscal Health                    | Tax Growth: {state_fiscal_health.tax_receipts_yoy_growth}%, Budget: {state_fiscal_health.budget_surplus_deficit_pct_gsp}% |
+| **Supplemental** | Ownership                              | [e.g., Concentrated (Top 3 own 75%)]                                                                      |
+|                | Cost of Carry (bps)                    | {supplemental_data.cost_of_carry_bps}                                                                     |
+|                | Correlation (60d)                      | {supplemental_data.cross_asset_correlation.benchmark_ticker}: {supplemental_data.cross_asset_correlation.correlation_60d} |
+|                | Key Covenants                          | {supplemental_data.key_covenants}                                                                         |
+|                | Tax Profile                            | [e.g., AMT / In-State Taxable]                                                                            |
+|                | Call Risk                              | [e.g., High - Trading to 2y call]                                                                         |
+| **Forecasts (5d)** | Prob. Negative News                    | {risk_forecasts.forecasted_values[1].probability_negative_news_pct}% (Acc: {model_performance.negative_news_forecast_accuracy.precision}) |
+|                | Spread Widening (bps)                  | {risk_forecasts.forecasted_values[1].credit_spread_oas_bps} (Acc: {model_performance.spread_widening_forecast_accuracy.precision}) |
+|                | Volatility (VaR)                       | {risk_forecasts.forecasted_values[1].downside_price_volatility.value} (Acc: {model_performance.volatility_forecast_accuracy.precision}) |
+
+---------------------------------------------------------------------------------------------------
 ```
-
-### 2.8. Feature: Actionable Insights Generation
-This feature translates the risk synthesis into concrete, actionable suggestions for the trader.
-
-- **SYS-R-24:** The system **shall** generate a list of `suggested_actions` based on the synthesized risk profile and detected patterns using a rule-based engine.
-- **SYS-R-25:** The rule engine **shall** implement, at a minimum, the following logic:
-    - **IF** a `CONFLICT` is detected with a score > 0.7, **THEN** generate an `[Investigate]` action to analyze the price/fundamental divergence.
-    - **IF** the `Valuation Risk` score is > 0.7, **THEN** generate a `[Review]` action to find cheaper alternatives in the peer group, attaching `relative_value.peer_group_cusips`.
-    - **IF** the `Interest Rate Risk` score is > 0.8, **THEN** generate a `[Hedge]` action to mitigate interest rate exposure.
-    - **IF** a `Contradiction (Sentiment vs. Flow)` pattern is detected, **THEN** generate an `[Investigate]` action to understand the source of the selling pressure.
-    - **IF** an `Order Flow Pressure Score` is > 0.7, **THEN** generate a `[Monitor]` action to track the persistent selling/buying pressure and its impact on price.
-    - **IF** an `Illiquidity Risk` score is > 0.8, **THEN** generate a `[Review]` action to consider the impact of wide bid/ask spreads on execution cost.
-    - **IF** a `Tax Profile Risk` score is > 0.7, **THEN** generate a `[Review]` action to assess tax implications and suitability for client portfolios.
-    - **IF** an `Issuer & Covenant Risk` score is > 0.8, **THEN** generate an `[Investigate]` action to review issuer financials and covenant details.
-    - **IF** a `Call Risk` score is > 0.8, **THEN** generate a `[Review]` action to analyze yield-to-call and reinvestment risk.
-- **SYS-R-26:** Actions **shall** be categorized (e.g., Investigate, Review, Execute, Hedge) and provide context, such as referencing peer CUSIPs for a swap.
 
 ## 3. Integration Points
 The output of the Risk Synthesis service is consumed by:
