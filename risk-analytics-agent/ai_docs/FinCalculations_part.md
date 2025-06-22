@@ -188,6 +188,10 @@ This section defines the final, consolidated JSON object produced by the data pr
   "state_fiscal_health": {
       "tax_receipts_yoy_growth": "float",
       "budget_surplus_deficit_pct_gsp": "float"
+  },
+  "cross_asset_correlation": {
+    "benchmark_ticker": "string",
+    "correlation_60d": "float"
   }
 }
 ```
@@ -368,13 +372,13 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **Logic:**
     1.  Select the appropriate `benchmark_ticker` based on **Business Rule BR-22**.
     2.  Calculate the 60-day Pearson correlation coefficient between the instrument's return series and the benchmark's return series.
-- **BR-22:** The `benchmark_ticker` for correlation calculation **shall** be selected based on the instrument's `instrument_type` and `sector`:
-    - 'TFI_CORPORATE' (Investment Grade): **LQD**
-    - 'TFI_CORPORATE' (High Yield): **HYG**
-    - 'MUNI': **MUB**
-    - 'TFI_TREASURY' / 'TFI_AGENCY': **GOVT**
+- **BR-22:** The `benchmark_ticker` for correlation calculation **shall** be selected based on the instrument's `instrument_type` and `rating` classification:
+    - For `instrument_type` = 'TFI_CORPORATE' and a rating corresponding to Investment Grade (Scale Value 1-10 in the rating scale), the ticker **shall** be **LQD**.
+    - For `instrument_type` = 'TFI_CORPORATE' and a rating corresponding to High Yield (Scale Value > 10), the ticker **shall** be **HYG**.
+    - For `instrument_type` = 'MUNI', the ticker **shall** be **MUB**.
+    - For `instrument_type` in ('TFI_TREASURY', 'TFI_AGENCY'), the ticker **shall** be **GOVT**.
 - **Formula (Pearson Correlation):**
-    \[ \rho(R_{bond}, R_{bench}) = \frac{\text{Cov}(R_{bond}, R_{bench})}{\sigma_{R_{bond}} \cdot \sigma_{R_{bench}}} \]
+    \\[ \\rho(R_{bond}, R_{bench}) = \\frac{\\text{Cov}(R_{bond}, R_{bench})}{\\sigma_{R_{bond}} \\cdot \\sigma_{R_{bench}}} \\]
 
 ## 5. Functional Requirements: Feature Calculation
 - **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
