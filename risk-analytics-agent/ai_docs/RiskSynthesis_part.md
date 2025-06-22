@@ -87,6 +87,10 @@ The process begins with a single, comprehensive input object containing the comp
     "state_fiscal_health": {
         "tax_receipts_yoy_growth": "float",
         "budget_surplus_deficit_pct_gsp": "float"
+    },
+    "cross_asset_correlation": {
+      "benchmark_ticker": "string",
+      "correlation_60d": "float"
     }
   },
   "market_regime": {
@@ -166,10 +170,6 @@ The process begins with a single, comprehensive input object containing the comp
     "ownership_concentration": {
       "is_concentrated_flag": "boolean",
       "top_3_holders_pct": "float"
-    },
-    "cross_asset_correlation": {
-      "benchmark_ticker": "string",
-      "correlation_60d": "float"
     }
   }
 }
