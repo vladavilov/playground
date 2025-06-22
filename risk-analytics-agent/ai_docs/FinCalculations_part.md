@@ -34,6 +34,10 @@ Static reference data for a specific instrument.
 - `rating`: `string` - Agency rating (e.g., Moody's, S&P).
 - `state`: `string` - (for `instrument_type` = 'MUNI' only) The issuing U.S. state.
 - `tax_status`: `string` - (for `instrument_type` = 'MUNI' only) Must be one of: 'TAX_EXEMPT_FEDERAL', 'TAXABLE', 'AMT', 'TAX_EXEMPT_FEDERAL_AND_STATE'.
+- `de_minimis_issue`: `boolean` - Indicates if the bond is subject to the de minimis tax rule.
+- `bank_qualified`: `boolean` - Indicates if the bond is "bank qualified" under the Tax Equity and Fiscal Responsibility Act of 1982.
+- `debt_service_coverage_ratio`: `float` - The issuer's DSCR, typically from the most recent financial statements.
+- `is_dsr_covenant_breached`: `boolean` - Flag indicating if the issuer has breached a debt service coverage ratio covenant.
 - `call_schedule`: `array` - An array of all call options, where each object contains:
     - `call_date`: `date`
     - `call_price`: `float`
@@ -44,6 +48,8 @@ Real-time market data for a specific instrument and for broader market context.
 - `last_trade_price`: `float`
 - `bid_price`: `float`
 - `ask_price`: `float`
+- `bid_size`: `float` - The total par value available at the current best bid price.
+- `ask_size`: `float` - The total par value available at the current best ask price.
 - `duration`: `float` - The instrument's effective duration, provided as an input.
 - `ust_benchmark_curve`: `object` - U.S. Treasury yields, keyed by tenor. Used as the primary benchmark for instrument types 'TFI_CORPORATE', 'TFI_AGENCY', and for 'MUNI' where `tax_status` is 'TAXABLE'.
 - `mmd_benchmark_curve`: `object` - MMD yields for munis, keyed by tenor. Used as the primary benchmark for 'MUNI' where `tax_status` is any value other than 'TAXABLE'.
@@ -77,12 +83,29 @@ This section defines the final, consolidated JSON object produced by the data pr
   "cusip": "string",
   "data_timestamp": "datetime",
   "security_details": {
+    "instrument_type": "string",
     "issuer_name": "string",
     "coupon_rate": "float",
     "maturity_date": "date",
     "sector": "string",
     "rating": "string",
-    "call_schedule": "array"
+    "state": "string",
+    "tax_profile": {
+        "is_amt": "boolean",
+        "in_state_tax_exempt": "boolean",
+        "de_minimis_issue": "boolean",
+        "bank_qualified": "boolean"
+    },
+    "issuer_details": {
+        "debt_service_coverage_ratio": "float",
+        "is_dsr_covenant_breached": "boolean"
+    },
+    "call_features": {
+        "is_callable": "boolean",
+        "next_call_date": "date",
+        "next_call_price": "float",
+        "call_schedule": "array"
+    }
   },
   "market_data": {
     "price": "float",
@@ -107,7 +130,11 @@ This section defines the final, consolidated JSON object produced by the data pr
   },
   "liquidity": {
     "composite_score": "float",
-    "is_illiquid_flag": "boolean"
+    "is_illiquid_flag": "boolean",
+    "market_depth": {
+        "bid_size_par": "float",
+        "ask_size_par": "float"
+    }
   },
   "trade_history_summary": {
     "t1d": {
@@ -314,9 +341,26 @@ The choice of benchmark is critical and determined by the instrument's type and 
   - For the 5-day calculation, the value **shall** be `"Trailing 5D Downside Volatility (Log-Returns)"`.
   - For the 20-day calculation, the value **shall** be `"Trailing 20D Downside Volatility (Log-Returns)"`.
 
-### 4.9. Methodology: Supplemental Data Calculation
+### 4.9. Methodology: Security Details Enrichment
+- **Purpose:** To enrich and structure the `security_details` object by mapping data from the `SecurityMaster` input and deriving new attributes based on business logic.
+- **BR-21: `security_details` Population:** The fields within the `security_details` output object **shall** be populated as follows:
+    - **Direct Mappings:**
+        - `instrument_type`, `issuer_name`, `coupon_rate`, `maturity_date`, `sector`, `rating`, `state` **shall** be mapped directly from the corresponding fields in the `SecurityMaster` input.
+    - **`tax_profile` Object:**
+        - `de_minimis_issue` and `bank_qualified` **shall** be mapped directly from `SecurityMaster`.
+        - `is_amt` **shall** be `true` if `SecurityMaster.tax_status` is 'AMT', otherwise `false`.
+        - `in_state_tax_exempt` **shall** be `true` if `SecurityMaster.tax_status` is 'TAX_EXEMPT_FEDERAL_AND_STATE', otherwise `false`.
+    - **`issuer_details` Object:**
+        - `debt_service_coverage_ratio` and `is_dsr_covenant_breached` **shall** be mapped directly from `SecurityMaster`.
+    - **`call_features` Object:**
+        - `call_schedule` **shall** be mapped directly from `SecurityMaster`.
+        - `is_callable` **shall** be `true` if `SecurityMaster.call_schedule` is not null and contains at least one entry; otherwise `false`.
+        - `next_call_date` **shall** be the earliest `call_date` from the `call_schedule` that is after the `calculation_context.as_of_date`. If no future call dates exist, this field **shall** be null.
+        - `next_call_price` **shall** be the `call_price` corresponding to the `next_call_date`. If `next_call_date` is null, this field **shall** be null.
 
-#### 4.9.3. Cross-Asset Correlation
+### 4.10. Methodology: Supplemental Data Calculation
+
+#### 4.10.1. Cross-Asset Correlation
 - **Purpose (Trader View):** To understand the instrument's systematic risk and how it behaves relative to broader market benchmarks. A high correlation to a risk asset (like a high-yield ETF) indicates it may not provide diversification benefits in a market sell-off.
 - **Inputs:**
     - A 60-trading-day time series of the instrument's daily total returns, derived from its price history.
@@ -387,7 +431,9 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 - **FR-19:** The system **shall** populate the `relative_value.peer_group_cusips` field with the list of CUSIPs identified in the peer group process (Section 4.2) and the `relative_value.peer_group_size` field with the count of that list.
 
-- **FR-22:** The system **shall** calculate the **Cross-Asset Correlation** as per the methodology in Section 4.9.3.
+- **FR-20:** The system **shall** populate the **Security Details** object as per the enrichment methodology in Section 4.9.
+
+- **FR-21:** The system **shall** calculate the **Cross-Asset Correlation** as per the methodology in Section 4.10.1.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency

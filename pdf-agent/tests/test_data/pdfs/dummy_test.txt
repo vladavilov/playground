@@ -1,3 +1,0 @@
-This is a dummy PDF file for testing purposes.
-It contains simple text to verify the extraction and cleaning process.
-The quick brown fox jumps over the lazy dog. 

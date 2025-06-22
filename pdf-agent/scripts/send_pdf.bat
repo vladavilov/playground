@@ -1,1 +1,0 @@
-python send_pdf.py tmp/sample.pdf http://localhost:8000/extract_data

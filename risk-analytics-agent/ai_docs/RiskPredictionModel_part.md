@@ -166,6 +166,21 @@ The standard output for a single forecast run **shall** conform to the following
         {"feature": "market_regime.Bull_Steepener", "attribution": "float"},
         {"feature": "trade_history.t5d.total_par_volume", "attribution": "float"},
         {"feature": "historical_oas.lag_1d", "attribution": "float"}
+      ],
+      "bid_ask_spread_pct": [
+        {"feature": "liquidity.composite_score", "attribution": "float"},
+        {"feature": "historical_spread.lag_1d", "attribution": "float"},
+        {"feature": "trade_history.t1d.trade_count", "attribution": "float"}
+      ],
+      "probability_negative_news_pct": [
+        {"feature": "news_sentiment.sentiment_score", "attribution": "float"},
+        {"feature": "trade_history.t1d.customer_sell_par_volume", "attribution": "float"},
+        {"feature": "relative_value.vs_peers_bps", "attribution": "float"}
+      ],
+      "downside_price_volatility": [
+        {"feature": "historical_volatility.lag_5d", "attribution": "float"},
+        {"feature": "market_context.yield_curve_slope_10y2y", "attribution": "float"},
+        {"feature": "economic_event.is_fomc_week", "attribution": "float"}
       ]
     }
   }
