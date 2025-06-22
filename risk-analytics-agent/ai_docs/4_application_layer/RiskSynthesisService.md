@@ -205,25 +205,6 @@ The `risk_factors` array **shall** contain a series of objects, where each objec
     - **`name`**: The human-readable name of the data point (e.g., "Peer Spread vs. Avg (bps)").
     - **`value`**: The value of the data point, formatted as a string for display (e.g., "18.5", "High", "Concentrated").
 
-**Example:**
-```json
-{
-  "risk_type": "Valuation Risk",
-  "description": "Measures if the instrument is overvalued ('rich') relative to its peers and benchmark.",
-  "score": 0.85,
-  "evidence": [
-    {
-      "name": "Spread vs. Peers (bps)",
-      "value": "22.3"
-    },
-    {
-      "name": "Spread vs. MMD Curve (bps)",
-      "value": "31.7"
-    }
-  ]
-}
-```
-
 #### Risk Normalization Scales Data Model
 This object would typically be loaded from a configuration file at startup.
 ```json

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Risk Synthesis Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #1d2129;
+            margin: 0;
+            padding: 20px;
+        }
+        .report-container {
+            max-width: 1200px;
+            margin: auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .report-header {
+            background-color: #c0392b;
+            color: white;
+            padding: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        .report-header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .report-header .context {
+            margin-top: 8px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        .content-section {
+            padding: 20px;
+            border-bottom: 1px solid #e9ebee;
+        }
+        .content-section:last-child {
+            border-bottom: none;
+        }
+        h2 {
+            font-size: 20px;
+            color: #333;
+            margin-top: 0;
+            border-bottom: 2px solid #e9ebee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .narrative {
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        .risk-factors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 15px;
+        }
+        .risk-factor-card {
+            background: #f9f9f9;
+            border: 1px solid #e9ebee;
+            border-radius: 6px;
+            padding: 15px;
+            transition: box-shadow 0.3s ease;
+        }
+        .risk-factor-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .risk-factor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+        .risk-factor-header .score {
+            padding: 4px 8px;
+            border-radius: 12px;
+            color: white;
+            font-size: 14px;
+        }
+        .risk-factor-description {
+            font-size: 14px;
+            color: #606770;
+            margin: 10px 0;
+            font-style: italic;
+        }
+        .evidence-toggle {
+            cursor: pointer;
+            font-weight: bold;
+            color: #3578e5;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        .evidence-content {
+            display: none;
+            margin-top: 10px;
+            padding-left: 15px;
+            border-left: 3px solid #e9ebee;
+        }
+        .evidence-content ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+        .evidence-content li {
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+        .evidence-content .name {
+            font-weight: bold;
+        }
+        .insight-card {
+            background-color: #fff9e6;
+            border: 1px solid #ffecb3;
+            border-left: 4px solid #ffc107;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+        .insight-card .type {
+            font-weight: bold;
+            font-size: 16px;
+            color: #c79100;
+        }
+        .insight-card .summary {
+            margin: 5px 0;
+        }
+        .insight-card .factors {
+            font-size: 12px;
+            color: #666;
+            font-style: italic;
+        }
+        .metrics-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .metrics-table th, .metrics-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ebee;
+        }
+        .metrics-table th {
+            background-color: #f7f7f7;
+            font-weight: bold;
+        }
+        .metrics-table .category {
+            font-weight: bold;
+            color: #333;
+        }
+        .score-high { background-color: #c0392b; }
+        .score-medium { background-color: #f39c12; }
+        .score-low { background-color: #27ae60; }
+        .score-neutral { background-color: #3498db; }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        <div class="report-header">
+            <h1>High-Yield Bond Shows Elevated Risk Profile Amid Market Uncertainty</h1>
+            <div class="context">
+                <strong>Context:</strong> Bear_Flattener (High Volatility)
+                <br>
+                <em>Note: Risk scores have been adjusted based on the current market regime.</em>
+            </div>
+        </div>
+
+        <div class="content-section">
+            <h2>Market-Adjusted Risk Narrative</h2>
+            <p class="narrative">
+                This high-yield corporate bond exhibits a complex and concerning risk profile. It is trading significantly 'rich' to its peers against a backdrop of a 'Bear_Flattener' market regime, a condition amplified by models forecasting continued credit spread widening. The situation is exacerbated by high illiquidity, casting doubt on the reliability of current price marks. Both recent and predicted volatility are high and accelerating, signaling a sustained period of instability. A key contradiction emerges between positive news sentiment and significant net selling pressure, suggesting sophisticated investors may be using the news as a liquidity event to exit positions. While fundamentals are weak, some contrarian buying is detected, pointing to a small pocket of investors betting on a turnaround.
+            </p>
+        </div>
+
+        <div class="content-section">
+            <h2>Key Insights (Cross-Factor Analysis)</h2>
+            <div id="insights-container">
+                <div class="insight-card">
+                    <div class="type">Confirmation (Fundamental + Forecast)</div>
+                    <p class="summary">Instrument is trading rich and models forecast further spread widening, confirming valuation concerns.</p>
+                    <p class="factors">Contributing Factors: Valuation Risk Score > 0.7, Predicted Spread Widening Risk Score > 0.7</p>
+                </div>
+                <div class="insight-card">
+                    <div class="type">Contradiction (Sentiment vs. Flow)</div>
+                    <p class="summary">Despite positive news sentiment, order flows show significant net selling, indicating market participants may be disbelieving the news or using it as a liquidity event.</p>
+                    <p class="factors">Contributing Factors: News Risk Score < 0.3, Order Flow Pressure Score > 0.7</p>
+                </div>
+                <div class="insight-card">
+                    <div class="type">Confirmation (Bottom Fishing / Contrarian Buying)</div>
+                    <p class="summary">Despite deteriorating fundamentals, order flow shows persistent net buying, suggesting some participants see value where others see risk.</p>
+                    <p class="factors">Contributing Factors: Issuer & Covenant Risk Score > 0.7, Order Flow Pressure Score < -0.7</p>
+                </div>
+                <div class="insight-card">
+                    <div class="type">Contradiction (Illiquid & Overvalued)</div>
+                    <p class="summary">The bond is marked as both highly illiquid and significantly overvalued. Its 'richness' may be an artifact of stale, unreliable pricing rather than true market value.</p>
+                    <p class="factors">Contributing Factors: Illiquidity Risk is 'High', Valuation Risk Score > 0.7</p>
+                </div>
+                <div class="insight-card">
+                    <div class="type">Confirmation (Volatility Cluster)</div>
+                    <p class="summary">Accelerating realized volatility is confirmed by forecasts, suggesting a sustained high-risk volatility regime.</p>
+                    <p class="factors">Contributing Factors: Volatility Trend Risk Score > 0.7, Predicted Volatility Risk Score > 0.7</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-section">
+            <h2>All Risk Factors (Normalized 0-1 Score)</h2>
+            <div class="risk-factors-grid" id="risk-factors-container">
+                <!-- Risk factors will be dynamically added here -->
+            </div>
+        </div>
+        
+        <div class="content-section">
+            <h2>Quantitative Metrics Summary</h2>
+            <table class="metrics-table" id="metrics-table-body">
+                 <tbody><tr>
+                    <th>Category</th>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td class="category">Valuation</td>
+                    <td>YTW / YTM</td>
+                    <td>8.1% / 8.5%</td>
+                </tr>
+                <tr>
+                    <td class="category">Valuation</td>
+                    <td>OAS (bps)</td>
+                    <td>450</td>
+                </tr>
+                <tr>
+                    <td class="category">Valuation</td>
+                    <td>Relative Value vs Peers (bps)</td>
+                    <td>-22.3 (Rich)</td>
+                </tr>
+                <tr>
+                    <td class="category">Valuation</td>
+                    <td>Relative Value vs Benchmark (bps)</td>
+                    <td>-38.1 (Rich)</td>
+                </tr>
+                <tr>
+                    <td class="category">Sensitivity</td>
+                    <td>DV01 / CS01</td>
+                    <td>0.08 / 0.33</td>
+                </tr>
+                <tr>
+                    <td class="category">Liquidity</td>
+                    <td>Composite Score (z-score)</td>
+                    <td>-2.1 (Illiquid)</td>
+                </tr>
+                <tr>
+                    <td class="category">Liquidity</td>
+                    <td>Bid / Ask Depth ($)</td>
+                    <td>150k / 100k</td>
+                </tr>
+                <tr>
+                    <td class="category">Fundamentals</td>
+                    <td>Issuer DSCR</td>
+                    <td>1.15x (Breached Covenant)</td>
+                </tr>
+                <tr>
+                    <td class="category">Fundamentals</td>
+                    <td>State Fiscal Health</td>
+                    <td>N/A (Corporate Issuer)</td>
+                </tr>
+                <tr>
+                    <td class="category">Supplemental</td>
+                    <td>Ownership</td>
+                    <td>Concentrated (Top 3 own 85%)</td>
+                </tr>
+                <tr>
+                    <td class="category">Supplemental</td>
+                    <td>Cost of Carry (bps)</td>
+                    <td>-15 bps</td>
+                </tr>
+                <tr>
+                    <td class="category">Supplemental</td>
+                    <td>Correlation (60d)</td>
+                    <td>SPY: 0.75</td>
+                </tr>
+                <tr>
+                    <td class="category">Supplemental</td>
+                    <td>Tax Profile</td>
+                    <td>N/A</td>
+                </tr>
+                <tr>
+                    <td class="category">Supplemental</td>
+                    <td>Call Risk</td>
+                    <td>High - Trading to 1y call</td>
+                </tr>
+                <tr>
+                    <td class="category">Forecasts (5d)</td>
+                    <td>Prob. Negative News</td>
+                    <td>70% (Acc: 0.82)</td>
+                </tr>
+                <tr>
+                    <td class="category">Forecasts (5d)</td>
+                    <td>Spread Widening (bps)</td>
+                    <td>28 (Acc: 0.88)</td>
+                </tr>
+                <tr>
+                    <td class="category">Forecasts (5d)</td>
+                    <td>Volatility (VaR)</td>
+                    <td>1.8% (Acc: 0.91)</td>
+                </tr>
+            </tbody></table>
+        </div>
+    </div>
+
+    <script>
+        const mockData = {
+          headline: "High-Yield Bond Shows Elevated Risk Profile Amid Market Uncertainty",
+          synthesized_narrative: "This high-yield corporate bond exhibits a complex and concerning risk profile. It is trading significantly 'rich' to its peers against a backdrop of a 'Bear_Flattener' market regime, a condition amplified by models forecasting continued credit spread widening. The situation is exacerbated by high illiquidity, casting doubt on the reliability of current price marks. Both recent and predicted volatility are high and accelerating, signaling a sustained period of instability. A key contradiction emerges between positive news sentiment and significant net selling pressure, suggesting sophisticated investors may be using the news as a liquidity event to exit positions. While fundamentals are weak, some contrarian buying is detected, pointing to a small pocket of investors betting on a turnaround.",
+          risk_factors: [
+            { risk_type: "Valuation", description: "Measures if the instrument is overvalued ('rich') relative to its peers and benchmark, adjusted for market volatility.", score: 0.85, evidence: [ {name: "Spread vs. Peers (bps)", value: "22.3"}, {name: "Peer Valuation Threshold (bps)", value: "25"}, {name: "Spread vs. Benchmark (bps)", value: "38.1"}, {name: "Benchmark Valuation Threshold (bps)", value: "40"}, {name: "Volatility Regime", value: "High"} ] },
+            { risk_type: "Predicted Spread Widening", description: "Measures the risk of underperformance due to a model-forecasted increase in the instrument's credit spread.", score: 0.82, evidence: [ {name: "1d Forecast Spread Widening (bps)", value: "12"}, {name: "1d Spread Widening Threshold (bps)", value: "15"}, {name: "5d Forecast Spread Widening (bps)", value: "28"}, {name: "5d Spread Widening Threshold (bps)", value: "30"}, {name: "20d Forecast Spread Widening (bps)", value: "45"}, {name: "20d Spread Widening Threshold (bps)", value: "50"}, {name: "Driver: VIX Index", value: "0.35"}, {name: "Driver: HYG ETF Flow", value: "0.25"}, {name: "Model Precision", value: "0.88"}, {name: "Model Recall", value: "0.85"} ] },
+            { risk_type: "Confirmation (Fundamental + Forecast)", pattern_type: "Confirmation", insight_summary: "Instrument is trading rich and models forecast further spread widening, confirming valuation concerns.", contributing_factors: ["Valuation Risk Score > 0.7", "Predicted Spread Widening Risk Score > 0.7"]},
+            { risk_type: "Contradiction (Sentiment vs. Flow)", pattern_type: "Contradiction", insight_summary: "Despite positive news sentiment, order flows show significant net selling, indicating market participants may be disbelieving the news or using it as a liquidity event.", contributing_factors: ["News Risk Score < 0.3", "Order Flow Pressure Score > 0.7"]},
+            { risk_type: "Confirmation (Bottom Fishing / Contrarian Buying)", pattern_type: "Confirmation", insight_summary: "Despite deteriorating fundamentals, order flow shows persistent net buying, suggesting some participants see value where others see risk.", contributing_factors: ["Issuer & Covenant Risk Score > 0.7", "Order Flow Pressure Score < -0.7"]},
+            { risk_type: "Contradiction (Illiquid & Overvalued)", pattern_type: "Contradiction", insight_summary: "The bond is marked as both highly illiquid and significantly overvalued. Its 'richness' may be an artifact of stale, unreliable pricing rather than true market value.", contributing_factors: ["Illiquidity Risk is 'High'", "Valuation Risk Score > 0.7"]},
+            { risk_type: "Confirmation (Volatility Cluster)", pattern_type: "Confirmation", insight_summary: "Accelerating realized volatility is confirmed by forecasts, suggesting a sustained high-risk volatility regime.", contributing_factors: ["Volatility Trend Risk Score > 0.7", "Predicted Volatility Risk Score > 0.7"]}
+          ],
+          pattern_analysis: [
+            { pattern_type: "Confirmation (Fundamental + Forecast)", insight_summary: "Instrument is trading rich and models forecast further spread widening, confirming valuation concerns.", contributing_factors: ["Valuation Risk Score > 0.7", "Predicted Spread Widening Risk Score > 0.7"]},
+            { pattern_type: "Contradiction (Sentiment vs. Flow)", insight_summary: "Despite positive news sentiment, order flows show significant net selling, indicating market participants may be disbelieving the news or using it as a liquidity event.", contributing_factors: ["News Risk Score < 0.3", "Order Flow Pressure Score > 0.7"]},
+            { pattern_type: "Confirmation (Bottom Fishing / Contrarian Buying)", insight_summary: "Despite deteriorating fundamentals, order flow shows persistent net buying, suggesting some participants see value where others see risk.", contributing_factors: ["Issuer & Covenant Risk Score > 0.7", "Order Flow Pressure Score < -0.7"]},
+            { pattern_type: "Contradiction (Illiquid & Overvalued)", insight_summary: "The bond is marked as both highly illiquid and significantly overvalued. Its 'richness' may be an artifact of stale, unreliable pricing rather than true market value.", contributing_factors: ["Illiquidity Risk is 'High'", "Valuation Risk Score > 0.7"]},
+            { pattern_type: "Confirmation (Volatility Cluster)", insight_summary: "Accelerating realized volatility is confirmed by forecasts, suggesting a sustained high-risk volatility regime.", contributing_factors: ["Volatility Trend Risk Score > 0.7", "Predicted Volatility Risk Score > 0.7"]}
+          ],
+          quantitative_metrics: [
+            { category: "Valuation", metric: "YTW / YTM", value: "8.1% / 8.5%" },
+            { category: "Valuation", metric: "OAS (bps)", value: "450" },
+            { category: "Valuation", metric: "Relative Value vs Peers (bps)", value: "-22.3 (Rich)" },
+            { category: "Valuation", metric: "Relative Value vs Benchmark (bps)", value: "-38.1 (Rich)" },
+            { category: "Sensitivity", metric: "DV01 / CS01", value: "0.08 / 0.33" },
+            { category: "Liquidity", metric: "Composite Score (z-score)", value: "-2.1 (Illiquid)" },
+            { category: "Liquidity", metric: "Bid / Ask Depth ($)", value: "150k / 100k" },
+            { category: "Fundamentals", metric: "Issuer DSCR", value: "1.15x (Breached Covenant)" },
+            { category: "Fundamentals", metric: "State Fiscal Health", value: "N/A (Corporate Issuer)" },
+            { category: "Supplemental", metric: "Ownership", value: "Concentrated (Top 3 own 85%)" },
+            { category: "Supplemental", metric: "Cost of Carry (bps)", value: "-15 bps" },
+            { category: "Supplemental", metric: "Correlation (60d)", value: "SPY: 0.75" },
+            { category: "Supplemental", metric: "Tax Profile", value: "N/A" },
+            { category: "Supplemental", metric: "Call Risk", value: "High - Trading to 1y call" },
+            { category: "Forecasts (5d)", metric: "Prob. Negative News", value: "70% (Acc: 0.82)" },
+            { category: "Forecasts (5d)", metric: "Spread Widening (bps)", value: "28 (Acc: 0.88)" },
+            { category: "Forecasts (5d)", metric: "Volatility (VaR)", value: "1.8% (Acc: 0.91)" }
+          ]
+        };
+
+        function getScoreClass(score, isPressure = false) {
+            if (isPressure) {
+                if (score > 0.5) return 'score-high';
+                if (score < -0.5) return 'score-low'; // Low pressure score is "good" for risk (buying)
+                return 'score-medium';
+            }
+            if (score >= 0.7) return 'score-high';
+            if (score >= 0.4) return 'score-medium';
+            return 'score-low';
+        }
+
+        function buildRiskFactors(data) {
+            const container = document.getElementById('risk-factors-container');
+            container.innerHTML = '';
+            data.forEach((factor, index) => {
+                const scoreClass = getScoreClass(factor.score, factor.risk_type === 'Order Flow Pressure');
+                const card = document.createElement('div');
+                card.className = 'risk-factor-card';
+                card.innerHTML = `
+                    <div class="risk-factor-header">
+                        <span>${factor.risk_type}</span>
+                        <span class="score ${scoreClass}">${factor.score.toFixed(2)}</span>
+                    </div>
+                    <p class="risk-factor-description">${factor.description}</p>
+                    <div class="evidence-toggle" onclick="toggleEvidence('evidence-${index}')">Show Evidence &#9662;</div>
+                    <div class="evidence-content" id="evidence-${index}">
+                        <ul>
+                            ${factor.evidence.map(e => `<li><span class="name">${e.name}:</span> ${e.value}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function toggleEvidence(id) {
+            const content = document.getElementById(id);
+            const toggle = content.previousElementSibling;
+            if (content.style.display === 'block') {
+                content.style.display = 'none';
+                toggle.innerHTML = 'Show Evidence &#9662;';
+            } else {
+                content.style.display = 'block';
+                toggle.innerHTML = 'Hide Evidence &#9652;';
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            buildRiskFactors(mockData.risk_factors);
+        });
+
+    </script>
+</body>
+</html> 
