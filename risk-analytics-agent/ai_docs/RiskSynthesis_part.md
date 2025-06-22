@@ -170,8 +170,7 @@ The process begins with a single, comprehensive input object containing the comp
     "cross_asset_correlation": {
       "benchmark_ticker": "string",
       "correlation_60d": "float"
-    },
-    "key_covenants": ["string"]
+    }
   }
 }
 ```
@@ -760,7 +759,6 @@ The thresholds provided in the `risk_normalization_scales` are based on standard
     - `cost_of_carry_bps` -> `cost_of_carry`: e.g., "15 bps".
     - `ownership_concentration` -> `ownership`: e.g., "Concentrated (Top 3 holders own 75%)".
     - `cross_asset_correlation` -> `correlation`: e.g., "60d Corr. to HYG: 0.6".
-    - `key_covenants` -> `key_covenants`: Formatted as a comma-separated string.
 
 ### 2.2.2 Feature: Market Regime Contextualization
 This feature uses the overall market regime, as determined by the `MarketRegime` service, to provide context and dynamically adjust risk scores and narrative focus.
@@ -920,7 +918,6 @@ This template defines how the final structured data **shall** be rendered for th
 | **Supplemental** | Ownership                              | [e.g., Concentrated (Top 3 own 75%)]                                                                      |
 |                | Cost of Carry (bps)                    | {supplemental_data.cost_of_carry_bps}                                                                     |
 |                | Correlation (60d)                      | {supplemental_data.cross_asset_correlation.benchmark_ticker}: {supplemental_data.cross_asset_correlation.correlation_60d} |
-|                | Key Covenants                          | {supplemental_data.key_covenants}                                                                         |
 |                | Tax Profile                            | [e.g., AMT / In-State Taxable]                                                                            |
 |                | Call Risk                              | [e.g., High - Trading to 2y call]                                                                         |
 | **Forecasts (5d)** | Prob. Negative News                    | {risk_forecasts.forecasted_values[1].probability_negative_news_pct}% (Acc: {model_performance.negative_news_forecast_accuracy.precision}) |
