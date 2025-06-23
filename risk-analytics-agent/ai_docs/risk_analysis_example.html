@@ -18,7 +18,7 @@
         <form id="cusip-form" class="bg-white p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row items-center sm:space-x-4">
             <div class="flex-grow w-full mb-4 sm:mb-0">
                 <label for="cusip-input" class="sr-only">CUSIP</label>
-                <input type="text" id="cusip-input" name="cusip" placeholder="Enter CUSIP (e.g., 912828U41 for a sample report)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out text-lg">
+                <input type="text" id="cusip-input" name="cusip" placeholder="Enter CUSIP (e.g., 912828U41 or 'good')" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out text-lg">
             </div>
             <button type="submit" id="analyze-button" class="w-full sm:w-auto bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out flex items-center justify-center space-x-2">
                 <svg id="button-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -104,7 +104,7 @@
     </div>
 
     <script>
-        const mockData = {
+        const mockDataBad = {
           headline: "High-Yield Bond Shows Elevated Risk Profile Amid Market Uncertainty",
           synthesized_narrative: "This is a high-conviction short. The bond is fundamentally weak (breached covenant) yet trades at a significant premium—a valuation completely disconnected from reality. This 'richness' is likely an artifact of extreme illiquidity, with concentrated ownership pointing to a high risk of a price gap down on any attempt to sell size. Critically, we see a classic distribution pattern: institutional desks are net sellers, offloading positions into positive news sentiment that appears to be misleading retail flows. With models forecasting further spread widening and volatility accelerating, the risk/reward is heavily skewed to the downside. The current price is not a reliable indicator of executable value.",
           risk_factors: [
@@ -144,6 +144,45 @@
             { category: "Forecasts (5d)", metric: "Spread Widening (bps)", value: "28 (Acc: 0.88)" },
             { category: "Forecasts (5d)", metric: "Volatility (VaR)", value: "1.8% (Acc: 0.91)" }
           ]
+        };
+
+        const mockDataGood = {
+            headline: "Investment-Grade Bond Shows Strong Fundamentals and Favorable Market Position",
+            synthesized_narrative: "A high-quality, investment-grade bond with solid fundamentals and strong market technicals. Trading at a slight discount to peers, it offers attractive relative value. Order flows confirm institutional accumulation, and liquidity is robust, ensuring reliable pricing and execution. Volatility is low and stable. This bond represents a solid core holding with minimal near-term risks.",
+            risk_factors: [
+                { risk_type: "Valuation", description: "Measures if the instrument is overvalued ('rich') or undervalued ('cheap') relative to its peers and benchmark.", score: 0.15, evidence: [{name: "Relative Value vs Peers (bps)", value: "+8 (Cheap)"}, {name: "Volatility Regime", value: "Low"}] },
+                { risk_type: "Order Flow Pressure", description: "Indicates net buying (negative score) or selling (positive score) pressure from market participants.", score: -0.80, evidence: [{name: "Net Flow (5d)", value: "$5.0M Buy"}, {name: "Institutional Flow", value: "Net Buy"}] },
+                { risk_type: "Illiquidity", description: "Evaluates the ease of trading the bond at its current marked price.", score: 0.10, evidence: [{name: "Composite z-score", value: "1.9"}, {name: "Bid/Ask Spread", value: "Tight"}, {name: "Recent Trade Volume", value: "High"}] },
+                { risk_type: "Issuer & Covenant Risk", description: "Assesses risks related to the issuer's financial health and bond covenants.", score: 0.05, evidence: [{name: "DSCR", value: "3.5x"}, {name: "Covenant Status", value: "Healthy"}, {name: "Sector Outlook", value: "Stable"}] },
+                { risk_type: "Predicted Volatility", description: "Forecasts future volatility (e.g., VaR), signaling expectations of future price swings.", score: 0.21, evidence: [{name: "5d VaR Forecast", value: "0.2%"}, {name: "Model Accuracy", value: "94%"}] },
+                { risk_type: "Volatility Trend", description: "Measures the acceleration of recent price volatility.", score: 0.18, evidence: [{name: "5d vs 20d Volatility", value: "0.9x"}, {name: "Trend Significance", value: "Low"}] },
+                { risk_type: "News Sentiment", description: "Gauges risk from negative news sentiment. A low score indicates positive news.", score: 0.12, evidence: [{name: "Sentiment Score", value: "0.9 (Positive)"}, {name: "Key Stories", value: "Credit rating upgrade"}] },
+                { risk_type: "Predicted Spread Widening", description: "Measures the risk of underperformance due to a model-forecasted increase in the instrument's credit spread.", score: 0.20, evidence: [{name: "5d Forecast Spread Change (bps)", value: "-5 (Tightening)"}] }
+            ],
+            pattern_analysis: [
+                { pattern_type: "Confirmation", type_detail: "(Fundamental + Valuation)", sentiment: "positive", insight_summary: "Strong issuer health and a stable outlook are confirmed by the bond's attractive valuation relative to its peers.", contributing_factors: ["Issuer Risk Score < 0.2", "Valuation Risk Score < 0.3"]},
+                { pattern_type: "Confirmation", type_detail: "(Flow + Liquidity)", sentiment: "positive", insight_summary: "Institutional buying pressure is supported by high liquidity, indicating strong conviction and ease of execution.", contributing_factors: ["Order Flow Pressure Score < -0.5", "Illiquidity Score < 0.2"]}
+            ],
+            quantitative_metrics: [
+                { category: "Valuation", metric: "YTW / YTM", value: "4.1% / 4.2%" },
+                { category: "Valuation", metric: "OAS (bps)", value: "85" },
+                { category: "Valuation", metric: "Relative Value vs Peers (bps)", value: "+8 (Cheap)" },
+                { category: "Valuation", metric: "Relative Value vs Benchmark (bps)", value: "+12 (Cheap)" },
+                { category: "Sensitivity", metric: "DV01", value: "0.05" },
+                { category: "Sensitivity", metric: "CS01", value: "0.10" },
+                { category: "Liquidity", metric: "Composite Score (z-score)", value: "1.9 (Liquid)" },
+                { category: "Liquidity", metric: "Bid / Ask Depth ($)", value: "5M / 5M" },
+                { category: "Fundamentals", metric: "Issuer DSCR", value: "3.5x" },
+                { category: "Fundamentals", metric: "State Fiscal Health", value: "N/A (Corporate Issuer)" },
+                { category: "Supplemental", metric: "Ownership", value: "Diverse" },
+                { category: "Supplemental", metric: "Cost of Carry (bps)", value: "+5 bps" },
+                { category: "Supplemental", metric: "Correlation (60d)", value: "SPY: 0.15" },
+                { category: "Supplemental", metric: "Tax Profile", value: "Taxable" },
+                { category: "Supplemental", metric: "Call Risk", value: "Low - Trading to maturity" },
+                { category: "Forecasts (5d)", metric: "Prob. Negative News", value: "10% (Acc: 0.91)" },
+                { category: "Forecasts (5d)", metric: "Spread Change (bps)", value: "-5 (Acc: 0.93)" },
+                { category: "Forecasts (5d)", metric: "Volatility (VaR)", value: "0.2% (Acc: 0.94)" }
+            ]
         };
 
         function getScoreClass(score, isPressure = false) {
@@ -289,23 +328,8 @@
                 buttonText.textContent = 'Analyzing...';
 
                 setTimeout(() => {
-                    // "Render" the report
-                    document.getElementById('report-headline').textContent = `Risk Profile for ${cusip}: ${mockData.headline}`;
-                    
-                    // Populate Narrative
-                    const narrativeContent = document.getElementById('narrative-content');
-                    if(narrativeContent) {
-                        narrativeContent.innerHTML = `<p>${mockData.synthesized_narrative}</p>`;
-                    }
-
-                    // Build dynamic sections
-                    buildRiskFactors(mockData.risk_factors);
-                    buildInsights(mockData.pattern_analysis);
-                    buildMetrics(mockData.quantitative_metrics);
-                    
-                    // Show the report and hide status
-                    statusContainer.classList.add('hidden');
-                    reportSection.classList.remove('hidden');
+                    const data = cusip.toLowerCase() === 'good' ? mockDataGood : mockDataBad;
+                    renderReport(data, cusip);
 
                     // Reset button
                     analyzeButton.disabled = false;
@@ -317,6 +341,26 @@
 
                 }, 1500); // 1.5 second delay
             });
+
+            function renderReport(data, cusip) {
+                // "Render" the report
+                document.getElementById('report-headline').textContent = `Risk Profile for ${cusip}: ${data.headline}`;
+                
+                // Populate Narrative
+                const narrativeContent = document.getElementById('narrative-content');
+                if(narrativeContent) {
+                    narrativeContent.innerHTML = `<p>${data.synthesized_narrative}</p>`;
+                }
+
+                // Build dynamic sections
+                buildRiskFactors(data.risk_factors);
+                buildInsights(data.pattern_analysis);
+                buildMetrics(data.quantitative_metrics);
+                
+                // Show the report and hide status
+                statusContainer.classList.add('hidden');
+                reportSection.classList.remove('hidden');
+            }
 
             function resetDetailsElements() {
                 // Reset evidence toggles
