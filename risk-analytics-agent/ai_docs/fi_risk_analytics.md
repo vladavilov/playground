@@ -20,9 +20,36 @@ The key goals are to:
 *   **Cross-Factor Contradiction Analysis:** A rules-based engine that surfaces non-obvious insights by identifying patterns of confirmation and contradiction between different risk factors (e.g., flagging when a bond is "Illiquid & Overvalued" or when market sentiment contradicts order flow).
 *   **Historical Data Preparation:** An asynchronous feature that executes batch jobs to produce the large, enriched datasets needed to train the system's core machine learning models.
 
+### **3. Main Data Flow**
+
+
+```plantuml
+graph TD;
+    subgraph "Data Feeds"
+        MarketData["Market Data"]
+        TradesHistory["Trades History"]
+        SecurityMaster["Security Master"]
+        StateTax["State Tax"]
+        EconomicalCalendar["Economical Calendar"]
+        News["News"]
+    end
+
+    MarketData --> Calculations["Calculations"]
+    TradesHistory --> Calculations
+    SecurityMaster --> Calculations
+    StateTax --> Calculations
+    EconomicalCalendar --> Calculations
+    News --> Calculations
+    
+    Calculations --> MarketRegime["Market Regime Model"]
+    MarketRegime --> PredictedRisk["Predicted Risk Features"]
+    PredictedRisk --> RiskSynthesis["Risk Synthesis"]
+```
+
 ### **3. Main Workflows**
 
 1.  **On-Demand Analysis Workflow:** This is the primary real-time process.
+
     *   An API request is made to the `Orchestrator Service` for a specific instrument.
     *   The `Orchestrator` initiates parallel calls to all necessary data services (e.g., `FinCalculations`, `NewsSentiment`, `MarketDataFeed`).
     *   Once initial data is gathered, it's passed to the core ML services (`MarketRegimeService`, `RiskPredictionService`) for classification and forecasting.
