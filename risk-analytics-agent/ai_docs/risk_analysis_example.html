@@ -11,98 +11,126 @@
     </style>
 </head>
 <body class="bg-gray-100 font-sans text-gray-800 p-4 sm:p-6 lg:p-8">
-    <div class="max-w-7xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
-        <header class="bg-red-800 text-white p-6">
-            <h1 class="text-2xl md:text-3xl font-bold">High-Yield Bond Shows Elevated Risk Profile Amid Market Uncertainty</h1>
-            <div class="mt-2 text-sm opacity-90">
-                <strong>Context:</strong> Bear_Flattener (High Volatility)
-                <br>
-                <em>Note: Risk scores have been adjusted based on the current market regime.</em>
-            </div>
-        </header>
 
-        <main class="p-6">
-            <div class="grid grid-cols-1 lg:grid-cols-2 lg:gap-8">
-                <!-- Left Column: Key Insights -->
-                <section>
-                    <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b border-gray-200">Key Insights (Cross-Factor Analysis)</h2>
-                    <div id="insights-container" class="space-y-4">
-                        <!-- Insights will be dynamically added or can be pre-rendered -->
-                    </div>
-                </section>
-
-                <!-- Right Column: Risk Factors -->
-                <section>
-                    <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b border-gray-200">All Risk Factors (Normalized 0-1 Score)</h2>
-                    <div class="risk-factors-grid space-y-4" id="risk-factors-container">
-                        <!-- Risk factors will be dynamically added here -->
-                    </div>
-                </section>
+    <!-- State Input Section -->
+    <div class="max-w-2xl mx-auto mb-8">
+        <h1 class="text-4xl font-bold text-center text-gray-800 mb-6">Financial Risk Analysis</h1>
+        <form id="cusip-form" class="bg-white p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row items-center sm:space-x-4">
+            <div class="flex-grow w-full mb-4 sm:mb-0">
+                <label for="cusip-input" class="sr-only">CUSIP</label>
+                <input type="text" id="cusip-input" name="cusip" placeholder="Enter CUSIP (e.g., 912828U41 for a sample report)" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out text-lg">
             </div>
-            
-            <!-- Quantitative Metrics Section -->
-            <section class="mt-8">
-                <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b border-gray-200">Quantitative Metrics Summary</h2>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                         <thead class="bg-gray-50">
-                            <tr>
-                                <th class="p-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Category</th>
-                                <th class="p-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Metric</th>
-                                <th class="p-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Value</th>
-                            </tr>
-                        </thead>
-                        <tbody id="metrics-table-body" class="divide-y divide-gray-200">
-                            <!-- Metrics data will be dynamically added -->
-                        </tbody>
-                    </table>
+            <button type="submit" id="analyze-button" class="w-full sm:w-auto bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out flex items-center justify-center space-x-2">
+                <svg id="button-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span id="button-text">Analyze</span>
+            </button>
+        </form>
+    </div>
+
+    <!-- State Report Section (initially hidden) -->
+    <div id="report-section" class="hidden">
+        <div class="max-w-7xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
+            <header class="bg-red-800 text-white p-6">
+                <h1 id="report-headline" class="text-2xl md:text-3xl font-bold"></h1>
+                <div class="mt-2 text-sm opacity-90">
+                    <strong>Context:</strong> Bear_Flattener (High Volatility)
+                    <br>
+                    <em>Note: Risk scores have been adjusted based on the current market regime.</em>
                 </div>
-            </section>
-
-            <!-- Collapsible Narrative Section -->
-            <section class="mt-8">
-                <div class="border-t border-gray-200 pt-6">
-                     <details id="narrative-details">
-                        <summary class="flex justify-between items-center cursor-pointer text-xl font-bold text-gray-900">
-                            <span>Market-Adjusted Risk Narrative</span>
-                            <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                        </summary>
-                        <div id="narrative-content" class="mt-4 prose prose-indigo max-w-none text-gray-700 leading-relaxed">
-                            <!-- Narrative content will be populated here -->
+            </header>
+    
+            <main class="p-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 lg:gap-8">
+                    <!-- Left Column: Key Insights -->
+                    <section>
+                        <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b border-gray-200">Key Insights (Cross-Factor Analysis)</h2>
+                        <div id="insights-container" class="space-y-4">
+                            <!-- Insights will be dynamically added or can be pre-rendered -->
                         </div>
-                    </details>
+                    </section>
+    
+                    <!-- Right Column: Risk Factors -->
+                    <section>
+                        <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b border-gray-200">All Risk Factors (Normalized 0-1 Score)</h2>
+                        <div class="risk-factors-grid space-y-4" id="risk-factors-container">
+                            <!-- Risk factors will be dynamically added here -->
+                        </div>
+                    </section>
                 </div>
-            </section>
-        </main>
+                
+                <!-- Quantitative Metrics Section -->
+                <section class="mt-8">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b border-gray-200">Quantitative Metrics Summary</h2>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                             <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="p-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Category</th>
+                                    <th class="p-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Metric</th>
+                                    <th class="p-3 text-left font-semibold text-gray-600 uppercase tracking-wider">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="metrics-table-body" class="divide-y divide-gray-200">
+                                <!-- Metrics data will be dynamically added -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+    
+                <!-- Collapsible Narrative Section -->
+                <section class="mt-8">
+                    <div class="border-t border-gray-200 pt-6">
+                         <details id="narrative-details">
+                            <summary class="flex justify-between items-center cursor-pointer text-xl font-bold text-gray-900">
+                                <span>Market-Adjusted Risk Narrative</span>
+                                <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </summary>
+                            <div id="narrative-content" class="mt-4 prose prose-indigo max-w-none text-gray-700 leading-relaxed">
+                                <!-- Narrative content will be populated here -->
+                            </div>
+                        </details>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Initial/Error State -->
+    <div id="status-container" class="text-center text-gray-500 mt-8">
+        <p id="status-message">Enter a CUSIP to generate a risk report.</p>
     </div>
 
     <script>
         const mockData = {
           headline: "High-Yield Bond Shows Elevated Risk Profile Amid Market Uncertainty",
-          synthesized_narrative: "This high-yield corporate bond exhibits a complex and concerning risk profile. It is trading significantly 'rich' to its peers against a backdrop of a 'Bear_Flattener' market regime, a condition amplified by models forecasting continued credit spread widening. The situation is exacerbated by high illiquidity, casting doubt on the reliability of current price marks. Both recent and predicted volatility are high and accelerating, signaling a sustained period of instability. A key contradiction emerges between positive news sentiment and significant net selling pressure, suggesting sophisticated investors may be using the news as a liquidity event to exit positions. While fundamentals are weak, some contrarian buying is detected, pointing to a small pocket of investors betting on a turnaround.",
+          synthesized_narrative: "This is a high-conviction short. The bond is fundamentally weak (breached covenant) yet trades at a significant premium—a valuation completely disconnected from reality. This 'richness' is likely an artifact of extreme illiquidity, with concentrated ownership pointing to a high risk of a price gap down on any attempt to sell size. Critically, we see a classic distribution pattern: institutional desks are net sellers, offloading positions into positive news sentiment that appears to be misleading retail flows. With models forecasting further spread widening and volatility accelerating, the risk/reward is heavily skewed to the downside. The current price is not a reliable indicator of executable value.",
           risk_factors: [
-            { risk_type: "Valuation", description: "Measures if the instrument is overvalued ('rich') relative to its peers and benchmark, adjusted for market volatility.", score: 0.85, evidence: [ {name: "Spread vs. Peers (bps)", value: "22.3"}, {name: "Peer Valuation Threshold (bps)", value: "25"}, {name: "Spread vs. Benchmark (bps)", value: "38.1"}, {name: "Benchmark Valuation Threshold (bps)", value: "40"}, {name: "Volatility Regime", value: "High"} ] },
+            { risk_type: "Predicted Volatility", description: "Forecasts future volatility (e.g., VaR), signaling expectations of future price swings.", score: 0.91, evidence: [{name: "5d VaR Forecast", value: "1.8%"}, {name: "Model Accuracy", value: "91%"}] },
             { risk_type: "Predicted Spread Widening", description: "Measures the risk of underperformance due to a model-forecasted increase in the instrument's credit spread.", score: 0.82, evidence: [ {name: "1d Forecast Spread Widening (bps)", value: "12"}, {name: "1d Spread Widening Threshold (bps)", value: "15"}, {name: "5d Forecast Spread Widening (bps)", value: "28"}, {name: "5d Spread Widening Threshold (bps)", value: "30"}, {name: "20d Forecast Spread Widening (bps)", value: "45"}, {name: "20d Spread Widening Threshold (bps)", value: "50"}, {name: "Driver: VIX Index", value: "0.35"}, {name: "Driver: HYG ETF Flow", value: "0.25"}, {name: "Model Precision", value: "0.88"}, {name: "Model Recall", value: "0.85"} ] },
+            { risk_type: "News Sentiment", description: "Gauges risk from negative news sentiment. A low score indicates positive news.", score: 0.25, evidence: [{name: "Sentiment Score", value: "0.8 (Positive)"}, {name: "Key Stories", value: "Upbeat earnings report"}] },
+            { risk_type: "Valuation", description: "Measures if the instrument is overvalued ('rich') relative to its peers and benchmark, adjusted for market volatility.", score: 0.85, evidence: [ {name: "Spread vs. Peers (bps)", value: "22.3"}, {name: "Peer Valuation Threshold (bps)", value: "25"}, {name: "Spread vs. Benchmark (bps)", value: "38.1"}, {name: "Benchmark Valuation Threshold (bps)", value: "40"}, {name: "Volatility Regime", value: "High"} ] },
             { risk_type: "Illiquidity", description: "Evaluates the difficulty of trading the bond at its current marked price without significant price impact.", score: 0.78, evidence: [{name: "Composite z-score", value: "-2.1"}, {name: "Bid/Ask Spread", value: "Wide"}, {name: "Recent Trade Volume", value: "Low"}] },
             { risk_type: "Volatility Trend", description: "Measures the acceleration of recent price volatility, indicating increasing instability.", score: 0.75, evidence: [{name: "5d vs 20d Volatility", value: "1.8x"}, {name: "Trend Significance", value: "High"}] },
-            { risk_type: "Issuer & Covenant Risk", description: "Assesses risks related to the issuer's financial health and breaches of bond covenants.", score: 0.72, evidence: [{name: "DSCR", value: "1.15x"}, {name: "Covenant Status", value: "Breached"}, {name: "Sector Outlook", value: "Negative"}] },
-            { risk_type: "Order Flow Pressure", description: "Indicates net buying (negative score) or selling (positive score) pressure from market participants.", score: 0.65, evidence: [{name: "Net Flow (5d)", value: "$2.5M Sell"}, {name: "Institutional Flow", value: "Net Sell"}] },
-            { risk_type: "Predicted Volatility", description: "Forecasts future volatility (e.g., VaR), signaling expectations of future price swings.", score: 0.91, evidence: [{name: "5d VaR Forecast", value: "1.8%"}, {name: "Model Accuracy", value: "91%"}] },
-            { risk_type: "News Sentiment", description: "Gauges risk from negative news sentiment. A low score indicates positive news.", score: 0.25, evidence: [{name: "Sentiment Score", value: "0.8 (Positive)"}, {name: "Key Stories", value: "Upbeat earnings report"}] }
+            { risk_type: "Issuer & Covenant Risk", description: "Assesses risks related to the issuer's financial health and breaches of bond covenants.", score: 0.90, evidence: [{name: "DSCR", value: "1.15x"}, {name: "Covenant Status", value: "Breached"}, {name: "Sector Outlook", value: "Negative"}] },
+            { risk_type: "Order Flow Pressure", description: "Indicates net buying (negative score) or selling (positive score) pressure from market participants.", score: 0.65, evidence: [{name: "Net Flow (5d)", value: "$2.5M Sell"}, {name: "Institutional Flow", value: "Net Sell"}] }
           ],
           pattern_analysis: [
-            { pattern_type: "Confirmation (Fundamental + Forecast)", insight_summary: "Instrument is trading rich and models forecast further spread widening, confirming valuation concerns.", contributing_factors: ["Valuation Risk Score > 0.7", "Predicted Spread Widening Risk Score > 0.7"]},
-            { pattern_type: "Contradiction (Sentiment vs. Flow)", insight_summary: "Despite positive news sentiment, order flows show significant net selling, indicating market participants may be disbelieving the news or using it as a liquidity event.", contributing_factors: ["News Risk Score < 0.3", "Order Flow Pressure Score > 0.7"]},
-            { pattern_type: "Confirmation (Bottom Fishing / Contrarian Buying)", insight_summary: "Despite deteriorating fundamentals, order flow shows persistent net buying, suggesting some participants see value where others see risk.", contributing_factors: ["Issuer & Covenant Risk Score > 0.7", "Order Flow Pressure Score < -0.7"]},
-            { pattern_type: "Contradiction (Illiquid & Overvalued)", insight_summary: "The bond is marked as both highly illiquid and significantly overvalued. Its 'richness' may be an artifact of stale, unreliable pricing rather than true market value.", contributing_factors: ["Illiquidity Risk is 'High'", "Valuation Risk Score > 0.7"]},
-            { pattern_type: "Confirmation (Volatility Cluster)", insight_summary: "Accelerating realized volatility is confirmed by forecasts, suggesting a sustained high-risk volatility regime.", contributing_factors: ["Volatility Trend Risk Score > 0.7", "Predicted Volatility Risk Score > 0.7"]}
+            { pattern_type: "Confirmation", type_detail: "(Fundamental + Forecast)", sentiment: "negative", insight_summary: "Instrument is trading rich and models forecast further spread widening, confirming valuation concerns.", contributing_factors: ["Valuation Risk Score > 0.7", "Predicted Spread Widening Risk Score > 0.7"]},
+            { pattern_type: "Contradiction", type_detail: "(Sentiment vs. Flow)", sentiment: "negative", insight_summary: "Despite positive news sentiment, order flows show significant net selling, indicating market participants may be disbelieving the news or using it as a liquidity event.", contributing_factors: ["News Risk Score < 0.3", "Order Flow Pressure Score > 0.7"]},
+            { pattern_type: "Contradiction", type_detail: "(Sentiment vs. Forecast)", sentiment: "negative", insight_summary: "Recent positive news is at odds with model forecasts predicting a high probability of negative news, suggesting the current positive sentiment may be short-lived.", contributing_factors: ["News Sentiment Score < 0.3", "Prob. Negative News > 70%"]},
+            { pattern_type: "Contradiction", type_detail: "(Illiquid & Overvalued)", sentiment: "warning", insight_summary: "The bond is marked as both highly illiquid and significantly overvalued. Its 'richness' may be an artifact of stale, unreliable pricing rather than true market value.", contributing_factors: ["Illiquidity Risk is 'High'", "Valuation Risk Score > 0.7"]},
+            { pattern_type: "Confirmation", type_detail: "(Volatility Cluster)", sentiment: "negative", insight_summary: "Accelerating realized volatility is confirmed by forecasts, suggesting a sustained high-risk volatility regime.", contributing_factors: ["Volatility Trend Risk Score > 0.7", "Predicted Volatility Risk Score > 0.7"]}
           ],
           quantitative_metrics: [
             { category: "Valuation", metric: "YTW / YTM", value: "8.1% / 8.5%" },
             { category: "Valuation", metric: "OAS (bps)", value: "450" },
             { category: "Valuation", metric: "Relative Value vs Peers (bps)", value: "-22.3 (Rich)" },
             { category: "Valuation", metric: "Relative Value vs Benchmark (bps)", value: "-38.1 (Rich)" },
-            { category: "Sensitivity", metric: "DV01 / CS01", value: "0.08 / 0.33" },
+            { category: "Sensitivity", metric: "DV01", value: "0.01" },
+            { category: "Sensitivity", metric: "CS01", value: "0.33" },
             { category: "Liquidity", metric: "Composite Score (z-score)", value: "-2.1 (Illiquid)" },
             { category: "Liquidity", metric: "Bid / Ask Depth ($)", value: "150k / 100k" },
             { category: "Fundamentals", metric: "Issuer DSCR", value: "1.15x (Breached Covenant)" },
@@ -165,10 +193,43 @@
             container.innerHTML = '';
             data.forEach(insight => {
                 const card = document.createElement('div');
-                card.className = 'bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-r-lg';
+                
+                // Define icons
+                const icons = {
+                    confirmation: '<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+                    contradiction: '<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>'
+                };
+
+                const icon = insight.pattern_type.toLowerCase().includes('confirmation') ? icons.confirmation : icons.contradiction;
+                
+                let cardClass = '';
+                let textClass = '';
+
+                switch (insight.sentiment) {
+                    case 'negative':
+                        cardClass = 'bg-red-50 border-l-4 border-red-400 p-4 rounded-r-lg';
+                        textClass = 'text-red-800';
+                        break;
+                    case 'positive':
+                        cardClass = 'bg-green-50 border-l-4 border-green-400 p-4 rounded-r-lg';
+                        textClass = 'text-green-800';
+                        break;
+                    case 'warning':
+                        cardClass = 'bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-r-lg';
+                        textClass = 'text-yellow-800';
+                        break;
+                    default:
+                        cardClass = 'bg-gray-50 border-l-4 border-gray-300 p-4 rounded-r-lg';
+                        textClass = 'text-gray-800';
+                }
+
+                card.className = cardClass;
                 card.innerHTML = `
-                    <div class="font-bold text-base text-yellow-800">${insight.pattern_type}</div>
-                    <p class="my-1 text-sm text-gray-700">${insight.insight_summary}</p>
+                    <div class="flex items-center font-bold text-base ${textClass}">
+                        ${icon}
+                        <span>${insight.pattern_type} ${insight.type_detail || ''}</span>
+                    </div>
+                    <p class="my-2 text-sm text-gray-700">${insight.insight_summary}</p>
                     <p class="text-xs text-gray-500 italic">Factors: ${insight.contributing_factors.join(', ')}</p>
                 `;
                 container.appendChild(card);
@@ -196,39 +257,86 @@
         }
         
         document.addEventListener('DOMContentLoaded', () => {
-            // Populate Narrative
-            const narrativeContent = document.getElementById('narrative-content');
-            if(narrativeContent) {
-                narrativeContent.innerHTML = `<p>${mockData.synthesized_narrative}</p>`;
-            }
+            const form = document.getElementById('cusip-form');
+            const input = document.getElementById('cusip-input');
+            const reportSection = document.getElementById('report-section');
+            const statusContainer = document.getElementById('status-container');
+            const statusMessage = document.getElementById('status-message');
+            const analyzeButton = document.getElementById('analyze-button');
+            const buttonSpinner = document.getElementById('button-spinner');
+            const buttonText = document.getElementById('button-text');
 
-            // Build dynamic sections
-            buildRiskFactors(mockData.risk_factors);
-            buildInsights(mockData.pattern_analysis);
-            buildMetrics(mockData.quantitative_metrics);
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const cusip = input.value.trim();
 
-            // Handle evidence toggle text
-            document.querySelectorAll('#risk-factors-container details').forEach(detail => {
-                const summary = detail.querySelector('summary');
-                if(!summary) return;
-                const originalText = summary.firstChild.textContent.trim();
-                
-                detail.addEventListener('toggle', () => {
-                    if (detail.open) {
-                        summary.firstChild.textContent = 'Hide Evidence ';
-                    } else {
-                        summary.firstChild.textContent = originalText + ' ';
+                if (!cusip) {
+                    reportSection.classList.add('hidden');
+                    statusContainer.classList.remove('hidden');
+                    statusMessage.textContent = 'Please enter a CUSIP.';
+                    statusMessage.classList.add('text-red-500');
+                    return;
+                }
+
+                // --- Simulate API Call ---
+                reportSection.classList.add('hidden');
+                statusContainer.classList.remove('hidden');
+                statusMessage.textContent = `Analyzing CUSIP: ${cusip}...`;
+                statusMessage.classList.remove('text-red-500');
+
+                analyzeButton.disabled = true;
+                buttonSpinner.classList.remove('hidden');
+                buttonText.textContent = 'Analyzing...';
+
+                setTimeout(() => {
+                    // "Render" the report
+                    document.getElementById('report-headline').textContent = `Risk Profile for ${cusip}: ${mockData.headline}`;
+                    
+                    // Populate Narrative
+                    const narrativeContent = document.getElementById('narrative-content');
+                    if(narrativeContent) {
+                        narrativeContent.innerHTML = `<p>${mockData.synthesized_narrative}</p>`;
                     }
-                });
+
+                    // Build dynamic sections
+                    buildRiskFactors(mockData.risk_factors);
+                    buildInsights(mockData.pattern_analysis);
+                    buildMetrics(mockData.quantitative_metrics);
+                    
+                    // Show the report and hide status
+                    statusContainer.classList.add('hidden');
+                    reportSection.classList.remove('hidden');
+
+                    // Reset button
+                    analyzeButton.disabled = false;
+                    buttonSpinner.classList.add('hidden');
+                    buttonText.textContent = 'Analyze';
+                    
+                    // Reset toggles to closed state for new report
+                    resetDetailsElements();
+
+                }, 1500); // 1.5 second delay
             });
 
-             // Handle narrative toggle arrow
-            const narrativeDetails = document.getElementById('narrative-details');
-            if(narrativeDetails) {
-                const arrow = narrativeDetails.querySelector('svg');
-                narrativeDetails.addEventListener('toggle', () => {
-                    arrow.classList.toggle('-rotate-180');
+            function resetDetailsElements() {
+                // Reset evidence toggles
+                document.querySelectorAll('#risk-factors-container details').forEach(detail => {
+                    detail.removeAttribute('open');
+                    const summary = detail.querySelector('summary');
+                    if(!summary) return;
+                    const summaryText = summary.childNodes[0];
+                    if (summaryText.nodeType === Node.TEXT_NODE) {
+                       summaryText.textContent = 'Show Evidence ';
+                    }
                 });
+
+                // Reset narrative toggle
+                const narrativeDetails = document.getElementById('narrative-details');
+                if(narrativeDetails) {
+                    narrativeDetails.removeAttribute('open');
+                    const arrow = narrativeDetails.querySelector('svg');
+                    arrow.classList.remove('-rotate-180');
+                }
             }
         });
 
