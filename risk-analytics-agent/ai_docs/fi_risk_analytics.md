@@ -40,6 +40,7 @@ graph TD;
     StateTax --> Calculations
     EconomicalCalendar --> Calculations
     News --> Calculations
+    [..] --> Calculations
     
     Calculations --> MarketRegime["Market Regime Model"]
     MarketRegime --> PredictedRisk["Predicted Risk Features"]
