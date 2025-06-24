@@ -22,62 +22,36 @@ The key goals are to:
 
 ### **3. Main Data Flow**
 
+graph TD;
+    subgraph "Data Feeds"
+        MarketData["Market Data"]
+        TradesHistory["Trades History"]
+        SecurityMaster["Security Master"]
+        StateTax["State Tax"]
+        EconomicalCalendar["Economical Calendar"]
+        News["News"]
+        sub_[...]
+    end
 
-```plantuml
-@startuml
-skinparam componentStyle rectangle
+    Calculations["Calculations<br/>-----------<br/>Calculates OAS/DV01/CS01, liquidity scores, etc."]
+    MarketRegime["Market Regime Model<br/>-----------<br/>Classifies market regime via HMM"]
+    PredictedRisk["Predicted Risk Features<br/>-----------<br/>Forecasts risk features (OAS/volatility/..) via explainable TFT"]
+    RiskSynthesis["Risk Synthesis<br/>-----------<br/>Aggregates outputs, finds contradictions, creates narrative"]
 
-package "Data Feeds" {
-  [Market Data]
-  [Trades History]
-  [Security Master]
-  [State Tax]
-  [Economical Calendar]
-  [News]
-  [...]
-}
+    MarketData --> Calculations
+    TradesHistory --> Calculations
+    SecurityMaster --> Calculations
+    StateTax --> Calculations
+    EconomicalCalendar --> Calculations
+    News --> Calculations
+    sub_[...] --> Calculations
 
-[Calculations]
-[Market Regime Model] #F08080
-[Predicted Risk Features] #87CEFA
-[Risk Synthesis]
+    Calculations --> MarketRegime
+    MarketRegime --> PredictedRisk
+    PredictedRisk --> RiskSynthesis
 
-[Market Data] --> [Calculations]
-[Trades History] --> [Calculations]
-[Security Master] --> [Calculations]
-[State Tax] --> [Calculations]
-[Economical Calendar] --> [Calculations]
-[News] --> [Calculations]
-[...] --> [Calculations]
-
-[Calculations] --> [Market Regime Model]
-note right of [Calculations]
-  Calculates OAS/DV01/CS01,
-  composite liquidity scores,
-  peer-based relative values,
-  and other financial metrics.
-end note
-
-[Market Regime Model] --> [Predicted Risk Features]
-note right of [Market Regime Model]
-  Classifies market state into 6 regimes (e.g., Bull_Steepener)
-  using a Hidden Markov Model with Z-score-based state mapping.
-end note
-
-[Predicted Risk Features] --> [Risk Synthesis]
-note right of [Predicted Risk Features]
-  Multi-horizon risk forecasting (OAS, Volatility) using an
-  explainable Temporal Fusion Transformer (TFT) model.
-end note
-
-note right of [Risk Synthesis]
-  Aggregates all model outputs, identifies cross-factor
-  contradictions (e.g., 'Illiquid & Overvalued') via a
-  rules engine, and generates a final risk narrative.
-end note
-
-@enduml
-```
+    style MarketRegime fill:#008000
+    style PredictedRisk fill:#008000
 
 ### **3. Main Workflows**
 
