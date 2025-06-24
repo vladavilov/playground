@@ -148,7 +148,7 @@ The `W_source` weight is determined by the news source tier.
 ## 5. Non-Functional Requirements
 
 ### 5.1. Model Quality
-- **NFR-MQ-01 (Critical):** The sentiment analysis model **must** be fine-tuned for credit risk, differentiating between events that are positive for equity but negative for credit (e.g., debt-financed M&A).
+- **NFR-MQ-01 (Critical):** The sentiment analysis model **must** be fine-tuned for financial news differentiating, scoring sentiments, marginude and artical relation (market, sector, issuer, cusip).
 
 ### 5.2. Data Consistency
 - **NFR-DC-01:** Historical scores for a given day **must** be immutable and reproducible, calculated using all news available up to that day's cutoff (23:59:59).
