@@ -24,27 +24,59 @@ The key goals are to:
 
 
 ```plantuml
-graph TD;
-    subgraph "Data Feeds"
-        MarketData["Market Data"]
-        TradesHistory["Trades History"]
-        SecurityMaster["Security Master"]
-        StateTax["State Tax"]
-        EconomicalCalendar["Economical Calendar"]
-        News["News"]
-    end
+@startuml
+skinparam componentStyle rectangle
 
-    MarketData --> Calculations["Calculations"]
-    TradesHistory --> Calculations
-    SecurityMaster --> Calculations
-    StateTax --> Calculations
-    EconomicalCalendar --> Calculations
-    News --> Calculations
-    [..] --> Calculations
-    
-    Calculations --> MarketRegime["Market Regime Model"]
-    MarketRegime --> PredictedRisk["Predicted Risk Features"]
-    PredictedRisk --> RiskSynthesis["Risk Synthesis"]
+package "Data Feeds" {
+  [Market Data]
+  [Trades History]
+  [Security Master]
+  [State Tax]
+  [Economical Calendar]
+  [News]
+  [...]
+}
+
+[Calculations]
+[Market Regime Model] #F08080
+[Predicted Risk Features] #87CEFA
+[Risk Synthesis]
+
+[Market Data] --> [Calculations]
+[Trades History] --> [Calculations]
+[Security Master] --> [Calculations]
+[State Tax] --> [Calculations]
+[Economical Calendar] --> [Calculations]
+[News] --> [Calculations]
+[...] --> [Calculations]
+
+[Calculations] --> [Market Regime Model]
+note right of [Calculations]
+  Calculates OAS/DV01/CS01,
+  composite liquidity scores,
+  peer-based relative values,
+  and other financial metrics.
+end note
+
+[Market Regime Model] --> [Predicted Risk Features]
+note right of [Market Regime Model]
+  Classifies market state into 6 regimes (e.g., Bull_Steepener)
+  using a Hidden Markov Model with Z-score-based state mapping.
+end note
+
+[Predicted Risk Features] --> [Risk Synthesis]
+note right of [Predicted Risk Features]
+  Multi-horizon risk forecasting (OAS, Volatility) using an
+  explainable Temporal Fusion Transformer (TFT) model.
+end note
+
+note right of [Risk Synthesis]
+  Aggregates all model outputs, identifies cross-factor
+  contradictions (e.g., 'Illiquid & Overvalued') via a
+  rules engine, and generates a final risk narrative.
+end note
+
+@enduml
 ```
 
 ### **3. Main Workflows**
