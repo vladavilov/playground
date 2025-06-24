@@ -22,6 +22,7 @@ The key goals are to:
 
 ### **3. Main Data Flow**
 
+```mermaid
 graph TD;
     subgraph "Data Feeds"
         MarketData["Market Data"]
@@ -52,6 +53,7 @@ graph TD;
 
     style MarketRegime fill:#008000
     style PredictedRisk fill:#008000
+```
 
 ### **3. Main Workflows**
 
