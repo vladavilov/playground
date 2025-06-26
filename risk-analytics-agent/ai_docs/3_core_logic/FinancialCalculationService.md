@@ -256,15 +256,54 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 ### 4.4. Methodology: Option-Adjusted Spread (OAS) Calculation
 - **Purpose:** To calculate the spread over a benchmark yield curve that equates a bond's theoretical price (accounting for embedded call options) to its observed market price.
+- OAS=Spread over a risk free becnhmark. OAS defined as a spread over a risk free curve that incorporates optionalities
+- The risk free bencha,rk is almost always a zero yield curve from goverment bonds(e.g UST from FRED)
+- OAS tells how much extra return you'd get over a zero-curve, after removing optionality value
+- OAS claculation steps:
+  - Start with zero coupon curve(e.g treasury)
+  - add flat spread to curve
+  - use a model(Hull White tree) to price the bond with embedded options
+  - Adjust the spread until model price=market price
+- The spread is OAS
 - **Input Model:**
-    - `market_price`: `float`
-    - `cash_flows`: `array` (derived from SecurityMaster)
-    - `call_schedule`: `array` (from SecurityMaster, including `call_type`)
-    - `benchmark_yield_curve`: `object` (from MarketData - the appropriate UST or MMD curve as per rule BR-01/BR-02)
-    - `interest_rate_volatility_surface`: `object` (from MarketData)
+- ***BOND DATA
+    - `cusip`: `9 symbols ISO standard cusip e.g 91282CJL6`
+    - `issue date`: `ISO date`
+    - `maturity date`: `ISO date`
+    - `coupon`: `float`
+    - `call_schedule`: `array` (from SecurityMaster, date:price)
+    - `day_count`: "30/360" 
+    - `frequency`:"Annual"
+    - clean price e.g market
+- ***CURVES AND RATES
+  - `treasury_curve_zero_rates`:`array`(term:1M,rate:0.06 till 10Y )    
+  - `sofr_swaption_vols`: `array`(option_tenor:1Y swap_tenor: 5Y volatility:0.2)
 - **Calculation Method:**
-    1.  This calculation is not performed for `instrument_type` = 'TFI_TREASURY'.
-    2.  An `interest_rate_volatility` float **shall** be derived from the input `interest_rate_volatility_surface`. The logic is as follows:
+    1.  This calculation is not performed for `instrument_type` = 'TFI_TREASURY'. If bond is treasury use  DiscountingBondEngine. Compute yiled to maturity or duration DV01
+    2. Setup evaluation date. Convert frequency to Quantlib period for example "Annual": ql.Annula->map(possible values:Annual,semiAnnual,Quaterly,Monthly)
+    3. Convert days count to Quantilib period ql.Thirty360() (possible values 30/360, Actual/360 Actual/365 Actual/Actual)
+    4. Build bond schedule using ql.Schedule(input issue_date, maturity_date,bond_frequrncy. Generation=Backward)
+    5. Build call schedule ql.CallabilitySchedule. Empty if not provided
+    6. Create callable bond Ql.CallableBond. Empty to handle non Callable bond. Should return Z Spread instead of OAS. input: settle_day. e.g 1,2,3. face value=100
+    7. Build discount curver from treasury zero curve->discount_curve
+      - discount_curve=ql.ZeroCurve(dates(evalDate+tenormap[k]),rates,day_count,calendar=ql.USCalendar())
+
+    8. create mock swaption valoatility surface for HW calibration
+      - in: eval_date
+      - out: swaption_vol_surface
+      - build matrix: for i in option_tenors
+                        for j in swap_tenors
+                          matrix[i][j]=vols[i][j]
+      - return swaption_vol_surface=ql.SwaptionVolatilityMatrix(calendar=ql.UsnitedStaes,ql.MidifiedFollowing,option_tenors,swap_tenors,matrix,ql.Actual365Fixed())
+    9. Calibrate HW model
+      - price engine Jamshidian
+      - optimize LevenBerg
+      = clibrate_hw_model(discount_curve,swaption_vol_surface)
+    10. price callable bond
+      - hw_mode,face_value=100
+      - price engine TreeCallableFixedrate
+    11. Calculate oas ql.BondFunctions.oas(bond,discount_curve,market_price,ql.ActualActual(),ql.Compounded, qal.SemiAnnual)
+    12. If SOFR rates not available, we can manualy calibrate alpha=0.03 sigma=0.01 on treasury curve
         -   The goal is to find the implied volatility that corresponds to the bond's duration at an at-the-money strike.
         -   From the volatility surface, which is a matrix of tenor and strike, select the volatilities for the 'at-the-money' strike (e.g., strike = 100).
         -   Using this list of volatilities keyed by tenor, perform a **linear interpolation** to find the volatility at the specific duration of the bond. This is identical to the benchmark yield interpolation logic in Section 4.6.
