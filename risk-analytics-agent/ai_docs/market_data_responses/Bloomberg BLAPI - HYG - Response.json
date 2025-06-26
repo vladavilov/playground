@@ -1,0 +1,12 @@
+{
+	"securityData": [
+		{
+			"security": "HYG US Equity",
+			"fieldData": {
+				"YLD_YTM_MID": 8.25,
+				"SPREAD_BENCHMARK": 425.0
+			},
+			"sequenceNumber": 0
+		}
+	]
+}
