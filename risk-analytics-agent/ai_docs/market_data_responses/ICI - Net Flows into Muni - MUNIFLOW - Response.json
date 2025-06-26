@@ -1,0 +1,28 @@
+{
+	"source": "Investment Company Institute",
+	"category": "Municipal Bond Funds",
+	"frequency": "Weekly",
+	"unit": "Million USD",
+	"data": [
+		{
+			"week_ending": "2023-09-13",
+			"net_flows": -345
+		},
+		{
+			"week_ending": "2023-09-20",
+			"net_flows": -120
+		},
+		{
+			"week_ending": "2023-09-27",
+			"net_flows": 50
+		},
+		{
+			"week_ending": "2023-10-04",
+			"net_flows": 125
+		},
+		{
+			"week_ending": "2023-10-11",
+			"net_flows": 220
+		},
+	]
+}

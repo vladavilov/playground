@@ -1,0 +1,15 @@
+{
+	"securityData": {
+		"security": "CPI YOY Index",
+		"fieldData": [
+		{
+			"date": "2023-08-31",
+			"PX_LAST": 3.7
+		},
+		{
+			"date": "2023-09-30",
+			"PX_LAST": 3.7
+		}
+		]
+	}
+}

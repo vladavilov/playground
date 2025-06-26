@@ -1,0 +1,23 @@
+[
+  {
+    "Symbol": "MOVE:IND",
+	"Ticker": "MOVE",
+    "Name": "ICE BofA MOVE Index",
+    "Country": "United States",
+    "Date": "2025-06-26T18:30:00",
+    "Last": 95.5,
+    "LastUpdate": "2025-06-26T18:30:00",
+    "DailyChange": -1.2,
+    "DailyPercentualChange": -1.24,
+    "WeeklyChange": 2.1,
+    "WeeklyPercentualChange": 2.25,
+    "MonthlyChange": -5.8,
+    "MonthlyPercentualChange": -5.72,
+    "YearlyChange": 10.3,
+    "YearlyPercentualChange": 12.09,
+    "YTDChange": 8.7,
+    "YTDPercentualChange": 10.02,
+	"Frequency": "Daily",
+    "HistoricalDataSymbol": "MOVE"
+  }
+]

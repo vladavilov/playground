@@ -1,0 +1,22 @@
+[
+  {
+    "Symbol": "VIX:IND",
+	"Ticker": "VIX",
+    "Name": "CBOE Volatility Index (VIX)",
+    "Country": "United States",
+    "Market": "Indexes",
+    "Last": 12.85,
+    "Change": 0.15,
+    "ChangePercent": 1.18,
+    "Open": 12.70,
+    "High": 13.02,
+    "Low": 12.65,
+    "Volume": 0,
+    "Date": "2025-06-26T16:00:00",
+    "Currency": "USD",
+    "Unit": null,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "VIX",
+    "IsMarketOpen": true
+  }
+]

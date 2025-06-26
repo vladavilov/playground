@@ -1,0 +1,12 @@
+{
+	"securityData": [
+		{
+			"security": "LQD US Equity",
+			"fieldData": {
+				"YLD_YTM_MID": 5.75,
+				"SPREAD_BENCHMARK": 150.0
+			},
+			"sequenceNumber": 0
+		}
+	]
+}

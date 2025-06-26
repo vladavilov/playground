@@ -1,0 +1,10 @@
+{
+	"seriesId": "USD_SWAP_SPREAD_10Y",
+	"description": "USD 10-Year Swap Spread vs US Treasury",
+	"units": "Basis Points",
+	"data": {
+		"date": "2023-10-12",
+		"value": 16.5,
+		"timestamp": "2023-10-12T15:00:00Z"
+	}
+}

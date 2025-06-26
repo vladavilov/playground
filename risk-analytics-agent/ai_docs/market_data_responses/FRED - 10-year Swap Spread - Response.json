@@ -1,0 +1,14 @@
+{
+	"realtime_start": "2023-10-12",
+	"realtime_end": "2023-10-12",
+	"observations": [
+		{
+			"date": "2023-10-11",
+			"value": "4.75"
+		},
+		{
+			"date": "2023-10-12",
+			"value": "4.78"
+		}
+	]
+}
