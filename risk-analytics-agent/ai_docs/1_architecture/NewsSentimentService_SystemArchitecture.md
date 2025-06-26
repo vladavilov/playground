@@ -5,21 +5,33 @@
 ## Table of Contents
 1. [Executive Summary](#1-executive-summary)
 2. [High-Level Architecture Overview](#2-high-level-architecture-overview)
+    - [System Components Overview](#21-system-components-overview)
+    - [Technology Stack](#22-technology-stack)
 3. [C4 Architecture Diagrams](#3-c4-architecture-diagrams)
+    - [Level 1: System Context](#31-level-1-system-context)
+    - [Level 2: Container Diagram](#32-level-2-container-diagram)
 4. [Detailed Component Design](#4-detailed-component-design)
+    - [News Source Adapter Services](#41-news-source-adapter-services)
+    - [Data Ingestion Service (DIS)](#42-data-ingestion-service-dis)
+    - [News Processor Service (NPS)](#43-news-processor-service-nps)
+    - [Storage Layer Design](#44-storage-layer-design)
+    - [News Sentiment Score Service (NSSS)](#45-news-sentiment-score-service-nsss)
 5. [Data Flow and Processing](#5-data-flow-and-processing)
+    - [Request Processing Sequence](#51-request-processing-sequence)
+    - [Article State Machine](#52-article-state-machine)
 6. [Scalability and Performance](#6-scalability-and-performance)
-7. [Security and Monitoring](#7-security-and-monitoring)
-8. [Deployment Architecture](#8-deployment-architecture)
-9. [Future Enhancements](#9-future-enhancements)
+    - [Horizontal Scaling Strategy](#61-horizontal-scaling-strategy)
+    - [Performance Requirements](#62-performance-requirements)
+7. [Disaster Recovery](#7-disaster-recovery)
+    - [Backup Strategy](#backup-strategy)
+    - [Recovery Procedures](#recovery-procedures)
+8. [Future Enhancements](#8-future-enhancements)
 
 ---
 
 ## 1. Executive Summary
 
 The News Sentiment Service is a critical component of the Fixed Income AI Risk Analytics System, responsible for ingesting, processing, and serving aggregated news sentiment scores for fixed-income instruments. This document outlines the complete system architecture, including all sub-components, data flows, technology choices, and design decisions.
-
-The system follows a microservices architecture pattern with clear separation of concerns, enabling high scalability, maintainability, and extensibility. The architecture supports processing 10,000 articles/day with sub-500ms API response times.
 
 ---
 
@@ -449,16 +461,19 @@ stateDiagram-v2
 
 ---
 
-### 7 Disaster Recovery
+## 7. Disaster Recovery
 
-#### Backup Strategy
+### 7.1 Backup Strategy
+
 - Cosmos DB continuous backup with 7-day retention
 - Configuration backups in Gitlab
 
-#### Recovery Procedures
+### 7.2 Recovery Procedures
+
 - RPO: 1 hour
 - RTO: 4 hours
 - Automated failover to secondary region
+
 ---
 
 ## 8. Future Enhancements
