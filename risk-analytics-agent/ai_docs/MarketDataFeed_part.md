@@ -21,16 +21,16 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 - **MDF-DR-02:** All indicators **shall** be delivered as `float` data types.
 - **MDF-DR-03:** The feed **shall** guarantee that no values are null or missing. The data ingestion service is responsible for handling any upstream data gaps.
 
-| Field Name                       | Data Type | Description                                                            | Update Frequency                |
-|:---------------------------------|:----------|:-----------------------------------------------------------------------|---------------------------------|
-| `vix_index`                      | `float`   | CBOE Volatility Index.                                                 | Daily                           |
-| `move_index`                     | `float`   | Merrill Lynch Option Volatility Estimate Index.                        | Real-time during trading hours  |
-| `investment_grade_credit_spread` | `float`   | The spread of the Bloomberg U.S. Corporate Investment Grade Index.     | Daily                           |
-| `high_yield_credit_spread`       | `float`   | The spread of the Bloomberg U.S. Corporate High Yield Index.           | Daily                           |
-| `tips_breakeven_5y`              | `float`   | The 5-Year TIPS Breakeven Rate.                                        | Daily                           |
-| `swap_spread_10y`                | `float`   | The 10-year U.S. Dollar interest rate swap vs. Treasury spread.        | Daily                           |
-| `muni_fund_flows_net`            | `float`   | Net flows into municipal bond funds.                                   | Daily                           |
-| `us_cpi_yoy`                     | `float`   | Year-over-year change in the Consumer Price Index.                     | Monthly, mid-month              |
+| Field Name                       | Data Type | Description                                                            | Update Frequency     |
+|:---------------------------------|:----------|:-----------------------------------------------------------------------|----------------------|
+| `vix_index`                      | `float`   | CBOE Volatility Index.                                                 | Daily                |
+| `move_index`                     | `float`   | Merrill Lynch Option Volatility Estimate Index.                        | Daily                |
+| `investment_grade_credit_spread` | `float`   | The spread of the Bloomberg U.S. Corporate Investment Grade Index.     | Daily                |
+| `high_yield_credit_spread`       | `float`   | The spread of the Bloomberg U.S. Corporate High Yield Index.           | Daily                |
+| `tips_breakeven_5y`              | `float`   | The 5-Year TIPS Breakeven Rate.                                        | Daily                |
+| `swap_spread_10y`                | `float`   | The 10-year U.S. Dollar interest rate swap vs. Treasury spread.        | Daily                |
+| `muni_fund_flows_net`            | `float`   | Net flows into municipal bond funds.                                   | Daily                |
+| `us_cpi_yoy`                     | `float`   | Year-over-year change in the Consumer Price Index.                     | Monthly, mid-month   |
 
 ---
 
@@ -58,9 +58,40 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 
 ---
 
-## 4. Data Delivery Contract
+## 4. Data Providers
 
-### 4.1. Real-Time Delivery
+### 4.1. API Calls for Financial Indicators
+
+| Index                          | Source                             | Sample API call / Request Script                                                                                                                                         |
+|--------------------------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| VIX                            | TradingEconomics                   | `curl -X GET 'https://api.tradingeconomics.com/markets/symbol/VIX:IND?c=YOUR_API_KEY'`                                                                                   |
+| MOVE                           | TradingEconomics                   | `curl -X GET "https://api.tradingeconomics.com/markets/symbol/MOVE:IND?c=YOUR_API_KEY"`                                                                                   |
+| MOVE                           | Bloomberg                          | `Bloomberg BLAPI - Request.py`                    |
+| MOVE                           | ICE                                | `curl -X GET "https://api.theice.com/marketdata/v1/timeseries/MOVE_INDEX/latest" -H "Authorization: Bearer YOUR_ICE_API_KEY"`                                              |
+| LQD ETF                        | Bloomberg                          | `Bloomberg BLAPI - Request.py`                    |
+| HYG ETF                        | Bloomberg                          | `Bloomberg BLAPI - Request.py`                    |
+| T5YIE                          | Federal Reserve (FRED)             | `curl "https://api.stlouisfed.org/fred/series/observations?series_id=T5YIE&api_key=YOUR_FRED_API_KEY&file_type=json"`                                                     |
+| 10-year Swap Spread            | Federal Reserve (FRED)             | _see “10-year Swap Spread (FRED)” sheet_                                                                                                                                    |
+| 10-year Swap Spread            | Bloomberg                          | `Bloomberg BLAPI - Request.py`                    |
+| 10-year Swap Spread            | ICE                                | `curl -X GET "https://api.theice.com/marketdata/v1/timeseries/USD_SWAP_SPREAD_10Y/latest" -H "Authorization: Bearer YOUR_ICE_API_KEY"`                                        |
+| Net Flows into Muni Bond Funds | Investment Company Institute (ICI) | `ICI - Net Flows into Muni - MUNIFLOW - Request.py` |
+| Net Flows into Muni Bond Funds | Federal Reserve (FRED)             | `curl "https://api.stlouisfed.org/fred/series/observations?series_id=MUTFUNDSMUNIBONDS&api_key=YOUR_FRED_API_KEY&file_type=json"`                                          |
+| Net Flows into Muni Bond Funds | Bloomberg                          | `Bloomberg BLAPI - MUNIFLOW - Request.py`         |
+| US CPI YoY                     | TradingEconomics                   | `curl -X GET "https://api.tradingeconomics.com/historical/country/united%20states/indicator/inflation%20rate?c=guest:guest&format=json"`                                     |
+| US CPI YoY                     | Bloomberg                          | `Bloomberg BLAPI - CPI_YoY - Request.py`          |
+| US CPI YoY                     | Federal Reserve (FRED)             | `FRED - CPI_YoY - Request.py`                     |
+
+### 4.2. 10-year Swap Spread from Federal Reserve (FRED)
+#### Step 1: Retrieve 10-Year Swap Rate (ICERATES1100USD10Y)
+curl "https://api.stlouisfed.org/fred/series/observations?series_id=ICERATES1100USD10Y&api_key=YOUR_FRED_API_KEY&file_type=json"
+#### Step 1: Retrieve 10-Year Treasury Yield (DGS10)
+curl "https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&api_key=YOUR_FRED_API_KEY&file_type=json"
+#### Step 3: Calculate the 10-Year Swap Spread
+10-Year Swap Spread (bps) = (Swap Rate - Treasury Yield) * 100
+
+## 5. Data Delivery Contract
+
+### 5.1. Real-Time Delivery
 - **MDF-DC-01:** The service **shall** expose a synchronous API endpoint that accepts a target `date` to retrieve market data.
 - **MDF-DC-02:** Upon receiving a request, the service **shall** query its internal data store and return the latest available set of market indicators recorded on or before the specified `date`.
 - **MDF-DC-03:** The API response **shall** conform to the following JSON schema, where `data_timestamp` reflects the actual timestamp of the retrieved data from the internal store.
@@ -81,14 +112,13 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 }
 ```
 
-### 4.2. Historical Delivery
+### 5.2. Historical Delivery
 - **MDF-DC-04:** For historical data requests, the service **shall** provide a file (e.g., CSV) containing a `timestamp` column and a column for each of the eight indicators.
 - **MDF-DC-05:** The column headers in the historical file **shall** exactly match the field names specified in the data dictionary (Section 2.1).
 
 ---
 
-## 5. Non-Functional Requirements
+## 6. Non-Functional Requirements
 
-### 5.1. Timeliness & Freshness
-- **MDF-NFR-01:** For the **Real-Time Mode**, the `data_timestamp` for any provided data point **should** be no more than 60 minutes older than the request time.
+### 6.1. Timeliness & Freshness
 - **MDF-NFR-02:** The end-to-end latency for the real-time API call (from request to response) **should** be under 100ms.
