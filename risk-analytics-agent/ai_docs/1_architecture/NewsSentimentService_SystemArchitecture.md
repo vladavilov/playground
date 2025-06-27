@@ -198,6 +198,8 @@ This is the standardized model that all News Source Adapters must provide.
 
 The Data Ingestion Service is a cron-based job that orchestrates the collection of news from all configured News Source Adapters.
 
+> **Requirements Reference**: This service is responsible for fetching news articles, fulfilling requirements for both real-time and historical processing (`RTN-FR-01`, `HPS-FR-01`).
+
 #### Core Responsibilities
 - **Timestamp Management**: For each news source, the service retrieves the timestamp of the last successfully processed article from Cosmos DB. It then requests only articles published after this timestamp from the corresponding adapter.
 - **Deduplication**: The service uses the `article_hash` provided by the adapter to prevent processing duplicate articles. It checks for the existence of the hash in a dedicated, TTL-based Cosmos DB collection. If the hash exists, the article is discarded.
@@ -208,6 +210,8 @@ The Data Ingestion Service is a cron-based job that orchestrates the collection 
 ### 4.3 News Processor Service (NPS)
 
 The News Processor Service uses **GPT-4.1** to enrich raw news articles with structured financial analysis in a **two-step process** for improved precision and maintainability.
+
+> **Requirements Reference**: This service implements the core logic of the **News Scoring Service** (`NSS-FR-01` through `NSS-FR-07`), responsible for entity extraction, event classification, sentiment scoring, and summarization.
 
 #### Step 1: Entity & Relevance Analysis
 The first step determines if the article is relevant and extracts key entities.
@@ -278,6 +282,8 @@ Extract and return the structured information as specified.
 
 The system uses a single, unified Azure Cosmos DB collection for all enriched news events.
 
+> **Requirements Reference**: This storage layer serves as the "Enriched News Store" and "Audit News Store" (`HPS-FR-03`, `HPS-FR-03a`, `RTN-FR-03`). All enriched events are persisted here, with routing logic (e.g., partitioning) to separate auditable events (`'global_other'`) from primary events.
+
 #### Database Schema
 
 ```mermaid
@@ -347,6 +353,8 @@ erDiagram
 
 The API service calculates and serves aggregated sentiment scores.
 
+> **Requirements Reference**: This service provides the public-facing API endpoints, implementing the functional requirements of the **On-Demand Sentiment Service** (`SCS-FR-01` through `SCS-FR-05`). It handles requests, retrieves data, and calculates the Aggregated Sentiment Score.
+
 #### API Design
 
 The service provides two primary endpoints for retrieving sentiment scores. The logic for calculating the score is encapsulated within the service and is not exposed.
@@ -358,7 +366,8 @@ The service provides two primary endpoints for retrieving sentiment scores. The 
   ```json
   {
     "aggregated_sentiment_score": "float",
-    "contributing_articles_count": "integer"
+    "contributing_articles_count": "integer",
+    "articles": ["string"]
   }
   ```
 
