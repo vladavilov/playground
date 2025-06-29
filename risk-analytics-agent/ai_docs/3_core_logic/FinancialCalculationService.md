@@ -1,6 +1,5 @@
 # Financial Calculation Engine: Requirements Specification
 
-**Version: 1.2**
 
 ## 1. Overview
 
@@ -55,13 +54,19 @@ Real-time market data for a specific instrument and for broader market context.
 - `mmd_benchmark_curve`: `object` - MMD yields for munis, keyed by tenor. Used as the primary benchmark for 'MUNI' where `tax_status` is any value other than 'TAXABLE'.
 - `sector_credit_spread_curve`: `object` - A curve of credit spreads for various sectors/industries, used for more specific relative value in TFI.
 - `interest_rate_volatility_surface`: `object` - A matrix of implied volatilities for different tenors and strikes, used for options modeling.
+- `muni_fund_flows_net`: `float` - (for `instrument_type` = 'MUNI' only) Net weekly flows into MUNI funds.
 
-#### 3.1.3. StateFiscalFeed Model
+#### 3.1.3. Additional Input Services
+The `FinancialCalculationService` shall also ingest the full output objects from the following internal data services for a given CUSIP and `as_of_date`:
+- **`OwnershipDataService`**: Provides holder concentration metrics.
+- **`RepoDataService`**: Provides instrument-specific financing rates.
+
+#### 3.1.4. StateFiscalFeed Model
 - `state_level_fiscal_indicators`: `object` - (for `instrument_type` = 'MUNI' only) Populated only for municipal securities. This object **shall** be retrieved from the `StateFiscalFeed` service for the relevant U.S. state.
     - `state_tax_receipts_yoy_growth`: `float` - Year-over-year growth in tax receipts for the relevant state.
     - `state_budget_surplus_deficit_as_pct_of_gsp`: `float` - The state's budget surplus or deficit as a percentage of Gross State Product.
 
-#### 3.1.4. TradeHistory Model
+#### 3.1.5. TradeHistory Model
 A list of individual trade records for a specific instrument over a 25-calendar-day look-back period preceding the calculation date to ensure sufficient data for 20-trading-day calculations.
 - `trades`: `array` - An array of trade objects, where each object contains:
     - `trade_datetime`: `datetime`
@@ -183,7 +188,8 @@ This section defines the final, consolidated JSON object produced by the data pr
   },
   "market_context": {
     "yield_curve_slope_10y2y": "float",
-    "mmd_ust_ratio_10y": "float"
+    "mmd_ust_ratio_10y": "float",
+    "muni_fund_flows_net": "float"
   },
   "state_fiscal_health": {
       "tax_receipts_yoy_growth": "float",
@@ -192,6 +198,13 @@ This section defines the final, consolidated JSON object produced by the data pr
   "cross_asset_correlation": {
     "benchmark_ticker": "string",
     "correlation_60d": "float"
+  },
+  "ownership": {
+    "is_concentrated_flag": "boolean",
+    "top_3_holders_pct": "float"
+  },
+  "financing": {
+    "cost_of_carry_bps": "float"
   }
 }
 ```
@@ -205,8 +218,22 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **BR-02:** The **MMD Benchmark** **shall** be used for `instrument_type` = 'MUNI' with `tax_status` in ('TAX_EXEMPT_FEDERAL', 'AMT', 'TAX_EXEMPT_FEDERAL_AND_STATE').
 - **BR-03:** **No Benchmark** is applicable for `instrument_type` = 'TFI_TREASURY'. Spread-based calculations (OAS, Relative Value) are not applicable and their results shall be 0 or null.
 
-### 4.2. Business Rule: Peer Group Identification
-- **BR-04:** A peer group of comparable bonds **shall** be identified for relative value analysis. The peer universe is determined based on the specified calculation date (current or historical).
+### 4.2. Business Rule: Data Enrichment from Services
+- **BR-04:** The system **shall** enrich the final `FinancialDataObject` by directly mapping values or performing calculations based on input from data services.
+  - The `ownership` object **shall** be populated by performing the concentration calculation defined in Section 4.3 on the raw data from the `OwnershipDataService`.
+  - The `financing.cost_of_carry_bps` **shall** be populated from the output of the `RepoDataService`.
+
+### 4.3. Methodology: Ownership Concentration Calculation
+- **Purpose (Trader View):** To identify hidden liquidity risk. If a small number of entities hold a large percentage of the issue, a decision by a single holder to sell can disproportionately impact the price.
+- **Input Model:** The `holders` array from the `OwnershipDataService` output.
+- **Logic:**
+    1.  Sort the `holders` array by `ownership_pct` in descending order.
+    2.  Sum the `ownership_pct` of the top 3 holders to calculate `top_3_holders_pct`.
+    3.  Apply **Business Rule BR-05** to set the `is_concentrated_flag`.
+- **BR-05:** The `ownership.is_concentrated_flag` **shall** be set to `true` if `top_3_holders_pct` is greater than or equal to 60.0. Otherwise, it **shall** be `false`.
+
+### 4.4. Business Rule: Peer Group Identification
+- **BR-06:** A peer group of comparable bonds **shall** be identified for relative value analysis. The peer universe is determined based on the specified calculation date (current or historical).
 - **Logic:**
     1.  **Filter Criteria:**
         -   **`instrument_type`:** Must be an exact match.
@@ -233,11 +260,11 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 - **Output:** A list of CUSIPs for the identified peers.
 
-### 4.3. Formula: Liquidity Score Calculation
+### 4.5. Formula: Liquidity Score Calculation
 - **Purpose:** To generate a single, normalized score representing an instrument's market liquidity.
 - **Formula:** `Score = 0.4 * (Bid/Ask Spread Score) + 0.4 * (Composite Volume Score) + 0.2 * (Composite Dealer Count Score)`
 - **Component Logic:**
-    - All "sector average" metrics (for spread, volume, dealer count) **shall** be calculated by taking the average of that metric across all bonds in the peer group identified in Section 4.2.
+    - All "sector average" metrics (for spread, volume, dealer count) **shall** be calculated by taking the average of that metric across all bonds in the peer group identified in Section 4.4.
     - **Bid/Ask Spread Score:** The instrument's current bid/ask spread (in bps) is normalized against its sector average (z-score). This is a point-in-time metric.
     - **Composite Trade Volume Score:** This is a weighted average of normalized scores from multiple time horizons.
         - `Score_1d` = z-score of `t1d.total_par_volume` vs. sector average 1-day volume.
@@ -251,10 +278,10 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
 - **Output:** A single float value representing the composite liquidity score.
 
-#### 4.3.1. Business Rule: Illiquidity Flag
-- **BR-05:** The `is_illiquid_flag` **shall** be set to `true` if the calculated `liquidity.composite_score` is less than -1.5. This threshold indicates that the instrument's liquidity is significantly below the average of its peer group. Otherwise, the flag **shall** be `false`.
+#### 4.5.1. Business Rule: Illiquidity Flag
+- **BR-07:** The `is_illiquid_flag` **shall** be set to `true` if the calculated `liquidity.composite_score` is less than -1.5. This threshold indicates that the instrument's liquidity is significantly below the average of its peer group. Otherwise, the flag **shall** be `false`.
 
-### 4.4. Methodology: Option-Adjusted Spread (OAS) Calculation
+### 4.6. Methodology: Option-Adjusted Spread (OAS) Calculation
 - **Purpose:** To calculate the spread over a benchmark yield curve that equates a bond's theoretical price (accounting for embedded call options) to its observed market price.
 - **Input Model:**
     - `market_price`: `float`
@@ -274,7 +301,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
     6.  A numerical root-finding solver is used to find the `OAS` value. The `OAS` is the constant spread that, when added to all interest rates in the lattice, makes the calculated present value of the bond equal to its current `market_price`.
 - **Output:** A single float value, `oas_in_bps`.
 
-### 4.5. Methodology: Trade History Aggregation
+### 4.7. Methodology: Trade History Aggregation
 - **Purpose:** To process the raw trade list from the `TradeHistory` input into structured summaries for multiple time horizons (1-day, 5-day, 20-day).
 - **Input:** A list of trade objects from `TradeHistory` for the last 20 trading days.
 - **Output:** The `trade_history_summary` object as defined in the Output Model (Section 3.2).
@@ -291,7 +318,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - `low_trade_price`: The minimum `price` from all trades in the filtered list.
         - `trade_price_volatility`: Calculated as `(high_trade_price - low_trade_price) / low_trade_price`.
 
-### 4.6. Methodology: Benchmark Yield Interpolation
+### 4.8. Methodology: Benchmark Yield Interpolation
 - **Purpose:** To determine the precise benchmark yield for a bond's specific duration when that duration falls between the standard tenors of the benchmark curve.
 - **Method:** The system **shall** use **linear interpolation** to calculate the yield.
 - **Logic:**
@@ -304,7 +331,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - If the bond's duration is greater than the longest tenor on the benchmark curve, the system **shall** use the yield of the longest tenor.
     - Extrapolation **shall not** be used.
 
-### 4.7. Methodology: Market Context Calculation
+### 4.9. Methodology: Market Context Calculation
 - **Purpose:** To calculate broad market indicators using the benchmark curves available to the engine.
 - **Calculations:**
     - **Yield Curve Slope (10Y-2Y):**
@@ -315,8 +342,12 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - **Inputs:** `ust_benchmark_curve`, `mmd_benchmark_curve`
         - **Logic:** Retrieve the 10-year MMD yield (`MMD_Yield_10Y`) and the 10-year Treasury yield (`UST_Yield_10Y`).
         - **Formula:** `mmd_ust_ratio_10y = MMD_Yield_10Y / UST_Yield_10Y`
+    - **MUNI Fund Flows:**
+        - **Input:** `MarketData.muni_fund_flows_net`
+        - **Logic:** This value is passed through directly. If the input is not available or the instrument is not a MUNI, this field shall be null.
+        - **Formula:** `market_context.muni_fund_flows_net = MarketData.muni_fund_flows_net`
 
-### 4.8. Methodology: Downside Price Volatility Calculation
+### 4.10. Methodology: Downside Price Volatility Calculation
 - **Purpose:** To calculate the realized downside volatility (or semi-deviation) of an instrument's returns over a trailing window. This metric quantifies downside risk by focusing only on negative price movements.
 - **Inputs:**
   - `TradeHistory`: `array[object]` - The raw trade history for the lookback window.
@@ -340,12 +371,11 @@ The choice of benchmark is critical and determined by the instrument's type and 
   - `downside_price_volatility`: `float` - The calculated trailing daily downside volatility.
 
 **Business Rule: Populating `metric_type`**
-- **Purpose:** To provide a human-readable description of the calculation methodology for the downside price volatility metric, selected as trailing 5D or 20D for day-to-day risk monitoring.
 - **BR-20:** The `metric_type` field for each `downside_price_volatility` object **shall** be populated with a string that clearly describes the calculation methodology.
   - For the 5-day calculation, the value **shall** be `"Trailing 5D Downside Volatility (Log-Returns)"`.
   - For the 20-day calculation, the value **shall** be `"Trailing 20D Downside Volatility (Log-Returns)"`.
 
-### 4.9. Methodology: Security Details Enrichment
+### 4.11. Methodology: Security Details Enrichment
 - **Purpose:** To enrich and structure the `security_details` object by mapping data from the `SecurityMaster` input and deriving new attributes based on business logic.
 - **BR-21: `security_details` Population:** The fields within the `security_details` output object **shall** be populated as follows:
     - **Direct Mappings:**
@@ -362,9 +392,9 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - `next_call_date` **shall** be the earliest `call_date` from the `call_schedule` that is after the `calculation_context.as_of_date`. If no future call dates exist, this field **shall** be null.
         - `next_call_price` **shall** be the `call_price` corresponding to the `next_call_date`. If `next_call_date` is null, this field **shall** be null.
 
-### 4.10. Methodology: Supplemental Data Calculation
+### 4.12. Methodology: Supplemental Data Calculation
 
-#### 4.10.1. Cross-Asset Correlation
+#### 4.12.1. Cross-Asset Correlation
 - **Purpose (Trader View):** To understand the instrument's systematic risk and how it behaves relative to broader market benchmarks. A high correlation to a risk asset (like a high-yield ETF) indicates it may not provide diversification benefits in a market sell-off.
 - **Inputs:**
     - A 60-trading-day time series of the instrument's daily total returns, derived from its price history.
@@ -412,7 +442,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
     4.  **Calculate Price with Widened Spread:** Calculate a new theoretical price for the bond (`Price_New`) by discounting all of its cash flows using a new, widened discount rate. The formula for the discount rate at each cash flow is: `New_Discount_Rate = Interpolated_Benchmark_Yield + Initial_Spread + 0.0001`.
     5.  **Calculate CS01:** The CS01 value is the absolute difference between the bond's current market price and the new theoretical price. `CS01 = |Market_Price - Price_New|`.
 
-- **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.4.
+- **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.5.
 
 - **FR-11:** The system **shall** calculate **Relative Value** against the appropriate benchmark (MMD or UST) by subtracting the benchmark yield at the same duration from the bond's YTW.
   - **Formula:** `Relative_Value_bps = (YTW - Interpolated_Benchmark_Yield) * 10000`. The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.6.
@@ -420,9 +450,9 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-12:** The system **shall** calculate **Relative Value** against the identified peer group by subtracting the average OAS of the peer group from the bond's OAS.
   - **Formula:** `Relative_Value_vs_Peers_bps = option_adjusted_spread_bps - AVG(peer_OAS_1, ..., peer_OAS_n)`
 
-- **FR-13:** The system **shall** calculate a composite **Liquidity Score** based on the formula in Section 4.3.
+- **FR-13:** The system **shall** calculate a composite **Liquidity Score** based on the formula in Section 4.4.
 
-- **FR-14:** The system **shall** produce a **Trade History Summary** by aggregating raw trade data as per the methodology in Section 4.5.
+- **FR-14:** The system **shall** produce a **Trade History Summary** by aggregating raw trade data as per the methodology in Section 4.6.
 
 - **FR-15:** The system **shall** calculate the **Bid/Ask Spread in BPS**.
   - **Formula:** `bid_ask_spread_bps = (ask_price - bid_price) / ((ask_price + bid_price) / 2) * 10000`
@@ -431,13 +461,13 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 - **FR-17:** The system **shall** calculate the **10Y MMD/UST Ratio** as per the methodology in Section 4.7.
 
-- **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.8.
+- **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.9.
 
-- **FR-19:** The system **shall** populate the `relative_value.peer_group_cusips` field with the list of CUSIPs identified in the peer group process (Section 4.2) and the `relative_value.peer_group_size` field with the count of that list.
+- **FR-19:** The system **shall** populate the `relative_value.peer_group_cusips` field with the list of CUSIPs identified in the peer group process (Section 4.3) and the `relative_value.peer_group_size` field with the count of that list.
 
-- **FR-20:** The system **shall** populate the **Security Details** object as per the enrichment methodology in Section 4.9.
+- **FR-20:** The system **shall** populate the **Security Details** object as per the enrichment methodology in Section 4.10.
 
-- **FR-21:** The system **shall** calculate the **Cross-Asset Correlation** as per the methodology in Section 4.10.1.
+- **FR-21:** The system **shall** calculate the **Cross-Asset Correlation** as per the methodology in Section 4.12.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency
