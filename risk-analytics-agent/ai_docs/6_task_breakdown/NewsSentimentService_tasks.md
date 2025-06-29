@@ -1,152 +1,131 @@
-# Task Breakdown: News Sentiment Component
-
-This document breaks down the development work for the News Sentiment component into actionable epics and tasks. Each task is mapped back to the core requirements and system architecture documents to ensure alignment.
-
--   **Requirements Document:** `ai_docs/2_data_services/NewsSentimentService.md`
--   **Architecture Document:** `ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md`
+# News Sentiment Service - Task Breakdown (Developer Focused)
 
 ---
 
-### Epic 1: Data Ingestion Service (DIS)
--   **Description**: The AKS CronJob responsible for fetching, deduplicating, and queuing news articles.
--   **Architecture Reference**: `4.2 Data Ingestion Service (DIS)`
--   **Requirements Reference**: `4.4 Component 4: Real-Time News Ingestion Service`
+## **Epic 1: Core Service Foundation**
+**Goal:** Establish the foundational Python code required by all microservices, allowing for local development and testing.
 
-| Task ID | Description                                       |
-| :------ | :------------------------------------------------ |
-| **1.1** | Initialize the Python project for the DIS.        |
-| **1.2** | Implement a client for Cosmos DB.                 |
-| **1.3** | Implement a client for Azure Service Bus.         |
-| **1.4** | Develop the core ingestion orchestration logic.   |
-| **1.5** | Create a `Dockerfile`.                            |
+#### **Task 1.1:** Initialize Monorepo and Shared Scaffolding
+-   **User Story**: As a Developer, I want a standardized monorepo structure so that I can easily navigate between services and shared components.
+-   **Definition of Done**:
+    -   The top-level directory structure (`/src`, `/tests`, `/k8s`, `/docker`, `/config`, `/scripts`) is created.
+    -   A shared `src/common/models.py` file is created. It must contain the Pydantic models for `RawNewsArticle` and `EnrichedNewsEvent`, matching the schemas in Section 2.1 and 2.2 of the requirements document.
 
----
+#### **Task 1.2:** Implement Common Infrastructure Clients
+-   **User Story**: As a Developer, I need reusable clients for core services so that I can interact with Azure infrastructure consistently, with the ability to mock them for local development.
+-   **Definition of Done**:
+    -   An `src/infrastructure/` directory is created.
+    -   Inside, `cosmos_db_client.py` is implemented to provide an abstracted client with methods for fetching timestamps, checking `article_hash` existence, and inserting `EnrichedNewsEvent` documents.
+    -   `service_bus_client.py` is implemented to provide a client with methods to send and receive messages from the queue.
+    -   (Note: Initial implementation can use in-memory mocks or local containers, with cloud connectivity to be configured later).
 
-#### **Task 1.1:** Initialize the Python project for the DIS
--   **User Story**: As a Developer, I want a standardized Python project structure for the Data Ingestion Service so that I can easily locate files and add new code consistently.
--   **Definition of Done**: A directory `services/data-ingestion-service/` is created containing a boilerplate structure: an `app/` source directory, a `tests/` directory, `requirements.txt`, and a `Dockerfile`.
-
-#### **Task 1.2:** Implement a client for Cosmos DB
--   **User Story**: As the System, I need to persist and retrieve the last ingestion timestamp and check for existing article hashes so that I can prevent processing duplicate news articles and only fetch the latest content.
--   **Definition of Done**: A `clients/cosmos_client.py` module is implemented. It provides functions to get/set timestamps and check for article hash existence, fulfilling requirements `RTN-FR-01a` and `RTN-FR-01b`. The client's functions must be covered by unit tests.
-
-#### **Task 1.3:** Implement a client for Azure Service Bus
--   **User Story**: As the System, I need to publish raw news articles to a central message queue so that they can be processed asynchronously by the News Processor Service.
--   **Definition of Done**: A `clients/service_bus_client.py` module is implemented. It provides a function to send a message to the configured queue. The client's function must be covered by unit tests.
-
-#### **Task 1.4:** Develop the core ingestion orchestration logic
--   **User Story**: As a Data Engineer, I want the service to automatically fetch new articles, filter duplicates, and queue them for processing so that the system is continuously updated with fresh, relevant news.
--   **Definition of Done**: The core orchestration logic is implemented in `core/logic.py`. It correctly uses the Cosmos DB and Service Bus clients to perform the end-to-end flow as per requirements `RTN-FR-01` and `RTN-FR-02`. The flow is verified by an integration test.
-
-#### **Task 1.5:** Create a `Dockerfile`
--   **User Story**: As a DevOps Engineer, I need a Dockerfile for the Data Ingestion Service so that I can build a container image and deploy it consistently across different environments.
--   **Definition of Done**: A `Dockerfile` is present in the service's root directory. The `docker build` command successfully creates a runnable image.
+#### **Task 1.3:** Define Standard Service Boilerplate
+-   **User Story**: As a Developer, I want a single, clear definition for a standard microservice boilerplate so that all new services are created consistently.
+-   **Definition of Done**:
+    -   A standard service boilerplate is defined and will be used for all subsequent service creation tasks. It must include:
+        -   A dedicated service directory inside `/src`.
+        -   A `main.py` file serving as the entrypoint for the service or worker.
+        -   An empty `requirements.txt` file.
+        -   A dedicated `docker/Dockerfile.[service-name]` file, configured to package the specific service into a container image.
 
 ---
 
-### Epic 2: News Processor Service (NPS)
--   **Description**: The FastAPI service that consumes articles from the queue and performs AI enrichment.
--   **Architecture Reference**: `4.3 News Processor Service (NPS)`
--   **Requirements Reference**: `4.1 Component 1: News Scoring Service`
+## **Epic 2: Data Ingestion Service (e.g., DIS-ProviderA)**
+**Goal:** Develop the core logic for a provider-specific, cron-driven service that fetches news, deduplicates it, and queues it for analysis.
 
-| Task ID | Description                                       |
-| :------ | :------------------------------------------------ |
-| **2.1** | Initialize the FastAPI project for the NPS.       |
-| **2.2** | Implement the Service Bus listener.               |
-| **2.3** | Develop the two-step AI processing logic.         |
-| **2.4** | Implement persistence to Cosmos DB.               |
-| **2.5** | Add error handling.                               |
-| **2.6** | Create a `Dockerfile`.                            |
+#### **Task 2.1:** Initialize the DIS Project Boilerplate for a Provider
+-   **User Story**: As a Developer, I want to initialize the project structure for a specific Data Ingestion Service so that I can begin implementing its logic.
+-   **Definition of Done**:
+    -   A directory, e.g., `src/data_ingestion_providerA/`, is created and populated using the standard service boilerplate defined in **Task 1.3**.
+    -   An `orchestrator.py` file is created inside the service directory.
 
----
-
-#### **Task 2.1:** Initialize the FastAPI project for the NPS
--   **User Story**: As a Developer, I want a standardized FastAPI project structure for the News Processor Service so that I can easily build and scale the enrichment service.
--   **Definition of Done**: A directory `services/news-processor-service/` is created, containing a boilerplate structure with an `app/` source directory, a `tests/` directory, `requirements.txt`, and a `Dockerfile`, all configured for a basic FastAPI app.
-
-#### **Task 2.2:** Implement the Service Bus listener
--   **User Story**: As the System, I need to continuously listen for and receive new articles from the Azure Service Bus queue so that I can process them in near real-time.
--   **Definition of Done**: A `services/service_bus_listener.py` module is implemented to run in the background of the FastAPI app's lifecycle. It successfully connects to the queue, retrieves messages, and deserializes them into a Pydantic model.
-
-#### **Task 2.3:** Develop the two-step AI processing logic
--   **User Story**: As a Risk Analyst, I want raw news articles to be automatically analyzed and enriched with structured data (entities, sentiment, event type) so that I can use this data for risk calculations.
--   **Definition of Done**: The `core/processing.py` module contains functions that call the Azure OpenAI service with the two specified prompts. It correctly parses the JSON responses and handles potential errors from the AI model. The logic must fulfill requirements `NSS-FR-02` through `NSS-FR-06` and `NFR-MQ-01`, and be covered by unit tests using mocks.
-
-#### **Task 2.4:** Implement persistence to Cosmos DB
--   **User Story**: As the System, I need to store the fully enriched news event data in a permanent database so that it can be queried by the Sentiment Score API.
--   **Definition of Done**: The service correctly uses a Cosmos DB client to save the `EnrichedNewsEvent` model to the database. Logic to route events to the "Enriched News Store" vs "Audit News Store" is implemented as per `NSS-FR-07` and `RTN-FR-03`.
-
-#### **Task 2.5:** Add robust error handling
--   **User Story**: As a System Operator, I want failed processing attempts to be handled gracefully with retries, and permanently failing messages moved to a dead-letter queue so that I can investigate and prevent data loss.
--   **Definition of Done**: The Service Bus listener includes error handling. A message that fails processing is retried a configurable number of times before being moved to the dead-letter queue, verified by tests.
-
-#### **Task 2.6:** Create a `Dockerfile`
--   **User Story**: As a DevOps Engineer, I need a Dockerfile for the News Processor Service so I can build and deploy it as a container.
--   **Definition of Done**: A `Dockerfile` is present in the service's root directory. The `docker build` command successfully creates a runnable image.
+#### **Task 2.2:** Develop the Ingestion Orchestration Logic for a Provider
+-   **User Story**: As a Data Engineer, I want the service to automatically fetch, filter, and queue new articles from a specific provider's adapter.
+-   **Definition of Done**:
+    -   The logic in `src/data_ingestion_providerA/orchestrator.py` implements watermarking by fetching the last run timestamp from Cosmos DB (**`RTN-FR-01b`**).
+    -   It implements deduplication by checking the `article_hash` against Cosmos DB (**`RTN-FR-01a`**, **`HPS-FR-01a`**).
+    -   New, unique articles are queued to Service Bus for processing (**`RTN-FR-01`**).
 
 ---
 
-### Epic 3: Sentiment Score API (NSSS)
--   **Description**: The public-facing FastAPI for calculating and serving aggregated sentiment scores.
--   **Architecture Reference**: `4.5 News Sentiment Score Service (NSSS)`
--   **Requirements Reference**: `4.2 Component 2: On-Demand Sentiment Service (Public API)`
+## **Epic 3: News Processor Service (NPS) - Core Logic**
+**Goal:** Implement the core logic for the worker service that performs the core AI analysis and enrichment.
 
-| Task ID | Description                                       |
-| :------ | :------------------------------------------------ |
-| **3.1** | Initialize the FastAPI project for the NSSS.                |
-| **3.2** | Implement the API endpoints.                                |
-| **3.3** | Implement the data access layer.                            |
-| **3.4** | Implement the Aggregated Sentiment Score (ASS) formula.     |
-| **3.5** | Create a `Dockerfile`.                                      |
+#### **Task 3.1:** Initialize the NPS Project Boilerplate
+-   **User Story**: As a Developer, I want to initialize the project structure for the News Processor Service.
+-   **Definition of Done**:
+    -   A directory `src/news_processor/` is created and populated using the standard service boilerplate defined in **Task 1.3**.
+    -   A `worker.py` file and an `analysis/` subdirectory are created inside the service directory.
 
----
+#### **Task 3.2:** Develop the AI Analysis and Enrichment Logic
+-   **User Story**: As a Risk Analyst, I want raw articles to be automatically analyzed and enriched with structured data.
+-   **Definition of Done**:
+    -   The logic is implemented in the `src/news_processor/analysis/` directory.
+    -   The first-step AI call determines relevance and extracts entities (`issuer_name`, `cusips`, `sector`, `state`), fulfilling **`NSS-FR-02`**.
+    -   The second-step AI call generates sentiment (`score`, `magnitude`), `event_type`, and `summary_excerpt`, fulfilling **`NSS-FR-03`**, **`NSS-FR-04`**, **`NSS-FR-05`**.
+    -   The service assigns the `source_credibility_tier`, fulfilling **`NSS-FR-06`**. The entire process produces a valid `EnrichedNewsEvent` object (**`NSS-FR-01`**, **`NSS-FR-07`**).
 
-#### **Task 3.1:** Initialize the FastAPI project for the NSSS
--   **User Story**: As a Developer, I want a standardized FastAPI project for the Sentiment Score API so that I can build and expose the sentiment data efficiently.
--   **Definition of Done**: A directory `services/sentiment-score-api/` is created and set up as a basic FastAPI application with a `Dockerfile` and `requirements.txt`.
-
-#### **Task 3.2:** Implement the API endpoints
--   **User Story**: As a client application, I want to be able to request a sentiment score for a financial entity, either in real-time or for a historical date, so that I can incorporate this score into my risk analysis.
--   **Definition of Done**: `GET /sentiment/realtime` and `GET /sentiment/historical` are implemented as per `SCS-FR-01` and `SCS-FR-02`. They accept the specified query parameters, return the correct response models, and are automatically documented in the OpenAPI specification.
-
-#### **Task 3.3:** Implement the data access layer
--   **User Story**: As the System, I need to efficiently query the Enriched News Store for all relevant articles based on parameters like CUSIP, sector, or issuer name, so that I can calculate an aggregated score.
--   **Definition of Done**: A `services/cosmos_db.py` module has functions to query the database based on the API parameters, fulfilling requirement `SCS-FR-03`. Queries must be performant and use appropriate indexes.
-
-#### **Task 3.4:** Implement the Aggregated Sentiment Score (ASS) formula
--   **User Story**: As a Risk Analyst, I want the API to calculate a single, aggregated sentiment score from multiple news articles using the approved weighted formula so that I get a reliable and consistent risk indicator.
--   **Definition of Done**: The `core/calculation.py` module contains a complete implementation of the ASS formula, correctly applying time-decay, event, and source weights. The calculation is verified by unit tests and adheres to requirements `SCS-FR-04`, `SCS-FR-05`, and `NFR-DC-01`.
-
-#### **Task 3.5:** Create a `Dockerfile`
--   **User Story**: As a DevOps Engineer, I need a Dockerfile for the Sentiment Score API so I can build and deploy it as a container.
--   **Definition of Done**: A `Dockerfile` is present in the service's root directory. The `docker build` command successfully creates a runnable image.
+#### **Task 3.3:** Implement the Queue Worker
+-   **User Story**: As a Developer, I want a worker that listens for articles, processes them, and stores the results.
+-   **Definition of Done**:
+    -   The `src/news_processor/worker.py` module polls the Service Bus queue.
+    -   It invokes the analysis logic for each message (**`RTN-FR-02`**, **`HPS-FR-02`**).
+    -   It persists the `EnrichedNewsEvent` to Cosmos DB, routing events based on the `sector` as per **`RTN-FR-03`**, **`HPS-FR-03`**, and **`HPS-FR-03a`**.
 
 ---
 
-### Epic 4: Cross-Cutting Concerns & Deployment
--   **Description**: Shared code, infrastructure, and deployment pipelines for the entire component.
+## **Epic 4: Sentiment Score API Service (SSAS) - Core Logic**
+**Goal:** Build the core logic for the public API that serves aggregated sentiment scores.
 
-| Task ID | Description                                       |
-| :------ | :------------------------------------------------ |
-| **4.1** | Create a shared library for Pydantic models.      |
-| **4.2** | Define Infrastructure-as-Code (IaC).              |
-| **4.3** | Set up GitLab CI/CD pipelines.                    |
-| **4.4** | Configure centralized logging and monitoring.     |
+#### **Task 4.1:** Initialize the SSAS Project Boilerplate
+-   **User Story**: As a Developer, I want to initialize the project structure for the Sentiment Score API Service.
+-   **Definition of Done**:
+    -   A directory `src/sentiment_api/` is created and populated using the standard service boilerplate defined in **Task 1.3**.
+    -   An `endpoints/` subdirectory and an `aggregation.py` file are created inside the service directory.
+
+#### **Task 4.2:** Develop the Score Aggregation Logic
+-   **User Story**: As a Quant Analyst, I need a reliable implementation of the Aggregated Sentiment Score formula.
+-   **Definition of Done**:
+    -   The logic in `src/sentiment_api/aggregation.py` implements the **Aggregated Sentiment Score (ASS)** formula from Section 3.1 of the requirements (**`SCS-FR-04`**).
+    -   The function correctly applies all weights (`W_event`, `W_source`, `W_time`).
+    -   The time-decay logic handles `REALTIME` and `HISTORICAL` modes as specified in rules **`BR-01`** and **`BR-02`** (**`SCS-FR-05`**).
+
+#### **Task 4.3:** Implement the API Endpoints
+-   **User Story**: As a consumer, I want performant API endpoints to request sentiment scores.
+-   **Definition of Done**:
+    -   The `/sentiment/realtime` and `/sentiment/historical` endpoints are implemented in `src/sentiment_api/endpoints/sentiment.py` (**`SCS-FR-01`**, **`SCS-FR-02`**).
+    -   The endpoints retrieve relevant events from Cosmos DB based on request parameters (**`SCS-FR-03`**).
+    -   The API response matches the schemas in Sections 2.3.1 and 2.3.2.
 
 ---
 
-#### **Task 4.1:** Create a shared library for Pydantic models
--   **User Story**: As a Developer, I want a single source of truth for all data models so that I can ensure data consistency between microservices and avoid code duplication.
--   **Definition of Done**: A `shared/models` directory exists and is installable as a Python package. All services use this shared package for their data contracts, fulfilling the data model requirements in section `2.0` of the requirements document.
+## **Epic 5: DevOps, Infrastructure & Deployment**
+**Goal:** Provision cloud infrastructure, configure Kubernetes deployments, and establish CI/CD pipelines.
 
-#### **Task 4.2:** Define Infrastructure-as-Code (IaC)
--   **User Story**: As a DevOps Engineer, I want the entire Azure infrastructure to be defined as code so that I can create, update, or replicate the environment automatically and reliably.
--   **Definition of Done**: Bicep or Terraform scripts are created in the repository. Running these scripts provisions all necessary Azure resources (AKS, Cosmos DB, Service Bus, etc.).
+#### **Task 5.1:** Define Shared Infrastructure as Code (IaC) with Terraform
+-   **User Story**: As a DevOps Engineer, I want the core Azure infrastructure defined as code so I can provision and manage the environment reliably and repeatably.
+-   **Definition of Done**:
+    -   **Terraform** scripts are created in the `/scripts/iac/` directory.
+    -   The scripts must provision: an Azure Kubernetes Service (AKS) cluster, an Azure Cosmos DB instance, an Azure Service Bus, and an Azure Container Registry.
+    -   A `README.md` is included in the `iac` directory with explicit instructions on how to configure and apply the Terraform plan.
 
-#### **Task 4.3:** Set up GitLab CI/CD pipelines
--   **User Story**: As a Developer, I want my code changes to be automatically tested and deployed to the correct environment upon merging so that I can deliver features quickly and safely.
--   **Definition of Done**: A `.gitlab-ci.yml` file is configured. Pushing to a feature branch runs tests. Merging to `main` triggers a build and deployment to the AKS cluster.
+#### **Task 5.2:** Create Kubernetes Configuration for a DIS instance
+-   **User Story**: As a DevOps Engineer, I need the Kubernetes configuration to deploy a specific DIS instance as a scheduled job.
+-   **Definition of Done**:
+    -   A Kubernetes manifest, e.g., `k8s/data-ingestion-providerA-cronjob.yml`, is created.
+    -   The manifest defines a `CronJob` resource that runs the correct DIS container on a configurable schedule.
+    -   The spec includes environment variable configuration for connecting to Azure services and the specific news source adapter.
 
-#### **Task 4.4:** Configure centralized logging and monitoring
--   **User Story**: As a System Operator, I want all logs and performance metrics from all services to be collected in a central location so that I can easily monitor system health and diagnose issues.
--   **Definition of Done**: All services are configured to send logs and telemetry to Azure Application Insights. A basic dashboard is created to visualize key metrics (e.g., API latency, error rates). 
+#### **Task 5.3:** Create Kubernetes Configuration for NPS
+-   **User Story**: As a DevOps Engineer, I need the Kubernetes configuration for the NPS so I can deploy it as a scalable service.
+-   **Definition of Done**:
+    -   A Kubernetes manifest `k8s/news-processor-deployment.yml` is created.
+    -   The manifest defines a `Deployment` and a `Service`.
+    -   It includes autoscaling rules (HPA) based on queue depth or CPU/memory.
+
+#### **Task 5.4:** Create Kubernetes Configuration for SSAS
+-   **User Story**: As a DevOps Engineer, I need the Kubernetes configuration to deploy and expose the SSAS.
+-   **Definition of Done**:
+    -   A Kubernetes manifest `k8s/sentiment-api-deployment.yml` is created.
+    -   The manifest defines a `Deployment`, a `Service`, and an `Ingress` resource.
+    -   A Horizontal Pod Autoscaler (HPA) resource is included to scale the deployment based on CPU utilization. 
