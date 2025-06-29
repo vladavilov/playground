@@ -7,12 +7,30 @@ let isRiskyFilterActive = false;
 
 const columnDefs = [
     { headerName: "CUSIP", field: "cusip", width: 120, sortable: true, filter: true },
-    { headerName: "Issuer", field: "security_details.issuer_name", sortable: true, filter: true, flex: 2 },
     { headerName: "Rating", field: "security_details.rating", width: 100, sortable: true, filter: true },
+    { headerName: "Maturity", field: "security_details.maturity_date", width: 120, sortable: true, filter: true },
+    { headerName: "Coupon", field: "security_details.coupon_rate", width: 100, sortable: true, filter: 'agNumberColumnFilter', valueFormatter: params => params.value ? `${parseFloat(params.value).toFixed(3)}%` : '' },
+    { 
+        headerName: "Next Call Date", 
+        field: "security_details.call_features.next_call_date", 
+        width: 140, 
+        sortable: true, 
+        filter: true,
+        valueGetter: params => params.data.security_details.call_features.is_callable ? params.data.security_details.call_features.next_call_date : null
+    },
+    { 
+        headerName: "Next Call Price", 
+        field: "security_details.call_features.next_call_price", 
+        width: 150, 
+        sortable: true, 
+        filter: 'agNumberColumnFilter',
+        valueGetter: params => params.data.security_details.call_features.is_callable ? params.data.security_details.call_features.next_call_price : null
+    },
+    { headerName: "YTW", field: "calculated_risk_metrics.yield_to_worst", width: 100, sortable: true, filter: 'agNumberColumnFilter', valueFormatter: params => params.value ? `${parseFloat(params.value).toFixed(3)}%` : '' },
     { 
         headerName: "Illiquid", field: "liquidity.is_illiquid_flag", width: 100, sortable: true, filter: true,
         cellClassRules: {
-            'bg-yellow-200 text-yellow-800': params => params.value === true,
+            'bg-yellow-900/50 text-yellow-300': params => params.value === true,
         },
         cellRenderer: params => params.value ? 'Yes' : 'No'
     },
@@ -23,7 +41,7 @@ const columnDefs = [
     { 
         headerName: "Neg. News Prob %", field: "forecasted_values.1-day.probability_negative_news_pct", width: 180, sortable: true, filter: 'agNumberColumnFilter',
         cellClassRules: {
-            'bg-red-200 text-red-800': params => Number(params.value) > 15,
+            'bg-red-900/50 text-red-300': params => Number(params.value) > 15,
         },
         valueFormatter: params => parseFloat(params.value).toFixed(2)
     },
@@ -31,10 +49,10 @@ const columnDefs = [
         valueFormatter: params => parseFloat(params.value).toFixed(2)
     },
     { 
-        headerName: "1D OAS Δ (bps)", field: "forecasted_oas_change_1d_bps", width: 160, sortable: true, filter: 'agNumberColumnFilter',
+        headerName: "1D YTW Δ (bps)", field: "forecasted_ytw_change_1d_bps", width: 160, sortable: true, filter: 'agNumberColumnFilter',
         cellClassRules: {
-            'bg-red-200 text-red-800': params => Number(params.value) > 5,
-            'bg-green-200 text-green-800': params => Number(params.value) < -5
+            'bg-red-900/50 text-red-300': params => Number(params.value) > 5,
+            'bg-green-900/50 text-green-300': params => Number(params.value) < -5
         },
         valueFormatter: params => parseFloat(params.value).toFixed(2)
     },
@@ -44,11 +62,11 @@ function isRowRisky(row) {
     return row.liquidity.is_illiquid_flag === true ||
             Number(row.forecasted_values['1-day'].probability_negative_news_pct) > 15 ||
             row.ownership.is_concentrated_flag === true ||
-            Number(row.forecasted_oas_change_1d_bps) > 5;
+            Number(row.forecasted_ytw_change_1d_bps) > 5;
 }
 
 function isHighConviction(row) {
-    return Number(row.forecasted_oas_change_1d_bps) < -5 &&
+    return Number(row.forecasted_ytw_change_1d_bps) < -5 &&
             row.liquidity.is_illiquid_flag === false &&
             Number(row.forecasted_values['1-day'].probability_negative_news_pct) < 5;
 }
@@ -81,8 +99,8 @@ function startDataStream(uiManager) {
             const current_oas = parseFloat(newData.calculated_risk_metrics.option_adjusted_spread_bps);
             const new_forecast_oas = current_oas + change_bps;
 
-            newData.forecasted_oas_change_1d_bps = change_bps.toFixed(2);
-            newData.forecasted_values['1-day'].credit_spread_oas_bps = new_forecast_oas.toFixed(2);
+            newData.forecasted_ytw_change_1d_bps = change_bps.toFixed(2);
+            newData.forecasted_values['1-day'].credit_spread_ytw_bps = new_forecast_oas.toFixed(2);
 
             // Set the next time for a low-risk bid
             nextLowRiskTime = currentTime + 60000; // 1 minute
@@ -143,8 +161,6 @@ export function initGrid(onRowClicked, uiManager) {
     const gridOptions = {
         columnDefs: columnDefs,
         rowData: null,
-        pagination: true,
-        paginationPageSize: 50,
         onRowClicked: onRowClicked,
         domLayout: 'autoHeight',
         rowHeight: 28,
