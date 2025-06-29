@@ -93,7 +93,7 @@ graph TB
 
 ### 2.2 Technology Stack
 
-- Programming Language: Python 3.11+
+- Programming Language: Python 3.14
 - Web Framework: FastAPI
 - Message Queue: Azure Service Bus
 - Database: Azure Cosmos DB
