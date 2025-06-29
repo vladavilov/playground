@@ -60,6 +60,7 @@ Real-time market data for a specific instrument and for broader market context.
 The `FinancialCalculationService` shall also ingest the full output objects from the following internal data services for a given CUSIP and `as_of_date`:
 - **`OwnershipDataService`**: Provides holder concentration metrics.
 - **`RepoDataService`**: Provides instrument-specific financing rates.
+- **`MarketDataFeed`**: Provides broad market indicators required for context.
 
 #### 3.1.4. StateFiscalFeed Model
 - `state_level_fiscal_indicators`: `object` - (for `instrument_type` = 'MUNI' only) Populated only for municipal securities. This object **shall** be retrieved from the `StateFiscalFeed` service for the relevant U.S. state.
@@ -96,6 +97,7 @@ This section defines the final, consolidated JSON object produced by the data pr
     "rating": "string",
     "state": "string",
     "tax_profile": {
+        "tax_status": "string",
         "is_amt": "boolean",
         "in_state_tax_exempt": "boolean",
         "de_minimis_issue": "boolean",
@@ -189,7 +191,9 @@ This section defines the final, consolidated JSON object produced by the data pr
   "market_context": {
     "yield_curve_slope_10y2y": "float",
     "mmd_ust_ratio_10y": "float",
-    "muni_fund_flows_net": "float"
+    "muni_fund_flows_net": "float",
+    "investment_grade_credit_spread": "float",
+    "high_yield_credit_spread": "float"
   },
   "state_fiscal_health": {
       "tax_receipts_yoy_growth": "float",
@@ -222,6 +226,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **BR-04:** The system **shall** enrich the final `FinancialDataObject` by directly mapping values or performing calculations based on input from data services.
   - The `ownership` object **shall** be populated by performing the concentration calculation defined in Section 4.3 on the raw data from the `OwnershipDataService`.
   - The `financing.cost_of_carry_bps` **shall** be populated from the output of the `RepoDataService`.
+  - The `market_context` fields `investment_grade_credit_spread` and `high_yield_credit_spread` **shall** be populated directly from the `MarketDataFeed` input.
 
 ### 4.3. Methodology: Ownership Concentration Calculation
 - **Purpose (Trader View):** To identify hidden liquidity risk. If a small number of entities hold a large percentage of the issue, a decision by a single holder to sell can disproportionately impact the price.
@@ -381,6 +386,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - **Direct Mappings:**
         - `instrument_type`, `issuer_name`, `coupon_rate`, `maturity_date`, `sector`, `rating`, `state` **shall** be mapped directly from the corresponding fields in the `SecurityMaster` input.
     - **`tax_profile` Object:**
+        - `tax_status` **shall** be mapped directly from `SecurityMaster`.
         - `de_minimis_issue` and `bank_qualified` **shall** be mapped directly from `SecurityMaster`.
         - `is_amt` **shall** be `true` if `SecurityMaster.tax_status` is 'AMT', otherwise `false`.
         - `in_state_tax_exempt` **shall** be `true` if `SecurityMaster.tax_status` is 'TAX_EXEMPT_FEDERAL_AND_STATE', otherwise `false`.

@@ -63,7 +63,7 @@ The model requires a combination of static, time-varying, and known future input
 The model training and inference processes **shall** ingest data from the following sources for each instrument:
 - **`FinancialDataObject`**: The full data object as produced by the `FinCalculations` engine. This provides the primary source of historical time-series data and calculated metrics.
 - **`NewsSentiment`**: Historical and current sentiment scores for the instrument.
-- **`MarketRegimeClassification`**: The full classification object, as defined in `MarketRegime_part.md`.
+- **`MarketRegimeService`**: The full classification object, as defined in `MarketRegime_part.md`.
 - **`EconomicCalendarService`**: Provides a feature matrix of scheduled high-impact U.S. economic events (e.g., "FOMC Rate Decision", "CPI"). This service, defined in `EconomicCalendarService_part.md`, is the source for time-varying known future inputs.
 
 #### 3.2. Detailed Input-to-Model Feature Mapping
@@ -87,7 +87,7 @@ These features describe the instrument's immutable characteristics.
   - `scheduled_economic_events`: `array` - A list of filtered, high-importance economic events. These are retrieved from the `EconomicCalendarService`. The detailed algorithm for transforming these events into model-ready features is specified in **Part 7, Section 11**.
 
 ##### 3.2.3. Time-Varying Observed Inputs (Historical time-series features whose future values are unknown)
-These features form the historical context for the model's predictions. For daily forecasting, these values are taken from the `t1d` summary of the `FinancialDataObject`.
+These features form the historical context for the model's predictions. This section describes the superset of available features; the specific features used by each specialized model are detailed in the training dataset specifications in Section 8.1.
 - **Source:** `FinancialDataObject.market_data`
   - `price`: `float`
   - `bid_ask_spread_bps`: `float`
@@ -95,17 +95,17 @@ These features form the historical context for the model's predictions. For dail
   - `yield_to_maturity`, `yield_to_worst`, `dv01`, `cs01`, `option_adjusted_spread_bps`, `downside_price_volatility_5d`, `downside_price_volatility_20d`: all `float` to be used as continuous features.
 - **Source:** `FinancialDataObject.liquidity`
   - `composite_score`: `float`
-  - `is_illiquid_flag`: `boolean` (encoded as `integer` 0 or 1)
-- **Source:** `FinancialDataObject.trade_history_summary.t1d`
-  - All fields (e.g., `total_par_volume`, `trade_count`, `unique_dealer_count`, `customer_buy_par_volume`, `trade_price_volatility`) to be used as continuous features.
+  - `market_depth`: `object` (contains `bid_size_par` and `ask_size_par`)
+- **Source:** `FinancialDataObject.trade_history_summary`
+  - All fields from the `t1d`, `t5d`, and `t20d` summaries (e.g., `total_par_volume`, `trade_count`) to be used as continuous features.
 - **Source:** `FinancialDataObject.relative_value`
   - `vs_mmd_bps`, `vs_ust_bps`, `vs_peers_bps` to be used as continuous features. These serve as the primary training targets for spread forecasting.
 - **Source:** `FinancialDataObject.market_context` & `state_fiscal_health`
   - All fields (e.g., `yield_curve_slope_10y2y`, `mmd_ust_ratio_10y`, `tax_receipts_yoy_growth`) to be used as continuous features. Null values for non-applicable instruments (e.g., state data for corporates) must be imputed or handled by the model.
 - **Source:** `NewsSentiment`
   - `sentiment_score`: `float`
-- **Source:** `MarketRegimeClassification`
-  - `regime_label`: `string` - To be one-hot encoded.
+- **Source:** `MarketRegimeService`
+  - `global_macro_regime_label`, `contextual_regime_label`: `string` - To be one-hot encoded.
   - `regime_probabilities`: `object` - The vector of probabilities (e.g., `Bull_Steepener`, `Bear_Flattener`) to be used as a set of continuous features.
 
 ##### 3.2.4. Prediction Targets
@@ -181,7 +181,7 @@ The standard output for a single forecast run **shall** conform to the following
 ```
 
 #### 4.2. Output Interpretation
-- **RP-AI-01:** The `forecasted_values` provide the point estimates for each risk factor at different time horizons.
+- **RP-AI-01:** The `forecasted_values` provide the point estimates for each risk factor at different time horizons. The `benchmark_type` field is set to 'MMD' for the MUNI model and 'UST' for the TFI model, reflecting the benchmark used for the `spread_to_benchmark_bps` forecast.
 - **RP-AI-02:** The `forecast_explainability` object **shall** be used to identify the top positive and negative contributors to a given forecast, which is a critical input for the narrative generation engine.
 
 ---
@@ -199,7 +199,7 @@ This part describes the business logic and technical foundations for the predict
     - **Prediction Target:** `relative_value.vs_ust_bps`.
     - **Key Features:** This model will leverage features relevant to taxable markets, such as `investment_grade_credit_spread`, `high_yield_credit_spread`, and `sector_credit_spread_curve`.
 - **RP-BR-02:** Each specialized model **shall** be trained to simultaneously predict all required output targets for its asset class (multi-headed output).
-- **RP-BR-03:** The `Market Regime Classification` inputs **shall** be treated as static features for the duration of a single forecast. The `regime_label` will be encoded as a categorical variable, and the `regime_probabilities` will be used as a vector of continuous inputs.
+- **RP-BR-03:** The `Market Regime Service` inputs **shall** be treated as static features for the duration of a single forecast. The `regime_label` will be encoded as a categorical variable, and the `regime_probabilities` will be used as a vector of continuous inputs.
 
 ### 6. Validation Rules
 - **RP-VR-01:** Model predictions **must** be explainable. The feature attributions for each forecast are a mandatory output.
