@@ -1,0 +1,77 @@
+/* Tooltip styles for explainability */
+.explain-tooltip {
+    position: absolute;
+    display: none;
+    background-color: #1e293b; /* slate-800 */
+    color: white;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    z-index: 10;
+    width: max-content;
+    max-width: 350px; /* Constrain width to prevent overflow */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    border: 1px solid #334155; /* slate-700 */
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 4px; /* Space between icon and tooltip */
+    text-align: left; /* Ensure text is left-aligned */
+}
+.explain-tooltip.tooltip-right {
+    left: auto;
+    right: 0;
+    transform: none;
+}
+.has-tooltip:hover .explain-tooltip {
+    display: block;
+}
+.ag-header-cell-label {
+    justify-content: center;
+}
+.ag-theme-alpine-dark .ag-cell {
+    font-size: 12px;
+    padding: 2px 4px;
+}
+.ag-theme-alpine-dark .ag-header-cell-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+.ag-theme-alpine-dark .ag-row {
+    height: 28px !important;
+}
+.ag-theme-alpine-dark {
+     --ag-header-height: 30px !important;
+}
+/* Additional styles for toggle and animations */
+.toggle-checkbox:checked {
+    right: 0;
+    border-color: #3b82f6; /* blue-500 */
+}
+.toggle-checkbox:checked + .toggle-label {
+    background-color: #3b82f6; /* blue-500 */
+}
+@keyframes fade-in-right {
+    from { opacity: 0; transform: translateX(100%); }
+    to { opacity: 1; transform: translateX(0); }
+}
+.animate-fade-in-right { animation: fade-in-right 0.5s ease-out forwards; }
+
+@keyframes fade-out-right {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(100%); }
+}
+.animate-fade-out-right { animation: fade-out-right 0.3s ease-in forwards; }
+.tab-btn {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    background-color: transparent;
+    border: none;
+    color: #94a3b8; /* slate-400 */
+    border-bottom: 2px solid transparent;
+    font-size: 14px;
+}
+.tab-btn.active {
+    color: #f1f5f9; /* slate-100 */
+    border-bottom-color: #3b82f6; /* blue-500 */
+    font-weight: 600;
+} 
