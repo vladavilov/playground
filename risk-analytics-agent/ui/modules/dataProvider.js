@@ -93,6 +93,9 @@ export function createMockData() {
             ownership: {
                 is_concentrated_flag: Math.random() > 0.7,
             },
+            market_volatility: {
+                move_index: (80 + Math.random() * 40).toFixed(2)
+            },
             market_regime_context: {
                 global_macro_regime: {
                     label: globalRegime,

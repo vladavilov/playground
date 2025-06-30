@@ -1,6 +1,5 @@
 # Financial Calculation Engine: Requirements Specification
 
-
 ## 1. Overview
 
 ### 1.1. Purpose
@@ -123,6 +122,8 @@ This section defines the final, consolidated JSON object produced by the data pr
   "calculated_risk_metrics": {
     "yield_to_maturity": "float",
     "yield_to_worst": "float",
+    "modified_duration": "float",
+    "effective_duration": "float",
     "dv01": "float",
     "cs01": "float",
     "option_adjusted_spread_bps": "float",
@@ -327,7 +328,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **Purpose:** To determine the precise benchmark yield for a bond's specific duration when that duration falls between the standard tenors of the benchmark curve.
 - **Method:** The system **shall** use **linear interpolation** to calculate the yield.
 - **Logic:**
-    1. Identify the bond's duration.
+    1. Identify the bond's duration (`modified_duration` or `effective_duration`, whichever is calculated).
     2. From the appropriate benchmark curve (`UST` or `MMD`), find the two consecutive tenors (`T_lower`, `T_upper`) that bracket the bond's duration. Let their corresponding yields be `Y_lower` and `Y_upper`.
     3. Calculate the interpolated yield using the following formula:
        `Interpolated_Yield = Y_lower + ((Bond_Duration - T_lower) * (Y_upper - Y_lower)) / (T_upper - T_lower)`
@@ -416,6 +417,34 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **Formula (Pearson Correlation):**
     \\[ \\rho(R_{bond}, R_{bench}) = \\frac{\\text{Cov}(R_{bond}, R_{bench})}{\\sigma_{R_{bond}} \\cdot \\sigma_{R_{bench}}} \\]
 
+### 4.13. Methodology: Duration Calculation
+- **Purpose:** To calculate the interest rate sensitivity of the bond. Two types of duration are calculated based on whether the bond has embedded options. The duration calculation must be performed after YTM/YTW calculation but before calculations that depend on duration (OAS, CS01, Benchmark Yield Interpolation).
+- **BR-23 (Duration Calculation Selection):**
+  - For bonds where `security_details.call_features.is_callable` is `false`, `modified_duration` **shall** be calculated and populated. `effective_duration` **shall** be set to `null`.
+  - For bonds where `security_details.call_features.is_callable` is `true`, `effective_duration` **shall** be calculated and populated. `modified_duration` **shall** be set to `null`.
+
+#### 4.13.1. Modified Duration
+- **Applicability:** Option-free bonds.
+- **Formula:**
+  \[ \text{Modified Duration} = \frac{\sum_{t=1}^{N} \frac{t \cdot C_t}{(1+y)^t} + \frac{N \cdot FV}{(1+y)^N}}{\text{Market\_Price} \cdot (1+y)} \]
+  Where:
+  - `y` = Yield to Maturity (YTM) / payment_frequency
+  - `C_t` = Coupon payment at period t
+  - `FV` = Face Value
+  - `N` = Total number of periods
+  - `Market_Price` = Current market price of the bond
+
+#### 4.13.2. Effective Duration
+- **Applicability:** Bonds with embedded options (e.g., callable bonds).
+- **Formula:**
+  \[ \text{Effective Duration} = \frac{P(\Delta y^-) - P(\Delta y^+)}{2 \cdot P_0 \cdot \Delta y} \]
+  Where:
+  - `P_0` = The initial market price of the bond.
+  - `\Delta y` = A small change in yield (e.g., 10 basis points or 0.001).
+  - `P(\Delta y^-)` = The bond's theoretical price if yields decrease by `\Delta y`.
+  - `P(\Delta y^+)` = The bond's theoretical price if yields increase by `\Delta y`.
+- **Calculation Logic:** The prices `P(\Delta y^-)` and `P(\Delta y^+)` **shall** be calculated using the same binomial interest rate lattice model described in Section 4.6 (OAS Calculation). The model must account for the bond's call features to correctly price the bond under different interest rate scenarios.
+
 ## 5. Functional Requirements: Feature Calculation
 - **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
   - **Formula:** `Price = (Bid_Price + Ask_Price) / 2`. If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
@@ -437,21 +466,25 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-07:** The system **shall** calculate **Yield to Worst (YTW)** as the minimum of the calculated YTM and all calculated YTCs.
   - **Formula:** `YTW = min(YTM, YTC_1, YTC_2, ..., YTC_n)`
 
+- **FR-07a:** The system **shall** calculate **Modified Duration** for non-callable bonds as per the methodology in Section 4.13.1.
+
+- **FR-07b:** The system **shall** calculate **Effective Duration** for callable bonds as per the methodology in Section 4.13.2.
+
 - **FR-08:** The system **shall** calculate **DV01** as the price change of the bond given a one basis point (0.01%) decrease in yield.
   - **Formula:** `DV01 = |Price(y - 0.0001) - Price(y)|`, where `y` is the bond's current **Yield to Worst (YTW)**.
 
 - **FR-09:** The system **shall** calculate **CS01** as the price change of the bond given a one basis point (0.01%) increase in its credit spread.
   - **Formula Logic:** CS01 measures price sensitivity to credit spread changes. Its calculation requires re-pricing the bond after widening the spread.
     1.  **Determine the Bond's Discount Rate:** A bond's price is determined by its cash flows and a discount rate. This discount rate is a sum of the benchmark rate and the bond's credit spread.
-    2.  **Calculate the Interpolated Benchmark Yield:** Using the methodology in Section 4.6, calculate the `Interpolated_Benchmark_Yield` for the bond's specific duration from the appropriate benchmark curve. This is a float value (e.g., 0.035).
+    2.  **Calculate the Interpolated Benchmark Yield:** Using the methodology in Section 4.8, calculate the `Interpolated_Benchmark_Yield` for the bond's specific duration from the appropriate benchmark curve. This is a float value (e.g., 0.035).
     3.  **Calculate the Initial Credit Spread:** The bond's implied credit spread is `Initial_Spread = YTW - Interpolated_Benchmark_Yield`.
     4.  **Calculate Price with Widened Spread:** Calculate a new theoretical price for the bond (`Price_New`) by discounting all of its cash flows using a new, widened discount rate. The formula for the discount rate at each cash flow is: `New_Discount_Rate = Interpolated_Benchmark_Yield + Initial_Spread + 0.0001`.
     5.  **Calculate CS01:** The CS01 value is the absolute difference between the bond's current market price and the new theoretical price. `CS01 = |Market_Price - Price_New|`.
 
-- **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.5.
+- **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.6.
 
 - **FR-11:** The system **shall** calculate **Relative Value** against the appropriate benchmark (MMD or UST) by subtracting the benchmark yield at the same duration from the bond's YTW.
-  - **Formula:** `Relative_Value_bps = (YTW - Interpolated_Benchmark_Yield) * 10000`. The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.6.
+  - **Formula:** `Relative_Value_bps = (YTW - Interpolated_Benchmark_Yield) * 10000`. The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.8.
 
 - **FR-12:** The system **shall** calculate **Relative Value** against the identified peer group by subtracting the average OAS of the peer group from the bond's OAS.
   - **Formula:** `Relative_Value_vs_Peers_bps = option_adjusted_spread_bps - AVG(peer_OAS_1, ..., peer_OAS_n)`
@@ -465,15 +498,17 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 - **FR-16:** The system **shall** calculate the **10Y/2Y U.S. Treasury Yield Curve Slope** as per the methodology in Section 4.7.
 
-- **FR-17:** The system **shall** calculate the **10Y MMD/UST Ratio** as per the methodology in Section 4.7.
+- **FR-17:** The system **shall** calculate the **10Y MMD/UST Ratio** as per the methodology in Section 4.9.
 
-- **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.9.
+- **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.10.
 
-- **FR-19:** The system **shall** populate the `relative_value.peer_group_cusips` field with the list of CUSIPs identified in the peer group process (Section 4.3) and the `relative_value.peer_group_size` field with the count of that list.
+- **FR-19:** The system **shall** populate the `relative_value.peer_group_cusips` field with the list of CUSIPs identified in the peer group process (Section 4.4) and the `relative_value.peer_group_size` field with the count of that list.
 
-- **FR-20:** The system **shall** populate the **Security Details** object as per the enrichment methodology in Section 4.10.
+- **FR-20:** The system **shall** populate the **Security Details** object as per the enrichment methodology in Section 4.11.
 
 - **FR-21:** The system **shall** calculate the **Cross-Asset Correlation** as per the methodology in Section 4.12.
+
+- **FR-22:** The system **shall** calculate the appropriate **Duration** metric (Modified or Effective) as per the methodology in Section 4.13.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency
