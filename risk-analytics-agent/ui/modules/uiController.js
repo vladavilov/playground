@@ -99,20 +99,17 @@ function populateMarketRegime(elementId, label, regimeObject) {
 
 function setupValuationIntelligence(data) {
     // --- Get DOM Elements ---
-    const systemSpreadEl = document.getElementById('system-forecast-spread');
-    const systemWeightSlider = document.getElementById('system-forecast-weight');
-    const systemWeightDisplay = document.getElementById('system-weight-display');
-    const systemExplainabilityEl = document.getElementById('system-forecast-explainability');
-    
-    const traderSpreadInput = document.getElementById('trader-input-spread');
-    const traderWeightSlider = document.getElementById('trader-input-weight');
-    const traderWeightDisplay = document.getElementById('trader-weight-display');
+    const horizonSelectorEl = document.getElementById('horizon-selector');
+    const strategySelectorEl = document.getElementById('strategy-selector');
 
+    const forecast1dEl = document.getElementById('1d-trend-forecast-spread');
+    const forecast5dEl = document.getElementById('5d-trend-forecast-spread');
+    const forecastPeerRVEl = document.getElementById('peer-rv-target-spread');
+    
     const suggestedPriceInput = document.getElementById('suggested-price-input');
     const suggestedYieldInput = document.getElementById('suggested-yield-input');
     const explanationEl = document.getElementById('suggested-price-explanation');
     const valuationActionContainer = document.getElementById('valuation-action-buttons');
-    const horizonSelectorEl = document.getElementById('horizon-selector');
     const baseYieldDisplayEl = document.getElementById('base-yield-display');
 
     // --- Get Data & Baseline Values ---
@@ -120,238 +117,299 @@ function setupValuationIntelligence(data) {
         calculated_risk_metrics: crm, 
         security_details: sd,
         bid_wanted_details: bwd,
-        forecasted_values: fv,
-        market_context,
-        forecast_explainability,
-        relative_value,
+        relative_value: rv,
         forecasted_ytw_change_1d_bps,
-        forecasted_ytw_change_5d_bps
+        forecasted_ytw_change_5d_bps,
+        forecasted_ytw_change_20d_bps,
+        peer_rv_spread_bps // Assuming this is a new field from the data
     } = data;
 
-    const baselinePrice = parseFloat(sd.price);
-    const baselineYield = parseFloat(crm.yield_to_worst); // YTW in percent
-    const currentSpreadToMmd = parseFloat(relative_value.vs_mmd_bps);
-    const modDuration = parseFloat(crm.modified_duration);
+    const baselinePrice = parseFloat(sd.price) || 0;
+    const baselineYield = parseFloat(crm.yield_to_worst) || 0; // YTW in percent
+    const currentSpreadToMmd = parseFloat(rv.vs_mmd_bps) || 0;
+    const durationForCalc = parseFloat(crm.effective_duration) || parseFloat(crm.modified_duration);
     
-    // The MMD benchmark yield is the anchor. It's the bond's total yield minus its specific spread to the MMD curve.
     const benchmarkMmdYield = baselineYield - (currentSpreadToMmd / 100);
 
-    // Calculate the forecasted YTWs first...
-    const forecastYtw1d = baselineYield + (forecasted_ytw_change_1d_bps / 100);
-    const forecastYtw5d = baselineYield + (forecasted_ytw_change_5d_bps / 100);
-    
-    // ...then calculate the forecasted spread to the MMD benchmark.
-    const forecastSpreadToMmd1d = (forecastYtw1d - benchmarkMmdYield) * 100;
-    const forecastSpreadToMmd5d = (forecastYtw5d - benchmarkMmdYield) * 100;
+    const forecastSpread1D = currentSpreadToMmd + (parseFloat(forecasted_ytw_change_1d_bps) || 0);
+    const forecastSpread5D = currentSpreadToMmd + (parseFloat(forecasted_ytw_change_5d_bps) || 0);
+    const forecastSpread20D = currentSpreadToMmd + (parseFloat(forecasted_ytw_change_20d_bps) || 0);
+    const forecastPeerSpread = parseFloat(peer_rv_spread_bps) || parseFloat(rv.vs_peers_bps) || currentSpreadToMmd; 
 
-    const HORIZONS = {
-        'Current': {
-            spread: currentSpreadToMmd,
-            explainability: []
-        },
-        '1D': {
-            spread: forecastSpreadToMmd1d,
-            explainability: forecast_explainability?.['forecasted_ytw_change_1d_bps']?.feature_attributions || []
-        },
-        '5D': {
-            spread: forecastSpreadToMmd5d,
-            explainability: forecast_explainability?.['forecasted_ytw_change_5d_bps']?.feature_attributions || []
-        }
+    const FORECASTS = {
+        '1D_TREND': forecastSpread1D,
+        '5D_TREND': forecastSpread5D,
+        '20D_TREND': forecastSpread20D,
+        'PEER_RV': forecastPeerSpread
+    };
+
+    const STRATEGIES = {
+        'FAIR_VALUE': { name: 'Fair Value', weights: { '1D_TREND': 0.2, '5D_TREND': 0.3, 'PEER_RV': 0.5 } },
+        'TREND_FOLLOW': { name: 'Trend-Following', weights: { '1D_TREND': 0.6, '5D_TREND': 0.4, 'PEER_RV': 0.0 } },
+        'RV_FOCUS': { name: 'Relative Value', weights: { '1D_TREND': 0.1, '5D_TREND': 0.1, 'PEER_RV': 0.8 } },
+        'CAUTIOUS': { name: 'Cautious', weights: { '1D_TREND': 0.0, '5D_TREND': 0.0, 'PEER_RV': 1.0 } } // Defaults to peer value
     };
     
+    const HORIZONS = ['1D', '5D', '10D'];
+
     let isUpdating = false;
 
     // --- State ---
     const state = {
-        systemWeight: 70,
-        traderWeight: 30,
-        traderSpread: HORIZONS['1D'].spread, // Default trader spread to 1D forecast
-        activeHorizon: '1D'
+        activeHorizon: '5D',
+        activeStrategy: 'FAIR_VALUE'
+    };
+    
+    const overrideState = {
+        '1d-trend-forecast-spread': false,
+        '5d-trend-forecast-spread': false,
+        'peer-rv-target-spread': false,
     };
 
-    // --- Smarter Defaults ---
-    const riskOffRegimes = ['Bear_Flattener', 'Bear_Steepener', 'Recession_Easing', 'Idiosyncratic_Distress'];
-    const negNewsProb = parseFloat(fv['1-day'].probability_negative_news_pct);
-    if (negNewsProb > 15 || riskOffRegimes.includes(market_context?.regime)) {
-        // Defensive posture: give more weight to trader input
-        state.systemWeight = 40;
-        state.traderWeight = 60;
+    // --- Helper Functions ---
+    function createTooltip(elementId, text) {
+        const iconContainer = document.getElementById(elementId);
+        if (!iconContainer) return;
+
+        iconContainer.classList.add('has-tooltip', 'relative', 'text-slate-500', 'cursor-pointer');
+        
+        const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+        const tooltipDiv = `<div class="explain-tooltip font-sans">${text}</div>`;
+
+        iconContainer.innerHTML = iconSvg + tooltipDiv;
     }
 
-    // --- Helper Functions ---
+    /**
+     * Task 6: Creates the `Risk Premium Adjustment` by making the valuation model 
+     * aware of key risk factors from other UI panels.
+     * @param {object} data The full instrument data object.
+     * @returns {number} A basis point adjustment value.
+     */
+    const calculateRiskPremiumAdjustment = (data) => {
+        let adjustmentBps = 0;
+
+        // 1. Market Regime Adjustment from `data.market_regime.contextual_regime`
+        // Example: 'Bear_Steepener' -> +2bps
+        if (data.market_regime && data.market_regime.contextual_regime) {
+            const regime = data.market_regime.contextual_regime;
+            if (regime === 'Bear_Steepener') {
+                adjustmentBps += 2;
+            }
+        }
+
+        // 2. Liquidity Score Adjustment from `data.liquidity.composite_score`
+        // Example: score < 40 -> +3bps
+        if (data.liquidity && typeof data.liquidity.composite_score !== 'undefined') {
+            const score = data.liquidity.composite_score;
+            if (score < 40) {
+                adjustmentBps += 3;
+            }
+        }
+
+        // 3. Idiosyncratic Risk from `data.forecasted_values['5-day'].probability_negative_news_pct`
+        // Example: probability > 15% -> +2bps
+        if (data.forecasted_values && data.forecasted_values['5-day'] && typeof data.forecasted_values['5-day'].probability_negative_news_pct !== 'undefined') {
+            const prob = data.forecasted_values['5-day'].probability_negative_news_pct;
+            if (prob > 15) {
+                adjustmentBps += 2;
+            }
+        }
+
+        return adjustmentBps;
+    };
+
     const updatePriceFromYield = (newYield) => {
-        if (isNaN(newYield)) return baselinePrice;
-        const yieldChange = (newYield - baselineYield) / 100; // Yields are in %, convert difference to decimal
-        const priceChange = -yieldChange * modDuration * baselinePrice;
+        if (isNaN(newYield) || !isFinite(durationForCalc) || durationForCalc === 0) return baselinePrice;
+        const yieldChange = (newYield - baselineYield) / 100;
+        const priceChange = -yieldChange * durationForCalc * baselinePrice;
         return baselinePrice + priceChange;
     };
 
     const updateYieldFromPrice = (newPrice) => {
-        if (isNaN(newPrice)) return baselineYield;
+        if (isNaN(newPrice) || !isFinite(durationForCalc) || durationForCalc === 0) return baselineYield;
         const priceChangePct = (newPrice - baselinePrice) / baselinePrice;
-        const yieldChange = -priceChangePct / modDuration;
-        return baselineYield + (yieldChange * 100); // convert to %
+        const yieldChange = -priceChangePct / durationForCalc;
+        return baselineYield + (yieldChange * 100);
     };
 
     const updateButtonText = (price) => {
         if (!bwd) return;
-        const formattedSize = bwd.size >= 1000000 ? `${bwd.size / 1000000}mm` : `${bwd.size / 1000}k`;
+        const formattedSize = bwd.size >= 1000000 ? `${(bwd.size / 1000000).toFixed(1)}mm` : `${Math.round(bwd.size / 1000)}k`;
         const primaryBtn = valuationActionContainer.querySelector('.btn-primary');
         const secondaryBtn = valuationActionContainer.querySelector('.btn-secondary');
-        if (primaryBtn && primaryBtn.textContent.includes('Bid')) {
-            primaryBtn.textContent = `Bid ${formattedSize} @ ${price}`;
-            if(secondaryBtn) { const offerPrice = (parseFloat(price) * 1.0025).toFixed(3); secondaryBtn.textContent = `Offer ${formattedSize} @ ${offerPrice}`; }
-        } else if (primaryBtn && primaryBtn.textContent.includes('Offer')) {
-            primaryBtn.textContent = `Offer ${formattedSize} @ ${price}`;
-            if(secondaryBtn) { secondaryBtn.textContent = `Bid ${formattedSize} @ ${price}`; }
+        const formattedPrice = parseFloat(price).toFixed(3);
+        if (primaryBtn) {
+            primaryBtn.textContent = `Bid ${formattedSize} @ ${formattedPrice}`;
+             if(secondaryBtn) { 
+                const offerPrice = (parseFloat(price) * 1.0025).toFixed(3);
+                secondaryBtn.textContent = `Offer ${formattedSize} @ ${offerPrice}`; 
+            }
         }
     };
     
-    const updateExplainability = () => {
-        const explainData = HORIZONS[state.activeHorizon].explainability
-            .filter(a => Math.abs(parseFloat(a.attribution)) > 0.1) // Filter for non-trivial drivers
-            .slice(0, 3);
-
-        if (explainData.length === 0) {
-            systemExplainabilityEl.innerHTML = '';
-            return;
-        }
-
-        const tooltipText = explainData.map(a => `<div>${a.feature}: <span class='font-mono'>${parseFloat(a.attribution).toFixed(2)}</span></div>`).join('');
-        systemExplainabilityEl.innerHTML = `
-            <span class="has-tooltip relative ml-1 text-slate-500 cursor-pointer">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <div class="explain-tooltip tooltip-right font-sans text-xs">${tooltipText}</div>
-            </span>`;
-    };
-
     const updateValuation = () => {
         isUpdating = true;
         
-        const systemSpread = HORIZONS[state.activeHorizon].spread;
+        const strategy = STRATEGIES[state.activeStrategy];
+        const weights = strategy.weights;
 
-        const totalWeight = state.systemWeight + state.traderWeight;
-        const blendedSpread = totalWeight > 0 ?
-            (systemSpread * state.systemWeight + state.traderSpread * state.traderWeight) / totalWeight :
-            currentSpreadToMmd;
+        const currentForecasts = {
+             '1D_TREND': parseFloat(forecast1dEl.value) || 0,
+             '5D_TREND': parseFloat(forecast5dEl.value) || 0,
+             'PEER_RV': parseFloat(forecastPeerRVEl.value) || 0,
+        };
         
-        const finalYield = benchmarkMmdYield + (blendedSpread / 100);
+        // Task 7: Implement 10-Day Forecast Interpolation (SL-04)
+        // When the 10D horizon is selected, calculate a 10D trend value by interpolating
+        // between the backend's 5D and 20D forecast values. This interpolated
+        // value is then used for the 5D_TREND component in strategies.
+        let trend5DValue = currentForecasts['5D_TREND'];
+        if (state.activeHorizon === '10D') {
+            const value5D = FORECASTS['5D_TREND'];
+            const value20D = FORECASTS['20D_TREND'];
+            // Using formula from requirements: Value_10D = Value_5D + (Value_20D - Value_5D) * ((10 - 5) / (20 - 5))
+            trend5DValue = value5D + (value20D - value5D) * (5 / 15);
+        }
+
+        // Calculate the blended spread based on the chosen strategy weights
+        const blendedSpread = (currentForecasts['1D_TREND'] * (weights['1D_TREND'] || 0)) +
+                              (trend5DValue * (weights['5D_TREND'] || 0)) +
+                              (currentForecasts['PEER_RV'] * (weights['PEER_RV'] || 0));
+
+        // Task 4: Dynamic Horizon Adjustment
+        // Replaces a static adjustment with a dynamic premium based on market volatility.
+        // Assumes `data.market_volatility.move_index` is available.
+        const horizonStep = HORIZONS.indexOf(state.activeHorizon); // 0, 1, or 2
+        const moveIndex = data.market_volatility ? data.market_volatility.move_index : 100; // Default if data is missing
+        const horizonPremium = (horizonStep * moveIndex) / 50; // As per requirements
+
+        // Task 6: Integrate Risk Factors
+        // Calculate a risk premium adjustment based on various factors.
+        const riskPremiumAdjustment = calculateRiskPremiumAdjustment(data);
+        
+        let finalSpread;
+
+        // Task 5: Refine "Cautious" Strategy Logic
+        // The "Cautious" strategy should be 100% Peer RV + Risk Premium, without the horizon adjustment.
+        if (state.activeStrategy === 'CAUTIOUS') {
+            finalSpread = blendedSpread + riskPremiumAdjustment;
+        } else {
+            finalSpread = blendedSpread + horizonPremium + riskPremiumAdjustment;
+        }
+
+        const finalYield = benchmarkMmdYield + (finalSpread / 100);
         const suggestedPrice = updatePriceFromYield(finalYield);
 
         // Update UI
         suggestedYieldInput.value = finalYield.toFixed(3);
         suggestedPriceInput.value = suggestedPrice.toFixed(3);
-        systemWeightDisplay.textContent = `${state.systemWeight}%`;
-        traderWeightDisplay.textContent = `${state.traderWeight}%`;
-        systemSpreadEl.textContent = systemSpread.toFixed(2);
         
-        explanationEl.innerHTML = `Blended Spread-to-MMD of <b>${blendedSpread.toFixed(2)}bps</b> applied to base yield.`;
+        explanationEl.innerHTML = `<b>${strategy.name}</b> strategy projects <b>${finalSpread.toFixed(2)}bps</b> spread for a <b>${state.activeHorizon}</b> horizon.`;
         
+        // Task 8: Update dynamic tooltip for fair value
+        const fairValueTooltipText = `Calculated using <b>${strategy.name}</b> strategy with a <b>${riskPremiumAdjustment.toFixed(2)} bps</b> risk premium adjustment and <b>${horizonPremium.toFixed(2)} bps</b> horizon premium.`;
+        createTooltip('fair-value-tooltip-icon', fairValueTooltipText);
+
         updateButtonText(suggestedPrice.toFixed(3));
+
         isUpdating = false;
     };
 
-    // --- Event Listeners ---
-    horizonSelectorEl.addEventListener('click', (e) => {
-        if (e.target.tagName !== 'BUTTON') return;
-        state.activeHorizon = e.target.dataset.horizon;
-        
-        horizonSelectorEl.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
-        e.target.classList.add('active');
-        
-        updateExplainability();
-        updateValuation();
-    });
-
-    systemWeightSlider.addEventListener('input', (e) => {
-        if(isUpdating) return;
-        state.systemWeight = parseInt(e.target.value, 10);
-        state.traderWeight = 100 - state.systemWeight;
-        traderWeightSlider.value = state.traderWeight;
-        updateValuation();
-    });
-
-    traderWeightSlider.addEventListener('input', (e) => {
-        if(isUpdating) return;
-        state.traderWeight = parseInt(e.target.value, 10);
-        state.systemWeight = 100 - state.traderWeight;
-        systemWeightSlider.value = state.systemWeight;
-        updateValuation();
-    });
-
-    traderSpreadInput.addEventListener('input', (e) => {
-        if(isUpdating) return;
-        const newSpread = parseFloat(e.target.value);
-        if (!isNaN(newSpread)) {
-            state.traderSpread = newSpread;
-            updateValuation();
+    const createResetIcon = (targetEl) => {
+        let icon = targetEl.parentNode.querySelector('.reset-icon');
+        if (!icon) {
+            icon = document.createElement('span');
+            icon.className = 'reset-icon absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer hidden';
+            icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.664 0l3.18-3.185m-4.993-4.992v4.992m0 0h-4.992m4.992 0l-3.182-3.182a8.25 8.25 0 00-11.664 0l-3.18 3.185" /></svg>`;
+            targetEl.parentNode.appendChild(icon);
+            icon.addEventListener('click', () => resetForecast(targetEl));
         }
-    });
+        return icon;
+    };
+    
+    const resetForecast = (inputEl) => {
+        overrideState[inputEl.id] = false;
+        inputEl.classList.remove('is-overridden');
+        const icon = inputEl.parentNode.querySelector('.reset-icon');
+        if(icon) icon.classList.add('hidden');
+        
+        // Reset to original calculated value
+        if (inputEl.id === '1d-trend-forecast-spread') inputEl.value = FORECASTS['1D_TREND'].toFixed(2);
+        if (inputEl.id === '5d-trend-forecast-spread') inputEl.value = FORECASTS['5D_TREND'].toFixed(2);
+        if (inputEl.id === 'peer-rv-target-spread') inputEl.value = FORECASTS['PEER_RV'].toFixed(2);
 
+        updateValuation();
+    };
+
+    const handleForecastInput = (e) => {
+        const target = e.target;
+        overrideState[target.id] = true;
+        target.classList.add('is-overridden');
+        createResetIcon(target).classList.remove('hidden');
+        updateValuation();
+    };
+
+    // --- Event Handlers ---
     suggestedPriceInput.addEventListener('input', () => {
         if (isUpdating) return;
         const newPrice = parseFloat(suggestedPriceInput.value);
-        if (isNaN(newPrice)) return;
-
-        const newYield = updateYieldFromPrice(newPrice);
-        const blendedSpreadBps = (newYield - benchmarkMmdYield) * 100;
-        
-        const totalWeight = state.systemWeight + state.traderWeight;
-        const systemSpread = HORIZONS[state.activeHorizon].spread;
-
-        if (totalWeight > 0 && state.traderWeight > 0) {
-             const requiredTraderSpread = (blendedSpreadBps * totalWeight - systemSpread * state.systemWeight) / state.traderWeight;
-             state.traderSpread = requiredTraderSpread;
-             traderSpreadInput.value = requiredTraderSpread.toFixed(2);
+        if (!isNaN(newPrice)) {
+            const newYield = updateYieldFromPrice(newPrice);
+            isUpdating = true;
+            suggestedYieldInput.value = newYield.toFixed(3);
+            isUpdating = false;
+            updateButtonText(newPrice.toFixed(3));
+            explanationEl.textContent = 'Price manually adjusted.';
         }
-        
-        isUpdating = true;
-        suggestedYieldInput.value = newYield.toFixed(3);
-        updateButtonText(newPrice.toFixed(3));
-        isUpdating = false;
     });
 
-    // --- Initialization ---
-    valuationActionContainer.innerHTML = '';
-    horizonSelectorEl.innerHTML = '';
-
-    // Create Horizon Buttons
-    Object.keys(HORIZONS).forEach(h => {
-        const btn = document.createElement('button');
-        btn.dataset.horizon = h;
-        btn.textContent = h;
-        btn.className = 'horizon-btn';
-        if (h === state.activeHorizon) btn.classList.add('active');
-        horizonSelectorEl.appendChild(btn);
+    [forecast1dEl, forecast5dEl, forecastPeerRVEl].forEach(el => {
+        el.addEventListener('input', handleForecastInput);
+        createResetIcon(el); // Create icons initially (hidden)
     });
 
-    if (bwd) {
-        const formattedSize = bwd.size >= 1000000 ? `${bwd.size/1000000}mm` : `${bwd.size/1000}k`;
-        const primaryBtnClass = 'btn-primary bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-3 rounded text-sm transition-all duration-200';
-        const secondaryBtnClass = 'btn-secondary bg-slate-700 hover:bg-slate-600 text-slate-300 font-semibold py-1.5 px-3 rounded text-sm transition-all duration-200';
-        const bidBtn = document.createElement('button');
-        bidBtn.addEventListener('click', () => handleAction('bid', formattedSize, suggestedPriceInput.value));
-        const offerBtn = document.createElement('button');
-        offerBtn.addEventListener('click', () => { const offerPrice = (parseFloat(suggestedPriceInput.value) * 1.0025).toFixed(3); handleAction('offer', formattedSize, offerPrice); });
-        if (bwd.side === 'BWIC') {
-            bidBtn.className = primaryBtnClass; bidBtn.textContent = `Bid ${formattedSize}`;
-            offerBtn.className = secondaryBtnClass; offerBtn.textContent = `Offer ${formattedSize}`;
-        } else {
-            bidBtn.className = secondaryBtnClass; bidBtn.textContent = `Bid ${formattedSize}`;
-            offerBtn.className = primaryBtnClass; offerBtn.textContent = `Offer ${formattedSize}`;
-        }
-        valuationActionContainer.appendChild(bidBtn);
-        valuationActionContainer.appendChild(offerBtn);
-    }
+    const createSelector = (container, items, stateKey, stateTarget) => {
+        container.innerHTML = '';
+        const isStrategy = Array.isArray(items);
+        const keys = isStrategy ? items : Object.keys(items);
+
+        keys.forEach(key => {
+            const item = isStrategy ? key : items[key];
+            const button = document.createElement('button');
+            button.className = 'px-2 py-1 text-xs font-semibold rounded-md transition-colors duration-200';
+            button.textContent = isStrategy ? item : item.name;
+            button.dataset.key = isStrategy ? item : key;
+
+            if (button.dataset.key === state[stateTarget]) {
+                button.classList.add('bg-blue-600', 'text-white');
+            } else {
+                button.classList.add('bg-slate-800', 'hover:bg-slate-600', 'text-slate-300');
+            }
+
+            button.addEventListener('click', () => {
+                state[stateTarget] = button.dataset.key;
+                createSelector(container, items, stateKey, stateTarget); // Re-render to update styles
+                updateValuation();
+            });
+            container.appendChild(button);
+        });
+    };
     
-    // Set initial UI state
-    baseYieldDisplayEl.innerHTML = `Using MMD benchmark yield of <b>${benchmarkMmdYield.toFixed(3)}%</b> (Current YTW - Spread to MMD)`;
-    traderSpreadInput.value = state.traderSpread.toFixed(2);
-    systemWeightSlider.value = state.systemWeight;
-    traderWeightSlider.value = state.traderWeight;
+    // --- Initial Population & Event Listeners ---
+    createTooltip('1d-trend-tooltip-icon', 'Forecast based on short-term (1-day) momentum models.');
+    createTooltip('5d-trend-tooltip-icon', 'Forecast based on medium-term (5-day) momentum models.');
+    createTooltip('peer-rv-tooltip-icon', 'Represents the current spread difference vs. a basket of comparable peer bonds.');
 
-    // Trigger initial calculation & setup
-    updateExplainability();
+    // Populate initial values
+    forecast1dEl.value = FORECASTS['1D_TREND'].toFixed(2);
+    forecast5dEl.value = FORECASTS['5D_TREND'].toFixed(2);
+    forecastPeerRVEl.value = FORECASTS['PEER_RV'].toFixed(2);
+
+    createSelector(horizonSelectorEl, HORIZONS, 'horizons', 'activeHorizon');
+    createSelector(strategySelectorEl, STRATEGIES, 'strategies', 'activeStrategy');
+
+    baseYieldDisplayEl.innerHTML = `Baseline Yield: <b>${baselineYield.toFixed(3)}%</b> | Eff. Duration: <b>${durationForCalc.toFixed(2)}</b> | MMD Ref. Yield: <b>${benchmarkMmdYield.toFixed(3)}%</b>`;
+
     updateValuation();
 }
 

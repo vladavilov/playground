@@ -159,42 +159,67 @@
 
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         
-                        <!-- Left Side: Inputs and Weights -->
+                        <!-- Left Side: Inputs and Strategies -->
                         <div class="space-y-4">
-                            <div class="flex items-center space-x-4">
-                                <span class="text-sm font-semibold text-slate-300">Forecast Horizon:</span>
-                                <div id="horizon-selector" class="flex items-center rounded-md bg-slate-700 p-0.5">
-                                    <!-- Horizon buttons injected here -->
+                            <!-- Controls -->
+                            <div class="flex items-center space-x-6">
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm font-semibold text-slate-300">Forecast Horizon:</span>
+                                    <div id="horizon-selector" class="flex items-center rounded-md bg-slate-700 p-0.5">
+                                        <!-- Horizon buttons injected here by JS -->
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm font-semibold text-slate-300">Valuation Strategy:</span>
+                                    <div id="strategy-selector" class="flex items-center rounded-md bg-slate-700 p-0.5">
+                                        <!-- Strategy buttons injected here by JS. e.g., Fair Value, Trend-Based, Cautious -->
+                                    </div>
                                 </div>
                             </div>
                             
-                            <div class="grid grid-cols-3 gap-x-4 items-center">
-                                <div class="text-xs text-slate-400">Forecast Source</div>
-                                <div class="text-xs text-slate-400 text-center">Spread to MMD (bps)</div>
-                                <div class="text-xs text-slate-400 text-center">Weight</div>
+                            <!-- Forecast Components -->
+                            <div id="forecast-components" class="pt-2">
+                                 <div class="grid grid-cols-2 gap-x-4 gap-y-2 items-center">
+                                    <div class="text-xs text-slate-400">Forecast Component</div>
+                                    <div class="text-xs text-slate-400 text-center">Projected Spread (bps)</div>
+                                    
+                                    <!-- Component 1 -->
+                                    <div class="text-sm text-slate-300 flex items-center">
+                                        <span>1D Trend Forecast</span>
+                                        <span id="1d-trend-tooltip-icon" class="ml-1"></span>
+                                    </div>
+                                    <div class="relative">
+                                        <input type="text" id="1d-trend-forecast-spread" class="font-mono text-center bg-slate-900/50 rounded p-1 text-sm h-8 w-full focus:ring-1 focus:ring-blue-500 focus:bg-slate-800 transition">
+                                    </div>
 
-                                <!-- System Forecast Row -->
-                                <label for="system-forecast-weight" class="font-semibold text-sm text-slate-300">System Forecast</label>
-                                <div class="relative">
-                                    <div id="system-forecast-spread" class="font-mono text-center bg-slate-900/50 rounded p-1 text-sm h-8 flex items-center justify-center"></div>
-                                    <div id="system-forecast-explainability" class="absolute right-0 top-0 h-8 flex items-center"></div>
-                                </div>
-                                <input id="system-forecast-weight" type="range" min="0" max="100" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer range-sm">
+                                    <!-- Component 2 -->
+                                    <div class="text-sm text-slate-300 flex items-center">
+                                        <span>5D Trend Forecast</span>
+                                        <span id="5d-trend-tooltip-icon" class="ml-1"></span>
+                                    </div>
+                                    <div class="relative">
+                                        <input type="text" id="5d-trend-forecast-spread" class="font-mono text-center bg-slate-900/50 rounded p-1 text-sm h-8 w-full focus:ring-1 focus:ring-blue-500 focus:bg-slate-800 transition">
+                                    </div>
 
-                                <!-- Trader Input Row -->
-                                <label for="trader-input-spread" class="font-semibold text-sm text-slate-300">Trader Input</label>
-                                <input type="text" id="trader-input-spread" class="font-mono text-center bg-slate-700 border border-slate-600 rounded p-1 w-full focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm h-8">
-                                <input id="trader-input-weight" type="range" min="0" max="100" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer range-sm">
-                            </div>
-                             <div class="text-right text-xs text-slate-500 mt-1">
-                                Weights: <span id="system-weight-display">70%</span> / <span id="trader-weight-display">30%</span>
+                                    <!-- Component 3 -->
+                                    <div class="text-sm text-slate-300 flex items-center">
+                                        <span>Peer RV Target</span>
+                                        <span id="peer-rv-tooltip-icon" class="ml-1"></span>
+                                    </div>
+                                    <div class="relative">
+                                        <input type="text" id="peer-rv-target-spread" class="font-mono text-center bg-slate-900/50 rounded p-1 text-sm h-8 w-full focus:ring-1 focus:ring-blue-500 focus:bg-slate-800 transition">
+                                    </div>
+                                 </div>
                             </div>
                             <div id="base-yield-display" class="text-xs text-slate-400 pt-2 border-t border-slate-700"></div>
                         </div>
 
                         <!-- Right Side: Results -->
                         <div class="bg-slate-900/50 p-3 rounded-md flex flex-col items-center justify-center text-center">
-                            <p class="text-xs text-slate-400">System-Suggested Fair Value</p>
+                            <p class="text-xs text-slate-400 flex items-center justify-center">
+                                <span>Strategy-Based Fair Value</span>
+                                <span id="fair-value-tooltip-icon" class="ml-1"></span>
+                            </p>
                             <div class="relative group mt-2 flex items-center space-x-4">
                                 <div>
                                     <label for="suggested-price-input" class="text-xs text-slate-500">Price</label>

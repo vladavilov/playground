@@ -74,4 +74,15 @@
     color: #f1f5f9; /* slate-100 */
     border-bottom-color: #3b82f6; /* blue-500 */
     font-weight: 600;
+}
+
+/* Styles for user-overridden forecast inputs */
+.is-overridden {
+    border-color: #3b82f6 !important; /* blue-500 */
+    background-color: #1e293b !important; /* slate-800 */
+    color: #93c5fd; /* blue-300 */
+}
+
+.reset-icon {
+    transition: color 0.2s ease-in-out;
 } 
