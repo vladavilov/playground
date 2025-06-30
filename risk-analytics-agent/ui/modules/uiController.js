@@ -99,12 +99,22 @@ function populateMarketRegime(elementId, label, regimeObject) {
 
 function setupValuationIntelligence(data) {
     // --- Get DOM Elements ---
-    const horizonSelectorEl = document.getElementById('horizon-selector');
-    const strategySelectorEl = document.getElementById('strategy-selector');
+    const modeSelectorEl = document.getElementById('valuation-mode-selector');
 
     const forecast1dEl = document.getElementById('1d-trend-forecast-spread');
     const forecast5dEl = document.getElementById('5d-trend-forecast-spread');
     const forecastPeerRVEl = document.getElementById('peer-rv-target-spread');
+
+    const weight1dEl = document.getElementById('1d-weight');
+    const weight5dEl = document.getElementById('5d-weight');
+    const weightRvEl = document.getElementById('rv-weight');
+
+    const result1dEl = document.getElementById('1d-result');
+    const result5dEl = document.getElementById('5d-result');
+    const resultRvEl = document.getElementById('rv-result');
+
+    const finalTargetSpreadEl = document.getElementById('final-target-spread');
+    const strategyRationaleEl = document.getElementById('strategy-rationale');
     
     const suggestedPriceInput = document.getElementById('suggested-price-input');
     const suggestedYieldInput = document.getElementById('suggested-yield-input');
@@ -136,28 +146,35 @@ function setupValuationIntelligence(data) {
     const forecastSpread20D = currentSpreadToMmd + (parseFloat(forecasted_ytw_change_20d_bps) || 0);
     const forecastPeerSpread = parseFloat(peer_rv_spread_bps) || parseFloat(rv.vs_peers_bps) || currentSpreadToMmd; 
 
-    const FORECASTS = {
-        '1D_TREND': forecastSpread1D,
-        '5D_TREND': forecastSpread5D,
-        '20D_TREND': forecastSpread20D,
-        'PEER_RV': forecastPeerSpread
+    // --- Configuration based on requirements ---
+    const VALUATION_MODES = {
+        'Trend-Based': { 
+            name: 'Trend-Based', 
+            weights: { '1d': 0.7, '5d': 0.2, 'rv': 0.1 },
+            rationale: "Using <strong>Trend-Based</strong> mode, which prioritizes immediate momentum. The valuation is heavily influenced by the 1-day trend forecast to align with short-term tactical trading goals."
+        },
+        'Balanced': { 
+            name: 'Balanced', 
+            weights: { '1d': 0.1, '5d': 0.5, 'rv': 0.4 },
+            rationale: "Using <strong>Balanced</strong> mode, which offers a view blending recent momentum with fundamental value. It's suitable for a multi-day holding period."
+        },
+        'Fair Value': { 
+            name: 'Fair Value',
+            weights: { '1d': 0.0, '5d': 0.1, 'rv': 0.9 },
+            rationale: "Using <strong>Fair Value</strong> mode, which emphasizes fundamental analysis by basing the valuation almost entirely on the Peer RV spread. This is for strategic, long-term investment decisions."
+        },
+        'Cautious': {
+            name: 'Cautious',
+            weights: null, // Indicates special logic
+            rationale: "Using <strong>Cautious</strong> mode. The valuation is based on the most conservative (highest) spread among the forecast inputs to create a defensive price."
+        }
     };
-
-    const STRATEGIES = {
-        'FAIR_VALUE': { name: 'Fair Value', weights: { '1D_TREND': 0.2, '5D_TREND': 0.3, 'PEER_RV': 0.5 } },
-        'TREND_FOLLOW': { name: 'Trend-Following', weights: { '1D_TREND': 0.6, '5D_TREND': 0.4, 'PEER_RV': 0.0 } },
-        'RV_FOCUS': { name: 'Relative Value', weights: { '1D_TREND': 0.1, '5D_TREND': 0.1, 'PEER_RV': 0.8 } },
-        'CAUTIOUS': { name: 'Cautious', weights: { '1D_TREND': 0.0, '5D_TREND': 0.0, 'PEER_RV': 1.0 } } // Defaults to peer value
-    };
-    
-    const HORIZONS = ['1D', '5D', '10D'];
 
     let isUpdating = false;
 
     // --- State ---
     const state = {
-        activeHorizon: '5D',
-        activeStrategy: 'FAIR_VALUE'
+        activeMode: 'Balanced'
     };
     
     const overrideState = {
@@ -248,70 +265,59 @@ function setupValuationIntelligence(data) {
     };
     
     const updateValuation = () => {
+        if (isUpdating) return;
         isUpdating = true;
-        
-        const strategy = STRATEGIES[state.activeStrategy];
-        const weights = strategy.weights;
 
-        const currentForecasts = {
-             '1D_TREND': parseFloat(forecast1dEl.value) || 0,
-             '5D_TREND': parseFloat(forecast5dEl.value) || 0,
-             'PEER_RV': parseFloat(forecastPeerRVEl.value) || 0,
-        };
-        
-        // Task 7: Implement 10-Day Forecast Interpolation (SL-04)
-        // When the 10D horizon is selected, calculate a 10D trend value by interpolating
-        // between the backend's 5D and 20D forecast values. This interpolated
-        // value is then used for the 5D_TREND component in strategies.
-        let trend5DValue = currentForecasts['5D_TREND'];
-        if (state.activeHorizon === '10D') {
-            const value5D = FORECASTS['5D_TREND'];
-            const value20D = FORECASTS['20D_TREND'];
-            // Using formula from requirements: Value_10D = Value_5D + (Value_20D - Value_5D) * ((10 - 5) / (20 - 5))
-            trend5DValue = value5D + (value20D - value5D) * (5 / 15);
-        }
-
-        // Calculate the blended spread based on the chosen strategy weights
-        const blendedSpread = (currentForecasts['1D_TREND'] * (weights['1D_TREND'] || 0)) +
-                              (trend5DValue * (weights['5D_TREND'] || 0)) +
-                              (currentForecasts['PEER_RV'] * (weights['PEER_RV'] || 0));
-
-        // Task 4: Dynamic Horizon Adjustment
-        // Replaces a static adjustment with a dynamic premium based on market volatility.
-        // Assumes `data.market_volatility.move_index` is available.
-        const horizonStep = HORIZONS.indexOf(state.activeHorizon); // 0, 1, or 2
-        const moveIndex = data.market_volatility ? data.market_volatility.move_index : 100; // Default if data is missing
-        const horizonPremium = (horizonStep * moveIndex) / 50; // As per requirements
-
-        // Task 6: Integrate Risk Factors
-        // Calculate a risk premium adjustment based on various factors.
-        const riskPremiumAdjustment = calculateRiskPremiumAdjustment(data);
-        
+        const activeMode = VALUATION_MODES[state.activeMode];
         let finalSpread;
 
-        // Task 5: Refine "Cautious" Strategy Logic
-        // The "Cautious" strategy should be 100% Peer RV + Risk Premium, without the horizon adjustment.
-        if (state.activeStrategy === 'CAUTIOUS') {
-            finalSpread = blendedSpread + riskPremiumAdjustment;
+        const spread1d = parseFloat(forecast1dEl.value) || 0;
+        const spread5d = parseFloat(forecast5dEl.value) || 0;
+        const spreadRv = parseFloat(forecastPeerRVEl.value) || 0;
+
+        if (activeMode.name === 'Cautious') {
+            finalSpread = Math.max(spread1d, spread5d, spreadRv);
+            
+            // Visually update breakdown to reflect Cautious logic
+            weight1dEl.textContent = 'n/a';
+            weight5dEl.textContent = 'n/a';
+            weightRvEl.textContent = 'n/a';
+            result1dEl.textContent = spread1d.toFixed(1);
+            result5dEl.textContent = spread5d.toFixed(1);
+            resultRvEl.textContent = spreadRv.toFixed(1);
+
         } else {
-            finalSpread = blendedSpread + horizonPremium + riskPremiumAdjustment;
+            const weights = activeMode.weights;
+
+            // Calculate weighted results
+            const result1d = spread1d * weights['1d'];
+            const result5d = spread5d * weights['5d'];
+            const resultRv = spreadRv * weights['rv'];
+            finalSpread = result1d + result5d + resultRv;
+
+            // Update UI with weights and results
+            weight1dEl.textContent = (weights['1d'] * 100).toFixed(0) + '%';
+            weight5dEl.textContent = (weights['5d'] * 100).toFixed(0) + '%';
+            weightRvEl.textContent = (weights['rv'] * 100).toFixed(0) + '%';
+            
+            result1dEl.textContent = result1d.toFixed(1);
+            result5dEl.textContent = result5d.toFixed(1);
+            resultRvEl.textContent = resultRv.toFixed(1);
         }
 
+        strategyRationaleEl.innerHTML = activeMode.rationale;
+        finalTargetSpreadEl.textContent = finalSpread.toFixed(1);
+        
+        // Calculate and display final price/yield
         const finalYield = benchmarkMmdYield + (finalSpread / 100);
-        const suggestedPrice = updatePriceFromYield(finalYield);
+        const finalPrice = updatePriceFromYield(finalYield);
 
-        // Update UI
-        suggestedYieldInput.value = finalYield.toFixed(3);
-        suggestedPriceInput.value = suggestedPrice.toFixed(3);
+        suggestedPriceInput.value = finalPrice.toFixed(4);
+        suggestedYieldInput.value = finalYield.toFixed(4);
+
+        updateButtonText(finalPrice);
+        explanationEl.textContent = `Calculated from ${finalSpread.toFixed(1)} bps spread over benchmark.`;
         
-        explanationEl.innerHTML = `<b>${strategy.name}</b> strategy projects <b>${finalSpread.toFixed(2)}bps</b> spread for a <b>${state.activeHorizon}</b> horizon.`;
-        
-        // Task 8: Update dynamic tooltip for fair value
-        const fairValueTooltipText = `Calculated using <b>${strategy.name}</b> strategy with a <b>${riskPremiumAdjustment.toFixed(2)} bps</b> risk premium adjustment and <b>${horizonPremium.toFixed(2)} bps</b> horizon premium.`;
-        createTooltip('fair-value-tooltip-icon', fairValueTooltipText);
-
-        updateButtonText(suggestedPrice.toFixed(3));
-
         isUpdating = false;
     };
 
@@ -329,88 +335,82 @@ function setupValuationIntelligence(data) {
     
     const resetForecast = (inputEl) => {
         overrideState[inputEl.id] = false;
-        inputEl.classList.remove('is-overridden');
-        const icon = inputEl.parentNode.querySelector('.reset-icon');
-        if(icon) icon.classList.add('hidden');
+        inputEl.classList.remove('override-active');
         
-        // Reset to original calculated value
-        if (inputEl.id === '1d-trend-forecast-spread') inputEl.value = FORECASTS['1D_TREND'].toFixed(2);
-        if (inputEl.id === '5d-trend-forecast-spread') inputEl.value = FORECASTS['5D_TREND'].toFixed(2);
-        if (inputEl.id === 'peer-rv-target-spread') inputEl.value = FORECASTS['PEER_RV'].toFixed(2);
+        // Restore original forecast value
+        if(inputEl.id === '1d-trend-forecast-spread') inputEl.value = forecastSpread1D.toFixed(1);
+        if(inputEl.id === '5d-trend-forecast-spread') inputEl.value = forecastSpread5D.toFixed(1);
+        if(inputEl.id === 'peer-rv-target-spread') inputEl.value = forecastPeerSpread.toFixed(1);
 
+        const resetIcon = inputEl.nextElementSibling;
+        if(resetIcon) resetIcon.remove();
+        
         updateValuation();
     };
 
     const handleForecastInput = (e) => {
-        const target = e.target;
-        overrideState[target.id] = true;
-        target.classList.add('is-overridden');
-        createResetIcon(target).classList.remove('hidden');
+        const inputEl = e.target;
+        if (!overrideState[inputEl.id]) {
+            overrideState[inputEl.id] = true;
+            inputEl.classList.add('override-active');
+            createResetIcon(inputEl);
+        }
         updateValuation();
     };
 
-    // --- Event Handlers ---
-    suggestedPriceInput.addEventListener('input', () => {
-        if (isUpdating) return;
-        const newPrice = parseFloat(suggestedPriceInput.value);
-        if (!isNaN(newPrice)) {
-            const newYield = updateYieldFromPrice(newPrice);
-            isUpdating = true;
-            suggestedYieldInput.value = newYield.toFixed(3);
-            isUpdating = false;
-            updateButtonText(newPrice.toFixed(3));
-            explanationEl.textContent = 'Price manually adjusted.';
-        }
-    });
+    const createSelector = (container, items, activeItem, clickHandler) => {
+        container.innerHTML = '';
+        items.forEach(item => {
+            const btn = document.createElement('button');
+            const isActive = (item === activeItem);
+            btn.className = `px-2 py-1 text-xs font-semibold rounded-md transition-colors duration-200 ${isActive ? 'bg-blue-600 text-white' : 'bg-slate-800 hover:bg-slate-600 text-slate-300'}`;
+            btn.textContent = item;
+            btn.onclick = () => clickHandler(item);
+            container.appendChild(btn);
+        });
+    };
+
+    const handleModeClick = (modeName) => {
+        state.activeMode = modeName;
+        createSelector(modeSelectorEl, Object.keys(VALUATION_MODES), state.activeMode, handleModeClick);
+        updateValuation();
+    };
+    
+    // --- Initialization ---
+    baseYieldDisplayEl.textContent = `Baseline Yield: ${baselineYield.toFixed(3)}% | Benchmark (MMD): ${benchmarkMmdYield.toFixed(3)}% | Current Spread: ${currentSpreadToMmd.toFixed(1)} bps`;
+    
+    forecast1dEl.value = forecastSpread1D.toFixed(1);
+    forecast5dEl.value = forecastSpread5D.toFixed(1);
+    forecastPeerRVEl.value = forecastPeerSpread.toFixed(1);
+
+    // Initial setup of selectors
+    createSelector(modeSelectorEl, Object.keys(VALUATION_MODES), state.activeMode, handleModeClick);
 
     [forecast1dEl, forecast5dEl, forecastPeerRVEl].forEach(el => {
         el.addEventListener('input', handleForecastInput);
-        createResetIcon(el); // Create icons initially (hidden)
     });
 
-    const createSelector = (container, items, stateKey, stateTarget) => {
-        container.innerHTML = '';
-        const isStrategy = Array.isArray(items);
-        const keys = isStrategy ? items : Object.keys(items);
-
-        keys.forEach(key => {
-            const item = isStrategy ? key : items[key];
-            const button = document.createElement('button');
-            button.className = 'px-2 py-1 text-xs font-semibold rounded-md transition-colors duration-200';
-            button.textContent = isStrategy ? item : item.name;
-            button.dataset.key = isStrategy ? item : key;
-
-            if (button.dataset.key === state[stateTarget]) {
-                button.classList.add('bg-blue-600', 'text-white');
-            } else {
-                button.classList.add('bg-slate-800', 'hover:bg-slate-600', 'text-slate-300');
-            }
-
-            button.addEventListener('click', () => {
-                state[stateTarget] = button.dataset.key;
-                createSelector(container, items, stateKey, stateTarget); // Re-render to update styles
-                updateValuation();
-            });
-            container.appendChild(button);
-        });
-    };
-    
-    // --- Initial Population & Event Listeners ---
-    createTooltip('1d-trend-tooltip-icon', 'Forecast based on short-term (1-day) momentum models.');
-    createTooltip('5d-trend-tooltip-icon', 'Forecast based on medium-term (5-day) momentum models.');
-    createTooltip('peer-rv-tooltip-icon', 'Represents the current spread difference vs. a basket of comparable peer bonds.');
-
-    // Populate initial values
-    forecast1dEl.value = FORECASTS['1D_TREND'].toFixed(2);
-    forecast5dEl.value = FORECASTS['5D_TREND'].toFixed(2);
-    forecastPeerRVEl.value = FORECASTS['PEER_RV'].toFixed(2);
-
-    createSelector(horizonSelectorEl, HORIZONS, 'horizons', 'activeHorizon');
-    createSelector(strategySelectorEl, STRATEGIES, 'strategies', 'activeStrategy');
-
-    baseYieldDisplayEl.innerHTML = `Baseline Yield: <b>${baselineYield.toFixed(3)}%</b> | Eff. Duration: <b>${durationForCalc.toFixed(2)}</b> | MMD Ref. Yield: <b>${benchmarkMmdYield.toFixed(3)}%</b>`;
-
+    // Initial calculation
     updateValuation();
+
+    // Setup action buttons
+    valuationActionContainer.innerHTML = ''; // Clear previous
+    if(bwd) {
+        const bidButton = document.createElement('button');
+        bidButton.className = 'btn-primary';
+        bidButton.onclick = () => handleAction('Bid', bwd.size, suggestedPriceInput.value);
+        valuationActionContainer.appendChild(bidButton);
+
+        const offerButton = document.createElement('button');
+        offerButton.className = 'btn-secondary';
+        offerButton.onclick = () => {
+             const offerPrice = (parseFloat(suggestedPriceInput.value) * 1.0025).toFixed(3);
+             handleAction('Offer', bwd.size, offerPrice);
+        };
+        valuationActionContainer.appendChild(offerButton);
+    }
+    
+    createTooltip('fair-value-tooltip-icon', 'This valuation is derived from a blend of forecast models. Adjust the mode to align the price with your trading goals.');
 }
 
 export function createAlert(row, onRowClickCallback) {
