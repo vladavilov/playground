@@ -256,15 +256,6 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 ### 4.4. Methodology: Option-Adjusted Spread (OAS) Calculation
 - **Purpose:** To calculate the spread over a benchmark yield curve that equates a bond's theoretical price (accounting for embedded call options) to its observed market price.
-- OAS=Spread over a risk free becnhmark. OAS defined as a spread over a risk free curve that incorporates optionalities
-- The risk free bencha,rk is almost always a zero yield curve from goverment bonds(e.g UST from FRED)
-- OAS tells how much extra return you'd get over a zero-curve, after removing optionality value
-- OAS claculation steps:
-  - Start with zero coupon curve(e.g treasury)
-  - add flat spread to curve
-  - use a model(Hull White tree) to price the bond with embedded options
-  - Adjust the spread until model price=market price
-- The spread is OAS
 - **Input Model:**
 - ***BOND DATA
     - `cusip`: `9 symbols ISO standard cusip e.g 91282CJL6`
@@ -287,23 +278,50 @@ The choice of benchmark is critical and determined by the instrument's type and 
     6. Create callable bond Ql.CallableBond. Empty to handle non Callable bond. Should return Z Spread instead of OAS. input: settle_day. e.g 1,2,3. face value=100
     7. Build discount curver from treasury zero curve->discount_curve
       - discount_curve=ql.ZeroCurve(dates(evalDate+tenormap[k]),rates,day_count,calendar=ql.USCalendar())
+      - discount_curve_handle=ql.YieldTermStructureHandle(discount_curve)
 
-    8. create mock swaption valoatility surface for HW calibration
-      - in: eval_date
-      - out: swaption_vol_surface
-      - build matrix: for i in option_tenors
-                        for j in swap_tenors
-                          matrix[i][j]=vols[i][j]
-      - return swaption_vol_surface=ql.SwaptionVolatilityMatrix(calendar=ql.UsnitedStaes,ql.MidifiedFollowing,option_tenors,swap_tenors,matrix,ql.Actual365Fixed())
-    9. Calibrate HW model
-      - price engine Jamshidian
-      - optimize LevenBerg
-      = clibrate_hw_model(discount_curve,swaption_vol_surface)
-    10. price callable bond
+    9. create mock swaption volatility surface for HW calibration
+      - input: today,discount_curve_handle, market_vols->getched from CME SOFR
+      - calendar=ql.UnitedStates()
+      - fixed_leg_frequency=ql.Annual
+      - fixed_leg_conversion=ql.Unadjusted
+      - day_coun=ql.Thrirty360
+      - Algo
+           - for expiry,tenor,vol in market_vols
+           - Convert peiods exerice=ql.period(expiry*12, ql.Months)
+           - swap_tenor=ql.period(tenor*12, ql.Months)
+           - Create QuoteHandle vol_handle=ql.QuoteHandle(ql.SimpleQuote(vol))           
+           - helper=ql.SwaptionHelper(exercise,swap_tenor,vol_handle,discount_curve_handle, fixed_leg_frequency, fixed_leg_conversion,day_count,discount_curve_handle)
+           - helper.append(helper)
+           - return helpers
+       - Define calibration objective
+           - params array sigma, alpha, helpers
+           - out summ of squared diffs between model and market vols
+           - use the term structure from the first helper model=ql.HModel(helpers[0].termStructure, alpha, sigma)
+           - for helper in helpers
+               - helper.setPricingEngine(ql.SwaptionHelpersEngine(model.64)
+               - model_vol=hw.impliedVolatility()
+               - extract market volatility helper.volatility.value()
+               - accumulate error error+=(modelvol-market_vol)^2
+          - return error
+      - run the optimization
+            - provide intial guess for alpha and sigma
+            - use Nelder-Mead
+            - retun res=minimize(calibation_objective->error,[0.03, 0.01] args=(helpers,) method=Nelder-Mead, maxiter=700)
+      - build calibrated model hw_model=ql.HW(helpers[0].termStructure(), alpha_clibrated,sigma_clibrated)
+    11. calculate_oas(bond,discount_curve_handle,hw_model,amrket_price)
+            - engine ql.treeCallableFixedRateBondEngine()
+            - oas=oas_bps/10000
+            - solver=ql.Brent()
+            - hw_withspread(ql.HW(spreaded_curve,hw_model.params[0],hw_model.params[1])
+            - oas_bps=solver.solve(price_diff,accuracy,0,-500,500)
+            - spreaded_curveql.ZeroSpreadTerm(dsicount_curve_handle,ql.QuateHandle(q)
+        
+    13. price callable bond
       - hw_mode,face_value=100
       - price engine TreeCallableFixedrate
-    11. Calculate oas ql.BondFunctions.oas(bond,discount_curve,market_price,ql.ActualActual(),ql.Compounded, qal.SemiAnnual)
-    12. If SOFR rates not available, we can manualy calibrate alpha=0.03 sigma=0.01 on treasury curve
+    14. Calculate oas ql.BondFunctions.oas(bond,discount_curve,market_price,ql.ActualActual(),ql.Compounded, qal.SemiAnnual)
+    15. If SOFR rates not available, we can manualy calibrate alpha=0.03 sigma=0.01 on treasury curve
         -   The goal is to find the implied volatility that corresponds to the bond's duration at an at-the-money strike.
         -   From the volatility surface, which is a matrix of tenor and strike, select the volatilities for the 'at-the-money' strike (e.g., strike = 100).
         -   Using this list of volatilities keyed by tenor, perform a **linear interpolation** to find the volatility at the specific duration of the bond. This is identical to the benchmark yield interpolation logic in Section 4.6.
