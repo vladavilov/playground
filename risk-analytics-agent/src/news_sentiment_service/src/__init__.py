@@ -1,0 +1,1 @@
+"""Root package for all source code of News Sentiment Service.""" 
