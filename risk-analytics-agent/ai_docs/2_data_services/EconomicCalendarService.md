@@ -33,26 +33,59 @@ The primary purpose of the Economic Calendar Service is to act as a centralized,
   }
   ```
   *Note: Field names (`Category`, `Importance`, `Date`) differ from the internal schema (`event_name`, `importance`, `event_date`). The ingestion process must map these fields correctly.*
+- **EC-DS-04:** The Economic Calendar Service shall minimize unnecessary data transfer by using available API filtering parameters provided by Trading Economics. Specifically, it shall request only events for the United States (`country = united states`) and only high-impact events (`importance = 3`), and shall explicitly set `start_date` and `end_date` parameters to limit the time window.
+  - Example API call format: `GET /calendar/country/united%20states?c=API_KEY&importance=3&start_date={YYYY-MM-DD}&end_date={YYYY-MM-DD}`
 
 ### 4. Ingestion & Filtering Logic
 - **EC-PR-01:** Upon ingestion, raw events **shall** be immediately filtered *before* being saved to the service's internal storage.
 - **EC-PR-02:** The filtering criteria are as follows:
   - `Country` **must** be "United States".
   - `Importance` **must** be `3` (High).
-  - `Category` (event name) **must** contain one of the following canonical strings (case-insensitive search):
-    - "FOMC Rate Decision"
-    - "CPI"
-    - "Non-Farm Payrolls"
-    - "Retail Sales"
-    - "Unemployment Rate"
-    - "GDP Growth Rate"
-    - "Producer Price Index"
-    - "ISM Manufacturing PMI"
-    - "ISM Services PMI"
-    - "University of Michigan Consumer Sentiment"
-    - "Housing Starts"
-    - "Fed Balance Sheet"
-    *Note: The ingestion logic must handle variations in the provider's naming (e.g., "Consumer Price Index (CPI)" should map to "CPI", weekly H.4.1 release should map to "Fed Balance Sheet").*
+  - `Category` (event name) **must** match one of the canonical categories listed in the table below (case-insensitive search).
+
+| Category Name                          | Description                                 | Update Freq.                | Feature Name             |
+|:---|:---|:---|:---|
+| CPI                                    | Consumer Price Index (CPI)                 | Monthly                     | cpi                     |
+| FOMC Rate Decision                     | Federal Reserve interest rate decision     | ~8 times/year (every ~6 weeks) | fomc_rate_decision     |
+| Non-Farm Payrolls                      | US labor market job creation data          | Monthly                     | non_farm_payrolls     |
+| Retail Sales                           | US retail sales report                     | Monthly                     | retail_sales          |
+| Unemployment Rate                      | Official US unemployment rate              | Monthly                     | unemployment_rate     |
+| GDP Growth Rate                        | US GDP quarterly growth                    | Quarterly                   | gdp_growth_rate       |
+| Producer Price Index                   | Wholesale price inflation measure          | Monthly                     | producer_price_index |
+| ISM Manufacturing PMI                  | Manufacturing sector activity index        | Monthly                     | ism_manufacturing_pmi|
+| ISM Services PMI                       | Services sector activity index            | Monthly                     | ism_services_pmi     |
+| University of Michigan Consumer Sentiment | Consumer confidence survey            | Monthly (prelim & final)    | university_of_michigan_consumer_sentiment |
+| Housing Starts                         | New residential construction starts       | Monthly                     | housing_starts       |
+| Fed Balance Sheet                      | Federal Reserve balance sheet update      | Weekly (every Thursday)     | fed_balance_sheet    |
+
+  *Note: The ingestion logic must handle variations in the provider's naming (e.g., "Consumer Price Index (CPI)" should map to "CPI", weekly H.4.1 release should map to "Fed Balance Sheet").*
+    
+- **EC-PR-03:** The probability of changes to scheduled economic events (e.g., publication date shifts or cancellations) in the United States is very low (estimated at less than 1%), as most events follow a well-defined official calendar published months in advance (e.g., BLS, BEA, FOMC schedules).
+To minimize implementation complexity and avoid unnecessary data duplication, the service shall update future events in place, keeping only the most recent and accurate information.
+This approach is sufficient for almost all operational and modeling use cases and avoids the overhead of maintaining event version history, which is typically only required in strict audit or regulatory environments.
+- **EC-PR-04:** The ingestion logic shall implement explicit canonical mapping rules to convert `Category` values into canonical internal event names, as defined in `EC-PR-02`. This mapping shall be strictly maintained and updated as needed to handle naming variations from the provider.
+- **EC-PR-05:** **SHOULD BE DISCUSSED** The ingestion process shall implement explicit filtering based on both `Category` and `Event` fields provided by the Trading Economics API.
+First, only events matching the canonical categories defined in `EC-PR-02` shall be considered (using `Category` field, case-insensitive).
+Then, for each selected category, additional fine-grained filtering using the `Event` field may be applied to exclude or include specific sub-releases as needed.
+The canonical mapping table below defines the expected `Category` values and example `Event` names to guide implementers:
+
+| Canonical Name                          | Example Category (TradingEconomics)       | Example Events inside Category                       |
+|:---|:---|:---|
+| CPI                                    | Consumer Price Index (CPI)               | CPI YoY, CPI MoM, Core CPI YoY, Core CPI MoM           |
+| FOMC Rate Decision                     | FOMC Rate Decision                       | Fed Interest Rate Decision, Federal Funds Rate         |
+| Non-Farm Payrolls                      | Non-Farm Payrolls                        | Non-Farm Payrolls, Non-Farm Payrolls Private, Non-Farm Payrolls Manufacturing |
+| Retail Sales                           | Retail Sales                             | Retail Sales MoM, Retail Sales Ex Autos MoM            |
+| Unemployment Rate                      | Unemployment Rate                        | Unemployment Rate, Participation Rate, U-6 Rate       |
+| GDP Growth Rate                        | GDP Growth Rate                          | GDP Growth Rate QoQ Adv, GDP Growth Rate QoQ Final    |
+| Producer Price Index                   | Producer Price Index                     | PPI YoY, PPI MoM, Core PPI YoY, Core PPI MoM          |
+| ISM Manufacturing PMI                  | ISM Manufacturing PMI                    | Manufacturing PMI, New Orders, Employment Index       |
+| ISM Services PMI                       | ISM Non-Manufacturing PMI                | Services PMI, Business Activity Index, New Orders    |
+| University of Michigan Consumer Sentiment | Michigan Consumer Sentiment          | Sentiment Preliminary, Sentiment Final                 |
+| Housing Starts                         | Housing Starts                           | Housing Starts, Building Permits, Housing Completions |
+| Fed Balance Sheet                      | Fed Balance Sheet                        | Total Assets, Securities Held Outright, Reserve Balances |
+
+Note: This table provides example `Event` names. Final implementation shall define precise matching logic (e.g., strict string match or allowed sub-strings) to avoid ambiguity and ensure consistent mapping.
+
 
 ### 5. Data Storage
 - **EC-ST-01:** Filtered events **shall** be stored internally in a database table or document collection with the following schema:
@@ -79,7 +112,10 @@ The primary purpose of the Economic Calendar Service is to act as a centralized,
   3.  Initialize an output JSON object, `events_matrix`.
   4.  Iterate through each day `d` from `start_date` to `end_date`. For each day, create a key `d` in `events_matrix` with a value being an object where each feature from `feature_list` is set to `0`.
   5.  Iterate through the fetched events. For each `event` on a given `event_date`, set the corresponding feature in `events_matrix[event_date]` to `1`.
-- **Success Response (200 OK):**
+ 
+**EC-API-01:** The API response shall always include all canonical event names defined in `EC-PR-02` as keys in the returned feature object for every date, even if no events occur on that date. In such cases, the corresponding value shall be `0`. This ensures the feature matrix has a consistent fixed schema across different date ranges.
+
+**Success Response (200 OK):**
   ```json
   {
     "2024-03-11": {"fomc_rate_decision": 0, "cpi": 0},
