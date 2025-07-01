@@ -1,21 +1,8 @@
-"""Standard Service Entrypoint
-
-This file serves as the canonical example of a minimal runnable Python
-micro-service within the Risk Analytics News Sentiment platform. Future
-services should copy this file into their dedicated directory, rename the
-`service_name` variable, and extend the `main` function with the desired
-behaviour.
-"""
-
 import logging
 from typing import NoReturn
 
 
 def main() -> NoReturn:  # pragma: no cover
-    """Bootstraps the service.
-
-    Replace the `pass` statement with the service-specific start-up logic.
-    """
     service_name = "<YOUR_SERVICE_NAME>"
 
     logging.basicConfig(

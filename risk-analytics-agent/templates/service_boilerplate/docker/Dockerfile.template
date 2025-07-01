@@ -1,42 +1,17 @@
-# syntax=docker/dockerfile:1
-
-# ---------------------------
-#  Base Image
-# ---------------------------
 FROM python:3.11-slim as base
 
-# Install OS-level dependencies (if any)
 RUN apt-get update && \
     apt-get install --no-install-recommends -y \
         build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-# ---------------------------
-#  Application Setup
-# ---------------------------
 WORKDIR /app
 
-# Copy requirement files first to leverage Docker layer caching
 COPY requirements.txt ./
 
-# Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip \
     && if [ -s requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
 
-# Copy service source code last (after dependencies)
 COPY . .
 
-# ---------------------------
-#  Entrypoint
-# ---------------------------
 CMD ["python", "main.py"]
-
-# ---------------------------
-#  Usage
-# ---------------------------
-#  1. Copy this file to your service directory and rename it to
-#     `Dockerfile.<service-name>` replacing <service-name> accordingly.
-#  2. Build the image:
-#       docker build -f Dockerfile.<service-name> -t <repo>/<service-name>:<tag> .
-#  3. Run the container:
-#       docker run --rm -p 8000:8000 <repo>/<service-name>:<tag> 

@@ -1,7 +1,5 @@
 """DIS-Bazinga – Ingestion Orchestrator.
 
-Implements the core ingestion flow specified in *NewsSentimentService.md*:
-
   • **RTN-FR-01b** – watermarking (retrieve last successful timestamp).
   • **RTN-FR-01a** – deduplication using ``article_hash``.
   • **RTN-FR-01**  – queue new, unique articles to Service Bus for
@@ -26,8 +24,6 @@ logger = logging.getLogger(__name__)
 
 
 class ProviderAdapter(Protocol):
-    """Minimal interface any provider adapter must implement."""
-
     source_name: str
 
     def fetch_articles(self, since: datetime | None) -> Iterable[RawNewsArticle]:
@@ -53,21 +49,7 @@ def run_ingestion_cycle(
     service_bus: ServiceBusClient | None = None,
     provider_adapter: ProviderAdapter | None = None,
 ) -> NoReturn:  # pragma: no cover
-    """Run a single ingestion cycle for the Bazinga provider.
-
-    Parameters
-    ----------
-    cosmos_client
-        Client implementing :class:`CosmosDBClient` used for watermarking
-        and deduplication. Defaults to an in-memory implementation.
-    service_bus
-        Queue client used to forward new articles for processing. Defaults
-        to an in-memory FIFO queue.
-    provider_adapter
-        Adapter responsible for fetching raw articles from Bazinga. A no-op
-        stub is provided by default so the service can start even before
-        live integration is completed.
-    """
+    """Run a single ingestion cycle for the Bazinga provider."""
 
     cosmos_client = cosmos_client or InMemoryCosmosDBClient()
     service_bus = service_bus or InMemoryServiceBusClient()

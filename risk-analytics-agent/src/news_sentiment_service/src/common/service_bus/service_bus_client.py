@@ -1,4 +1,3 @@
-"""Abstract and in-memory implementations of a minimal Service Bus client."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -7,7 +6,6 @@ from typing import Deque, List, Any
 
 
 class ServiceBusClient(ABC):
-    """Interface exposing only the operations required by our services."""
 
     @abstractmethod
     def send_message(self, message: Any) -> None:
@@ -24,9 +22,6 @@ class InMemoryServiceBusClient(ServiceBusClient):
     def __init__(self) -> None:
         self._queue: Deque[Any] = deque()
 
-    # ------------------------------------------------------------------
-    # Interface implementations
-    # ------------------------------------------------------------------
     def send_message(self, message: Any) -> None:  # noqa: D401
         self._queue.append(message)
 
@@ -38,6 +33,5 @@ class InMemoryServiceBusClient(ServiceBusClient):
             msgs.append(self._queue.popleft())
         return msgs
 
-    # Convenience for tests
     def clear(self) -> None:
-        self._queue.clear() 
+        self._queue.clear()

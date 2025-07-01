@@ -15,7 +15,6 @@ COV_HTML_DIR = ROOT / "coverage_html"
 
 
 def _run(cmd: list[str], desc: str) -> str:
-    """Execute *cmd* and return its stdout+stderr text."""
     result = subprocess.run(cmd, capture_output=True, text=True)
     header = f"\n{'='*80}\n{desc}\n{'='*80}\n"
     return header + result.stdout + result.stderr
