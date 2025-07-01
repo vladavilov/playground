@@ -255,81 +255,207 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **BR-05:** The `is_illiquid_flag` **shall** be set to `true` if the calculated `liquidity.composite_score` is less than -1.5. This threshold indicates that the instrument's liquidity is significantly below the average of its peer group. Otherwise, the flag **shall** be `false`.
 
 ### 4.4. Methodology: Option-Adjusted Spread (OAS) Calculation
-- **Purpose:** To calculate the spread over a benchmark yield curve that equates a bond's theoretical price (accounting for embedded call options) to its observed market price.
-- **Input Model:**
-- ***BOND DATA
-    - `cusip`: `9 symbols ISO standard cusip e.g 91282CJL6`
-    - `issue date`: `ISO date`
-    - `maturity date`: `ISO date`
-    - `coupon`: `float`
-    - `call_schedule`: `array` (from SecurityMaster, date:price)
-    - `day_count`: "30/360" 
-    - `frequency`:"Annual"
-    - clean price e.g market
-- ***CURVES AND RATES
-  - `treasury_curve_zero_rates`:`array`(term:1M,rate:0.06 till 10Y )    
-  - `sofr_swaption_vols`: `array`(option_tenor:1Y swap_tenor: 5Y volatility:0.2)
-- **Calculation Method:**
-    1.  This calculation is not performed for `instrument_type` = 'TFI_TREASURY'. If bond is treasury use  DiscountingBondEngine. Compute yiled to maturity or duration DV01
-    2. Setup evaluation date. Convert frequency to Quantlib period for example "Annual": ql.Annula->map(possible values:Annual,semiAnnual,Quaterly,Monthly)
-    3. Convert days count to Quantilib period ql.Thirty360() (possible values 30/360, Actual/360 Actual/365 Actual/Actual)
-    4. Build bond schedule using ql.Schedule(input issue_date, maturity_date,bond_frequrncy. Generation=Backward)
-    5. Build call schedule ql.CallabilitySchedule. Empty if not provided
-    6. Create callable bond Ql.CallableBond. Empty to handle non Callable bond. Should return Z Spread instead of OAS. input: settle_day. e.g 1,2,3. face value=100
-    7. Build discount curver from treasury zero curve->discount_curve
-      - discount_curve=ql.ZeroCurve(dates(evalDate+tenormap[k]),rates,day_count,calendar=ql.USCalendar())
-      - discount_curve_handle=ql.YieldTermStructureHandle(discount_curve)
+# Hull-White OAS Calculation API: Structured Development Guide
 
-    9. create mock swaption volatility surface for HW calibration
-      - input: today,discount_curve_handle, market_vols->getched from CME SOFR
-      - calendar=ql.UnitedStates()
-      - fixed_leg_frequency=ql.Annual
-      - fixed_leg_conversion=ql.Unadjusted
-      - day_coun=ql.Thrirty360
-      - Algo
-           - for expiry,tenor,vol in market_vols
-           - Convert peiods exerice=ql.period(expiry*12, ql.Months)
-           - swap_tenor=ql.period(tenor*12, ql.Months)
-           - Create QuoteHandle vol_handle=ql.QuoteHandle(ql.SimpleQuote(vol))           
-           - helper=ql.SwaptionHelper(exercise,swap_tenor,vol_handle,discount_curve_handle, fixed_leg_frequency, fixed_leg_conversion,day_count,discount_curve_handle)
-           - helper.append(helper)
-           - return helpers
-       - Define calibration objective
-           - params array sigma, alpha, helpers
-           - out summ of squared diffs between model and market vols
-           - use the term structure from the first helper model=ql.HModel(helpers[0].termStructure, alpha, sigma)
-           - for helper in helpers
-               - helper.setPricingEngine(ql.SwaptionHelpersEngine(model.64)
-               - model_vol=hw.impliedVolatility()
-               - extract market volatility helper.volatility.value()
-               - accumulate error error+=(modelvol-market_vol)^2
-          - return error
-      - run the optimization
-            - provide intial guess for alpha and sigma
-            - use Nelder-Mead
-            - retun res=minimize(calibation_objective->error,[0.03, 0.01] args=(helpers,) method=Nelder-Mead, maxiter=700)
-      - build calibrated model hw_model=ql.HW(helpers[0].termStructure(), alpha_clibrated,sigma_clibrated)
-    11. calculate_oas(bond,discount_curve_handle,hw_model,amrket_price)
-            - engine ql.treeCallableFixedRateBondEngine()
-            - oas=oas_bps/10000
-            - solver=ql.Brent()
-            - hw_withspread(ql.HW(spreaded_curve,hw_model.params[0],hw_model.params[1])
-            - oas_bps=solver.solve(price_diff,accuracy,0,-500,500)
-            - spreaded_curveql.ZeroSpreadTerm(dsicount_curve_handle,ql.QuateHandle(q)
-        
-    13. price callable bond
-      - hw_mode,face_value=100
-      - price engine TreeCallableFixedrate
-    14. Calculate oas ql.BondFunctions.oas(bond,discount_curve,market_price,ql.ActualActual(),ql.Compounded, qal.SemiAnnual)
-    15. If SOFR rates not available, we can manualy calibrate alpha=0.03 sigma=0.01 on treasury curve
-        -   The goal is to find the implied volatility that corresponds to the bond's duration at an at-the-money strike.
-        -   From the volatility surface, which is a matrix of tenor and strike, select the volatilities for the 'at-the-money' strike (e.g., strike = 100).
-        -   Using this list of volatilities keyed by tenor, perform a **linear interpolation** to find the volatility at the specific duration of the bond. This is identical to the benchmark yield interpolation logic in Section 4.6.
-    3.  A binomial interest rate lattice is constructed based on the instrument's appropriate benchmark yield curve and the interpolated `interest_rate_volatility` derived in the previous step. This lattice models the potential paths of future interest rates.
-    4.  The bond's cash flows are valued backwards through the lattice, from maturity to the present.
-    5.  At each node representing a call date, the model checks if the issuer's optimal action is to call the bond based on its `call_type` (e.g., if the bond's price is higher than its call price for an American call). The cash flow is adjusted accordingly.
-    6.  A numerical root-finding solver is used to find the `OAS` value. The `OAS` is the constant spread that, when added to all interest rates in the lattice, makes the calculated present value of the bond equal to its current `market_price`.
-- **Output:** A single float value, `oas_in_bps`.
+This document describes how to implement a REST API that performs Option-Adjusted Spread (OAS) calculation for callable bonds using the Hull-White model. It includes required data, sources, curve construction, model calibration, pricing engine details, and the specific QuantLib models used.
+
+---
+
+## 1. Required Input Data
+
+### 1.1 Bond Data (Client Input)
+
+- **ISIN / CUSIP / ID** (optional, for mapping)
+- **Issue Date** (YYYY-MM-DD)
+- **Maturity Date** (YYYY-MM-DD)
+- **Coupon Rate** (e.g., 0.05 for 5%)
+- **Face Value** (e.g., 100.0)
+- **Call Schedule**: List of call options
+  ```json
+  [
+    { "callDate": "2027-08-15", "callPrice": 101.0 },
+    { "callDate": "2028-08-15", "callPrice": 100.5 }
+  ]
+  ```
+- **Market Clean Price** (e.g., 102.5)
+
+### 1.2 Risk-Free Discount Curve (Treasury Only)
+
+- Use Treasury Yield Curve from FRED
+- Maturities: 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y
+- Source: [FRED API](https://fred.stlouisfed.org/)
+  - Example Series IDs:
+    - DGS1, DGS2, DGS3, DGS5, DGS7, DGS10, DGS20, DGS30
+
+### 1.3 Swaption Volatility Surface
+
+- Market swaption volatilities:
+  - Format: (expiry in years, tenor in years, volatility as decimal)
+  ```json
+  [
+    [1, 5, 0.012],
+    [2, 5, 0.013],
+    [3, 7, 0.014],
+    [5, 10, 0.015]
+  ]
+  ```
+- Source: CME, Bloomberg, TradeEconomics, or file upload
+
+---
+
+## 2. Curve Construction
+
+### Treasury Discount Curve
+
+1. **Fetch Treasury yields** from FRED API.
+2. **Convert yields to zero rates** by assuming they are continuously compounded.
+3. **Construct zero curve**:
+   - Use QuantLib `ZeroCurve(dates, rates, dayCount)`
+   - Use calendar `UnitedStates()`, convention `Actual365Fixed`
+   - Apply `YieldTermStructureHandle` for model and pricing
+4. **Example discount factor calculation**:
+   ```python
+   df = math.exp(-rate * year_fraction)
+   ```
+
+---
+
+## 3. Hull-White Model Calibration
+
+### 3.1 Objective
+
+Calibrate Hull-White model parameters:
+
+- **Alpha**: Mean reversion rate
+- **Sigma**: Volatility of short rate
+
+Goal: Find (alpha, sigma) such that model prices match market swaption volatilities.
+
+### 3.2 Helper Construction
+
+1. For each swaption (expiry, tenor, market vol):
+   - Convert to `QuantLib.Period`
+   - Wrap vol in `SimpleQuote`
+   - Construct `SwaptionHelper`:
+     ```python
+     SwaptionHelper(optionTenor, swapTenor, volHandle, curveHandle,
+                    Annual, Unadjusted, Thirty360(), curveHandle)
+     ```
+2. Fixed leg: Annual, 30/360, Unadjusted
+3. Floating leg: Ignored (not used in calibration)
+
+### 3.3 Optimization Logic
+
+1. **Objective function**: Sum of squared differences between model and market vols.
+   ```python
+   error = sum((helper.impliedVolatility() - helper.marketVol())**2 for helper in helpers)
+   ```
+2. **Pricing engine for helpers**: `HullWhiteSwaptionEngine`
+   - Used for pricing swaption helpers with the Hull-White model
+   - Syntax:
+     ```python
+     engine = HullWhiteSwaptionEngine(model, 64)
+     helper.setPricingEngine(engine)
+     ```
+3. **Optimizer**: Use `scipy.optimize.minimize` with `Nelder-Mead` method:
+   ```python
+   res = minimize(objective_fn, [0.03, 0.01], args=(helpers,), method='Nelder-Mead')
+   ```
+4. **Output**: Best-fit `alpha` and `sigma`
+
+---
+
+## 4. Callable Bond Pricing
+
+### 4.1 Schedule & Callability
+
+- Create bond schedule using QuantLib `Schedule`
+- Use business conventions and frequency from bond data
+- Add `CallabilitySchedule`:
+  - For each call date, define call price and type `Call`
+
+### 4.2 Tree Pricing Engine
+
+- **Pricing Engine Used**: `TreeCallableFixedRateBondEngine`
+  - Applies a trinomial tree to model callable bond pricing
+  - Inputs: calibrated `HullWhite` model, time steps
+  - Usage:
+    ```python
+    engine = TreeCallableFixedRateBondEngine(hwModel, timeSteps)
+    bond.setPricingEngine(engine)
+    ```
+
+---
+
+## 5. OAS Calculation
+
+### 5.1 Spread Search
+
+- Use `ZeroSpreadedTermStructure` to shift discount curve
+- Iterate on spread (OAS) until model price = market price
+- Solver: QuantLib `Brent`
+  - Root-finding solver for 1D scalar functions
+  - Finds spread where model price = observed price
+
+### 5.2 Result
+
+- Output OAS in basis points (bps)
+- Include final calibrated `alpha`, `sigma`
+
+---
+
+## 6. API Endpoint Design (Example)
+
+### Endpoint
+
+```
+POST /api/oas/calculate
+```
+
+### Request Body
+
+```json
+{
+  "issueDate": "2023-08-15",
+  "maturityDate": "2028-08-15",
+  "couponRate": 0.05,
+  "faceValue": 100.0,
+  "callSchedule": [
+    { "callDate": "2026-08-15", "callPrice": 101 },
+    { "callDate": "2027-08-15", "callPrice": 100.5 }
+  ],
+  "marketPrice": 102.5
+}
+```
+
+### Response
+
+```json
+{
+  "oas_bps": 57.32,
+  "alpha": 0.02874,
+  "sigma": 0.01033
+}
+```
+
+---
+
+## 7. Libraries & Dependencies
+
+- QuantLib-Python
+- Requests (FRED API)
+- SciPy (optimization)
+
+---
+
+## 8. Future Extensions
+
+- Support curve upload via CSV or JSON
+- Cache or precompute curves and vol surfaces
+- Return pricing diagnostics (duration, convexity, Greeks)
+- Add support for callable puts and sinkable bonds
+
+
 
 ### 4.5. Methodology: Trade History Aggregation
 - **Purpose:** To process the raw trade list from the `TradeHistory` input into structured summaries for multiple time horizons (1-day, 5-day, 20-day).
