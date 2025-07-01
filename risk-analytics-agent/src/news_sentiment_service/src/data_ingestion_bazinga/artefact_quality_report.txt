@@ -1,0 +1,169 @@
+
+================================================================================
+Black (formatting check)
+================================================================================
+--- C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\main.py	2025-07-01 21:19:09.403957+00:00
++++ C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\main.py	2025-07-01 21:24:14.572449+00:00
+@@ -38,11 +38,13 @@
+         logger.info("%s service completed successfully.", SERVICE_NAME)
+     except KeyboardInterrupt:  # pragma: no cover
+         logger.warning("%s interrupted by user.", SERVICE_NAME)
+         sys.exit(130)
+     except Exception as exc:  # pragma: no cover
+-        logger.exception("%s crashed due to an unhandled exception: %s", SERVICE_NAME, exc)
++        logger.exception(
++            "%s crashed due to an unhandled exception: %s", SERVICE_NAME, exc
++        )
+         sys.exit(1)
+ 
+ 
+ if __name__ == "__main__":  # pragma: no cover
+-    main() 
+\ No newline at end of file
++    main()
+--- C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\run_quality_checks.py	2025-07-01 21:23:22.110168+00:00
++++ C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\run_quality_checks.py	2025-07-01 21:24:14.581875+00:00
+@@ -5,10 +5,11 @@
+     python run_quality_checks.py
+ 
+ All human-readable outputs are written to *artefact_quality_report.txt* in the
+ same directory. An HTML coverage report is generated under *coverage_html/*.
+ """
++
+ from __future__ import annotations
+ 
+ import subprocess
+ from pathlib import Path
+ 
+@@ -25,29 +26,34 @@
+ 
+ 
+ def main() -> None:  # pragma: no cover
+     sections: list[str] = []
+ 
+-    sections.append(_run(["black", "--check", "--diff", str(ROOT)], "Black (formatting check)"))
++    sections.append(
++        _run(["black", "--check", "--diff", str(ROOT)], "Black (formatting check)")
++    )
+     sections.append(_run(["ruff", str(ROOT)], "Ruff (lint + static analysis)"))
+ 
+     # Ensure coverage directory exists / is clean
+     if COV_HTML_DIR.exists():
+         import shutil
+ 
+         shutil.rmtree(COV_HTML_DIR)
+ 
+     cov_cmd = [
+         "pytest",
+-        "--cov", "news_sentiment_service.src.data_ingestion_bazinga",
+-        "--cov-report", "term-missing",
+-        "--cov-report", f"html:{COV_HTML_DIR}",
++        "--cov",
++        "news_sentiment_service.src.data_ingestion_bazinga",
++        "--cov-report",
++        "term-missing",
++        "--cov-report",
++        f"html:{COV_HTML_DIR}",
+     ]
+     sections.append(_run(cov_cmd, "Pytest (unit tests + coverage)"))
+ 
+     ARTEFACT_FILE.write_text("".join(sections))
+     print(f"Quality report written to {ARTEFACT_FILE.relative_to(ROOT)}")
+     print(f"HTML coverage generated at {COV_HTML_DIR.relative_to(ROOT)}")
+ 
+ 
+ if __name__ == "__main__":
+-    main() 
+\ No newline at end of file
++    main()
+--- C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\orchestrator.py	2025-07-01 21:12:57.490568+00:00
++++ C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\orchestrator.py	2025-07-01 21:24:14.587999+00:00
+@@ -15,11 +15,14 @@
+ from datetime import datetime, timezone
+ from typing import Iterable, List, NoReturn, Protocol
+ 
+ from ..common.cosmos_db.cosmos_db_client import CosmosDBClient, InMemoryCosmosDBClient
+ from ..common.models import RawNewsArticle
+-from ..common.service_bus.service_bus_client import InMemoryServiceBusClient, ServiceBusClient
++from ..common.service_bus.service_bus_client import (
++    InMemoryServiceBusClient,
++    ServiceBusClient,
++)
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+ class ProviderAdapter(Protocol):
+@@ -35,14 +38,15 @@
+ 
+ 
+ class _NoOpBazingaAdapter:
+     source_name = "bazinga"
+ 
+-    def fetch_articles(self, since: datetime | None) -> Iterable[RawNewsArticle]:  # noqa: D401
++    def fetch_articles(
++        self, since: datetime | None
++    ) -> Iterable[RawNewsArticle]:  # noqa: D401
+         logger.debug("[BazingaAdapter] fetch_articles called with since=%s", since)
+         return []
+-
+ 
+ 
+ def run_ingestion_cycle(
+     *,
+     cosmos_client: CosmosDBClient | None = None,
+@@ -72,13 +76,14 @@
+     source_name = provider_adapter.source_name
+ 
+     last_ts = cosmos_client.get_last_ingested_timestamp(source_name)
+     logger.info("Last ingested timestamp for %s: %s", source_name, last_ts)
+ 
+-
+     raw_articles: List[RawNewsArticle] = list(provider_adapter.fetch_articles(last_ts))
+-    logger.info("Fetched %d raw article(s) from provider %s.", len(raw_articles), source_name)
++    logger.info(
++        "Fetched %d raw article(s) from provider %s.", len(raw_articles), source_name
++    )
+ 
+     new_count = 0
+     skipped_count = 0
+ 
+     for article in raw_articles:
+would reformat C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\main.py
+would reformat C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\run_quality_checks.py
+would reformat C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga\orchestrator.py
+
+Oh no! \U0001f4a5 \U0001f494 \U0001f4a5
+3 files would be reformatted.
+
+================================================================================
+Ruff (lint + static analysis)
+================================================================================
+orchestrator.py:15:32: F401 [*] `datetime.timezone` imported but unused
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+warning: `ruff <path>` is deprecated. Use `ruff check <path>` instead.
+
+================================================================================
+Pytest (unit tests + coverage)
+================================================================================
+============================= test session starts =============================
+platform win32 -- Python 3.11.1, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\Users\moldl\Desktop\hackathon\playground\risk-analytics-agent\src\news_sentiment_service\src\data_ingestion_bazinga
+plugins: anyio-3.7.1, Faker-4.1.0, asyncio-1.0.0, cov-5.0.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 0 items
+WARNING: Failed to generate report: No data to report.
+
+
+
+---------- coverage: platform win32, python 3.11.1-final-0 -----------
+
+============================ no tests ran in 0.04s ============================
+C:\Users\moldl\AppData\Local\Programs\Python\Python311\Lib\site-packages\coverage\inorout.py:503: CoverageWarning: Module news_sentiment_service.src.data_ingestion_bazinga was never imported. (module-not-imported)
+  self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
+C:\Users\moldl\AppData\Local\Programs\Python\Python311\Lib\site-packages\coverage\control.py:888: CoverageWarning: No data was collected. (no-data-collected)
+  self._warn("No data was collected.", slug="no-data-collected")
+C:\Users\moldl\AppData\Local\Programs\Python\Python311\Lib\site-packages\pytest_cov\plugin.py:352: CovReportWarning: Failed to generate report: No data to report.
+
+  warnings.warn(CovReportWarning(message), stacklevel=1)
