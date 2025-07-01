@@ -235,15 +235,21 @@
                                 <span>Strategy-Based Fair Value</span>
                                 <span id="fair-value-tooltip-icon" class="ml-1"></span>
                             </p>
-                            <div class="relative group mt-2 flex items-center space-x-4">
-                                <div>
-                                    <label for="suggested-price-input" class="text-xs text-slate-500">Price</label>
+                            <div class="relative group mt-2 flex items-start space-x-4">
+                                <div class="flex flex-col items-center">
+                                    <label for="suggested-price-input" class="text-xs text-slate-500 mb-1">Price</label>
                                     <input type="text" id="suggested-price-input" class="text-2xl font-mono font-bold text-green-400 bg-transparent border-b-2 border-slate-700 text-center w-36 focus:ring-0 focus:border-blue-500 focus:bg-slate-800 rounded-sm transition duration-200 ease-in-out">
+                                    <div id="price-calculation-breakdown" class="mt-1 text-xs text-slate-500 text-center h-4">
+                                        <!-- e.g., f(4.15%, 5.00%, 10Y) -->
+                                    </div>
                                 </div>
-                                <div class="text-slate-600 text-2xl font-light">↔</div>
-                                <div>
-                                    <label for="suggested-yield-input" class="text-xs text-slate-500">Yield (%)</label>
+                                <div class="text-slate-600 text-2xl font-light pt-6">↔</div>
+                                <div class="flex flex-col items-center">
+                                    <label for="suggested-yield-input" class="text-xs text-slate-500 mb-1">Yield to Worst (%)</label>
                                     <input type="text" id="suggested-yield-input" readonly class="text-2xl font-mono font-bold text-green-400 bg-transparent border-b-2 border-slate-700 text-center w-36 focus:ring-0">
+                                     <div id="yield-calculation-breakdown" class="mt-1 text-xs text-slate-500 text-center h-4">
+                                        <!-- e.g., 3.65% + 0.50% -->
+                                    </div>
                                 </div>
                             </div>
                             <p id="suggested-price-explanation" class="text-xs text-slate-400 mt-2 h-6 px-4"></p>
