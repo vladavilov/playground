@@ -8,15 +8,16 @@
 #### **Task 1.1:** Initialize Monorepo and Shared Scaffolding
 -   **User Story**: As a Developer, I want a standardized monorepo structure so that I can easily navigate between services and shared components.
 -   **Definition of Done**:
-    -   The top-level directory structure (`/src`, `/tests`, `/k8s`, `/docker`, `/config`, `/scripts`) is created.
+    -   The top-level directory structure (according to ai_docs\5_service_code_structure\NewsSentimentService_Structure.md) is created.
     -   A shared `src/common/models.py` file is created. It must contain the Pydantic models for `RawNewsArticle` and `EnrichedNewsEvent`, matching the schemas in Section 2.1 and 2.2 of the requirements document.
 
 #### **Task 1.2:** Implement Common Infrastructure Clients
 -   **User Story**: As a Developer, I need reusable clients for core services so that I can interact with Azure infrastructure consistently, with the ability to mock them for local development.
 -   **Definition of Done**:
-    -   An `src/infrastructure/` directory is created.
-    -   Inside, `cosmos_db_client.py` is implemented to provide an abstracted client with methods for fetching timestamps, checking `article_hash` existence, and inserting `EnrichedNewsEvent` documents.
-    -   `service_bus_client.py` is implemented to provide a client with methods to send and receive messages from the queue.
+    -   A `src/common/cosmos_db/` directory is created containing the abstracted client for Cosmos DB operations.
+    -   A `src/common/service_bus/` directory is created containing the abstracted client for Service Bus operations.
+    -   The CosmosDB client provides methods for fetching timestamps, checking `article_hash` existence, and inserting `EnrichedNewsEvent` documents.
+    -   The Service Bus client provides methods to send and receive messages from the queue.
     -   (Note: Initial implementation can use in-memory mocks or local containers, with cloud connectivity to be configured later).
 
 #### **Task 1.3:** Define Standard Service Boilerplate
@@ -30,19 +31,19 @@
 
 ---
 
-## **Epic 2: Data Ingestion Service (e.g., DIS-ProviderA)**
+## **Epic 2: Data Ingestion Service (e.g., DIS-Bazinga)**
 **Goal:** Develop the core logic for a provider-specific, cron-driven service that fetches news, deduplicates it, and queues it for analysis.
 
 #### **Task 2.1:** Initialize the DIS Project Boilerplate for a Provider
 -   **User Story**: As a Developer, I want to initialize the project structure for a specific Data Ingestion Service so that I can begin implementing its logic.
 -   **Definition of Done**:
-    -   A directory, e.g., `src/data_ingestion_providerA/`, is created and populated using the standard service boilerplate defined in **Task 1.3**.
+    -   A directory, e.g., `src/data_ingestion_bazinga/`, is created and populated using the standard service boilerplate defined in **Task 1.3**.
     -   An `orchestrator.py` file is created inside the service directory.
 
 #### **Task 2.2:** Develop the Ingestion Orchestration Logic for a Provider
 -   **User Story**: As a Data Engineer, I want the service to automatically fetch, filter, and queue new articles from a specific provider's adapter.
 -   **Definition of Done**:
-    -   The logic in `src/data_ingestion_providerA/orchestrator.py` implements watermarking by fetching the last run timestamp from Cosmos DB (**`RTN-FR-01b`**).
+    -   The logic in `src/data_ingestion_bazinga/orchestrator.py` implements watermarking by fetching the last run timestamp from Cosmos DB (**`RTN-FR-01b`**).
     -   It implements deduplication by checking the `article_hash` against Cosmos DB (**`RTN-FR-01a`**, **`HPS-FR-01a`**).
     -   New, unique articles are queued to Service Bus for processing (**`RTN-FR-01`**).
 
@@ -102,30 +103,9 @@
 ## **Epic 5: DevOps, Infrastructure & Deployment**
 **Goal:** Provision cloud infrastructure, configure Kubernetes deployments, and establish CI/CD pipelines.
 
-#### **Task 5.1:** Define Shared Infrastructure as Code (IaC) with Terraform
+#### **Task 5.1:** Define Shared Infrastructure as Code (IaC) with Azure ARM Templates
 -   **User Story**: As a DevOps Engineer, I want the core Azure infrastructure defined as code so I can provision and manage the environment reliably and repeatably.
 -   **Definition of Done**:
-    -   **Terraform** scripts are created in the `/scripts/iac/` directory.
-    -   The scripts must provision: an Azure Kubernetes Service (AKS) cluster, an Azure Cosmos DB instance, an Azure Service Bus, and an Azure Container Registry.
-    -   A `README.md` is included in the `iac` directory with explicit instructions on how to configure and apply the Terraform plan.
-
-#### **Task 5.2:** Create Kubernetes Configuration for a DIS instance
--   **User Story**: As a DevOps Engineer, I need the Kubernetes configuration to deploy a specific DIS instance as a scheduled job.
--   **Definition of Done**:
-    -   A Kubernetes manifest, e.g., `k8s/data-ingestion-providerA-cronjob.yml`, is created.
-    -   The manifest defines a `CronJob` resource that runs the correct DIS container on a configurable schedule.
-    -   The spec includes environment variable configuration for connecting to Azure services and the specific news source adapter.
-
-#### **Task 5.3:** Create Kubernetes Configuration for NPS
--   **User Story**: As a DevOps Engineer, I need the Kubernetes configuration for the NPS so I can deploy it as a scalable service.
--   **Definition of Done**:
-    -   A Kubernetes manifest `k8s/news-processor-deployment.yml` is created.
-    -   The manifest defines a `Deployment` and a `Service`.
-    -   It includes autoscaling rules (HPA) based on queue depth or CPU/memory.
-
-#### **Task 5.4:** Create Kubernetes Configuration for SSAS
--   **User Story**: As a DevOps Engineer, I need the Kubernetes configuration to deploy and expose the SSAS.
--   **Definition of Done**:
-    -   A Kubernetes manifest `k8s/sentiment-api-deployment.yml` is created.
-    -   The manifest defines a `Deployment`, a `Service`, and an `Ingress` resource.
-    -   A Horizontal Pod Autoscaler (HPA) resource is included to scale the deployment based on CPU utilization. 
+    -   **Azure ARM Templates** scripts are created in the `/scripts/iac/` directory.
+    -   The scripts must provision: an Azure Cosmos DB instance, an Azure Service Bus, and an Azure Container Registry.
+    -   A `README.md` is included in the `iac` directory with explicit instructions on how to configure and apply the Azure ARM Templates plan.
