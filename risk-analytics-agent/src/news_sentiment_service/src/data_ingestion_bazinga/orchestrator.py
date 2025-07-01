@@ -1,12 +1,3 @@
-"""DIS-Bazinga – Ingestion Orchestrator.
-
-  • **RTN-FR-01b** – watermarking (retrieve last successful timestamp).
-  • **RTN-FR-01a** – deduplication using ``article_hash``.
-  • **RTN-FR-01**  – queue new, unique articles to Service Bus for
-    downstream processing.
-
-"""
-
 from __future__ import annotations
 
 import logging

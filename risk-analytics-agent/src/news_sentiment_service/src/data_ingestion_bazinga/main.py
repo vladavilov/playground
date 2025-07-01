@@ -1,11 +1,3 @@
-"""DIS-Bazinga – Service Entrypoint
-
-Specification reference (NewsSentimentService.md):
-  • RTN-FR-01 – periodic ingestion trigger
-  • RTN-FR-01a – deduplication via article_hash
-  • RTN-FR-01b – watermarking by last-run timestamp
-"""
-
 import logging
 import sys
 from typing import NoReturn

@@ -1,4 +1,3 @@
-# Stage 1: Build the virtual environment
 FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -29,8 +28,8 @@ COPY --from=builder /opt/venv /opt/venv
 
 ENV PATH="/opt/venv/bin:$PATH"
 
-ENV API_PORT=8000
-ENV WORKERS=2
+ENV LOG_LEVEL=INFO
+ENV WORKER_TIMEOUT=300
 
 RUN groupadd --gid 1000 appuser && \
     useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
@@ -41,9 +40,4 @@ COPY --chown=appuser:appuser . .
 
 USER appuser
 
-EXPOSE $API_PORT
-
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:$API_PORT/health')" || exit 1
-
-CMD ["python", "main.py"]
+CMD ["python", "main.py"] 
