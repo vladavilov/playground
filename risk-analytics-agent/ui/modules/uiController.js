@@ -1,3 +1,6 @@
+// Helper to safely access nested properties
+const get = (p, o) => p.reduce((xs, x) => (xs && xs[x]) ? xs[x] : null, o);
+
 function createSubmissionAlert(message) {
     const alertContainer = document.getElementById('alert-container');
     const alertId = `alert-submit-${Date.now()}`;
@@ -122,6 +125,9 @@ function setupValuationIntelligence(data) {
     const valuationActionContainer = document.getElementById('valuation-action-buttons');
     const baseYieldDisplayEl = document.getElementById('base-yield-display');
 
+    const priceCalcBreakdownEl = document.getElementById('price-calculation-breakdown');
+    const yieldCalcBreakdownEl = document.getElementById('yield-calculation-breakdown');
+
     // --- Get Data & Baseline Values ---
     const { 
         calculated_risk_metrics: crm, 
@@ -138,6 +144,8 @@ function setupValuationIntelligence(data) {
     const baselineYield = parseFloat(crm.yield_to_worst) || 0; // YTW in percent
     const currentSpreadToMmd = parseFloat(rv.vs_mmd_bps) || 0;
     const durationForCalc = parseFloat(crm.effective_duration) || parseFloat(crm.modified_duration);
+    const coupon = parseFloat(sd.coupon) || 0;
+    const tenor = get(['security_details', 'tenor_years'], data) || (new Date(get(['security_details', 'maturity_date'], data)).getFullYear() - new Date().getFullYear());
     
     const benchmarkMmdYield = baselineYield - (currentSpreadToMmd / 100);
 
@@ -315,6 +323,14 @@ function setupValuationIntelligence(data) {
         suggestedPriceInput.value = finalPrice.toFixed(4);
         suggestedYieldInput.value = finalYield.toFixed(4);
 
+        if (yieldCalcBreakdownEl) {
+            yieldCalcBreakdownEl.innerHTML = `<span class="font-mono">${benchmarkMmdYield.toFixed(2)}% + ${finalSpread.toFixed(1)}bps</span>`;
+        }
+        if (priceCalcBreakdownEl) {
+            const tenorDisplay = !isNaN(tenor) ? `${tenor.toFixed(0)}Y` : 'N/A';
+            priceCalcBreakdownEl.innerHTML = `<span class="font-mono" title="f(Yield, Coupon, Tenor)">f(${finalYield.toFixed(2)}%, ${coupon.toFixed(2)}%, ${tenorDisplay})</span>`;
+        }
+
         updateButtonText(finalPrice);
         explanationEl.textContent = `Calculated from ${finalSpread.toFixed(1)} bps spread over benchmark.`;
         
@@ -390,25 +406,26 @@ function setupValuationIntelligence(data) {
         el.addEventListener('input', handleForecastInput);
     });
 
-    // Initial calculation
-    updateValuation();
-
     // Setup action buttons
     valuationActionContainer.innerHTML = ''; // Clear previous
     if(bwd) {
         const bidButton = document.createElement('button');
-        bidButton.className = 'btn-primary';
-        bidButton.onclick = () => handleAction('Bid', bwd.size, suggestedPriceInput.value);
+        bidButton.className = 'btn-primary bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded text-xs';
         valuationActionContainer.appendChild(bidButton);
-
+        
         const offerButton = document.createElement('button');
-        offerButton.className = 'btn-secondary';
+        offerButton.className = 'btn-secondary bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-xs';
+        valuationActionContainer.appendChild(offerButton);
+
+        bidButton.onclick = () => handleAction('Bid', bwd.size, suggestedPriceInput.value);
         offerButton.onclick = () => {
              const offerPrice = (parseFloat(suggestedPriceInput.value) * 1.0025).toFixed(3);
              handleAction('Offer', bwd.size, offerPrice);
         };
-        valuationActionContainer.appendChild(offerButton);
     }
+    
+    // Initial calculation
+    updateValuation();
     
     createTooltip('fair-value-tooltip-icon', 'This valuation is derived from a blend of forecast models. Adjust the mode to align the price with your trading goals.');
 }
@@ -478,9 +495,6 @@ export function createAlert(row, onRowClickCallback) {
 }
 
 function _populateDetailView(data) {
-    // Helper to safely access nested properties
-    const get = (p, o) => p.reduce((xs, x) => (xs && xs[x]) ? xs[x] : null, o);
-    
     // Header
     document.getElementById('detail-issuer-name').textContent = get(['security_details', 'issuer_name'], data);
     document.getElementById('detail-cusip').textContent = `CUSIP: ${get(['cusip'], data)}`;
