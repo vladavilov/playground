@@ -13,8 +13,6 @@ __all__ = [
 
 
 class RawNewsArticle(BaseModel):
-    """Input schema representing a raw news article prior to enrichment."""
-
     article_text: str = Field(..., description="Full text body of the news article.")
     source_name: str = Field(..., description="Name of the news source or publisher.")
     publication_time: datetime = Field(..., description="Original publication timestamp (UTC).")
@@ -26,12 +24,10 @@ class RawNewsArticle(BaseModel):
 
     class Config:
         anystr_strip_whitespace = True
-        frozen = True  # make it hashable & immutable once created
+        frozen = True
 
 
 class Entities(BaseModel):
-    """Nested model capturing entity extraction results."""
-
     issuer_name: Optional[str]
     sector: str
     state: Optional[str]
@@ -39,15 +35,11 @@ class Entities(BaseModel):
 
 
 class Sentiment(BaseModel):
-    """Nested model capturing sentiment analysis output."""
-
     score: float = Field(..., ge=-1.0, le=1.0, description="Sentiment polarity between -1 and 1.")
     magnitude: float = Field(..., ge=0.0, description="Sentiment magnitude (intensity).")
 
 
 class EnrichedNewsEvent(BaseModel):
-    """Output schema produced after processing a raw news article."""
-
     id: str = Field(default_factory=lambda: uuid4().hex)
     source: str
     published_at: datetime
@@ -59,7 +51,6 @@ class EnrichedNewsEvent(BaseModel):
     summary_excerpt: str
     raw_article_url: HttpUrl
 
-    # Validators / post-processing
     @validator("ingested_at")
     def _ingested_not_before_published(cls, v: datetime, values):  # noqa: N805
         published = values.get("published_at")
@@ -70,4 +61,4 @@ class EnrichedNewsEvent(BaseModel):
     class Config:
         anystr_strip_whitespace = True
         frozen = True
-        json_encoders = {datetime: lambda v: v.isoformat()} 
+        json_encoders = {datetime: lambda v: v.isoformat()}

@@ -1,7 +1,5 @@
 """Unit tests for DIS-Bazinga ingestion orchestration.
 
-These tests verify compliance with functional requirements:
-
   • RTN-FR-01b – watermark handling.
   • RTN-FR-01a – deduplication via ``article_hash``.
   • RTN-FR-01  – queuing of unique articles to Service Bus.
@@ -12,8 +10,6 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Iterable, Protocol
 
-import pytest
-
 from news_sentiment_service.src.common.cosmos_db.cosmos_db_client import (
     InMemoryCosmosDBClient,
 )
@@ -22,7 +18,6 @@ from news_sentiment_service.src.common.service_bus.service_bus_client import (
     InMemoryServiceBusClient,
 )
 from news_sentiment_service.src.data_ingestion_bazinga.orchestrator import (
-    ProviderAdapter,
     run_ingestion_cycle,
 )
 
@@ -35,8 +30,6 @@ class _StubProvider(Protocol):
 
 
 class StubBazingaAdapter:
-    """Synthetic provider adapter for tests."""
-
     source_name = "bazinga"
 
     def __init__(self, articles: Iterable[RawNewsArticle]):
@@ -113,4 +106,4 @@ def test_all_unique_articles_are_queued():
     msgs = bus.receive_messages(10)
     assert len(msgs) == 3
     hashes = {msg["article_hash"] for msg in msgs}
-    assert hashes == {a.article_hash for a in articles} 
+    assert hashes == {a.article_hash for a in articles}

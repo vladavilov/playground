@@ -1,9 +1,5 @@
 """DIS-Bazinga – Service Entrypoint
 
-This is the cron-driven micro-service responsible for fetching raw news
-articles from the *Bazinga* provider and queuing them for downstream
-processing.
-
 Specification reference (NewsSentimentService.md):
   • RTN-FR-01 – periodic ingestion trigger
   • RTN-FR-01a – deduplication via article_hash

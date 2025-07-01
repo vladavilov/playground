@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[4]  # project root (playground)
+root = Path(__file__).resolve().parents[4]
 service_src = root / "risk-analytics-agent" / "src"
 if str(service_src) not in sys.path:
     sys.path.insert(0, str(service_src))
@@ -108,4 +108,4 @@ def test_enriched_news_event_score_bounds(bad_score):
         raw_article_url="https://example.com",
     )
     with pytest.raises(Exception):
-        EnrichedNewsEvent(**kwargs) 
+        EnrichedNewsEvent(**kwargs)

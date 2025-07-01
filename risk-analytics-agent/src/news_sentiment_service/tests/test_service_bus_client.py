@@ -32,4 +32,4 @@ def test_fifo_order():
 def test_invalid_max_messages(max_messages):
     client = InMemoryServiceBusClient()
     with pytest.raises(ValueError):
-        client.receive_messages(max_messages=max_messages) 
+        client.receive_messages(max_messages=max_messages)
