@@ -205,42 +205,63 @@ function setupValuationIntelligence(data) {
     }
 
     /**
-     * Task 6: Creates the `Risk Premium Adjustment` by making the valuation model 
-     * aware of key risk factors from other UI panels.
+     * Creates a comprehensive risk score adjustment based on multiple factors.
+     * Higher return values indicate higher risk.
      * @param {object} data The full instrument data object.
-     * @returns {number} A basis point adjustment value.
+     * @returns {{adjustmentBps: number, breakdown: {name: string, value: string, impact: number}[]}} An object containing the total adjustment and a breakdown of contributing factors.
      */
     const calculateRiskPremiumAdjustment = (data) => {
         let adjustmentBps = 0;
+        const breakdown = [];
 
-        // 1. Market Regime Adjustment from `data.market_regime.contextual_regime`
-        // Example: 'Bear_Steepener' -> +2bps
-        if (data.market_regime && data.market_regime.contextual_regime) {
-            const regime = data.market_regime.contextual_regime;
-            if (regime === 'Bear_Steepener') {
-                adjustmentBps += 2;
-            }
+        // 1. Market Regime
+        const regime = get(['market_regime_context', 'contextual_regime', 'label'], data);
+        if (regime && (regime.includes('Bear') || regime.includes('Volatile'))) {
+            const impact = 2;
+            adjustmentBps += impact;
+            breakdown.push({ name: 'Market Regime', value: regime.replace(/_/g, ' '), impact });
         }
 
-        // 2. Liquidity Score Adjustment from `data.liquidity.composite_score`
-        // Example: score < 40 -> +3bps
-        if (data.liquidity && typeof data.liquidity.composite_score !== 'undefined') {
-            const score = data.liquidity.composite_score;
-            if (score < 40) {
-                adjustmentBps += 3;
-            }
+        // 2. Liquidity Score
+        const liquidityScore = parseFloat(get(['liquidity', 'composite_score'], data));
+        if (!isNaN(liquidityScore) && liquidityScore < 40) {
+            const impact = 3;
+            adjustmentBps += impact;
+            breakdown.push({ name: 'Liquidity Score', value: liquidityScore, impact });
         }
 
-        // 3. Idiosyncratic Risk from `data.forecasted_values['5-day'].probability_negative_news_pct`
-        // Example: probability > 15% -> +2bps
-        if (data.forecasted_values && data.forecasted_values['5-day'] && typeof data.forecasted_values['5-day'].probability_negative_news_pct !== 'undefined') {
-            const prob = data.forecasted_values['5-day'].probability_negative_news_pct;
-            if (prob > 15) {
-                adjustmentBps += 2;
-            }
+        // 3. Concentrated Ownership
+        if (get(['ownership', 'is_concentrated_flag'], data) === true) {
+            const impact = 4;
+            adjustmentBps += impact;
+            breakdown.push({ name: 'Concentrated Ownership', value: 'Yes', impact });
         }
 
-        return adjustmentBps;
+        // 4. Idiosyncratic Risk (Negative News)
+        const negNewsProb = parseFloat(get(['forecasted_values', '5-day', 'probability_negative_news_pct'], data));
+        if (!isNaN(negNewsProb) && negNewsProb > 15) {
+            const impact = 3;
+            adjustmentBps += impact;
+            breakdown.push({ name: 'Neg. News Probability', value: `${negNewsProb.toFixed(1)}%`, impact });
+        }
+        
+        // 5. Downside Volatility Risk
+        const downsideVol = parseFloat(get(['forecasted_values', '5-day', 'downside_price_volatility', 'value'], data));
+        if (!isNaN(downsideVol) && downsideVol > 1.5) { // Assuming 1.5% is a high threshold
+             const impact = 2;
+            adjustmentBps += impact;
+            breakdown.push({ name: '5D Downside Vol', value: `${downsideVol.toFixed(2)}%`, impact });
+        }
+        
+        // 6. State Fiscal Health Risk
+        const budgetDeficit = parseFloat(get(['state_fiscal_health', 'budget_surplus_deficit_pct_gsp'], data));
+        if (!isNaN(budgetDeficit) && budgetDeficit < -0.5) { // Deficit > 0.5% of GSP
+            const impact = 1;
+            adjustmentBps += impact;
+            breakdown.push({ name: 'State Budget Deficit', value: `${budgetDeficit.toFixed(2)}%`, impact });
+        }
+
+        return { adjustmentBps, breakdown };
     };
 
     const updatePriceFromYield = (newYield) => {
@@ -428,9 +449,37 @@ function setupValuationIntelligence(data) {
     updateValuation();
     
     createTooltip('fair-value-tooltip-icon', 'This valuation is derived from a blend of forecast models. Adjust the mode to align the price with your trading goals.');
+    
+    const riskPremiumResult = calculateRiskPremiumAdjustment(data);
+    const riskPremiumBps = riskPremiumResult.adjustmentBps;
+
+    // Create a new element for the risk premium if it doesn't exist.
+    let riskPremiumContainer = document.getElementById('risk-premium-container');
+    if (!riskPremiumContainer) {
+        riskPremiumContainer = document.createElement('div');
+        riskPremiumContainer.id = 'risk-premium-container';
+        riskPremiumContainer.className = 'mt-3 text-xs text-slate-400 bg-slate-900/50 border-l-2 border-red-500/50 p-2 rounded-r-md';
+        // Insert it after the rationale
+        const rationaleEl = document.getElementById('strategy-rationale');
+        if (rationaleEl) {
+            rationaleEl.parentNode.insertBefore(riskPremiumContainer, rationaleEl.nextSibling);
+        }
+    }
+
+    if (riskPremiumBps > 0) {
+        const breakdownHtml = riskPremiumResult.breakdown.map(item => `<li>${item.name} (${item.value}): <span class="font-mono text-red-400">+${item.impact}bps</span></li>`).join('');
+        riskPremiumContainer.innerHTML = `
+            <div class="font-semibold text-red-400">Risk Premium Adjustment: +${riskPremiumBps} bps</div>
+            <ul class="list-disc list-inside mt-1">${breakdownHtml}</ul>
+        `;
+        riskPremiumContainer.classList.remove('hidden');
+    } else {
+        riskPremiumContainer.innerHTML = '';
+        riskPremiumContainer.classList.add('hidden');
+    }
 }
 
-export function createAlert(row, onRowClickCallback) {
+export function createHighConvictionAlert(row, onRowClickCallback) {
     const alertContainer = document.getElementById('alert-container');
     const alertId = `alert-${row.cusip}`;
 
@@ -440,7 +489,7 @@ export function createAlert(row, onRowClickCallback) {
     const drivers = row.forecast_explainability?.['forecasted_ytw_change_1d_bps']?.feature_attributions
         ?.filter(a => parseFloat(a.attribution) < 0) // Show positive drivers (negative attribution means tightening)
         .slice(0, 3)
-        .map(d => `<li class="text-xs">${d.feature}: <span class="font-semibold font-mono">${d.attribution}</span></li>`)
+        .map(d => `<li class="text-xs">${d.feature}: <span class="font-bold font-mono">${d.attribution}</span></li>`)
         .join('') || '<li>No drivers available</li>';
 
     const alertEl = document.createElement('div');
@@ -639,7 +688,7 @@ export function initUIManager(onRowClickCallback) {
             detailView.classList.remove('hidden');
             mainView.classList.add('hidden');
         },
-        createAlert: (row) => createAlert(row, onRowClickCallback),
+        createHighConvictionAlert: (row) => createHighConvictionAlert(row, onRowClickCallback),
         showTab,
     };
 }

@@ -54,8 +54,10 @@
                 <!-- Screened Items View (hidden by default) -->
                 <div id="screened-view" class="tab-pane hidden">
                     <p class="text-xs text-slate-300 mb-2 bg-yellow-900/50 border-l-2 border-yellow-500 text-yellow-300 p-2 rounded-md">
-                        Showing items hidden from the main grid. A "High Risk" item is defined as meeting any of the following:
-                        <span class="font-mono block mt-1">Illiquid Flag = true <b>OR</b> Neg. News Prob &gt; 15% <b>OR</b> Concentrated Own. = true <b>OR</b> 1D OAS Widening &gt; 5bps</span>
+                        Showing items hidden from the main grid. A "High Risk" item has a composite <strong>Risk Score > 4</strong>. The score is calculated from factors including:
+                        <span class="font-mono block mt-1 text-slate-200">
+                           Low Liquidity, Concentrated Ownership, High Neg. News Prob, High Downside Volatility, Bearish Regime, State Budget Deficit, and Rich Valuation.
+                        </span>
                     </p>
                     <div id="screened-grid" class="ag-theme-quartz-dark" style="width: 100%;"></div>
                 </div>
