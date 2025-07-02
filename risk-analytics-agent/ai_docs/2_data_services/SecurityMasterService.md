@@ -4,7 +4,7 @@
 
 The Security Info Service is responsible for retrieving and serving static reference data about fixed-income instruments from the Caesar Oracle Database.
 
-- Retrieve historical reference data from 2018 to present.
+- Retrieve historical reference data.
 - Store records in a local PostgreSQL database and export to CSV format.
 - Provide daily incremental updates for newly added or modified data.
 - Serve on-demand SecurityMaster data through a RESTful API by CUSIP.
@@ -29,20 +29,22 @@ The Security Info Service is responsible for retrieving and serving static refer
 
 ### 3.1 SecurityMaster Table
 
+Main source of truth is the table `common_summary` where `instr_id_type = 'C'`
+
 | Column Name        | Data Type | Description | Source | CSV Export |
 |--------------------|-----------|-----------------------------------------------------------------------------|--------|------------|
-| cusip              | TEXT (PK) | Unique identifier for the security | TBD | YES |
+| cusip              | TEXT (PK) | Unique identifier for the security | instr_id | YES |
 | instrument_type    | TEXT      | Classification: 'MUNI', 'TFI_CORPORATE', 'TFI_TREASURY', 'TFI_AGENCY' | TBD | YES |
-| issuer_name        | TEXT      | Name of the issuing entity | TBD | YES |
-| coupon_rate        | REAL      | Annual coupon rate | TBD | YES |
-| maturity_date      | DATE      | Date the instrument matures | TBD | YES |
-| payment_frequency  | INTEGER   | Number of coupon payments per year | TBD | YES |
+| issuer_name        | TEXT      | Name of the issuing entity | q_isr_name | YES |
+| coupon_rate        | REAL      | Annual coupon rate | qs_coupon_rate | YES |
+| maturity_date      | DATE      | Date the instrument matures | qs_matur_date | YES |
+| payment_frequency  | INTEGER   | Number of coupon payments per year | in_int_pay_freq_std_period - TODO | YES |
 | face_value         | REAL      | Face/par value of the instrument | TBD | YES |
-| sector             | TEXT      | For MUNI: 'GENERAL_OBLIGATION', 'REVENUE_TRANSPORTATION', etc. | TBD | YES |
+| sector             | TEXT      | For MUNI: 'GENERAL_OBLIGATION', 'REVENUE_TRANSPORTATION', etc. | pt_purpose_subclass_desc | YES |
 | rating             | TEXT      | Credit rating (e.g., Moody’s, S&P) | TBD | YES |
-| state              | TEXT      | U.S. state of issuance (only for MUNI) | TBD | YES |
+| state              | TEXT      | U.S. state of issuance (only for MUNI) | qs_isr_state_code | YES |
 | tax_status         | TEXT      | Tax treatment: 'TAX_EXEMPT_FEDERAL', 'TAXABLE', 'AMT', etc. | TBD | YES |
-| bank_qualified     | BOOL      | "Bank qualified" under the Tax Equity and Fiscal Responsibility Act of 1982 | TBD | YES |
+| bank_qualified     | BOOL      | "Bank qualified" under the Tax Equity and Fiscal Responsibility Act of 1982 | ta_bank_qualif_stat = 'Y' | YES |
 | debt_service_coverage_ratio    | REAL| Issuer's DSCR | TBD | YES |
 | is_dsr_covenant_breached       | BOOL| The issuer has breached a Debt Service Coverage ratio covenant | TBD | YES |
 | load_date          | DATE      | Date when the record was loaded into the local DB | TBD | NO |
