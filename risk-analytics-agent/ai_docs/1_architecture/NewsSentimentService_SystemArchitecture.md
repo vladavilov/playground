@@ -19,8 +19,9 @@
     - [4.4 Storage Layer Design](#44-storage-layer-design)
     - [4.5 News Sentiment Score Service (NSSS)](#45-news-sentiment-score-service-nsss)
 5. [Data Flow and Processing](#5-data-flow-and-processing)
-    - [5.1 Request Processing Sequence](#51-request-processing-sequence)
-    - [5.2 Article State Machine](#52-article-state-machine)
+    - [5.1 Ingestion Data Flow](#51-ingestion-data-flow)
+    - [5.2 API Request Processing Sequence](#52-api-request-processing-sequence)
+    - [5.3 Article State Machine](#53-article-state-machine)
 6. [Scalability and Performance](#6-scalability-and-performance)
     - [6.1 Horizontal Scaling Strategy](#61-horizontal-scaling-strategy)
     - [6.2 Performance Requirements](#62-performance-requirements)
@@ -350,11 +351,15 @@ The Data Ingestion Service is a cron-based job that orchestrates the collection 
 
 > **Requirements Reference**: This service is responsible for fetching news articles, fulfilling requirements for both real-time and historical processing (`RTN-FR-01`, `HPS-FR-01`).
 
+#### Architectural Approach: Orchestration over Choreography
+A key design decision is the use of a central **Orchestrator Service** rather than a "choreographed" approach where each adapter acts independently. While a choreographed model is viable, orchestration was chosen to centralize complex, cross-cutting concerns, which dramatically simplifies the adapters. The primary goal is to keep adapters "dumb"—responsible only for fetching data from a specific source and converting it to the common `RawNewsArticle` model. The orchestrator handles the entire business workflow of ingestion.
+
 #### Core Responsibilities
-- **Timestamp Management**: For each news source, the service retrieves the timestamp of the last successfully processed article from Cosmos DB. It then requests only articles published after this timestamp from the corresponding adapter.
-- **Deduplication**: The service uses the `article_hash` provided by the adapter to prevent processing duplicate articles. It checks for the existence of the hash in a dedicated, TTL-based Cosmos DB collection. If the hash exists, the article is discarded.
-- **Batching & Queuing**: It collects articles from all sources and places them onto an Azure Service Bus queue for asynchronous processing by the News Processor Service.
-- **Locking**: To support horizontal scaling, a distributed lock (e.g., via a lease on a blob in Azure Storage) will be used to ensure only one instance of the ingestion job runs at a time for a specific news source.
+- **Timestamp Management**: For each news source, the service retrieves the timestamp of the last successfully processed article from Cosmos DB. It then requests only articles published after this timestamp from the corresponding adapter. This centralizes all state management.
+- **Deduplication**: The service uses the `article_hash` provided by the adapter to prevent processing duplicate articles that may be syndicated across multiple news sources. It checks for the existence of the hash in a dedicated, TTL-based Cosmos DB collection. If the hash exists, the article is discarded before any expensive processing occurs.
+- **Batching & Queuing**: It collects articles from all sources and places them onto an Azure Service Bus queue for asynchronous processing by the News Processor Service. This decouples ingestion from processing, creating a resilient buffer that smooths out system load. Bus queue is used instead of REST call to support realtime news ingestion in future.
+- **Centralized Control & Monitoring**: The orchestrator provides a single point of control for scheduling, executing, and monitoring the entire ingestion workflow, which is simpler to manage than multiple independent adapter schedules.
+- **Locking**: To support horizontal scaling, a distributed lock (e.g., via a lease on a blob in Azure Storage) will be used to ensure only one instance of the ingestion job runs at a time for a specific news source. This complex logic is handled once in the orchestrator, not in every adapter.
 
 
 ### 4.3 News Processor Service (NPS)
@@ -540,7 +545,30 @@ The core aggregation logic uses a weighted formula to calculate the final sentim
 
 ## 5. Data Flow and Processing
 
-### 5.1 Request Processing Sequence
+### 5.1 Ingestion Data Flow
+The following sequence diagram illustrates the orchestrated data ingestion workflow. The Orchestrator Service periodically polls each configured adapter, collects the articles, and queues them for the News Processor Service to handle asynchronously.
+
+```mermaid
+sequenceDiagram
+    participant OS as Orchestrator Service
+    participant BA as Bazinga Adapter
+    participant SB as Azure Service Bus
+    participant NPS as News Processor Service
+
+    loop Every 5 Minutes
+        OS->>BA: GET /articles?since=...
+        BA-->>OS: Returns raw articles
+    end
+
+    Note over OS: Consolidates & deduplicates articles
+
+    OS->>SB: Enqueue articles for processing
+    SB-->>NPS: Delivers articles
+    
+    Note over NPS: Processes articles & saves to DB
+```
+
+### 5.2 API Request Processing Sequence
 
 ```mermaid
 sequenceDiagram
@@ -563,7 +591,7 @@ sequenceDiagram
     OS-->>RA: Complete risk analysis
 ```
 
-### 5.2 Article State Machine
+### 5.3 Article State Machine
 
 ```mermaid
 stateDiagram-v2
