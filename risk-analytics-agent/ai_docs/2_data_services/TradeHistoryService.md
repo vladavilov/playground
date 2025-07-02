@@ -101,12 +101,8 @@ trade_history.csv
 **Example**:
 ```http
 Request:
-POST /update?proivdeReport=true
+POST /update?proivdeReport=true&input_date=2023-01-05
 Content-Type: application/json
-
-{
-  "input_date": "2023-01-05"
-}
 Response:
 trade_history.csv
 ```
