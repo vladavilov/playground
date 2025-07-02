@@ -5,26 +5,28 @@
 ## Table of Contents
 1. [Executive Summary](#1-executive-summary)
 2. [High-Level Architecture Overview](#2-high-level-architecture-overview)
-    - [System Components Overview](#21-system-components-overview)
-    - [Technology Stack](#22-technology-stack)
+    - [2.1 System Components Overview](#21-system-components-overview)
+    - [2.2 Technology Stack](#22-technology-stack)
 3. [C4 Architecture Diagrams](#3-c4-architecture-diagrams)
-    - [Level 1: System Context](#31-level-1-system-context)
-    - [Level 2: Container Diagram](#32-level-2-container-diagram)
+    - [3.1 Level 1: System Context](#31-level-1-system-context)
+    - [3.2 Level 2: Container Diagram](#32-level-2-container-diagram)
+    - [3.3 Infrastructure, Configuration, and Secrets Management](#33-infrastructure-configuration-and-secrets-management)
+    - [3.4 Local Development Strategy](#34-local-development-strategy)
 4. [Detailed Component Design](#4-detailed-component-design)
-    - [News Source Adapter Services](#41-news-source-adapter-services)
-    - [Data Ingestion Service (DIS)](#42-data-ingestion-service-dis)
-    - [News Processor Service (NPS)](#43-news-processor-service-nps)
-    - [Storage Layer Design](#44-storage-layer-design)
-    - [News Sentiment Score Service (NSSS)](#45-news-sentiment-score-service-nsss)
+    - [4.1 News Source Adapter Services](#41-news-source-adapter-services)
+    - [4.2 Data Ingestion Service (DIS)](#42-data-ingestion-service-dis)
+    - [4.3 News Processor Service (NPS)](#43-news-processor-service-nps)
+    - [4.4 Storage Layer Design](#44-storage-layer-design)
+    - [4.5 News Sentiment Score Service (NSSS)](#45-news-sentiment-score-service-nsss)
 5. [Data Flow and Processing](#5-data-flow-and-processing)
-    - [Request Processing Sequence](#51-request-processing-sequence)
-    - [Article State Machine](#52-article-state-machine)
+    - [5.1 Request Processing Sequence](#51-request-processing-sequence)
+    - [5.2 Article State Machine](#52-article-state-machine)
 6. [Scalability and Performance](#6-scalability-and-performance)
-    - [Horizontal Scaling Strategy](#61-horizontal-scaling-strategy)
-    - [Performance Requirements](#62-performance-requirements)
+    - [6.1 Horizontal Scaling Strategy](#61-horizontal-scaling-strategy)
+    - [6.2 Performance Requirements](#62-performance-requirements)
 7. [Disaster Recovery](#7-disaster-recovery)
-    - [Backup Strategy](#backup-strategy)
-    - [Recovery Procedures](#recovery-procedures)
+    - [7.1 Backup Strategy](#71-backup-strategy)
+    - [7.2 Recovery Procedures](#72-recovery-procedures)
 8. [Future Enhancements](#8-future-enhancements)
 
 ---
@@ -99,6 +101,10 @@ graph TB
 - Database: Azure Cosmos DB
 - Container Orchestration: Azure Kubernetes Service (AKS)
 - AI Service: Azure OpenAI Service (for GPT-4.1)
+- Infrastructure as Code: Bicep
+- Configuration Management: Azure App Configuration
+- Secrets Management: Azure Key Vault
+- Identity & Access Management: Azure Managed Identity
 - Monitoring: Azure Monitor, Application Insights
 - API Gateway: Azure API Management
 
@@ -160,6 +166,15 @@ graph TB
       31["<div style='font-weight: bold'>Azure Service Bus</div><div style='font-size: 70%; margin-top: 0px'>[Container: Message Queue]</div><div style='font-size: 80%; margin-top:10px'>Message queue for async<br />processing</div>"]
       style 31 fill:#438dd5,stroke:#2e6295,color:#ffffff
     end
+    
+    subgraph 32 ["Shared Infrastructure"]
+        style 32 fill:#ffffff,stroke:#9a9a9a,color:#9a9a9a
+        
+        33["<div style='font-weight: bold'>Azure App Configuration</div><div style='font-size: 70%; margin-top: 0px'>[Container: Azure Service]</div><div style='font-size: 80%; margin-top:10px'>Centralized, managed<br/>configuration</div>"]
+        style 33 fill:#f5a623,stroke:#b77c1b,color:#ffffff
+        34["<div style='font-weight: bold'>Azure Key Vault</div><div style='font-size: 70%; margin-top: 0px'>[Container: Azure Service]</div><div style='font-size: 80%; margin-top:10px'>Secure secret storage</div>"]
+        style 34 fill:#f5a623,stroke:#b77c1b,color:#ffffff
+    end
 
     1-. "<div>Provides news articles</div><div style='font-size: 70%'></div>" .->13
     18-. "<div>Sends articles for analysis</div><div style='font-size: 70%'></div>" .->4
@@ -168,8 +183,143 @@ graph TB
     31-. "<div>Delivers articles</div><div style='font-size: 70%'></div>" .->18
     18-. "<div>Stores enriched events</div><div style='font-size: 70%'></div>" .->24
     26-. "<div>Queries enriched events</div><div style='font-size: 70%'></div>" .->24
+    
+    13-. "<div>Reads config & secrets via<br/>Managed Identity</div><div style='font-size: 70%'></div>" .->33
+    18-. "<div>Reads config & secrets via<br/>Managed Identity</div><div style='font-size: 70%'></div>" .->33
+    26-. "<div>Reads config & secrets via<br/>Managed Identity</div><div style='font-size: 70%'></div>" .->33
+    33-. "<div>Reads secrets</div><div style='font-size: 70%'></div>" .->34
   end
 ```
+
+### 3.3 Infrastructure, Configuration, and Secrets Management
+
+To ensure a robust, secure, and repeatable deployment, the system will adopt a modern Infrastructure as Code (IaC) and configuration management strategy. This will be standardized across all services within the `risk-analytics-agent` project.
+
+#### 3.3.1 Infrastructure as Code with Bicep
+
+All Azure resources (AKS, Cosmos DB, Service Bus, etc.) will be defined and managed using **Bicep**. This provides a declarative, concise, and version-controlled definition of the entire infrastructure. The Bicep files will be stored in a shared `infrastructure` repository to promote reuse and consistency.
+
+#### 3.3.2 Centralized Configuration and Secrets
+
+The system will use the recommended Azure pattern of combining Azure App Configuration and Azure Key Vault, secured by Managed Identities.
+
+- **Azure App Configuration**: This will serve as the central store for all non-sensitive configuration data. This includes service URLs, scaling parameters, feature flags, and environment-specific settings. A labeling convention (e.g., `dev`, `prod`) will be used to manage different environments.
+- **Azure Key Vault**: This is used exclusively for storing secrets, such as database connection strings, API keys (for OpenAI), and other credentials. **No secrets will be stored in application code, configuration files, or source control.**
+- **Azure Managed Identity**: Each service running in AKS will be assigned its own Managed Identity. This identity provides a secure, passwordless mechanism to authenticate to other Azure services. The services' Managed Identities will be granted specific permissions to read from App Configuration and to access *only the necessary secrets* from Key Vault. App Configuration will store references to Key Vault secrets, not the secrets themselves.
+
+This approach provides a clear separation of concerns, enhances security by eliminating credential management in code, and allows for dynamic configuration updates without redeploying the services.
+
+### 3.4 Local Development Strategy
+
+To enable efficient development and debugging of multiple interacting microservices, the project will adopt a "hybrid-local environment" strategy. This approach involves running only the services under active development locally in Docker containers, while connecting to a shared, dedicated `dev` environment in Azure for backing services like configuration, databases, and message queues.
+
+This strategy provides high fidelity to the production environment while maintaining a simple and fast workflow for developers.
+
+#### 3.4.1 Tooling: Docker Compose
+
+The local environment will be orchestrated using **Docker Compose**. A `docker-compose.yml` file, committed to the root of the repository, will define the local container cluster. This ensures that all developers work with an identical and consistent setup.
+
+**Conceptual `docker-compose.yml`:**
+```yaml
+# docker-compose.yml - Defines the local multi-service environment
+
+version: '3.8'
+
+services:
+  sentiment-api:
+    build:
+      context: ./src/sentiment_api # Path to the service's Dockerfile
+    ports:
+      - "8001:8000" # Expose on http://localhost:8001
+    environment:
+      # Connects to the DEV configuration store in Azure
+      - AZURE_APPCONFIG_ENDPOINT=https://appconfig-risk-analytics-dev.azconfig.io
+
+  news-processor:
+    build:
+      context: ./src/news_processor
+    environment:
+      # Connects to the same DEV configuration store
+      - AZURE_APPCONFIG_ENDPOINT=https://appconfig-risk-analytics-dev.azconfig.io
+      # Overrides the cloud URL with the local Docker Compose DNS name for peer services
+      - SENTIMENT_API_URL=http://sentiment-api:8000
+```
+
+#### 3.4.2 Authentication: The `DefaultAzureCredential` Flow
+
+Local authentication to Azure services will be managed seamlessly by the **Azure Identity SDK**.
+
+1.  **Developer Action**: The developer runs `az login` in their terminal once.
+2.  **Code Implementation**: The application code uses `DefaultAzureCredential()`.
+3.  **Seamless Operation**:
+    *   **Locally**, `DefaultAzureCredential` automatically detects the developer's credentials from the Azure CLI.
+    *   **In AKS**, the *exact same code* automatically uses the pod's assigned Managed Identity.
+
+This eliminates the need for any secret-handling or complex authentication logic in the application code itself.
+
+#### 3.4.3 Configuration Override Pattern
+
+To enable local services to communicate with each other, the system uses a configuration override pattern.
+
+1.  **Base Truth (Azure)**: Azure App Configuration stores the URLs for service-to-service communication in the cloud (e.g., internal Kubernetes DNS names).
+2.  **Local Override (Environment Variable)**: The `docker-compose.yml` file injects environment variables that override these URLs with the local Docker Compose network addresses (e.g., `http://sentiment-api:8000`).
+3.  **Application Logic**: The application code is written to prioritize an environment variable override if it exists, otherwise falling back to the value fetched from App Configuration.
+
+**Conceptual Python Code for URL Resolution:**
+```python
+# In a service, when it needs to call a peer service:
+
+# 1. Fetch all config from Azure App Configuration first
+config_from_azure = load_all_settings_from_app_config()
+
+# 2. Get the base URL from the fetched config (e.g., "http://sentiment-api.dev.cluster.local")
+peer_service_url = config_from_azure.get("SentimentApi:Url")
+
+# 3. Explicitly check for a local override from an environment variable
+local_override_url = os.environ.get("SENTIMENT_API_URL")
+if local_override_url:
+    # If the override exists, use it. This will be "http://sentiment-api:8000" when run via Docker Compose.
+    peer_service_url = local_override_url
+
+# 4. Use the final, correct URL for the request
+# result = requests.get(f"{peer_service_url}/some/endpoint")
+```
+
+#### 3.4.4 Hybrid Environment Architecture
+
+The following diagram illustrates the data flow for the local development environment.
+
+```mermaid
+graph TD
+    subgraph "Developer's Laptop"
+        direction LR
+        subgraph "Docker Compose Environment"
+            A["Sentiment API (Container)<br/>Port: 8001"]
+            B["News Processor (Container)"]
+        end
+        C["IDE (VS Code)"]
+        D["Azure CLI<br/>(Logged in as Dev)"]
+    end
+
+    subgraph "Azure dev Environment"
+        direction TB
+        E["App Configuration<br/>(dev instance)"]
+        F["Key Vault<br/>(dev instance)"]
+        G["Cosmos DB<br/>(dev instance)"]
+    end
+
+    B -- "[localhost][port 8001]/sentiment-api" --> A
+    A -- "Auth via Azure CLI Token<br/>Reads config & secrets" --> E
+    B -- "Auth via Azure CLI Token<br/>Reads config & secrets" --> E
+    E -- "Resolves Secret URI" --> F
+    A -- "Connects using resolved secret" --> G
+    B -- "Connects using resolved secret" --> G
+
+    style A fill:#438dd5,stroke:#2e6295,color:#ffffff
+    style B fill:#438dd5,stroke:#2e6295,color:#ffffff
+```
+
+This setup provides a simple and powerful developer workflow: run `docker-compose up` to build and start the local cluster, which then connects securely and automatically to the shared `dev` backend.
 
 ---
 
