@@ -308,7 +308,7 @@ graph TD
         G["Cosmos DB<br/>(dev instance)"]
     end
 
-    B -- "http://sentiment-api:8000" --> A
+    B -- "localhost:8000/sentiment-api" --> A
     A -- "Auth via Azure CLI Token<br/>Reads config & secrets" --> E
     B -- "Auth via Azure CLI Token<br/>Reads config & secrets" --> E
     E -- "Resolves Secret URI" --> F
