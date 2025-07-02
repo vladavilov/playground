@@ -38,16 +38,28 @@ Main source of truth is the table `common_summary` where `instr_id_type = 'C'`
 | issuer_name        | TEXT      | Name of the issuing entity | q_isr_name | YES |
 | coupon_rate        | REAL      | Annual coupon rate | qs_coupon_rate | YES |
 | maturity_date      | DATE      | Date the instrument matures | qs_matur_date | YES |
-| payment_frequency  | INTEGER   | Number of coupon payments per year | in_int_pay_freq_std_period - TODO | YES |
+| payment_frequency  | INTEGER   | Number of coupon payments per year | JOIN interest_pay_freq_types | YES |
 | face_value         | REAL      | Face/par value of the instrument | TBD | YES |
 | sector             | TEXT      | For MUNI: 'GENERAL_OBLIGATION', 'REVENUE_TRANSPORTATION', etc. | pt_purpose_subclass_desc | YES |
 | rating             | TEXT      | Credit rating (e.g., Moody’s, S&P) | TBD | YES |
 | state              | TEXT      | U.S. state of issuance (only for MUNI) | qs_isr_state_code | YES |
 | tax_status         | TEXT      | Tax treatment: 'TAX_EXEMPT_FEDERAL', 'TAXABLE', 'AMT', etc. | TBD | YES |
+| de_minimis_issue         | BOOLEAN      | Indicates if the bond is subject to the de minims tax rule | TBD | YES |
 | bank_qualified     | BOOL      | "Bank qualified" under the Tax Equity and Fiscal Responsibility Act of 1982 | ta_bank_qualif_stat = 'Y' | YES |
 | debt_service_coverage_ratio    | REAL| Issuer's DSCR | TBD | YES |
 | is_dsr_covenant_breached       | BOOL| The issuer has breached a Debt Service Coverage ratio covenant | TBD | YES |
-| load_date          | DATE      | Date when the record was loaded into the local DB | TBD | NO |
+| load_date          | DATE      | Date when the record was loaded into the local DB | Derived | NO |
+
+```sql
+-- payment_frequency
+SELECT
+  ipft.freq_per_year as payment_frequency
+FROM
+  common_summary
+LEFT JOIN interest_pay_freq_types AS ipft
+  ON ipft.int_freq_code = common_summary.in_int_pay_freq_std_period
+
+```
 
 ### 3.2 CallSchedule Table
 
