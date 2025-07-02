@@ -1,0 +1,43 @@
+FROM python:3.14-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.14-slim AS final
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+ENV API_PORT=8000 \
+    WORKERS=2
+
+WORKDIR /app
+
+COPY src/ ./src/
+COPY config/ ./config/
+
+EXPOSE $API_PORT
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD python - <<'PY'
+import os, sys, requests, contextlib
+url = f"http://localhost:{os.getenv('API_PORT', 8000)}/health"
+with contextlib.suppress(Exception):
+    if requests.get(url, timeout=5).status_code == 200:
+        sys.exit(0)
+sys.exit(1)
+PY
+
+CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port $API_PORT --workers $WORKERS"]
