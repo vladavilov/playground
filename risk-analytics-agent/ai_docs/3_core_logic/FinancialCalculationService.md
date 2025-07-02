@@ -275,7 +275,10 @@ The choice of benchmark is critical and determined by the instrument's type and 
 
 ### 4.5. Formula: Liquidity Score Calculation
 - **Purpose:** To generate a single, normalized score representing an instrument's market liquidity.
-- **Formula:** `Score = 0.4 * (Bid/Ask Spread Score) + 0.4 * (Composite Volume Score) + 0.2 * (Composite Dealer Count Score)`
+- **Formula:**
+  $$
+  \text{Score} = (0.4 \times \text{Bid/Ask Spread Score}) + (0.4 \times \text{Composite Volume Score}) + (0.2 \times \text{Composite Dealer Count Score})
+  $$
 - **Component Logic:**
     - All "sector average" metrics (for spread, volume, dealer count) **shall** be calculated by taking the average of that metric across all bonds in the peer group identified in Section 4.4.
     - **Bid/Ask Spread Score:** The instrument's current bid/ask spread (in bps) is normalized against its sector average (z-score). This is a point-in-time metric.
@@ -283,12 +286,18 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - `Score_1d` = z-score of `t1d.total_par_volume` vs. sector average 1-day volume.
         - `Score_5d` = z-score of `t5d.total_par_volume` vs. sector average 5-day volume.
         - `Score_20d` = z-score of `t20d.total_par_volume` vs. sector average 20-day volume.
-        - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
+        - **Final Score:**
+          $$
+          \text{Composite Volume Score} = (0.2 \times \text{Score}_{1d}) + (0.5 \times \text{Score}_{5d}) + (0.3 \times \text{Score}_{20d})
+          $$
     - **Composite Dealer Count Score:** This is a weighted average of normalized scores from multiple time horizons.
         - `Score_1d` = z-score of `t1d.unique_dealer_count` vs. sector average 1-day dealer count.
         - `Score_5d` = z-score of `t5d.unique_dealer_count` vs. sector average 5-day dealer count.
         - `Score_20d` = z-score of `t20d.unique_dealer_count` vs. sector average 20-day dealer count.
-        - **Final Score = (0.2 * Score_1d) + (0.5 * Score_5d) + (0.3 * Score_20d)**
+        - **Final Score:**
+          $$
+          \text{Composite Dealer Count Score} = (0.2 \times \text{Score}_{1d}) + (0.5 \times \text{Score}_{5d}) + (0.3 \times \text{Score}_{20d})
+          $$
 - **Output:** A single float value representing the composite liquidity score.
 
 #### 4.5.1. Business Rule: Illiquidity Flag
@@ -329,7 +338,8 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - `customer_sell_par_volume`: Sum of `par_volume` for trades where `counterparty_type` is 'CUSTOMER_SELL'.
         - `high_trade_price`: The maximum `price` from all trades in the filtered list.
         - `low_trade_price`: The minimum `price` from all trades in the filtered list.
-        - `trade_price_volatility`: Calculated as `(high_trade_price - low_trade_price) / low_trade_price`.
+        - `trade_price_volatility`: Calculated as:
+          $$ \text{Trade Price Volatility} = \frac{\text{High Trade Price} - \text{Low Trade Price}}{\text{Low Trade Price}} $$
 
 ### 4.8. Methodology: Benchmark Yield Interpolation
 - **Purpose:** To determine the precise benchmark yield for a bond's specific duration when that duration falls between the standard tenors of the benchmark curve.
@@ -338,7 +348,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
     1. Identify the bond's duration (`modified_duration` or `effective_duration`, whichever is calculated).
     2. From the appropriate benchmark curve (`UST` or `MMD`), find the two consecutive tenors (`T_lower`, `T_upper`) that bracket the bond's duration. Let their corresponding yields be `Y_lower` and `Y_upper`.
     3. Calculate the interpolated yield using the following formula:
-       `Interpolated_Yield = Y_lower + ((Bond_Duration - T_lower) * (Y_upper - Y_lower)) / (T_upper - T_lower)`
+       $$ \text{Interpolated Yield} = Y_{\text{lower}} + \left( \frac{\text{Bond Duration} - T_{\text{lower}}}{T_{\text{upper}} - T_{\text{lower}}} \right) \times (Y_{\text{upper}} - Y_{\text{lower}}) $$
 - **Edge Case Handling:**
     - If the bond's duration is less than the shortest tenor on the benchmark curve, the system **shall** use the yield of the shortest tenor.
     - If the bond's duration is greater than the longest tenor on the benchmark curve, the system **shall** use the yield of the longest tenor.
@@ -350,11 +360,13 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - **Yield Curve Slope (10Y-2Y):**
         - **Input:** `ust_benchmark_curve` (from `GeneralMarketData`)
         - **Logic:** Retrieve the 10-year yield (`Yield_10Y`) and the 2-year yield (`Yield_2Y`) from the curve.
-        - **Formula:** `yield_curve_slope_10y2y = Yield_10Y - Yield_2Y`
+        - **Formula:**
+          $$ \text{Yield Curve Slope (10Y-2Y)} = \text{Yield}_{10Y} - \text{Yield}_{2Y} $$
     - **MMD/UST Ratio (10Y):**
         - **Inputs:** `ust_benchmark_curve`, `mmd_benchmark_curve` (from `GeneralMarketData`)
         - **Logic:** Retrieve the 10-year MMD yield (`MMD_Yield_10Y`) and the 10-year Treasury yield (`UST_Yield_10Y`).
-        - **Formula:** `mmd_ust_ratio_10y = MMD_Yield_10Y / UST_Yield_10Y`
+        - **Formula:**
+          $$ \text{MMD/UST Ratio (10Y)} = \frac{\text{MMD Yield}_{10Y}}{\text{UST Yield}_{10Y}} $$
     - **MUNI Fund Flows:**
         - **Input:** `GeneralMarketData.muni_fund_flows_net`
         - **Logic:** This value is passed through directly. If the input is not available or the instrument is not a MUNI, this field shall be null.
@@ -373,9 +385,9 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **Algorithm:**
   1.  **Derive Daily Price Series:** Following rule **BR-19**, process the `TradeHistory` input to generate a time-series of daily closing prices for the `lookback_window + 1` trading days ending on `calculation_date`. Let this series be `P`.
   2.  **Calculate Log Returns:** Create a new series, `R`, of `lookback_window` daily logarithmic returns:
-      `R_t = ln(P_t / P_{t-1})`.
+      $$ R_t = \ln\left(\frac{P_t}{P_{t-1}}\right) $$
   3.  **Calculate Downside Volatility (Semi-Deviation):** The semi-deviation is calculated as the square root of the semi-variance. The semi-variance is the average of the squared deviations of returns that are below a target (in this case, zero).
-      \[ \sigma_{downside} = \sqrt{\frac{1}{N-1} \sum_{r_i \in R, r_i < 0}^{} (r_i)^2} \]
+      $$ \sigma_{\text{downside}} = \sqrt{\frac{1}{N-1} \sum_{r_i \in R, r_i < 0} (r_i)^2} $$
       Where:
       - `N` is the `lookback_window` size (the total number of returns in the period).
       - `r_i` are the individual log returns in the series `R`. The summation is only over returns less than zero.
@@ -422,7 +434,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - For `instrument_type` = 'MUNI', the ticker **shall** be **MUB**.
     - For `instrument_type` in ('TFI_TREASURY', 'TFI_AGENCY'), the ticker **shall** be **GOVT**.
 - **Formula (Pearson Correlation):**
-    \\[ \\rho(R_{bond}, R_{bench}) = \\frac{\\text{Cov}(R_{bond}, R_{bench})}{\\sigma_{R_{bond}} \\cdot \\sigma_{R_{bench}}} \\]
+    $$ \rho(R_{\text{bond}}, R_{\text{bench}}) = \frac{\text{Cov}(R_{\text{bond}}, R_{\text{bench}})}{\sigma_{R_{\text{bond}}} \cdot \sigma_{R_{\text{bench}}}} $$
 
 ### 4.13. Methodology: Duration Calculation
 - **Purpose:** To calculate the interest rate sensitivity of the bond. Two types of duration are calculated based on whether the bond has embedded options. The duration calculation must be performed after YTM/YTW calculation but before calculations that depend on duration (OAS, CS01, Benchmark Yield Interpolation).
@@ -433,7 +445,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
 #### 4.13.1. Modified Duration
 - **Applicability:** Option-free bonds.
 - **Formula:**
-  \[ \text{Modified Duration} = \frac{\sum_{t=1}^{N} \frac{t \cdot C_t}{(1+y)^t} + \frac{N \cdot FV}{(1+y)^N}}{\text{Market\_Price} \cdot (1+y)} \]
+  $$ \text{Modified Duration} = \frac{1}{\text{Market Price} \times (1 + y)} \left[ \sum_{t=1}^{N} \frac{t \cdot C_t}{(1+y)^t} + \frac{N \cdot \text{FV}}{(1+y)^N} \right] $$
   Where:
   - `y` = Yield to Maturity (YTM) / payment_frequency
   - `C_t` = Coupon payment at period t
@@ -444,20 +456,23 @@ The choice of benchmark is critical and determined by the instrument's type and 
 #### 4.13.2. Effective Duration
 - **Applicability:** Bonds with embedded options (e.g., callable bonds).
 - **Formula:**
-  \[ \text{Effective Duration} = \frac{P(\Delta y^-) - P(\Delta y^+)}{2 \cdot P_0 \cdot \Delta y} \]
+  $$ \text{Effective Duration} = \frac{P(-\Delta y) - P(+\Delta y)}{2 \times P_0 \times \Delta y} $$
   Where:
   - `P_0` = The initial market price of the bond.
   - `\Delta y` = A small change in yield (e.g., 10 basis points or 0.001).
-  - `P(\Delta y^-)` = The bond's theoretical price if yields decrease by `\Delta y`.
-  - `P(\Delta y^+)` = The bond's theoretical price if yields increase by `\Delta y`.
-- **Calculation Logic:** The prices `P(\Delta y^-)` and `P(\Delta y^+)` **shall** be calculated using the same binomial interest rate lattice model described in Section 4.6 (OAS Calculation). The model must account for the bond's call features to correctly price the bond under different interest rate scenarios.
+  - `P(-\Delta y)` = The bond's theoretical price if yields decrease by `\Delta y`.
+  - `P(+\Delta y)` = The bond's theoretical price if yields increase by `\Delta y`.
+- **Calculation Logic:** The prices `P(-\Delta y)` and `P(+\Delta y)` **shall** be calculated using the same binomial interest rate lattice model described in Section 4.6 (OAS Calculation). The model must account for the bond's call features to correctly price the bond under different interest rate scenarios.
 
 ## 5. Functional Requirements: Feature Calculation
 - **FR-04:** The system **shall** calculate the instrument's **Price** as the mid-point of Bid/Ask, or the last traded price if bid/ask is unavailable.
-  - **Formula:** `Price = (Bid_Price + Ask_Price) / 2`. If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
+  - **Formula:**
+    $$ \text{Price} = \frac{\text{Bid Price} + \text{Ask Price}}{2} $$
+    If `Bid_Price` or `Ask_Price` is unavailable, `Price = Last_Trade_Price`.
 
 - **FR-05:** The system **shall** calculate **Yield to Maturity (YTM)** as the internal rate of return (IRR) solving for the yield given the current price and all cash flows to maturity.
-  - **Formula:** Solve for `y` in the equation: `Market_Price = Σ [C_t / (1 + y/f)^(t)] + [Face_Value / (1 + y/f)^(N)]`
+  - **Formula:** Solve for `y` in the equation:
+    $$ \text{Market Price} = \sum_{t=1}^{N} \frac{C_t}{(1 + y/f)^{t}} + \frac{\text{Face Value}}{(1 + y/f)^{N}} $$
     - `C_t`: Coupon payment at time `t`
     - `y`: Yield to Maturity (annualized)
     - `f`: Payment frequency per year
@@ -465,16 +480,20 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - `t`: Period when cash flow is received
 
 - **FR-06:** The system **shall** calculate **Yield to Call (YTC)** as the IRR solving for yield to each specific call date and call price.
-  - **Formula:** For each call date in the `call_schedule`, solve for `y_c` in the equation: `Market_Price = Σ [C_t / (1 + y_c/f)^(t)] + [Call_Price / (1 + y_c/f)^(N_c)]`
+  - **Formula:** For each call date in the `call_schedule`, solve for `y_c` in the equation:
+    $$ \text{Market Price} = \sum_{t=1}^{N_c} \frac{C_t}{(1 + y_c/f)^{t}} + \frac{\text{Call Price}}{(1 + y_c/f)^{N_c}} $$
     - `y_c`: Yield to Call (annualized)
     - `N_c`: Total number of periods to the call date
     - `Call_Price`: The price at which the bond can be called
 
 - **FR-07:** The system **shall** calculate **Yield to Worst (YTW)** as the minimum of the calculated YTM and all calculated YTCs.
-  - **Formula:** `YTW = min(YTM, YTC_1, YTC_2, ..., YTC_n)`
+  - **Formula:**
+    $$ \text{YTW} = \min(\text{YTM}, \text{YTC}_1, \text{YTC}_2, \dots, \text{YTC}_n) $$
 
 - **FR-08:** The system **shall** calculate **DV01** as the price change of the bond given a one basis point (0.01%) decrease in yield.
-  - **Formula:** `DV01 = |Price(y - 0.0001) - Price(y)|`, where `y` is the bond's current **Yield to Worst (YTW)**.
+  - **Formula:**
+    $$ \text{DV01} = |\text{Price}(y - 0.0001) - \text{Price}(y)| $$
+    where `y` is the bond's current **Yield to Worst (YTW)**.
 
 - **FR-09:** The system **shall** calculate **CS01** as the price change of the bond given a one basis point (0.01%) increase in its relevant credit spread.
   - **Formula Logic:** CS01 measures price sensitivity to credit spread changes. Its calculation requires re-pricing the bond after widening the spread by 1 basis point. The methodology varies by `instrument_type`.
@@ -488,25 +507,32 @@ The choice of benchmark is critical and determined by the instrument's type and 
         - **b. Calculate Implied Credit Spread:** `Initial_Spread = YTW - Interpolated_Benchmark_Yield`.
         - **c. Calculate New Discount Rate:** `New_Discount_Rate = Interpolated_Benchmark_Yield + Initial_Spread + 0.0001`.
     3.  **Calculate Price_New:** Calculate a new theoretical price for the bond by discounting all of its cash flows using the appropriate `New_Discount_Rate`.
-    4.  **Calculate CS01:** The CS01 value is the absolute difference between the bond's current market price and the new theoretical price. `CS01 = |Market_Price - Price_New|`.
+    4.  **Calculate CS01:** The CS01 value is the absolute difference between the bond's current market price and the new theoretical price.
+        $$ \text{CS01} = |\text{Market Price} - \text{Price}_{\text{New}}| $$
 
 - **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.6.
 
 - **FR-11:** The system **shall** calculate **Relative Value** against the appropriate benchmark (MMD or UST) by subtracting the benchmark yield at the same duration from the bond's YTW.
-  - **Formula:** `Relative_Value_bps = (YTW - Interpolated_Benchmark_Yield) * 10000`. The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.8.
+  - **Formula:**
+    $$ \text{Relative Value (bps)} = (\text{YTW} - \text{Interpolated Benchmark Yield}) \times 10000 $$
+    The benchmark yield is interpolated to match the bond's duration as per the methodology in Section 4.8.
 
 - **FR-12:** The system **shall** calculate **Relative Value** against the identified peer group by subtracting the average OAS of the peer group from the bond's OAS.
-  - **Formula:** `Relative_Value_vs_Peers_bps = option_adjusted_spread_bps - AVG(peer_OAS_1, ..., peer_OAS_n)`
+  - **Formula:**
+    $$ \text{Relative Value vs Peers (bps)} = \text{OAS}_{\text{bond}} - \text{AVG}(\text{OAS}_{\text{peer}_1}, \dots, \text{OAS}_{\text{peer}_n}) $$
 
 - **FR-12a:** For `instrument_type` = 'TFI_CORPORATE', the system **shall** calculate **Relative Value vs. Sector** by calculating the issuer's spread over its interpolated sector curve.
-  - **Formula:** `vs_sector_bps = (YTW - Interpolated_Benchmark_Yield - Interpolated_Sector_Spread) * 10000`. The sector spread is interpolated from the `sector_credit_spread_curve` at the bond's duration. This field shall be null for non-corporate instruments.
+  - **Formula:**
+    $$ \text{vs\_sector\_bps} = (\text{YTW} - \text{Interpolated Benchmark Yield} - \text{Interpolated Sector Spread}) \times 10000 $$
+    The sector spread is interpolated from the `sector_credit_spread_curve` at the bond's duration. This field shall be null for non-corporate instruments.
 
 - **FR-13:** The system **shall** calculate a composite **Liquidity Score** based on the formula in Section 4.5.
 
 - **FR-14:** The system **shall** produce a **Trade History Summary** by aggregating raw trade data as per the methodology in Section 4.7.
 
 - **FR-15:** The system **shall** calculate the **Bid/Ask Spread in BPS**.
-  - **Formula:** `bid_ask_spread_bps = (ask_price - bid_price) / ((ask_price + bid_price) / 2) * 10000`
+  - **Formula:**
+    $$ \text{Bid-Ask Spread (bps)} = \frac{\text{Ask Price} - \text{Bid Price}}{\frac{\text{Ask Price} + \text{Bid Price}}{2}} \times 10000 $$
 
 - **FR-16:** The system **shall** calculate **Market Context** indicators as per the methodology in Section 4.9.
 
