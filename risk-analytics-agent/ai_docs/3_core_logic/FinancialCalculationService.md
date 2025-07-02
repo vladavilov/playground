@@ -41,32 +41,38 @@ Static reference data for a specific instrument.
     - `call_price`: `float`
     - `call_type`: `string` - The exercise type. Must be one of: 'AMERICAN', 'EUROPEAN', 'BERMUDAN', 'NO_CALL'.
 
-#### 3.1.2. MarketData Model
-Real-time market data for a specific instrument and for broader market context.
+#### 3.1.2. InstrumentMarketData Model
+Real-time, instrument-specific market data.
 - `last_trade_price`: `float`
 - `bid_price`: `float`
 - `ask_price`: `float`
 - `bid_size`: `float` - The total par value available at the current best bid price.
 - `ask_size`: `float` - The total par value available at the current best ask price.
-- `duration`: `float` - The instrument's effective duration, provided as an input.
+- `duration`: `float` - The instrument's effective duration, provided as a separate input from a pricing source.
+
+#### 3.1.3. GeneralMarketData Model
+General market data, sourced from the `MarketDataFeed` service. This object contains broad market indicators.
 - `ust_benchmark_curve`: `object` - U.S. Treasury yields, keyed by tenor. Used as the primary benchmark for instrument types 'TFI_CORPORATE', 'TFI_AGENCY', and for 'MUNI' where `tax_status` is 'TAXABLE'.
 - `mmd_benchmark_curve`: `object` - MMD yields for munis, keyed by tenor. Used as the primary benchmark for 'MUNI' where `tax_status` is any value other than 'TAXABLE'.
-- `sector_credit_spread_curve`: `object` - A curve of credit spreads for various sectors/industries, used for more specific relative value in TFI.
+- `sector_credit_spread_curve`: `object` - A curve of credit spreads for various sectors/industries, used for more specific relative value and CS01 calculations in TFI.
 - `interest_rate_volatility_surface`: `object` - A matrix of implied volatilities for different tenors and strikes, used for options modeling.
+- `investment_grade_credit_spread`: `float` - The spread of a broad investment-grade corporate bond index.
+- `high_yield_credit_spread`: `float` - The spread of a broad high-yield corporate bond index.
 - `muni_fund_flows_net`: `float` - (for `instrument_type` = 'MUNI' only) Net weekly flows into MUNI funds.
+- `OtherIndicators`: The model should also be able to ingest other indicators from the `MarketDataFeed` (e.g., `vix_index`, `move_index`) for potential future use or context, even if they are not used in the current set of calculations.
 
-#### 3.1.3. Additional Input Services
+#### 3.1.4. Additional Input Services
 The `FinancialCalculationService` shall also ingest the full output objects from the following internal data services for a given CUSIP and `as_of_date`:
+- **`MarketDataFeed`**: Provides the `GeneralMarketData` object containing broad market indicators.
 - **`OwnershipDataService`**: Provides holder concentration metrics.
 - **`RepoDataService`**: Provides instrument-specific financing rates.
-- **`MarketDataFeed`**: Provides broad market indicators required for context.
 
-#### 3.1.4. StateFiscalFeed Model
+#### 3.1.5. StateFiscalFeed Model
 - `state_level_fiscal_indicators`: `object` - (for `instrument_type` = 'MUNI' only) Populated only for municipal securities. This object **shall** be retrieved from the `StateFiscalFeed` service for the relevant U.S. state.
     - `state_tax_receipts_yoy_growth`: `float` - Year-over-year growth in tax receipts for the relevant state.
     - `state_budget_surplus_deficit_as_pct_of_gsp`: `float` - The state's budget surplus or deficit as a percentage of Gross State Product.
 
-#### 3.1.5. TradeHistory Model
+#### 3.1.6. TradeHistory Model
 A list of individual trade records for a specific instrument over a 25-calendar-day look-back period preceding the calculation date to ensure sufficient data for 20-trading-day calculations.
 - `trades`: `array` - An array of trade objects, where each object contains:
     - `trade_datetime`: `datetime`
@@ -185,6 +191,7 @@ This section defines the final, consolidated JSON object produced by the data pr
   "relative_value": {
     "vs_mmd_bps": "float",
     "vs_ust_bps": "float",
+    "vs_sector_bps": "float",
     "vs_peers_bps": "float",
     "peer_group_size": "integer",
     "peer_group_cusips": "array"
@@ -227,7 +234,7 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **BR-04:** The system **shall** enrich the final `FinancialDataObject` by directly mapping values or performing calculations based on input from data services.
   - The `ownership` object **shall** be populated by performing the concentration calculation defined in Section 4.3 on the raw data from the `OwnershipDataService`.
   - The `financing.cost_of_carry_bps` **shall** be populated from the output of the `RepoDataService`.
-  - The `market_context` fields `investment_grade_credit_spread` and `high_yield_credit_spread` **shall** be populated directly from the `MarketDataFeed` input.
+  - The `market_context` fields `investment_grade_credit_spread`, `high_yield_credit_spread`, and `muni_fund_flows_net` **shall** be populated directly from the `GeneralMarketData` input object.
 
 ### 4.3. Methodology: Ownership Concentration Calculation
 - **Purpose (Trader View):** To identify hidden liquidity risk. If a small number of entities hold a large percentage of the issue, a decision by a single holder to sell can disproportionately impact the price.
@@ -293,14 +300,14 @@ The choice of benchmark is critical and determined by the instrument's type and 
     - `market_price`: `float`
     - `cash_flows`: `array` (derived from SecurityMaster)
     - `call_schedule`: `array` (from SecurityMaster, including `call_type`)
-    - `benchmark_yield_curve`: `object` (from MarketData - the appropriate UST or MMD curve as per rule BR-01/BR-02)
-    - `interest_rate_volatility_surface`: `object` (from MarketData)
+    - `benchmark_yield_curve`: `object` (from the `GeneralMarketData` model - the appropriate UST or MMD curve as per rule BR-01/BR-02)
+    - `interest_rate_volatility_surface`: `object` (from the `GeneralMarketData` model)
 - **Calculation Method:**
     1.  This calculation is not performed for `instrument_type` = 'TFI_TREASURY'.
     2.  An `interest_rate_volatility` float **shall** be derived from the input `interest_rate_volatility_surface`. The logic is as follows:
         -   The goal is to find the implied volatility that corresponds to the bond's duration at an at-the-money strike.
         -   From the volatility surface, which is a matrix of tenor and strike, select the volatilities for the 'at-the-money' strike (e.g., strike = 100).
-        -   Using this list of volatilities keyed by tenor, perform a **linear interpolation** to find the volatility at the specific duration of the bond. This is identical to the benchmark yield interpolation logic in Section 4.6.
+        -   Using this list of volatilities keyed by tenor, perform a **linear interpolation** to find the volatility at the specific duration of the bond. This is identical to the benchmark yield interpolation logic in Section 4.8.
     3.  A binomial interest rate lattice is constructed based on the instrument's appropriate benchmark yield curve and the interpolated `interest_rate_volatility` derived in the previous step. This lattice models the potential paths of future interest rates.
     4.  The bond's cash flows are valued backwards through the lattice, from maturity to the present.
     5.  At each node representing a call date, the model checks if the issuer's optimal action is to call the bond based on its `call_type` (e.g., if the bond's price is higher than its call price for an American call). The cash flow is adjusted accordingly.
@@ -341,17 +348,17 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **Purpose:** To calculate broad market indicators using the benchmark curves available to the engine.
 - **Calculations:**
     - **Yield Curve Slope (10Y-2Y):**
-        - **Input:** `ust_benchmark_curve`
+        - **Input:** `ust_benchmark_curve` (from `GeneralMarketData`)
         - **Logic:** Retrieve the 10-year yield (`Yield_10Y`) and the 2-year yield (`Yield_2Y`) from the curve.
         - **Formula:** `yield_curve_slope_10y2y = Yield_10Y - Yield_2Y`
     - **MMD/UST Ratio (10Y):**
-        - **Inputs:** `ust_benchmark_curve`, `mmd_benchmark_curve`
+        - **Inputs:** `ust_benchmark_curve`, `mmd_benchmark_curve` (from `GeneralMarketData`)
         - **Logic:** Retrieve the 10-year MMD yield (`MMD_Yield_10Y`) and the 10-year Treasury yield (`UST_Yield_10Y`).
         - **Formula:** `mmd_ust_ratio_10y = MMD_Yield_10Y / UST_Yield_10Y`
     - **MUNI Fund Flows:**
-        - **Input:** `MarketData.muni_fund_flows_net`
+        - **Input:** `GeneralMarketData.muni_fund_flows_net`
         - **Logic:** This value is passed through directly. If the input is not available or the instrument is not a MUNI, this field shall be null.
-        - **Formula:** `market_context.muni_fund_flows_net = MarketData.muni_fund_flows_net`
+        - **Formula:** `market_context.muni_fund_flows_net = GeneralMarketData.muni_fund_flows_net`
 
 ### 4.10. Methodology: Downside Price Volatility Calculation
 - **Purpose:** To calculate the realized downside volatility (or semi-deviation) of an instrument's returns over a trailing window. This metric quantifies downside risk by focusing only on negative price movements.
@@ -466,20 +473,22 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-07:** The system **shall** calculate **Yield to Worst (YTW)** as the minimum of the calculated YTM and all calculated YTCs.
   - **Formula:** `YTW = min(YTM, YTC_1, YTC_2, ..., YTC_n)`
 
-- **FR-07a:** The system **shall** calculate **Modified Duration** for non-callable bonds as per the methodology in Section 4.13.1.
-
-- **FR-07b:** The system **shall** calculate **Effective Duration** for callable bonds as per the methodology in Section 4.13.2.
-
 - **FR-08:** The system **shall** calculate **DV01** as the price change of the bond given a one basis point (0.01%) decrease in yield.
   - **Formula:** `DV01 = |Price(y - 0.0001) - Price(y)|`, where `y` is the bond's current **Yield to Worst (YTW)**.
 
-- **FR-09:** The system **shall** calculate **CS01** as the price change of the bond given a one basis point (0.01%) increase in its credit spread.
-  - **Formula Logic:** CS01 measures price sensitivity to credit spread changes. Its calculation requires re-pricing the bond after widening the spread.
-    1.  **Determine the Bond's Discount Rate:** A bond's price is determined by its cash flows and a discount rate. This discount rate is a sum of the benchmark rate and the bond's credit spread.
-    2.  **Calculate the Interpolated Benchmark Yield:** Using the methodology in Section 4.8, calculate the `Interpolated_Benchmark_Yield` for the bond's specific duration from the appropriate benchmark curve. This is a float value (e.g., 0.035).
-    3.  **Calculate the Initial Credit Spread:** The bond's implied credit spread is `Initial_Spread = YTW - Interpolated_Benchmark_Yield`.
-    4.  **Calculate Price with Widened Spread:** Calculate a new theoretical price for the bond (`Price_New`) by discounting all of its cash flows using a new, widened discount rate. The formula for the discount rate at each cash flow is: `New_Discount_Rate = Interpolated_Benchmark_Yield + Initial_Spread + 0.0001`.
-    5.  **Calculate CS01:** The CS01 value is the absolute difference between the bond's current market price and the new theoretical price. `CS01 = |Market_Price - Price_New|`.
+- **FR-09:** The system **shall** calculate **CS01** as the price change of the bond given a one basis point (0.01%) increase in its relevant credit spread.
+  - **Formula Logic:** CS01 measures price sensitivity to credit spread changes. Its calculation requires re-pricing the bond after widening the spread by 1 basis point. The methodology varies by `instrument_type`.
+    1.  **For `instrument_type` = 'TFI_CORPORATE':**
+        - The calculation measures sensitivity to a 1bp shift in the `sector_credit_spread_curve`.
+        - **a. Decompose Yield:** A corporate bond's yield (`YTW`) is composed of the benchmark yield, a sector-level credit spread, and an issuer-specific spread.
+        - **b. Get Benchmark & Sector Spreads:** Calculate the `Interpolated_Benchmark_Yield` (Section 4.8) and the `Interpolated_Sector_Spread` by interpolating the `sector_credit_spread_curve` at the bond's duration.
+        - **c. Calculate New Discount Rate:** The new rate for re-pricing is `YTW + 0.0001`, which represents the benchmark yield, the issuer-specific spread, and the sector spread widened by 1bp.
+    2.  **For all other instrument types:**
+        - **a. Get Benchmark Yield:** Calculate the `Interpolated_Benchmark_Yield` (Section 4.8).
+        - **b. Calculate Implied Credit Spread:** `Initial_Spread = YTW - Interpolated_Benchmark_Yield`.
+        - **c. Calculate New Discount Rate:** `New_Discount_Rate = Interpolated_Benchmark_Yield + Initial_Spread + 0.0001`.
+    3.  **Calculate Price_New:** Calculate a new theoretical price for the bond by discounting all of its cash flows using the appropriate `New_Discount_Rate`.
+    4.  **Calculate CS01:** The CS01 value is the absolute difference between the bond's current market price and the new theoretical price. `CS01 = |Market_Price - Price_New|`.
 
 - **FR-10:** The system **shall** calculate **Option-Adjusted Spread (OAS)** as per the methodology in Section 4.6.
 
@@ -489,16 +498,17 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-12:** The system **shall** calculate **Relative Value** against the identified peer group by subtracting the average OAS of the peer group from the bond's OAS.
   - **Formula:** `Relative_Value_vs_Peers_bps = option_adjusted_spread_bps - AVG(peer_OAS_1, ..., peer_OAS_n)`
 
-- **FR-13:** The system **shall** calculate a composite **Liquidity Score** based on the formula in Section 4.4.
+- **FR-12a:** For `instrument_type` = 'TFI_CORPORATE', the system **shall** calculate **Relative Value vs. Sector** by calculating the issuer's spread over its interpolated sector curve.
+  - **Formula:** `vs_sector_bps = (YTW - Interpolated_Benchmark_Yield - Interpolated_Sector_Spread) * 10000`. The sector spread is interpolated from the `sector_credit_spread_curve` at the bond's duration. This field shall be null for non-corporate instruments.
 
-- **FR-14:** The system **shall** produce a **Trade History Summary** by aggregating raw trade data as per the methodology in Section 4.6.
+- **FR-13:** The system **shall** calculate a composite **Liquidity Score** based on the formula in Section 4.5.
+
+- **FR-14:** The system **shall** produce a **Trade History Summary** by aggregating raw trade data as per the methodology in Section 4.7.
 
 - **FR-15:** The system **shall** calculate the **Bid/Ask Spread in BPS**.
   - **Formula:** `bid_ask_spread_bps = (ask_price - bid_price) / ((ask_price + bid_price) / 2) * 10000`
 
-- **FR-16:** The system **shall** calculate the **10Y/2Y U.S. Treasury Yield Curve Slope** as per the methodology in Section 4.7.
-
-- **FR-17:** The system **shall** calculate the **10Y MMD/UST Ratio** as per the methodology in Section 4.9.
+- **FR-16:** The system **shall** calculate **Market Context** indicators as per the methodology in Section 4.9.
 
 - **FR-18:** The system **shall** calculate trailing **Downside Price Volatility** for 5-day and 20-day lookback windows, populating `downside_price_volatility_5d` and `downside_price_volatility_20d` respectively, as per the methodology in Section 4.10.
 
@@ -507,8 +517,6 @@ The choice of benchmark is critical and determined by the instrument's type and 
 - **FR-20:** The system **shall** populate the **Security Details** object as per the enrichment methodology in Section 4.11.
 
 - **FR-21:** The system **shall** calculate the **Cross-Asset Correlation** as per the methodology in Section 4.12.
-
-- **FR-22:** The system **shall** calculate the appropriate **Duration** metric (Modified or Effective) as per the methodology in Section 4.13.
 
 ## 6. Non-Functional Requirements
 ### 6.1. Data Consistency

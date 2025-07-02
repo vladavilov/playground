@@ -7,10 +7,10 @@
 ## 1. Introduction
 
 ### 1.1. Purpose
-This document specifies the requirements for the **Market Data Feed**, which is the sole source of input data for the **Market Regime Classification Model**. The primary purpose of this feed is to provide a consistent, reliable, and timely stream of financial and economic indicators necessary for the model to perform its real-time and historical classification tasks.
+This document specifies the requirements for the **Market Data Feed**, which is a centralized source of financial and economic indicators. The primary purpose of this feed is to provide a consistent, reliable, and timely stream of data to all downstream consumer systems, including but not limited to the **Market Regime Classification Model** and the **Financial Calculation Service**.
 
 ### 1.2. Scope
-These requirements exclusively cover the sourcing, processing, and delivery of the input indicators listed in this document. The internal logic of the consuming system (the Market Regime Classification Model) is out of scope.
+These requirements cover the sourcing, processing, and delivery of all general (i.e., not instrument-specific) market indicators required for analytics.
 
 ---
 
@@ -34,6 +34,10 @@ The Market Data Ingestion Service **shall** source each indicator from the syste
 | `swap_spread_10y` | The 10-year U.S. Dollar interest rate swap vs. Treasury spread. | Daily | Federal Reserve (FRED) | Calculated by subtracting the 10-Year Treasury Yield from the 10-Year Swap Rate. See details in **Section 2.2.1**. <br/> *Alternative Sources: ICE, Bloomberg* | **Primary:** [`FRED - 10-year Swap Spread - Response.json`](./market_data_feed_responses/FRED%20-%2010-year%20Swap%20Spread%20-%20Response.json) <br/> **Alt (ICE):** [`ICE - 10-year Swap Spread - Response.json`](./market_data_feed_responses/ICE%20-%2010-year%20Swap%20Spread%20-%20Response.json) |
 | `muni_fund_flows_net` | Net flows into municipal bond funds. | Weekly | Federal Reserve (FRED) | `curl "https://api.stlouisfed.org/fred/series/observations?series_id=MUTFUNDSMUNIBONDS&api_key=YOUR_FRED_API_KEY&file_type=json"` <br/> *Alternative Sources: Investment Company Institute (ICI), Bloomberg. **Note: The ICI source requires manual data ingestion from their website.**` | **Alt (ICI):** [`ICI - Net Flows into Muni - MUNIFLOW - Response.json`](./market_data_feed_responses/ICI%20-%20Net%20Flows%20into%20Muni%20-%20MUNIFLOW%20-%20Response.json) <br/> **Alt (Bloomberg):** [`Bloomberg BLAPI - MUNIFLOW - Response.json`](./market_data_feed_responses/Bloomberg%20BLAPI%20-%20MUNIFLOW%20-%20Response.json) |
 | `us_cpi_yoy` | Year-over-year change in the Consumer Price Index. | Monthly | Federal Reserve (FRED) | `curl "https://api.stlouisfed.org/fred/series/observations?series_id=CPIAUCSL&units=pc1&api_key=YOUR_API_KEY"` <br/> *Alternative Sources: TradingEconomics, Bloomberg* | **Primary:** [`FRED - USCPIYOY - Response.json`](./market_data_feed_responses/FRED%20-%20USCPIYOY%20-%20Response.json) <br/> **Alt (TradingEconomics):** [`TradingEconomics - USCPIYOY - Response.json`](./market_data_feed_responses/TradingEconomics%20-%20USCPIYOY%20-%20Response.json) <br/> **Alt (Bloomberg):** [`Bloomberg BLAPI - USCPIYOY - Response.json`](./market_data_feed_responses/Bloomberg%20BLAPI%20-%20USCPIYOY%20-%20Response.json) |
+| `ust_benchmark_curve` | U.S. Treasury yields, keyed by tenor (e.g., '1M', '3M', '1Y', '10Y'). | Daily | Federal Reserve (FRED) | Requires multiple API calls for each tenor (e.g., DGS1MO, DGS3MO, DGS1, etc.). | - |
+| `mmd_benchmark_curve` | Municipal Market Data (MMD) AAA benchmark curve, keyed by tenor. | Daily | ICE / Bloomberg | Requires specialized data license (e.g., ICE Data Services, Bloomberg BVAL). | - |
+| `sector_credit_spread_curve` | A curve of credit spreads for various sectors/industries, keyed by tenor. | Daily | ICE / Bloomberg | Requires specialized data license (e.g., Bloomberg BVAL). | - |
+| `interest_rate_volatility_surface` | A matrix of implied volatilities for different tenors and strikes. | Daily | ICE / Bloomberg | Requires specialized data license. | - |
 
 #### 2.2.1. Calculation for 10-year Swap Spread (FRED)
 The spread is calculated in basis points as `(Swap Rate - Treasury Yield) * 100`.
@@ -63,7 +67,7 @@ This section defines the requirements for calculating credit spreads using ETF d
 
 ### 3.1. Data Ingestion
 - **MDF-AR-01:** A dedicated **Market Data Ingestion Service** **shall** be implemented to source all indicators.
-- **MDF-AR-02:** The Market Regime Classification Model **shall** consume data exclusively from the Market Data Ingestion Service and **shall not** connect directly to any external data vendor.
+- **MDF-AR-02:** Consuming systems (e.g., Market Regime Classification Model, Financial Calculation Service) **shall** consume data exclusively from the Market Data Ingestion Service and **shall not** connect directly to any external data vendor.
 - **MDF-AR-03:** The Market Data Ingestion Service **shall** continuously poll and persist all external market indicators into an internal time-series data store.
 
 ### 3.2. Data Delivery
@@ -83,7 +87,11 @@ This section defines the requirements for calculating credit spreads using ETF d
     "tips_breakeven_5y": "float",
     "swap_spread_10y": "float",
     "muni_fund_flows_net": "float",
-    "us_cpi_yoy": "float"
+    "us_cpi_yoy": "float",
+    "ust_benchmark_curve": "object",
+    "mmd_benchmark_curve": "object",
+    "sector_credit_spread_curve": "object",
+    "interest_rate_volatility_surface": "object"
   }
 }
 ```
