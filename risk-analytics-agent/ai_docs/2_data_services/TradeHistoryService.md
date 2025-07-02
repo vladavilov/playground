@@ -43,16 +43,27 @@ Main source of truth should be table `trades`, grouped by `trade_num` and with t
 | trade_size_category  | TEXT              | 'BLOCK', 'ROUND_LOT' ($100k–$999k), or 'ODD_LOT' (<$100k)   | define_trade_category() | Yes        |
 | load_date            | DATE              | Date when the record was loaded                                     | Derived   | No         |
 
-define_trade_category():  
-```python
-if ALLOCATION_TYPE='B' -> 'BLOCK'
-if 1000 * price / 100 * par_amount < 100,000 -> 'ODD_LOT' # need to clarify price with BA - is it 1000 USD?
-else 'ROUND_LOT'
+```math
+\text{TradeCategory} = 
+\begin{cases}
+\text{BLOCK} & \text{if } \text{ALLOCATION\_TYPE} = 'B' \\
+\text{ODD\_LOT} & \text{if } \left( \frac{1000 \times \text{price}}{100} \times \text{par\_amount} \right) < 100{,}000 \\
+\text{ROUND\_LOT} & \text{otherwise}
+\end{cases}
 ```
-define_counterparty():
+```python
+# Need to clarify price with BA - is it 1000 USD?
+```
+
+```math
+\text{Counterparty} = 
+\begin{cases}
+\text{CUSTOMER BUY} & \text{if } \text{buy\_sell\_ind} = 'S' \\
+\text{CUSTOMER SELL} & \text{if } \text{buy\_sell\_ind} = 'B' \\
+\text{INTER\_DEALER} & \text{(mapping to be confirmed)}
+\end{cases}
+```
 ``` python
-if buy_sell_ind = 'S' ->  'CUSTOMER BUY'
-if buy_sell_ind = 'B' ->  'CUSTOMER SELL'
 # 'INTER_DEALER' to be confirmed with BA
 ```
 
@@ -62,7 +73,7 @@ if buy_sell_ind = 'B' ->  'CUSTOMER SELL'
 
 ### 4.1 `/historical`
 
-**Purpose**: Load all trade data from 2018 to today into the local DB and export to a CSV.
+**Purpose**: Load all trade data from `start_date` to `end_date` into the local DB and export to a CSV.
 
 **Behavior**:
 - Full refresh from source Oracle DB.
@@ -70,7 +81,10 @@ if buy_sell_ind = 'B' ->  'CUSTOMER SELL'
 
 **Example**:
 ```http
-POST /historical?reportOnly=true
+Request:
+POST /historical?reportOnly=true&start_date=2018-01-01&end_date=2025-01-01
+Response:
+trade_history.csv
 ```
 
 ---
@@ -86,12 +100,15 @@ POST /historical?reportOnly=true
 
 **Example**:
 ```http
+Request:
 POST /update?proivdeReport=true
 Content-Type: application/json
 
 {
   "input_date": "2023-01-05"
 }
+Response:
+trade_history.csv
 ```
 
 ---
@@ -140,8 +157,8 @@ For every insert, update, or delete on the primary trade table, a new record is 
 
 ### Prerequisites
 
-- **Python 3.7+**
-- **PostgreSQL 12+**
+- **Python 3.14+**
+- **PostgreSQL 17+**
 - **Access to Oracle DB (Caesar)**
 
 Install required Python libraries:
