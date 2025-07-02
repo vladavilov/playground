@@ -67,9 +67,10 @@ export function createMockData() {
             cusip: cusip,
             security_details: {
                 issuer_name: issuers[i % issuers.length],
+                cusip: cusip,
                 rating: ['AAA', 'AA+', 'AA', 'A+', 'A'][Math.floor(Math.random() * 5)],
                 price: price,
-                coupon_rate: (Math.random() * 5 + 1).toFixed(3),
+                coupon: (Math.random() * 5 + 1).toFixed(3),
                 maturity_date: '2034-08-15',
                 call_features: {
                     is_callable: Math.random() > 0.5,
