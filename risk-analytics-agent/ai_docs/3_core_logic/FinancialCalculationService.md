@@ -404,41 +404,7 @@ Goal: Find (alpha, sigma) such that model prices match market swaption volatilit
 
 ---
 
-## 6. API Endpoint Design (Example)
 
-### Endpoint
-
-```
-POST /api/oas/calculate
-```
-
-### Request Body
-
-```json
-{
-  "issueDate": "2023-08-15",
-  "maturityDate": "2028-08-15",
-  "couponRate": 0.05,
-  "faceValue": 100.0,
-  "callSchedule": [
-    { "callDate": "2026-08-15", "callPrice": 101 },
-    { "callDate": "2027-08-15", "callPrice": 100.5 }
-  ],
-  "marketPrice": 102.5
-}
-```
-
-### Response
-
-```json
-{
-  "oas_bps": 57.32,
-  "alpha": 0.02874,
-  "sigma": 0.01033
-}
-```
-
----
 
 ## 7. Libraries & Dependencies
 
@@ -447,14 +413,6 @@ POST /api/oas/calculate
 - SciPy (optimization)
 
 ---
-
-## 8. Future Extensions
-
-- Support curve upload via CSV or JSON
-- Cache or precompute curves and vol surfaces
-- Return pricing diagnostics (duration, convexity, Greeks)
-- Add support for callable puts and sinkable bonds
-
 
 
 ### 4.5. Methodology: Trade History Aggregation
