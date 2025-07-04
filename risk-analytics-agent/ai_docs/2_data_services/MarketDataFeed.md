@@ -56,7 +56,7 @@ These requirements exclusively cover the sourcing, processing, and delivery of t
 | `muni_fund_flows_net`            | External Data Vendor  | **Refinitiv Lipper** or **ICI**                               |
 | `us_cpi_yoy`                     | External Data Vendor  | **U.S. Bureau of Labor Statistics (BLS)**                     |
 ! `treasury_curve`                 | External Data Vendor  | FRED  For code in DGS1-DGS30                                  |
-| `swaption_vol`                   | External Data Vendor  | CME,BBG,FinPricing                                            | 
+| `swaption_vol`                   | External Data Vendor  | CME,BBG,FinPricing,ICE                                            | 
   
 
 ---
