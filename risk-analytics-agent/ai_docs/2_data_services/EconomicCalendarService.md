@@ -35,6 +35,15 @@ The primary purpose of the Economic Calendar Service is to act as a centralized,
   *Note: Field names (`Category`, `Importance`, `Date`) differ from the internal schema (`event_name`, `importance`, `event_date`). The ingestion process must map these fields correctly.*
 - **EC-DS-04:** The Economic Calendar Service shall minimize unnecessary data transfer by using available API filtering parameters provided by Trading Economics. Specifically, it shall request only events for the United States (`country = united states`) and only high-impact events (`importance = 3`), and shall explicitly set `start_date` and `end_date` parameters to limit the time window.
   - Example API call format: `GET /calendar/country/united%20states?c=API_KEY&importance=3&start_date={YYYY-MM-DD}&end_date={YYYY-MM-DD}`
+- **EC-DS-05:** The Economic Calendar Service shall use either free or paid data sources, depending on business requirements and available budget.
+  - The free version of the Trading Economics API only provides upcoming scheduled economic events, typically covering the next 30–60 days, and does not include any historical event data (past events or historical indicator time series). Free access is currently limited to a few countries (Sweden, Mexico, New Zealand, and Thailand), and does not include U.S. data.
+  - In contrast, the paid plans of Trading Economics offer full access to:
+      - Historical calendar events (e.g., last 5+ years), including U.S. data.
+      - Historical time series for economic indicators (e.g., CPI, GDP, Payrolls).
+      - Extended forecast data and additional metadata.
+      - Global country coverage (including U.S.).
+  - Pricing details are not publicly listed and are available upon request. Historically (as of public references from 2022–2023), the Professional Plan started at approximately ~$90 per month (covering up to 5 years of historical data), while Corporate / Enterprise Plans started at ~$450 per month and above, depending on data scope and number of users. Current actual prices may vary and should be confirmed directly with Trading Economics. More information on available plans can be found at Trading Economics API Pricing.
+  - Therefore, if the service uses a paid Trading Economics plan, it can fully cover U.S. historical and future events as initially envisioned. If not, the service shall rely on alternative public API-based data sources (e.g., BLS, BEA, FRED, Fed) and explicitly handle historical data gaps (e.g., by returning all-zero feature vectors for past dates).
 
 ### 4. Ingestion & Filtering Logic
 - **EC-PR-01:** Upon ingestion, raw events **shall** be immediately filtered *before* being saved to the service's internal storage.
