@@ -34,7 +34,7 @@ Main source of truth should be table `trades`, grouped by `trade_num` and with t
 | Column Name          | Data Type         | Description                                                         | Source    | CSV Export |
 |----------------------|-------------------|---------------------------------------------------------------------|-----------|------------|
 | id                   | SERIAL PK         | Unique row identifier                                               | Derived   | No         |
-| instrument_id        | TEXT              | Instrument identifier (e.g., CUSIP or ISIN)                         | instrument_id       | Yes        |
+| instr_id        | TEXT              | Instrument identifier (e.g., CUSIP or ISIN)                         | instrument_id       | Yes        |
 | trade_datetime       | TIMESTAMP         | Date/time when the trade occurred                                   | execution_time       | Yes        |
 | price                | REAL              | Price at which the trade executed                                   | trade_price        | Yes        |
 | par_volume           | REAL              | Nominal/par volume of the trade                                     | par_amount       | Yes        |
