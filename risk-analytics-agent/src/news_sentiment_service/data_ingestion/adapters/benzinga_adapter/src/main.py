@@ -99,10 +99,16 @@ async def get_news(
         
         logger.debug(f"Calling Benzinga API with params: {params}")
         
+        # Set headers to ensure JSON response format
+        headers = {
+            "Accept": "application/json"
+        }
+        
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 "https://api.benzinga.com/api/v2/news",
                 params=params,
+                headers=headers,
                 timeout=30.0
             )
             

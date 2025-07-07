@@ -583,21 +583,11 @@ def test_get_news_partial_article_processing_failure(mock_httpx_client):
 
 def test_get_news_hash_calculation_consistency(mock_httpx_client):
     """
-    Tests that article hash is calculated consistently.
+    Tests that the hash calculation is consistent for the same article content.
     """
-    mock_response_data = [
-        {
-            "title": "Test Article",
-            "body": "<p>Test content</p>",
-            "url": "http://test.com/1",
-            "updated": "Tue, 01 Jan 2024 12:00:00 -0000",
-            "id": "1"
-        }
-    ]
-    
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.json.return_value = mock_response_data
+    mock_response.json.return_value = MOCK_BENZINGA_RESPONSE
     mock_response.headers = {"content-type": "application/json"}
     mock_httpx_client.get.return_value = mock_response
 
@@ -609,10 +599,35 @@ def test_get_news_hash_calculation_consistency(mock_httpx_client):
     assert response.status_code == 200
     response_data = response.json()
     
-    article = response_data[0]
-    title = article["title"]
-    article_text = article["article_text"]
+    # Calculate expected hash manually
+    title = MOCK_BENZINGA_RESPONSE[0]["title"]
+    body = "The market saw activity."  # HTML stripped
+    expected_hash = hashlib.md5((title + body).encode()).hexdigest()
     
-    # Calculate expected hash
-    expected_hash = hashlib.md5((title + article_text).encode()).hexdigest()
-    assert article["article_hash"] == expected_hash 
+    assert response_data[0]["article_hash"] == expected_hash
+
+def test_get_news_includes_accept_header(mock_httpx_client):
+    """
+    Tests that the /news endpoint includes the Accept: application/json header
+    when making requests to the Benzinga API.
+    """
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = MOCK_BENZINGA_RESPONSE
+    mock_response.headers = {"content-type": "application/json"}
+    mock_httpx_client.get.return_value = mock_response
+
+    with patch("main.settings") as mock_settings:
+        mock_settings.BENZINGA_API_TOKEN = "test_token"
+
+        response = client.get("/news")
+
+    assert response.status_code == 200
+    
+    # Verify that the HTTP request was made with the Accept header
+    mock_httpx_client.get.assert_awaited_once()
+    call_args, call_kwargs = mock_httpx_client.get.call_args
+    
+    # Check that headers were passed and include Accept: application/json
+    assert "headers" in call_kwargs
+    assert call_kwargs["headers"]["Accept"] == "application/json" 
