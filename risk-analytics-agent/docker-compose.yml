@@ -124,16 +124,15 @@ services:
       context: ./src/news_sentiment_service
       dockerfile: ./data_ingestion/orchestrator_service/Dockerfile
     container_name: dis-orchestrator-service
-    networks:
-      - risk-analytics-net
+    network_mode: host
     depends_on:
       servicebus-healthcheck:
         condition: service_healthy
       benzinga-adapter:
         condition: service_healthy
     environment:
-      # Service-to-service communication using Docker network
-      - ADAPTER_URLS=http://benzinga-adapter:8000/news
+      # Service-to-service communication using host network
+      - ADAPTER_URLS=http://localhost:8001/news
       
       # Service Bus configuration - only what's needed for the orchestrator
       - SERVICE_BUS_QUEUE_NAME=articles-to-process

@@ -131,8 +131,8 @@ class TestArticleEnricher:
         sample_raw_article,
         mock_azure_openai_client
     ):
-        """Test article enrichment when article is not relevant for scoring."""
-        # Mock entity extraction response indicating not relevant
+        """Test article enrichment when article has 'global_other' sector (should be filtered out)."""
+        # Mock entity extraction response with 'global_other' sector
         not_relevant_response = {
             "choices": [
                 {
@@ -141,8 +141,7 @@ class TestArticleEnricher:
                             "issuer_name": None,
                             "sector": "global_other",
                             "state": None,
-                            "cusips": [],
-                            "relevant_for_scoring": False
+                            "cusips": []
                         })
                     }
                 }
@@ -159,17 +158,10 @@ class TestArticleEnricher:
         # Call the method under test
         result = enricher.enrich_article(sample_raw_article)
         
-        # Verify the result
-        assert isinstance(result, EnrichedNewsEvent)
-        assert result.entities.sector == "global_other"
-        assert result.entities.issuer_name == "N/A"  # Should default to N/A when None
-        assert result.event_type == "General_News"
-        assert result.sentiment.score == 0.0
-        assert result.sentiment.magnitude == 0.0
-        assert result.source_credibility_tier == "TIER_3_GENERAL_FINANCIAL"  # Default
-        assert result.summary_excerpt == "Article not relevant for financial analysis"
+        # Verify the result is None (filtered out)
+        assert result is None
         
-        # Verify OpenAI client was called only once (entity extraction only)
+        # Verify OpenAI client was called only once (entity extraction only, no scoring)
         assert enricher.client.chat.completions.create.call_count == 1
     
     def test_enrich_article_openai_error(
@@ -222,7 +214,7 @@ class TestArticleEnricher:
         
         assert len(messages) == 2
         assert messages[0]["role"] == "system"
-        assert "financial news article" in messages[0]["content"]
+        assert "Financial News Analyst" in messages[0]["content"]
         assert messages[1]["role"] == "user"
         assert sample_raw_article.article_text in messages[1]["content"]
     
@@ -240,7 +232,173 @@ class TestArticleEnricher:
         
         assert len(messages) == 2
         assert messages[0]["role"] == "system"
-        assert "sentiment analysis" in messages[0]["content"]
+        assert "SENTIMENT ANALYSIS" in messages[0]["content"]
         assert messages[1]["role"] == "user"
         assert sample_raw_article.article_text in messages[1]["content"]
-        assert entities["issuer_name"] in messages[1]["content"] 
+        assert entities["issuer_name"] in messages[1]["content"]
+
+    def test_determine_source_credibility_tier_tier1_regulator(self, enricher):
+        """Test source credibility tier determination for TIER_1_REGULATOR sources."""
+        tier1_sources = ["SEC.gov", "Federal Reserve", "S&P Global", "Moody's", "Fitch Ratings"]
+        
+        for source in tier1_sources:
+            tier = enricher._determine_source_credibility_tier(source)
+            assert tier == "TIER_1_REGULATOR", f"Expected TIER_1_REGULATOR for {source}, got {tier}"
+
+    def test_determine_source_credibility_tier_tier2_premium(self, enricher):
+        """Test source credibility tier determination for TIER_2_PREMIUM_FINANCIAL sources."""
+        tier2_sources = ["Bloomberg", "Reuters", "Wall Street Journal", "Financial Times", "Bond Buyer"]
+        
+        for source in tier2_sources:
+            tier = enricher._determine_source_credibility_tier(source)
+            assert tier == "TIER_2_PREMIUM_FINANCIAL", f"Expected TIER_2_PREMIUM_FINANCIAL for {source}, got {tier}"
+
+    def test_determine_source_credibility_tier_tier3_general(self, enricher):
+        """Test source credibility tier determination for TIER_3_GENERAL_FINANCIAL sources."""
+        tier3_sources = ["CNBC", "MarketWatch", "Yahoo Finance", "CNN Business"]
+        
+        for source in tier3_sources:
+            tier = enricher._determine_source_credibility_tier(source)
+            assert tier == "TIER_3_GENERAL_FINANCIAL", f"Expected TIER_3_GENERAL_FINANCIAL for {source}, got {tier}"
+
+    def test_determine_source_credibility_tier_tier4_company_pr(self, enricher):
+        """Test source credibility tier determination for TIER_4_COMPANY_PR sources."""
+        tier4_sources = ["Apple Press Release", "Microsoft Investor Relations", "Tesla News"]
+        
+        for source in tier4_sources:
+            tier = enricher._determine_source_credibility_tier(source)
+            assert tier == "TIER_4_COMPANY_PR", f"Expected TIER_4_COMPANY_PR for {source}, got {tier}"
+
+    def test_determine_source_credibility_tier_tier5_syndicated_default(self, enricher):
+        """Test source credibility tier determination defaults to TIER_5_SYNDICATED for unknown sources."""
+        unknown_sources = ["Unknown Source", "Random Blog", "Social Media Post"]
+        
+        for source in unknown_sources:
+            tier = enricher._determine_source_credibility_tier(source)
+            assert tier == "TIER_5_SYNDICATED", f"Expected TIER_5_SYNDICATED for {source}, got {tier}"
+
+    @patch('enrichment.article_enricher.logger')
+    def test_enrich_article_filters_global_other_with_warning(
+        self, 
+        mock_logger,
+        enricher, 
+        sample_raw_article
+    ):
+        """Test that articles with 'global_other' sector are filtered out with a warning log."""
+        # Mock entity extraction response with global_other sector
+        global_other_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps({
+                            "issuer_name": None,
+                            "sector": "global_other",
+                            "state": None,
+                            "cusips": []
+                        })
+                    }
+                }
+            ]
+        }
+        
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message = Mock()
+        mock_response.choices[0].message.content = global_other_response["choices"][0]["message"]["content"]
+        
+        enricher.client.chat.completions.create.return_value = mock_response
+        
+        # Call the method under test
+        result = enricher.enrich_article(sample_raw_article)
+        
+        # Verify warning was logged
+        mock_logger.warning.assert_called_once()
+        warning_call_args = mock_logger.warning.call_args[0][0]
+        assert "global_other" in warning_call_args
+        assert sample_raw_article.article_hash in warning_call_args
+        
+        # Verify result is None (filtered out)
+        assert result is None
+        
+        # Verify OpenAI client was called only once (entity extraction only, no scoring)
+        assert enricher.client.chat.completions.create.call_count == 1
+
+    def test_entity_extraction_prompt_excludes_relevant_for_scoring(self, enricher, sample_raw_article):
+        """Test that entity extraction prompt no longer includes relevant_for_scoring field."""
+        messages = enricher._build_entity_extraction_prompt(sample_raw_article)
+        
+        system_prompt = messages[0]["content"]
+        
+        # Verify relevant_for_scoring is not mentioned in the prompt
+        assert "relevant_for_scoring" not in system_prompt
+        assert "relevant for scoring" not in system_prompt.lower()
+
+    def test_scoring_prompt_excludes_source_credibility_tier(self, enricher, sample_raw_article):
+        """Test that scoring prompt no longer includes source_credibility_tier field."""
+        entities = {
+            "issuer_name": "City of Springfield",
+            "sector": "municipal",
+            "state": "Illinois",
+            "cusips": ["12345ABC8"]
+        }
+        
+        messages = enricher._build_scoring_prompt(sample_raw_article, entities)
+        
+        system_prompt = messages[0]["content"]
+        
+        # Verify source_credibility_tier is not mentioned in the prompt
+        assert "source_credibility_tier" not in system_prompt
+        assert "source credibility tier" not in system_prompt.lower()
+        assert "TIER_1_REGULATOR" not in system_prompt
+        assert "TIER_2_PREMIUM_FINANCIAL" not in system_prompt
+
+    def test_enrich_article_uses_script_determined_credibility_tier(
+        self, 
+        enricher, 
+        mock_azure_openai_client
+    ):
+        """Test that enriched events use script-determined credibility tier instead of AI-determined."""
+        # Create article with known source
+        bloomberg_article = RawNewsArticle(
+            article_text="Test article content",
+            source_name="Bloomberg",
+            publication_time=datetime(2024, 1, 15, 10, 30, 0),
+            title="Test Article",
+            url="https://example.com/news/test",
+            article_hash="test123"
+        )
+        
+        # Mock entity extraction response (municipal sector, not global_other)
+        entity_response = Mock()
+        entity_response.choices = [Mock()]
+        entity_response.choices[0].message = Mock()
+        entity_response.choices[0].message.content = json.dumps({
+            "issuer_name": "Test City",
+            "sector": "municipal",
+            "state": "CA",
+            "cusips": []
+        })
+        
+        # Mock scoring response WITHOUT source_credibility_tier
+        scoring_response = Mock()
+        scoring_response.choices = [Mock()]
+        scoring_response.choices[0].message = Mock()
+        scoring_response.choices[0].message.content = json.dumps({
+            "event_type": "General_News",
+            "sentiment": {
+                "score": 0.1,
+                "magnitude": 0.3
+            },
+            "summary_excerpt": "Test summary"
+        })
+        
+        enricher.client.chat.completions.create.side_effect = [
+            entity_response,
+            scoring_response
+        ]
+        
+        # Call the method under test
+        result = enricher.enrich_article(bloomberg_article)
+        
+        # Verify the credibility tier is determined by script (Bloomberg = TIER_2_PREMIUM_FINANCIAL)
+        assert result.source_credibility_tier == "TIER_2_PREMIUM_FINANCIAL" 
