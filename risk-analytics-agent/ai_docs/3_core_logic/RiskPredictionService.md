@@ -1,7 +1,5 @@
 # Risk Prediction Model: Requirements Specification
 
-**Version: 1.0**
-
 ---
 
 ## Part 1: Business & Functional Requirements
@@ -20,10 +18,10 @@ The model is not intended to replace trader discretion but to act as a powerful 
 The practical application and business value of the model's outputs in a trading context are detailed below:
 
 #### 1.1. Use Cases by Forecasted Metric
-The model's outputs are designed to provide a holistic risk view, combining forecasts for standard market risk (OAS, Bid-Ask Spread) with indicators for idiosyncratic event risk (`probability_negative_news_pct`). These two types of metrics are complementary and intended to be used together to form a comprehensive risk assessment, as they manage different types of risk.
+The model's outputs are designed to provide a holistic risk view, combining forecasts for standard market risk (Spread-to-Benchmark, Bid-Ask Spread) with indicators for idiosyncratic event risk (`probability_negative_news_pct`). These two types of metrics are complementary and intended to be used together to form a comprehensive risk assessment, as they manage different types of risk.
 
-##### Forecasted Credit Spread / OAS
-- **Business Value:** Provides a forward-looking view on relative value, enabling a shift from reactive to proactive portfolio management.
+##### Forecasted Spread-to-Benchmark (OAS or MMD Spread)
+- **Business Value:** Provides a forward-looking view on relative value against the instrument's appropriate benchmark (MMD for tax-exempt MUNIs, UST for taxable bonds), enabling a shift from reactive to proactive portfolio management.
 - **Use Case 1 (Risk Mitigation):** A forecast of significant spread widening for an instrument **shall** serve as an early-warning indicator, prompting a formal position review to mitigate risk or apply a hedge.
 - **Use Case 2 (Opportunity Identification):** A forecast of spread tightening **shall** serve as a potential buy signal, triggering further due diligence.
 
@@ -65,7 +63,7 @@ The model requires a combination of static, time-varying, and known future input
 The model training and inference processes **shall** ingest data from the following sources for each instrument:
 - **`FinancialDataObject`**: The full data object as produced by the `FinCalculations` engine. This provides the primary source of historical time-series data and calculated metrics.
 - **`NewsSentiment`**: Historical and current sentiment scores for the instrument.
-- **`MarketRegimeClassification`**: The full classification object, as defined in `MarketRegime_part.md`.
+- **`MarketRegimeService`**: The full classification object, as defined in `MarketRegime_part.md`.
 - **`EconomicCalendarService`**: Provides a feature matrix of scheduled high-impact U.S. economic events (e.g., "FOMC Rate Decision", "CPI"). This service, defined in `EconomicCalendarService_part.md`, is the source for time-varying known future inputs.
 
 #### 3.2. Detailed Input-to-Model Feature Mapping
@@ -89,7 +87,7 @@ These features describe the instrument's immutable characteristics.
   - `scheduled_economic_events`: `array` - A list of filtered, high-importance economic events. These are retrieved from the `EconomicCalendarService`. The detailed algorithm for transforming these events into model-ready features is specified in **Part 7, Section 11**.
 
 ##### 3.2.3. Time-Varying Observed Inputs (Historical time-series features whose future values are unknown)
-These features form the historical context for the model's predictions. For daily forecasting, these values are taken from the `t1d` summary of the `FinancialDataObject`.
+These features form the historical context for the model's predictions. This section describes the superset of available features; the specific features used by each specialized model are detailed in the training dataset specifications in Section 8.1.
 - **Source:** `FinancialDataObject.market_data`
   - `price`: `float`
   - `bid_ask_spread_bps`: `float`
@@ -97,23 +95,23 @@ These features form the historical context for the model's predictions. For dail
   - `yield_to_maturity`, `yield_to_worst`, `dv01`, `cs01`, `option_adjusted_spread_bps`, `downside_price_volatility_5d`, `downside_price_volatility_20d`: all `float` to be used as continuous features.
 - **Source:** `FinancialDataObject.liquidity`
   - `composite_score`: `float`
-  - `is_illiquid_flag`: `boolean` (encoded as `integer` 0 or 1)
-- **Source:** `FinancialDataObject.trade_history_summary.t1d`
-  - All fields (e.g., `total_par_volume`, `trade_count`, `unique_dealer_count`, `customer_buy_par_volume`, `trade_price_volatility`) to be used as continuous features.
+  - `market_depth`: `object` (contains `bid_size_par` and `ask_size_par`)
+- **Source:** `FinancialDataObject.trade_history_summary`
+  - All fields from the `t1d`, `t5d`, and `t20d` summaries (e.g., `total_par_volume`, `trade_count`) to be used as continuous features.
 - **Source:** `FinancialDataObject.relative_value`
-  - `vs_mmd_bps`, `vs_ust_bps`, `vs_peers_bps` to be used as continuous features.
+  - `vs_mmd_bps`, `vs_ust_bps`, `vs_peers_bps` to be used as continuous features. These serve as the primary training targets for spread forecasting.
 - **Source:** `FinancialDataObject.market_context` & `state_fiscal_health`
   - All fields (e.g., `yield_curve_slope_10y2y`, `mmd_ust_ratio_10y`, `tax_receipts_yoy_growth`) to be used as continuous features. Null values for non-applicable instruments (e.g., state data for corporates) must be imputed or handled by the model.
 - **Source:** `NewsSentiment`
   - `sentiment_score`: `float`
-- **Source:** `MarketRegimeClassification`
-  - `regime_label`: `string` - To be one-hot encoded.
+- **Source:** `MarketRegimeService`
+  - `global_macro_regime_label`, `contextual_regime_label`: `string` - To be one-hot encoded.
   - `regime_probabilities`: `object` - The vector of probabilities (e.g., `Bull_Steepener`, `Bear_Flattener`) to be used as a set of continuous features.
 
 ##### 3.2.4. Prediction Targets
 These are the outputs the model will be trained to forecast. Their historical values are also used as time-varying observed inputs where applicable.
-- **`credit_spread_oas_bps`**: Sourced directly from `FinancialDataObject.calculated_risk_metrics.option_adjusted_spread_bps`.
-- **`bid_ask_spread_pct`**: Sourced from `FinancialDataObject.market_data.bid_ask_spread_bps`. A conversion from bps to percent (`value / 100`) is required to match the specified output unit.
+- **`spread_to_benchmark_bps`**: This is a conceptual target. The actual training target is derived from the instrument's appropriate benchmark-relative spread, sourced from the `FinancialDataObject.relative_value` object. For 'MUNI' instruments, this is `vs_mmd_bps`. For 'TFI_CORPORATE', this is `vs_ust_bps`.
+- **`bid_ask_spread_pct`**: Sourced from `FinancialDataObject.market_data.bid_ask_spread_bps`. A conversion from bps to percent (`value / 10000`) is required to match the specified output unit.
 - **`probability_negative_news_pct`**: The model will be trained to predict the probability of the `NewsSentiment.negative_news_flag` being `true` (1). The flag itself is the historical target label.
 - **`downside_price_volatility`**: Sourced from `FinancialDataObject.calculated_risk_metrics` (e.g., `downside_price_volatility_5d` for the 5-day forecast). This metric is pre-calculated by the `FinCalculations` service. Its historical values serve as both a time-varying observed input and the target for forecasting.
 
@@ -131,7 +129,8 @@ The standard output for a single forecast run **shall** conform to the following
   "forecasted_values": [
     {
       "horizon": "1-day",
-      "credit_spread_oas_bps": "float",
+      "benchmark_type": "string",
+      "spread_to_benchmark_bps": "float",
       "bid_ask_spread_pct": "float",
       "probability_negative_news_pct": "float",
       "downside_price_volatility": {
@@ -141,7 +140,8 @@ The standard output for a single forecast run **shall** conform to the following
     },
     {
       "horizon": "5-day",
-      "credit_spread_oas_bps": "float",
+      "benchmark_type": "string",
+      "spread_to_benchmark_bps": "float",
       "bid_ask_spread_pct": "float",
       "probability_negative_news_pct": "float",
       "downside_price_volatility": {
@@ -151,7 +151,8 @@ The standard output for a single forecast run **shall** conform to the following
     },
     {
       "horizon": "20-day",
-      "credit_spread_oas_bps": "float",
+      "benchmark_type": "string",
+      "spread_to_benchmark_bps": "float",
       "bid_ask_spread_pct": "float",
       "probability_negative_news_pct": "float",
       "downside_price_volatility": {
@@ -162,25 +163,17 @@ The standard output for a single forecast run **shall** conform to the following
   ],
   "forecast_explainability": {
     "feature_attributions": {
-      "credit_spread_oas_bps": [
-        {"feature": "market_regime.Bull_Steepener", "attribution": "float"},
-        {"feature": "trade_history.t5d.total_par_volume", "attribution": "float"},
-        {"feature": "historical_oas.lag_1d", "attribution": "float"}
+      "spread_to_benchmark_bps": [
+        {"feature": "string", "attribution": "float"}
       ],
       "bid_ask_spread_pct": [
-        {"feature": "liquidity.composite_score", "attribution": "float"},
-        {"feature": "historical_spread.lag_1d", "attribution": "float"},
-        {"feature": "trade_history.t1d.trade_count", "attribution": "float"}
+        {"feature": "string", "attribution": "float"}
       ],
       "probability_negative_news_pct": [
-        {"feature": "news_sentiment.sentiment_score", "attribution": "float"},
-        {"feature": "trade_history.t1d.customer_sell_par_volume", "attribution": "float"},
-        {"feature": "relative_value.vs_peers_bps", "attribution": "float"}
+        {"feature": "string", "attribution": "float"}
       ],
       "downside_price_volatility": [
-        {"feature": "historical_volatility.lag_5d", "attribution": "float"},
-        {"feature": "market_context.yield_curve_slope_10y2y", "attribution": "float"},
-        {"feature": "economic_event.is_fomc_week", "attribution": "float"}
+        {"feature": "string", "attribution": "float"}
       ]
     }
   }
@@ -188,7 +181,7 @@ The standard output for a single forecast run **shall** conform to the following
 ```
 
 #### 4.2. Output Interpretation
-- **RP-AI-01:** The `forecasted_values` provide the point estimates for each risk factor at different time horizons.
+- **RP-AI-01:** The `forecasted_values` provide the point estimates for each risk factor at different time horizons. The `benchmark_type` field is set to 'MMD' for the MUNI model and 'UST' for the TFI model, reflecting the benchmark used for the `spread_to_benchmark_bps` forecast.
 - **RP-AI-02:** The `forecast_explainability` object **shall** be used to identify the top positive and negative contributors to a given forecast, which is a critical input for the narrative generation engine.
 
 ---
@@ -198,9 +191,15 @@ The standard output for a single forecast run **shall** conform to the following
 This part describes the business logic and technical foundations for the prediction model.
 
 ### 5. Forecasting Methodology
-- **RP-BR-01:** The system **shall** use a **Temporal Fusion Transformer (TFT)** model architecture. This choice is driven by the model's ability to handle diverse data types (static, time-varying, known future inputs) and its built-in explainability features.
-- **RP-BR-02:** The model **shall** be trained to simultaneously predict all required output targets (multi-headed output).
-- **RP-BR-03:** The `Market Regime Classification` inputs **shall** be treated as static features for the duration of a single forecast. The `regime_label` will be encoded as a categorical variable, and the `regime_probabilities` will be used as a vector of continuous inputs.
+- **RP-BR-01:** The system **shall** use a router-based architecture that directs prediction requests to one of two specialized **Temporal Fusion Transformer (TFT)** models based on the instrument's type. This approach avoids negative transfer by training models on homogenous datasets.
+- **RP-BR-01a (MUNI Model):** A model trained exclusively on `instrument_type` = 'MUNI' data.
+    - **Prediction Target:** `relative_value.vs_mmd_bps`.
+    - **Key Features:** This model will heavily leverage MUNI-specific features such as `state_fiscal_health`, `muni_fund_flows_net`, `mmd_ust_ratio_10y`, and `tax_status`.
+- **RP-BR-01b (TFI Model):** A model trained exclusively on taxable fixed income instruments (e.g., `instrument_type` = 'TFI_CORPORATE').
+    - **Prediction Target:** `relative_value.vs_ust_bps`.
+    - **Key Features:** This model will leverage features relevant to taxable markets, such as `investment_grade_credit_spread`, `high_yield_credit_spread`, and `sector_credit_spread_curve`.
+- **RP-BR-02:** Each specialized model **shall** be trained to simultaneously predict all required output targets for its asset class (multi-headed output).
+- **RP-BR-03:** The `Market Regime Service` inputs **shall** be treated as static features for the duration of a single forecast. The `regime_label` will be encoded as a categorical variable, and the `regime_probabilities` will be used as a vector of continuous inputs.
 
 ### 6. Validation Rules
 - **RP-VR-01:** Model predictions **must** be explainable. The feature attributions for each forecast are a mandatory output.
@@ -208,19 +207,63 @@ This part describes the business logic and technical foundations for the predict
 - **RP-VR-03:** Forecasted values **must** be available for all risk factors and horizons specified in the `Core Functional Requirements`.
 - **RP-VR-04:** Back-testing accuracy **shall** be measured using standard metrics such as Mean Absolute Error (MAE) and Root Mean Squared Error (RMSE) for continuous variables, and Brier Score for probabilistic forecasts.
 
----
-
-## Part 4: Technical Implementation Plan
-
-This part provides a guide for developers for training and running the prediction model.
-
 ### 7. Model Training
-- **RP-IMPL-01:** The training data **shall** be structured as time-series data for each CUSIP, containing all input features specified in Section 3.1, aligned by date.
-- **RP-IMPL-02:** The model **shall** be trained on a historical dataset covering multiple market cycles and regimes to ensure robustness.
+- **RP-IMPL-01:** The training data **shall** be segregated into two distinct datasets based on `instrument_type`: one for MUNI instruments and one for TFI instruments.
+- **RP-IMPL-02:** Two separate TFT models **shall** be trained on their respective datasets, allowing each to learn the unique patterns of its asset class. Both models shall be trained on historical data covering multiple market cycles and regimes to ensure robustness.
 
 ### 8. Inference
-- **RP-IMPL-03:** The system **shall** support real-time inference for a single instrument, using the most up-to-date input features.
-- **RP-IMPL-04:** The system **shall** support batch inference for generating forecasts for a universe of instruments.
+- **RP-IMPL-03:** The system **shall** support real-time inference for a single instrument. Upon receiving a request, the service will check the `instrument_type` and route the request to the appropriate specialized model (MUNI or TFI).
+- **RP-IMPL-04:** The system **shall** support batch inference. The logic will iterate through the instrument universe, routing each instrument to the correct model for forecasting.
+
+### 8.1. Dataset Specifications
+To ensure clarity and precision, the specific training datasets for the two specialized models are defined below. Each dataset is a time-series for its respective instrument universe, where each row represents a `(cusip, date)` pair.
+
+#### 8.1.1. MUNI Forecasting Model Dataset
+- **Universe:** Instruments where `instrument_type` = 'MUNI'.
+- **Prediction Targets:**
+    - `spread_to_benchmark_bps`: Primary target, sourced from `relative_value.vs_mmd_bps`.
+    - `bid_ask_spread_pct`
+    - `probability_negative_news_pct`
+    - `downside_price_volatility`
+- **Input Feature Set:**
+
+| Feature Category | Feature Name / Derivation | Source Data Field |
+| :--- | :--- | :--- |
+| **Static Identifiers** | `sector`, `rating`, `coupon_rate`, `time_to_maturity`, `state`, `tax_status` | `security_details.*` |
+| **MUNI Market Context**| `mmd_ust_ratio_10y` | `FinancialDataObject.market_context.mmd_ust_ratio_10y` |
+| **MUNI Fund Flows** | `muni_fund_flows_net` | `FinancialDataObject.market_context.muni_fund_flows_net` |
+| **Issuer Health** | `tax_receipts_yoy_growth`, `budget_surplus_deficit_pct_gsp`| `FinancialDataObject.state_fiscal_health.*` |
+| **Regime Context** | `global_macro_regime_label`, `contextual_regime_label` | `MarketRegimeService` |
+| **Historical Price/Yield**| Lagged values of `yield_to_worst`, `price`, `vs_mmd_bps` | `FinancialDataObject.calculated_risk_metrics.*`, `FinancialDataObject.market_data.price`, `FinancialDataObject.relative_value.vs_mmd_bps` |
+| **Liquidity**| `composite_score`, `market_depth` (bid/ask sizes) | `FinancialDataObject.liquidity.*` |
+| **Trade History**| All fields from `t1d`, `t5d`, and `t20d` summaries. | `FinancialDataObject.trade_history_summary.*` |
+| **Ownership**| `is_concentrated_flag`, `top_3_holders_pct` | `FinancialDataObject.ownership.*` |
+| **Financing**| `cost_of_carry_bps` | `FinancialDataObject.financing.cost_of_carry_bps` |
+| **Idiosyncratic Risk**| `sentiment_score` | `NewsSentiment.sentiment_score` |
+
+#### 8.1.2. TFI Forecasting Model Dataset
+- **Universe:** Instruments where `instrument_type` IN ('TFI_CORPORATE', 'TFI_AGENCY').
+- **Prediction Targets:**
+    - `spread_to_benchmark_bps`: Primary target, sourced from `relative_value.vs_ust_bps`.
+    - `bid_ask_spread_pct`
+    - `probability_negative_news_pct`
+    - `downside_price_volatility`
+- **Input Feature Set:**
+
+| Feature Category | Feature Name / Derivation | Source Data Field |
+| :--- | :--- | :--- |
+| **Static Identifiers** | `sector`, `rating`, `coupon_rate`, `time_to_maturity` | `security_details.*` |
+| **Macro Rate Context** | `yield_curve_slope_10y2y` | `FinancialDataObject.market_context.yield_curve_slope_10y2y` |
+| **Credit Market Health**| `investment_grade_credit_spread`, `high_yield_credit_spread` | `MarketDataFeed.*` |
+| **Economic Events** | `is_fomc_week`, `is_cpi_week`, etc. | `EconomicCalendarService` |
+| **Regime Context** | `global_macro_regime_label` | `MarketRegimeService` |
+| **Historical Price/Yield**| Lagged values of `option_adjusted_spread_bps`, `price`, `vs_ust_bps` | `FinancialDataObject.calculated_risk_metrics.*`, `FinancialDataObject.market_data.price`, `FinancialDataObject.relative_value.vs_ust_bps`|
+| **Liquidity** | `composite_score`, `market_depth` (bid/ask sizes) | `FinancialDataObject.liquidity.*` |
+| **Trade History** | All fields from `t1d`, `t5d`, and `t20d` summaries. | `FinancialDataObject.trade_history_summary.*`|
+| **Ownership**| `is_concentrated_flag`, `top_3_holders_pct` | `FinancialDataObject.ownership.*` |
+| **Financing**| `cost_of_carry_bps` | `FinancialDataObject.financing.cost_of_carry_bps` |
+| **Cross-Asset Risk** | `correlation_60d` | `FinancialDataObject.cross_asset_correlation.*` |
+| **Idiosyncratic Risk**| `sentiment_score` | `NewsSentiment.sentiment_score` |
 
 ---
 
@@ -231,8 +274,8 @@ This part covers system-wide constraints related to performance, operation, and 
 ### 9. System Requirements
 - **RP-NFR-01:** The model **must** be performant enough to support real-time inference requests with acceptable latency (e.g., < 1 second per instrument).
 - **RP-NFR-02:** The model architecture **must** support explainability.
-- **RP-NFR-03:** The model **must** be periodically retrained on new data to prevent drift and maintain accuracy. Retraining frequency should be evaluated on a quarterly basis.
-- **RP-NFR-04:** The model's predictions **shall** be versioned and logged to allow for reproducibility and auditability.
+- **RP-NFR-03:** The models **must** be periodically retrained on new data to prevent drift and maintain accuracy. Retraining frequency should be evaluated on a quarterly basis for each model independently.
+- **RP-NFR-04:** The model's predictions **shall** be versioned and logged to allow for reproducibility and auditability. The log shall include which specialized model (MUNI or TFI) was used for the forecast.
 
 ### 10. Integration Points
 - **RP-INT-01:** The model's outputs **shall** be consumed by the **Risk Synthesis & Narrative Generation** engine as "Underlying Risk" evidence.

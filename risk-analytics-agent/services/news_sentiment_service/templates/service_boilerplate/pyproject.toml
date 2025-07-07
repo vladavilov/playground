@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "micro-service"
+version = "0.1.0"
+description = "A generic micro service."
+readme = "README.md"
+requires-python = ">=3.13"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi[standard]",
+    "httpx",
+    "pydantic-settings",
+    "python-dotenv",
+    "azure-appconfiguration-provider",
+    "azure-identity",
+    "news_sentiment_common @ file:../../../common"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio"
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*"] 

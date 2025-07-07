@@ -1,0 +1,1 @@
+# Enrichment package for news processor service 
