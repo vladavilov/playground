@@ -18,7 +18,7 @@ services:
 
   cosmos-init:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./data_ingestion/db_init_service/Dockerfile
     container_name: cosmos-init
     network_mode: host
@@ -99,7 +99,7 @@ services:
 
   benzinga-adapter:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./data_ingestion/adapters/benzinga_adapter/Dockerfile
     ports:
       - "8001:8000" # Expose on http://localhost:8001
@@ -121,7 +121,7 @@ services:
 
   dis-orchestrator-service:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./data_ingestion/orchestrator_service/Dockerfile
     container_name: dis-orchestrator-service
     networks:
@@ -153,7 +153,7 @@ services:
 
   news-processor-service:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./news_processor_service/Dockerfile
     container_name: news-processor-service
     network_mode: host
