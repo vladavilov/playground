@@ -4,11 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from azure.servicebus.aio import ServiceBusClient
-from azure.servicebus import ServiceBusMessage
-from azure.core.exceptions import AzureError
-
-from models.models import RawNewsArticle, EnrichedNewsEvent
+from models.models import RawNewsArticle
 from enrichment.article_enricher import ArticleEnricher
 from cosmos_db.cosmos_db_client import CosmosDBClient
 from service_bus.service_bus_client import ServiceBusClient as CommonServiceBusClient
@@ -58,18 +54,9 @@ class MessageProcessor:
     def _initialize_clients(self):
         """Initialize Azure service clients."""
         try:
-            # Initialize Service Bus client
-            # When in local fallback mode, let the client read connection string from environment
-            if self.settings.USE_LOCAL_FALLBACK:
-                self.service_bus_client = CommonServiceBusClient(
-                    namespace=None,  # Let client use SERVICE_BUS_EMULATOR_CONNECTION_STRING from env
-                    queue_name=self.settings.SERVICE_BUS_QUEUE_NAME
-                )
-            else:
-                self.service_bus_client = CommonServiceBusClient(
-                    namespace=self.settings.AZURE_SERVICEBUS_NAMESPACE,
-                    queue_name=self.settings.SERVICE_BUS_QUEUE_NAME
-                )
+            self.service_bus_client = CommonServiceBusClient(
+                queue_name=self.settings.SERVICE_BUS_QUEUE_NAME
+            )
             logger.info("Service Bus client initialized")
             
             # Initialize Cosmos DB client
