@@ -58,14 +58,16 @@ class ArticleEnricher:
         # Note: TIER_5_SYNDICATED is the default for unknown sources
     }
     
-    def __init__(self, client: AzureOpenAI):
+    def __init__(self, client: AzureOpenAI, deployment_name: str = "gpt-4"):
         """
         Initialize the ArticleEnricher with an Azure OpenAI client.
         
         Args:
             client: Azure OpenAI client instance
+            deployment_name: The name of the Azure OpenAI deployment to use
         """
         self.client = client
+        self.deployment_name = deployment_name
     
     def _determine_source_credibility_tier(self, source_name: str) -> str:
         """
@@ -136,7 +138,7 @@ class ArticleEnricher:
         messages = self._build_entity_extraction_prompt(article)
         
         response = self.client.chat.completions.create(
-            model="gpt-4",  # This will be replaced by deployment name
+            model=self.deployment_name,
             messages=messages,
             temperature=0.1,
             max_tokens=1000
@@ -149,7 +151,7 @@ class ArticleEnricher:
         messages = self._build_scoring_prompt(article, entities)
         
         response = self.client.chat.completions.create(
-            model="gpt-4",  # This will be replaced by deployment name
+            model=self.deployment_name,
             messages=messages,
             temperature=0.1,
             max_tokens=1000

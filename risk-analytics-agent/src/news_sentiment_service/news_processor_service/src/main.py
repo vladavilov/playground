@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize ArticleEnricher
     if azure_openai_client:
-        article_enricher = ArticleEnricher(azure_openai_client)
+        article_enricher = ArticleEnricher(azure_openai_client, settings.AZURE_OPENAI_DEPLOYMENT)
         logger.info("ArticleEnricher initialized successfully")
     
     # Initialize and start MessageProcessor
