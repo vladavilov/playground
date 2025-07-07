@@ -18,17 +18,23 @@ This document specifies the requirements for a News Sentiment feature that inges
   - `article_text`: `string`
   - `source_name`: `string`
   - `publication_time`: `datetime`
+  - `title`: `string`
+  - `url`: `string`
+  - `article_hash`: `string` (MD5 hash of title + content, for deduplication)
 
 ### 2.2. Core Data Model: Enriched News Event
 The standard schema for a single, enriched news article, which serves as the output of the scoring service and input for calculation services.
 ```json
 {
+  "id": "string",
   "source": "string",
   "published_at": "datetime",
+  "ingested_at": "datetime",
   "event_type": "string",
   "entities": {
     "issuer_name": "string",
     "sector": "string",
+    "state": "string or null",
     "cusips": ["string"]
   },
   "sentiment": {
@@ -36,7 +42,8 @@ The standard schema for a single, enriched news article, which serves as the out
     "magnitude": "float"
   },
   "source_credibility_tier": "string",
-  "summary_excerpt": "string"
+  "summary_excerpt": "string",
+  "raw_article_url": "string"
 }
 ```
 
@@ -133,6 +140,7 @@ The `W_source` weight is determined by the news source tier.
 
 ### 4.3. Component 3: Historical Processing Service
 - **HPS-FR-01:** The service **shall** iterate through a multi-year news archive.
+- **HPS-FR-01a:** The service **shall** use the `article_hash` to check if an article has already been processed and **shall** discard duplicates to ensure data integrity.
 - **HPS-FR-02:** For each article, the service **shall** invoke the News Scoring Service.
 - **HPS-FR-03:** The service **shall** store every `Enriched News Event` object with a sector other than `'global_other'` in a permanent "Enriched News Store".
 - **HPS-FR-03a:** The service **shall** filter and store all `Enriched News Event` objects where the sector is `'global_other'` in a separate "Audit News Store" for review.
@@ -140,6 +148,8 @@ The `W_source` weight is determined by the news source tier.
 
 ### 4.4. Component 4: Real-Time News Ingestion Service
 - **RTN-FR-01:** The service **shall** utilize an internal timer to periodically trigger the ingestion of new articles from external sources.
+- **RTN-FR-01a:** The service **shall** use the `article_hash` to prevent processing duplicate articles.
+- **RTN-FR-01b:** For each news source, the service **shall** retrieve the timestamp of the last successfully ingested article and request only articles published after this time.
 - **RTN-FR-02:** For each new article, the service **shall** invoke the News Scoring Service (Component 1) to produce an `Enriched News Event`.
 - **RTN-FR-03:** The service **shall** route the resulting `Enriched News Event` for persistence according to the following rules:
     - **a.** Events where the `sector` is `'global_other'` **shall** be stored in the "Audit News Store".
