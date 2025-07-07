@@ -104,6 +104,7 @@ services:
     ports:
       - "8001:8000" # Expose on http://localhost:8001
     environment:
+      - LOG_LEVEL=DEBUG
       - BENZINGA_API_TOKEN=bz.YWNPB3BPJKUISI4V5J5XQAFEV63XCCYW
       - USE_LOCAL_FALLBACK=true
       # Uncomment Azure App Config endpoint to use it while testing with azure env
