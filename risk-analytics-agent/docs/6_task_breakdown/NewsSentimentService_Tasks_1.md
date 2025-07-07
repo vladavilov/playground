@@ -8,8 +8,8 @@
         *   **`RawNewsArticle`**: Create a Pydantic model with fields as defined in the requirements: `article_text: str`, `source_name: str`, `publication_time: datetime`, `title: str`, `url: str`, `article_hash: str`.
         *   **`EnrichedNewsEvent`**: Create a complex Pydantic model with nested models for `entities` and `sentiment`, matching the schema exactly: `id: str`, `source: str`, `published_at: datetime`, `ingested_at: datetime`, `event_type: str`, `entities: object`, `sentiment: object`, etc.
         *   **`RealTimeSentimentResponse` & `HistoricalSentimentResponse`**: Create Pydantic models for the two API output schemas.
-    *   **Architecture Reference:** [4.1 Raw News Article Model](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#raw-news-article-model-api-contract), [4.4 Database Schema](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#database-schema)
-    *   **Requirements Reference:** [2.1 Raw News Article](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#21-input-model-raw-news-article), [2.2 Enriched News Event](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#22-core-data-model-enriched-news-event), [2.3 API Output Models](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#23-api-output-models)
+    *   **Architecture Reference:** [4.1 Raw News Article Model](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#raw-news-article-model-api-contract), [4.4 Database Schema](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#database-schema)
+    *   **Requirements Reference:** [2.1 Raw News Article](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#21-input-model-raw-news-article), [2.2 Enriched News Event](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#22-core-data-model-enriched-news-event), [2.3 API Output Models](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#23-api-output-models)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/common/models/`
 
 *   **[x] Task 1.2: Implement `common` Shared Library Azure Clients**
@@ -17,7 +17,7 @@
     *   **Implementation Details:**
         *   **`CosmosDBClient`** (`common/cosmos_db/cosmos_db_client.py`): A class to encapsulate interactions with Cosmos DB. It should be initialized with the database name and container name. Implement methods like `upsert_item(item: dict)` and `query_items(query: str) -> list[dict]`.
         *   **`ServiceBusClient`** (`common/service_bus/service_bus_client.py`): A class to handle Service Bus communication. It should be initialized with the queue name. Implement methods like `send_message(message: str)` and a listener/receiver method `receive_messages(callback_function)`.
-    *   **Architecture Reference:** [3.4.2 The `DefaultAzureCredential` Flow](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#342-the-defaultazurecredential-flow)
+    *   **Architecture Reference:** [3.4.2 The `DefaultAzureCredential` Flow](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#342-the-defaultazurecredential-flow)
     *   **Requirements Reference:** N/A
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/common/cosmos_db/`, `playground/risk-analytics-agent/src/news_sentiment_service/common/service_bus/`
 
@@ -36,7 +36,7 @@
         *   Define services for `sentiment-api-service`, `news-processor-service`, and `data-ingestion-orchestrator-service`, `data-ingestion-bazinga-service`.
         *   Use the `build: context:` key to point to the respective service directories.
         *   Use the `environment:` key to inject the `AZURE_APPCONFIG_ENDPOINT` and the service URL overrides (e.g., `- SENTIMENT_API_URL=http://sentiment-api-service:8000`) as specified in the architecture.
-    *   **Architecture Reference:** [3.4 Local Development Strategy](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#34-local-development-strategy)
+    *   **Architecture Reference:** [3.4 Local Development Strategy](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#34-local-development-strategy)
     *   **Requirements Reference:** N/A
     *   **Structure Reference:** `docker-compose.yml`
 
@@ -47,7 +47,7 @@
         *   `key-vault.bicep`: Defines an Azure Key Vault and configures its access policies to later grant access to service Managed Identities.
         *   `service-bus.bicep`: Defines a Service Bus namespace and a queue named `articles-to-process`.
         *   `cosmos-db.bicep`: Defines a Cosmos DB account (NoSQL API) with a database and the `enriched-news-events` container. Configure the partition key to `/published_at`.
-    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
+    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
     *   **Requirements Reference:** N/A
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/infrastructure/`
 
@@ -56,7 +56,7 @@
     *   **Implementation Details:**
         *   `infrastructure/main.bicep`: Create the main Bicep file that references the modules in `infrastructure/modules/` to compose the full environment.
         *   `infrastructure/environments/`: Create parameter files (`dev.bicepparam`, `prod.bicepparam`) to provide environment-specific configurations (e.g., naming prefixes, SKUs).
-    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
+    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
     *   **Requirements Reference:** N/A
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/infrastructure/`
 
@@ -72,7 +72,7 @@
         *   Define a `/news` GET endpoint that returns a list of `RawNewsArticle` Pydantic models. This serves as the standard contract for all adapters.
         *   Include a `Dockerfile.template` and a base `requirements.txt`.
         *   Create a `Dockerfile` for the adapter service.
-    *   **Architecture Reference:** [4.2 Data Ingestion Service (DIS)](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#42-data-ingestion-service-dis)
+    *   **Architecture Reference:** [4.2 Data Ingestion Service (DIS)](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#42-data-ingestion-service-dis)
     *   **Requirements Reference:** N/A (Architectural pattern)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/templates/service_boilerplate/`
 
@@ -82,7 +82,7 @@
         *   Copy the contents of `playground/risk-analytics-agent/src/news_sentiment_service/templates/data_ingestion_service_boilerplate` to `playground/risk-analytics-agent/src/news_sentiment_service/data_ingestion/adapters/benzinga_adapter/`.
         *   Implement the logic within the `/news` endpoint to connect to the "Benzinga" news feed API, transform its response into the standard `RawNewsArticle` model, and return it.
         *   Update the `Dockerfile` and `requirements.txt` as needed.
-    *   **Architecture Reference:** [4.2 Data Ingestion Service (DIS)](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#42-data-ingestion-service-dis)
+    *   **Architecture Reference:** [4.2 Data Ingestion Service (DIS)](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#42-data-ingestion-service-dis)
     *   **Requirements Reference:** N/A (Example implementation)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/data_ingestion/adapters/benzinga_adapter/`
 
@@ -99,8 +99,8 @@
         *   For each `RawNewsArticle` returned, use the `ServiceBusClient` to enqueue it into the `articles-to-process` queue for downstream processing.
         *   Implement robust logging and error handling for failed adapter calls or queueing operations.
         *   **Note:** Duplicate checking is handled downstream by the News Processor Service to maintain clean separation of concerns.
-    *   **Architecture Reference:** [4.2 Data Ingestion Service (DIS)](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#42-data-ingestion-service-dis)
-    *   **Requirements Reference:** [4.4 Real-Time News Ingestion Service](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#44-component-4-real-time-news-ingestion-service) (`RTN-FR-01`, `RTN-FR-01a`, `RTN-FR-01b`)
+    *   **Architecture Reference:** [4.2 Data Ingestion Service (DIS)](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#42-data-ingestion-service-dis)
+    *   **Requirements Reference:** [4.4 Real-Time News Ingestion Service](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#44-component-4-real-time-news-ingestion-service) (`RTN-FR-01`, `RTN-FR-01a`, `RTN-FR-01b`)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/data_ingestion/orchestrator_service/`
     *   **Template Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/templates/service_boilerplate/`
 
@@ -120,7 +120,7 @@
 
 **Objective:** Develop the core AI service that enriches raw articles with structured analysis and sentiment scores.
 
-*   **[ ] Task 3.1: Implement ArticleEnricher Component in News Processor Service**
+*   **[x] Task 3.1: Implement ArticleEnricher Component in News Processor Service**
     *   **Description:** Create a dedicated enrichment component within the News Processor Service to handle all article enrichment logic with Azure OpenAI integration.
     *   **Implementation Details:**
         *   Create an `ArticleEnricher` class in `news_processor_service/enrichment/`.
@@ -131,11 +131,11 @@
             2.  If relevant, build and send Prompt 2 (Scoring & Classification).
             3.  Parse both JSON responses and assemble the final `EnrichedNewsEvent` object.
         *   Include robust error handling and logging for AI service failures.
-    *   **Architecture Reference:** [4.3 News Processor Service (NPS)](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#43-news-processor-service-nps)
-    *   **Requirements Reference:** [4.1 News Scoring Service](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#41-component-1-news-scoring-service) (`NSS-FR-01` to `NSS-FR-07`)
+    *   **Architecture Reference:** [4.3 News Processor Service (NPS)](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#43-news-processor-service-nps)
+    *   **Requirements Reference:** [4.1 News Scoring Service](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#41-component-1-news-scoring-service) (`NSS-FR-01` to `NSS-FR-07`)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/news_processor_service/enrichment/`
 
-*   **[ ] Task 3.2: Implement the News Processor Service (NPS)**
+*   **[x] Task 3.2: Implement the News Processor Service (NPS)**
     *   **Description:** Build the NPS as a comprehensive message-driven service that handles the complete processing pipeline: listening to Service Bus, duplicate checking, enrichment, and storage.
     *   **Implementation Details:**
         *   Create a FastAPI application. Use a background task (`fastapi.BackgroundTasks`) or a startup event to start a listener loop.
@@ -148,11 +148,11 @@
             4.  Use the `CosmosDBClient` to `upsert_item` the enriched event into the database.
             5.  Handle errors gracefully with appropriate logging and dead letter queue management.
         *   Implement health check endpoints for monitoring.
-    *   **Architecture Reference:** [4.3 News Processor Service (NPS)](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#43-news-processor-service-nps)
-    *   **Requirements Reference:** [4.1 News Scoring Service](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#41-component-1-news-scoring-service) (`NSS-FR-01` to `NSS-FR-07`)
+    *   **Architecture Reference:** [4.3 News Processor Service (NPS)](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#43-news-processor-service-nps)
+    *   **Requirements Reference:** [4.1 News Scoring Service](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#41-component-1-news-scoring-service) (`NSS-FR-01` to `NSS-FR-07`)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/news_processor_service/`
 
-*   **[ ] Task 3.3: Write Unit Tests for NPS and ArticleEnricher (TDD)**
+*   **[x] Task 3.3: Write Unit Tests for NPS and ArticleEnricher (TDD)**
     *   **Description:** Test the enrichment component and the service's complete processing pipeline logic.
     *   **Implementation Details:**
         *   **`ArticleEnricher` Tests:** Mock the OpenAI client to return predictable JSON for both prompts. Provide a sample `RawNewsArticle` and assert that the `enrich_article` method returns the expected `EnrichedNewsEvent`.
@@ -177,8 +177,8 @@
         *   Integrate with Azure App Configuration and environment variables to load all required settings (e.g., Cosmos DB connection details).
         *   In each endpoint, use the `CosmosDBClient` to build and execute a query to fetch relevant `EnrichedNewsEvent`s.
         *   Create a private helper function `_calculate_ass(events: list[EnrichedNewsEvent], mode: str)` to implement the Aggregated Sentiment Score (ASS) formula. This function must correctly apply the weights (`W_event`, `W_source`, `W_time`) as defined in the business rules.
-    *   **Architecture Reference:** [4.5 News Sentiment Score Service (NSSS)](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#45-news-sentiment-score-service-nsss)
-    *   **Requirements Reference:** [4.2 On-Demand Sentiment Service](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#42-component-2-on-demand-sentiment-service-public-api), [3.1 Formula: ASS](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#31-formula-aggregated-sentiment-score-ass)
+    *   **Architecture Reference:** [4.5 News Sentiment Score Service (NSSS)](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#45-news-sentiment-score-service-nsss)
+    *   **Requirements Reference:** [4.2 On-Demand Sentiment Service](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#42-component-2-on-demand-sentiment-service-public-api), [3.1 Formula: ASS](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#31-formula-aggregated-sentiment-score-ass)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/sentiment_api_service/`
 
 *   **[ ] Task 4.2: Write Unit and Integration Tests for NSSS (TDD)**
@@ -208,7 +208,7 @@
         *   Include progress indicators, batch processing capabilities, and robust error handling.
         *   **Note:** This script replicates the News Processor Service logic directly rather than going through Service Bus to optimize for batch processing performance.
     *   **Architecture Reference:** N/A (utility script)
-    *   **Requirements Reference:** [4.3 Historical Processing Service](playground/risk-analytics-agent/ai_docs/2_data_services/NewsSentimentService.md#43-component-3-historical-processing-service) (`HPS-FR-01` to `HPS-FR-05`)
+    *   **Requirements Reference:** [4.3 Historical Processing Service](playground/risk-analytics-agent/docs/2_data_services/NewsSentimentService.md#43-component-3-historical-processing-service) (`HPS-FR-01` to `HPS-FR-05`)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/scripts/`
 
 ---
@@ -218,7 +218,7 @@
 
 *   **[ ] Task 6.1: Implement Configuration Loading from YAML**
     *   **Description:** In the `Sentiment Score API` service, implement logic to load the `event_weights.yml` and `source_weights.yml` files at startup. These values should be used in the Aggregated Sentiment Score (ASS) calculation.
-    *   **Architecture Reference:** [4.5 News Sentiment Score Service (NSSS)](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#45-news-sentiment-score-service-nsss)
+    *   **Architecture Reference:** [4.5 News Sentiment Score Service (NSSS)](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#45-news-sentiment-score-service-nsss)
     *   **Structure Reference:** `playground/risk-analytics-agent/src/news_sentiment_service/sentiment_api_service/config/`
 
 *   **[ ] Task 6.2: Create CI/CD Script for Configuration Management**
@@ -229,7 +229,7 @@
         *   It will retrieve sensitive values (e.g., Cosmos DB keys) using the Azure CLI.
         *   It will securely store secrets in Key Vault using `az keyvault secret set`.
         *   It will create Key Vault references in App Configuration using `az appconfig kv set-keyvault`.
-    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
+    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
 
 *   **[ ] Task 6.3: Implement CI/CD Pipeline for IaC Deployment**
     *   **Description:** Create the main CI/CD pipeline (e.g., in GitHub Actions, Azure DevOps) that orchestrates the entire deployment.
@@ -237,6 +237,6 @@
         *   The pipeline will have a stage to deploy the Bicep templates using `az deployment group create`.
         *   A subsequent step must capture the JSON output from the Bicep deployment.
         *   The pipeline will then trigger the configuration management script (from Task 6.2), passing the captured outputs to it.
-    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
+    *   **Architecture Reference:** [3.3 Infrastructure, Configuration, and Secrets Management](playground/risk-analytics-agent/docs/1_architecture/NewsSentimentService_SystemArchitecture.md#33-infrastructure-configuration-and-secrets-management)
     *   **Requirements Reference:** N/A
     *   **Structure Reference:** N/A 

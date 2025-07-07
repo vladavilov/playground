@@ -194,6 +194,35 @@ services:
       timeout: 20s
       start_period: 30s
       retries: 3
+
+  sentiment-api-service:
+    build:
+      context: ./src/news_sentiment_service
+      dockerfile: ./sentiment_api_service/Dockerfile
+    container_name: sentiment-api-service
+    network_mode: host
+    depends_on:
+      cosmos-init:
+        condition: service_completed_successfully
+    environment:
+      - API_PORT=8002
+      
+      - USE_LOCAL_FALLBACK=true
+      
+      - COSMOS_DATABASE_NAME=risk-analytics-db
+      - COSMOS_CONTAINER_NAME=enriched-news-events
+      - COSMOS_EMULATOR_ENDPOINT=http://localhost:8081
+      - COSMOS_EMULATOR_KEY=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
+      
+      # Uncomment to use Azure App Config in cloud environments
+      # - AZURE_APPCONFIG_ENDPOINT=https://appconfig-risk-analytics-dev.azconfig.io
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
     
 networks:
   risk-analytics-net:
