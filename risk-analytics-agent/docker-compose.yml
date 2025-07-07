@@ -1,0 +1,205 @@
+# Run from the 'playground/risk-analytics-agent' directory:
+# > docker-compose up --build
+
+services:
+  # Cosmos DB Emulator for local development
+  cosmosdb-emulator:
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+    container_name: cosmosdb-emulator
+    hostname: cosmosdb-emulator
+    network_mode: host
+    environment:
+      PROTOCOL: "http"
+      AZURE_COSMOS_EMULATOR_ENABLE_NETWORK_ACCESS: true
+      # Disable telemetry for faster startup
+      ENABLE_TELEMETRY: false
+      AZURE_COSMOS_EMULATOR_PARTITION_COUNT: 10
+    restart: unless-stopped
+
+  cosmos-init:
+    build:
+      context: ./services/news_sentiment_service
+      dockerfile: ./data_ingestion/db_init_service/Dockerfile
+    container_name: cosmos-init
+    network_mode: host
+    depends_on:
+      cosmosdb-emulator:
+        condition: service_started
+    environment:
+      - COSMOS_DB_NAME=risk-analytics-db
+      - CONTAINER_NAME=enriched-news-events
+      
+      # Local Emulator Settings using HTTP (matching emulator actual protocol)
+      - USE_LOCAL_FALLBACK=true
+      - COSMOS_EMULATOR_ENDPOINT=http://localhost:8081
+      - COSMOS_EMULATOR_KEY=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
+      
+      # Initialization settings with longer delays for emulator startup
+      - MAX_RETRIES=60
+      - RETRY_DELAY=15
+    restart: "no"
+
+  sqledge:
+    container_name: sqledge
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    network_mode: host
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong!Passw0rd"
+      # Suppress ML/Python warnings (not needed for Service Bus)
+      MSSQL_ENABLE_EXTERNAL_SCRIPTS: "false"
+      MSSQL_ENABLE_LAUNCHPAD: "false"
+      # Fix internal connectivity issues
+      MSSQL_TCP_PORT: "1433"
+      MSSQL_AGENT_ENABLED: "false"
+    volumes:
+      - sqldata:/var/opt/mssql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "YourStrong!Passw0rd", "-Q", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Service Bus Emulator
+  servicebus-emulator:
+    container_name: servicebus-emulator
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    network_mode: host
+    environment:
+      - SQL_SERVER=localhost
+      - MSSQL_SA_PASSWORD=YourStrong!Passw0rd
+      - ACCEPT_EULA=Y
+      - SQL_WAIT_INTERVAL=30
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      sqledge:
+        condition: service_healthy
+    volumes:
+      - ./servicebus-config.json:/ServiceBus_Emulator/ConfigFiles/Config.json
+    restart: unless-stopped
+
+  # Health checker for Service Bus emulator, done separately, because the curl/wget commands 
+  # are not supported in the Service Bus emulator container
+  servicebus-healthcheck:
+    image: curlimages/curl:latest
+    container_name: servicebus-healthcheck
+    depends_on:
+      - servicebus-emulator
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    command: ["sh", "-c", "while true; do sleep 30; done"]
+
+  benzinga-adapter:
+    build:
+      context: ./services/news_sentiment_service
+      dockerfile: ./data_ingestion/adapters/benzinga_adapter/Dockerfile
+    ports:
+      - "8001:8000" # Expose on http://localhost:8001
+    environment:
+      - BENZINGA_API_TOKEN=bz.YWNPB3BPJKUISI4V5J5XQAFEV63XCCYW
+      - USE_LOCAL_FALLBACK=true
+      # Uncomment Azure App Config endpoint to use it while testing with azure env
+      # - AZURE_APPCONFIG_ENDPOINT=https://appconfig-risk-analytics-dev.azconfig.io
+    networks:
+      - risk-analytics-net
+    restart: unless-stopped
+    container_name: benzinga-adapter
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  dis-orchestrator-service:
+    build:
+      context: ./services/news_sentiment_service
+      dockerfile: ./data_ingestion/orchestrator_service/Dockerfile
+    container_name: dis-orchestrator-service
+    networks:
+      - risk-analytics-net
+    depends_on:
+      servicebus-healthcheck:
+        condition: service_healthy
+      benzinga-adapter:
+        condition: service_healthy
+    environment:
+      # Service-to-service communication using Docker network
+      - ADAPTER_URLS=http://benzinga-adapter:8000/news
+      
+      # Service Bus configuration - only what's needed for the orchestrator
+      - SERVICE_BUS_QUEUE_NAME=articles-to-process
+      
+      # Local Emulator Settings (forced for Docker development)
+      - USE_LOCAL_FALLBACK=true
+      - SERVICE_BUS_EMULATOR_CONNECTION_STRING=Endpoint=sb://localhost:5672;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true
+
+    command: >
+      sh -c "while true; do
+               echo 'DIS Orchestrator: Starting ingestion cycle...';
+               python src/main.py;
+               echo 'DIS Orchestrator: Ingestion cycle finished. Sleeping for 1 hour.';
+               sleep 3600;
+             done"
+    restart: unless-stopped
+
+  news-processor-service:
+    build:
+      context: ./services/news_sentiment_service
+      dockerfile: ./news_processor_service/Dockerfile
+    container_name: news-processor-service
+    network_mode: host
+    depends_on:
+      servicebus-healthcheck:
+        condition: service_healthy
+      cosmos-init:
+        condition: service_completed_successfully
+    environment:
+      # Basic service configuration
+      - API_PORT=8000
+      
+      # Enable local fallback mode for development
+      - USE_LOCAL_FALLBACK=true
+      
+      # Service Bus configuration - reads from the queue that dis-orchestrator writes to
+      - SERVICE_BUS_QUEUE_NAME=articles-to-process
+      - SERVICE_BUS_EMULATOR_CONNECTION_STRING=Endpoint=sb://localhost:5672;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true
+      
+      # Cosmos DB configuration - matches cosmos-init setup
+      - COSMOS_DB_DATABASE_NAME=risk-analytics-db
+      - COSMOS_DB_CONTAINER_NAME=enriched-news-events
+      - COSMOS_EMULATOR_ENDPOINT=http://localhost:8081
+      - COSMOS_EMULATOR_KEY=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
+      
+      - AZURE_OPENAI_ENDPOINT=https://placeholder.openai.azure.com/
+      - AZURE_OPENAI_API_KEY=placeholder-key
+      - AZURE_OPENAI_API_VERSION=2024-02-01
+      - AZURE_OPENAI_DEPLOYMENT=gpt-4
+      
+      - AZURE_SERVICEBUS_NAMESPACE=placeholder-namespace
+      
+      - AZURE_COSMOSDB_ENDPOINT=https://placeholder.documents.azure.com:443/
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "./healthcheck.sh"]
+      interval: 45s
+      timeout: 20s
+      start_period: 30s
+      retries: 3
+    
+networks:
+  risk-analytics-net:
+    driver: bridge
+  sb-emulator:
+    driver: bridge
+
+volumes:
+  sqldata:

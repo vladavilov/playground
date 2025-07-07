@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "news_sentiment_common"
+version = "0.1.0"
+description = "A shared library for News Sentiment services."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "azure-cosmos",
+    "azure-identity",
+    "azure-servicebus",
+    "pydantic"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pip-tools",
+    "pytest"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*"] 

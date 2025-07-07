@@ -345,6 +345,47 @@ This is the standardized model that all News Source Adapters must provide.
 }
 ```
 
+#### REST API Contract
+
+All News Source Adapters must implement the following REST endpoint to provide a standardized interface for the Data Ingestion Service.
+
+**GET /news**
+
+Retrieves a list of raw news articles based on their publication time.
+
+**Query Parameters**
+
+| Parameter  | Type   | Format              | Required | Description                                                                                                                                                             |
+|------------|--------|---------------------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `dateFrom` | string | `YYYY-MM-DDTHH:MM` | No       | The UTC start time for the query window. If omitted, the query is unbounded at the start. The Data Ingestion Service will use this to fetch articles since the last poll. |
+| `dateTo`   | string | `YYYY-MM-DDTHH:MM` | No       | The UTC end time for the query window. Useful for historical backfills. If omitted, the query is unbounded at the end.                                                    |
+
+**Responses**
+
+- **`200 OK`**: A successful response containing a JSON array of `RawNewsArticle` objects. The array can be empty if no articles match the criteria.
+  
+  **Body:**
+  ```json
+  [
+      {
+          "article_text": "...",
+          "source_name": "...",
+          "publication_time": "YYYY-MM-DDTHH:MM:SSZ",
+          "title": "...",
+          "url": "...",
+          "article_hash": "..."
+      }
+  ]
+  ```
+
+- **`400 Bad Request`**: Returned if the date parameters are malformed.
+
+**Architectural Considerations:**
+
+*   **Timezones**: To prevent ambiguity, all date parameters (`dateFrom`, `dateTo`) and the `publication_time` field in the response **must** be in UTC.
+*   **Pagination**: While not explicitly defined in this version for simplicity, production-ready adapters should implement a pagination mechanism (e.g., cursor-based or limit/offset) to handle large result sets. This will be a requirement for future iterations.
+*   **Default Behavior**: If both `dateFrom` and `dateTo` are omitted, the service should return the most recent articles, but the client should be aware that the result set may be large and potentially truncated if pagination is implemented. The Data Ingestion Service will always provide at least `dateFrom`.
+
 ### 4.2 Data Ingestion Service (DIS)
 
 The Data Ingestion Service is a cron-based job that orchestrates the collection of news from all configured News Source Adapters.
@@ -435,9 +476,9 @@ Extract and return the structured information as specified.
 
 ### 4.4 Storage Layer Design
 
-The system uses a single, unified Azure Cosmos DB collection for all enriched news events.
+The system uses a single, unified Azure Cosmos DB collection for all enriched news events. The weighting configurations for event types and source credibility, previously considered as database tables, will now be managed as local YAML configuration files packaged with the Sentiment Score API service. This simplifies deployment and treats these weights as versioned application code.
 
-> **Requirements Reference**: This storage layer serves as the "Enriched News Store" and "Audit News Store" (`HPS-FR-03`, `HPS-FR-03a`, `RTN-FR-03`). All enriched events are persisted here, with routing logic (e.g., partitioning) to separate auditable events (`'global_other'`) from primary events.
+> **Requirements Reference**: This storage layer serves as the "Enriched News Store" and "Audit News Store" (`HPS-FR-03`, `HPS-FR-03a`, `RTN-FR-03`).
 
 #### Database Schema
 
@@ -460,21 +501,6 @@ erDiagram
         string raw_article_url
         date _partitionKey
     }
-    
-    EVENT_TYPE_WEIGHTS {
-        string event_type PK
-        float weight
-        string description
-    }
-    
-    SOURCE_CREDIBILITY_TIERS {
-        string tier_name PK
-        float weight
-        string[] example_sources
-    }
-    
-    ENRICHED_NEWS_EVENT ||--o{ EVENT_TYPE_WEIGHTS : "has type"
-    ENRICHED_NEWS_EVENT ||--o{ SOURCE_CREDIBILITY_TIERS : "has credibility"
 ```
 
 #### Cosmos DB Configuration
@@ -538,7 +564,7 @@ The service provides two primary endpoints for retrieving sentiment scores. The 
   ```
 
 #### Aggregation Logic
-The core aggregation logic uses a weighted formula to calculate the final sentiment score. The formula remains internal to the service.
+The core aggregation logic uses a weighted formula to calculate the final sentiment score. The service loads its weighting parameters (`W_event`, `W_source`) from local YAML files at startup.
 `ASS = Σ(Si * Mi * W_eventi * W_timei * W_sourcei) / Σ(Mi * W_eventi * W_timei * W_sourcei)`
 
 ---
@@ -551,7 +577,7 @@ The following sequence diagram illustrates the orchestrated data ingestion workf
 ```mermaid
 sequenceDiagram
     participant OS as Orchestrator Service
-    participant BA as Bazinga Adapter
+    participant BA as Benzinga Adapter
     participant SB as Azure Service Bus
     participant NPS as News Processor Service
 
