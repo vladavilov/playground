@@ -78,7 +78,7 @@ A list of individual trade records for a specific instrument over a 25-calendar-
     - `trade_datetime`: `datetime`
     - `price`: `float`
     - `par_volume`: `float`
-    - `dealer_id`: `string` - An identifier for the dealer reporting the trade.
+    - `dealer_id`: `string` - An identifier for the dealer executing the trade.
     - `counterparty_type`: `string` - The counterparty classification. Must be one of: 'CUSTOMER_BUY', 'CUSTOMER_SELL', 'INTER_DEALER'.
     - `trade_size_category`: `string` - The trade size classification. Must be one of: 'BLOCK' (>=$1MM), 'ROUND_LOT' ($100k-$999k), 'ODD_LOT' (<$100k).
 
