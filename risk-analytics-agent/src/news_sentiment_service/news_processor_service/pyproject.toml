@@ -7,7 +7,7 @@ name = "news-processor-service"
 version = "0.1.0"
 description = "News Processor Service - Enriches raw news articles with AI analysis"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
