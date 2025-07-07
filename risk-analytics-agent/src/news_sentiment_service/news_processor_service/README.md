@@ -70,7 +70,7 @@ The News Processor Service is a FastAPI-based microservice that performs AI-powe
 
 1. **Clone the repository**
    ```bash
-   cd playground/risk-analytics-agent/services/news_sentiment_service/news_processor_service
+   cd playground/risk-analytics-agent/src/news_sentiment_service/news_processor_service
    ```
 
 2. **Install dependencies**

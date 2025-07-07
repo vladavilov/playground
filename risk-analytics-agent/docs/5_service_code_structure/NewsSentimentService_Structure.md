@@ -1,4 +1,4 @@
-├── services/
+├── src/
 │   └── news_sentiment_service/          # Domain-bounded context for News Sentiment
 │       ├── common/                      # Shared library for all services
 │       │   ├── models/                  # Pydantic domain models
