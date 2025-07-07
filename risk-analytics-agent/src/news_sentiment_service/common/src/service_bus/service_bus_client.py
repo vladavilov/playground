@@ -110,7 +110,19 @@ class ServiceBusClient:
                 
                 for msg in messages:
                     try:
-                        callback(msg.body)
+                        # Handle Azure Service Bus message body which can be a generator
+                        message_body = msg.body
+                        if hasattr(message_body, '__iter__') and not isinstance(message_body, (str, bytes)):
+                            # If body is a generator or iterable (common with Azure SDK), convert to bytes
+                            message_body = b''.join(message_body)
+                        elif isinstance(message_body, str):
+                            # If body is string, encode to bytes
+                            message_body = message_body.encode('utf-8')
+                        elif not isinstance(message_body, bytes):
+                            # Last resort: convert to string then to bytes
+                            message_body = str(message_body).encode('utf-8')
+                        
+                        callback(message_body)
                         receiver.complete_message(msg)
                         logger.debug(f"Processed message from queue '{self.queue_name}'")
                     except Exception as e:

@@ -70,13 +70,14 @@ class TestArticleEnricher:
     @pytest.fixture
     def enricher(self, mock_azure_openai_client):
         """Create ArticleEnricher instance for testing."""
-        return ArticleEnricher(mock_azure_openai_client)
+        return ArticleEnricher(mock_azure_openai_client, "test-deployment")
     
     def test_article_enricher_initialization(self, mock_azure_openai_client):
         """Test ArticleEnricher can be initialized with Azure OpenAI client."""
-        enricher = ArticleEnricher(mock_azure_openai_client)
+        enricher = ArticleEnricher(mock_azure_openai_client, "test-deployment")
         
         assert enricher.client == mock_azure_openai_client
+        assert enricher.deployment_name == "test-deployment"
         assert enricher is not None
     
     def test_enrich_article_successful_flow(

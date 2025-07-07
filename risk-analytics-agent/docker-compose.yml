@@ -179,10 +179,14 @@ services:
       - COSMOS_EMULATOR_ENDPOINT=http://localhost:8081
       - COSMOS_EMULATOR_KEY=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
       
-      - AZURE_OPENAI_ENDPOINT=https://placeholder.openai.azure.com/
-      - AZURE_OPENAI_API_KEY=placeholder-key
-      - AZURE_OPENAI_API_VERSION=2024-02-01
-      - AZURE_OPENAI_DEPLOYMENT=gpt-4
+      # Azure OpenAI configuration - REPLACE WITH YOUR ACTUAL VALUES
+      # Example: AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+      # Example: AZURE_OPENAI_API_KEY=your-actual-api-key
+      # Example: AZURE_OPENAI_DEPLOYMENT=your-gpt-4-deployment-name
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_API_VERSION=2023-07-01-preview
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4}
       
       - AZURE_SERVICEBUS_NAMESPACE=placeholder-namespace
       
