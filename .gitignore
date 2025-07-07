@@ -30,7 +30,6 @@ venv/
 ENV/
 
 # Models and checkpoints
-models/
 *.pt
 *.pth
 *.onnx
