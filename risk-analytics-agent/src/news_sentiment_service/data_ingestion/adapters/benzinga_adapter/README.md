@@ -4,122 +4,190 @@
 
 ## 1. Overview
 
-The Benzinga News Source Adapter is a microservice component of the **News Sentiment Service**. Its primary responsibility is to connect to the external Benzinga news vendor, fetch raw financial news articles, and expose them through a standardized REST API contract.
+The Benzinga News Source Adapter is a microservice component of the **News Sentiment Service** that connects to the Benzinga API and fetches financial news articles relevant to fixed-income markets. This adapter transforms raw Benzinga data into the standardized `RawNewsArticle` format required by the News Sentiment Service.
 
-This service is designed to be a "dumb" adapter, meaning it only handles fetching and transforming data from a specific source into a common `RawNewsArticle` model. All complex business logic, such as orchestration, deduplication, and state management, is handled by the central [Data Ingestion Service (DIS)](../../../../ai_docs/1_architecture/NewsSentimentService_SystemArchitecture.md#42-data-ingestion-service-dis).
+The service focuses on fixed-income and municipal bond-relevant news channels: **Bonds, Treasuries, Economics, Federal Reserve, and Government & Economy**.
 
-## 2. Architectural Role
+## 2. System Integration
 
-This adapter is a leaf node in the News Sentiment Service's data ingestion architecture. It is invoked by the central Data Ingestion Service, which polls it periodically for new articles.
+This adapter integrates into the orchestrated data ingestion architecture where the Data Ingestion Service (DIS) polls it periodically for new articles.
 
 ```mermaid
 graph TD
     subgraph "News Sentiment Service"
-        DIS["Data Ingestion Service (Orchestrator)"]
-        subgraph "Adapters"
-            BA[("Benzinga Adapter")]
-            OtherAdapters["Other Adapters..."]
-        end
+        DIS["Data Ingestion Service<br/>(Orchestrator)"]
+        NPS["News Processor Service<br/>(GPT-4.1 Analysis)"]
+    end
+    
+    subgraph "External"
+        BA["Benzinga API<br/>(api.benzinga.com)"]
+    end
+    
+    subgraph "This Service"
+        BSA["Benzinga Source Adapter<br/>(FastAPI Service)"]
     end
 
-    DIS -- "GET /news?dateFrom=..." --> BA
-    BA -- "Responds with [RawNewsArticle]" --> DIS
+    DIS -- "GET /news?dateFrom=..." --> BSA
+    BSA -- "HTTP Request" --> BA
+    BA -- "Raw Articles JSON" --> BSA
+    BSA -- "RawNewsArticle[]" --> DIS
+    DIS -- "Queue for Processing" --> NPS
 
-    style BA fill:#00b8d4,stroke:#006c7e,color:#fff
+    style BSA fill:#00b8d4,stroke:#006c7e,color:#fff
 ```
 
 ## 3. API Contract
 
-The adapter implements the standardized REST API contract required by all News Source Adapters.
+### **`GET /news`**
 
-**`GET /news`**
-
-Retrieves a list of raw news articles based on their publication time.
+Retrieves raw news articles from Benzinga, filtered by publication time and focused on fixed-income markets.
 
 **Query Parameters**
 
-| Parameter  | Type   | Format              | Required | Description                                                                                                                                                             |
-|------------|--------|---------------------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `dateFrom` | `datetime` | `YYYY-MM-DDTHH:MM:SS` | No       | The UTC start time for the query window (inclusive). Naive datetimes are assumed to be UTC. This is converted to a Unix timestamp for the Benzinga `updatedSince` parameter. |
-| `dateTo`   | `datetime` | `YYYY-MM-DDTHH:MM:SS` | No       | The UTC end time for the query window (inclusive). Naive datetimes are assumed to be UTC. Filtering is performed internally by the adapter after fetching results.      |
+| Parameter  | Type       | Format                | Required | Description                                                          |
+|------------|------------|-----------------------|----------|----------------------------------------------------------------------|
+| `dateFrom` | `datetime` | `YYYY-MM-DDTHH:MM:SS` | No       | UTC start time (inclusive). Naive datetimes are assumed to be UTC.  |
+| `dateTo`   | `datetime` | `YYYY-MM-DDTHH:MM:SS` | No       | UTC end time (inclusive). Naive datetimes are assumed to be UTC.    |
 
-**Responses**
+**Response Format**
 
-- **`200 OK`**: A successful response containing a JSON array of `RawNewsArticle` objects. The array will be empty if no articles match the criteria.
-  
-  **Body:** `List[RawNewsArticle]`
-  ```json
-  [
-      {
-          "article_text": "The market saw significant activity today...",
-          "source_name": "Benzinga",
-          "publication_time": "2024-01-15T12:00:00Z",
-          "title": "Major Muni Bond Update",
-          "url": "https://www.benzinga.com/news/12345/...",
-          "article_hash": "a1b2c3d4e5f6..."
-      }
-  ]
-  ```
+- **`200 OK`**: Array of `RawNewsArticle` objects
+- **`422 Unprocessable Entity`**: Invalid date parameters
+- **`503 Service Unavailable`**: Unable to connect to Benzinga API
 
-- **`422 Unprocessable Entity`**: Returned if date parameters are malformed.
-- **`503 Service Unavailable`**: Returned if the adapter cannot connect to the downstream Benzinga API.
+**Example Response:**
+```json
+[
+    {
+        "article_text": "The Federal Reserve announced a policy change affecting municipal bond markets...",
+        "source_name": "Benzinga",
+        "publication_time": "2024-01-15T12:00:00Z",
+        "title": "Fed Policy Update Impacts Municipal Markets",
+        "url": "https://www.benzinga.com/news/12345/...",
+        "article_hash": "a1b2c3d4e5f6..."
+    }
+]
+```
 
-## 4. Local Development
+### **`GET /health`**
 
-### 4.1. Installation
+Health check endpoint.
 
-The project uses standard Python packaging and can be installed with `pip`.
+**Response:** `{"status": "ok"}`
 
-1.  **Create a Virtual Environment**: It is highly recommended to use a virtual environment to isolate dependencies. From this directory, run:
+## 4. Local Development Setup
+
+### 4.1. Prerequisites
+
+- Python 3.13+
+- Benzinga API token (contact Benzinga for access)
+
+### 4.2. Installation
+
+1.  **Create and activate virtual environment:**
     ```bash
     python -m venv venv
+    
+    # Windows
+    .\\venv\\Scripts\\activate
+    
+    # macOS/Linux
+    source venv/bin/activate
     ```
 
-2.  **Activate the Environment**:
-    -   On Windows:
-        ```bash
-        .\\venv\\Scripts\\activate
-        ```
-    -   On macOS/Linux:
-        ```bash
-        source venv/bin/activate
-        ```
-
-3.  **Install Dependencies**: Once the virtual environment is activated, install the required packages:
+2.  **Install dependencies:**
     ```bash
     pip install -e .[dev]
     ```
-    This will install all base and development dependencies, including the shared `news_sentiment_common` library in editable mode.
 
-### 4.2. Configuration
+### 4.3. Configuration
 
-The service requires the following configuration parameters. It uses a layered approach, prioritizing `.env` files, then environment variables, and finally Azure App Configuration.
+Create a `.env` file in the adapter directory:
 
-Create a `.env` file in the `.../benzinga_adapter` directory:
 ```env
-# .env
+# Required: Your Benzinga API token
+BENZINGA_API_TOKEN=your_secret_token_here
 
-# The port the local FastAPI server will run on
+# Optional: Local development port
 API_PORT=8000
 
-# Your API token for the Benzinga service
-BENZINGA_API_TOKEN="YOUR_SECRET_TOKEN_HERE" 
-
-# (Optional) For connecting to a cloud-based dev environment
-# AZURE_APPCONFIG_ENDPOINT="https://<your-app-config-name>.azconfig.io"
+# Optional: Azure App Configuration for cloud environments
+# AZURE_APPCONFIG_ENDPOINT=https://your-app-config.azconfig.io
 ```
 
-### 4.3. Running the Service
+**Configuration Priority:**
+1. `.env` file
+2. Environment variables
+3. Azure App Configuration (if `AZURE_APPCONFIG_ENDPOINT` is set)
 
-Ensure your virtual environment is activated. To start the local FastAPI server:
+### 4.4. Running the Service
+
 ```bash
+# Development server with auto-reload
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Or using the configured entry point
+python -m src.main
 ```
 
-### 4.4. Running Tests
+The service will be available at `http://localhost:8000`
 
-Ensure your virtual environment is activated. To run the full suite of unit tests:
+### 4.5. Testing
+
 ```bash
+# Run all tests
 pytest
+
+# Run with verbose output
+pytest -v
+
+# Run specific test file
+pytest tests/test_main.py
 ```
-The tests are configured to automatically use the `src` directory for the python path.
+
+## 5. Implementation Details
+
+### 5.1. Benzinga Integration
+
+- **API Endpoint:** `https://api.benzinga.com/api/v2/news`
+- **Channels Filter:** `"Bonds,Treasuries,Economics,Federal Reserve,Govt & Economy"`
+- **Content Processing:** HTML tags are stripped from article content
+- **Date Handling:** RFC 2822 format from Benzinga converted to UTC timezone-aware datetimes
+- **Deduplication:** MD5 hash generated from title + content
+
+### 5.2. Error Handling
+
+- **HTTP 502:** Benzinga API errors (invalid JSON, unexpected format)
+- **HTTP 503:** Network/connection errors to Benzinga API
+- **HTTP 422:** Invalid date parameter format
+- **Article-level:** Individual article processing errors are logged but don't fail the entire request
+
+### 5.3. Production Considerations
+
+- **Timeout:** 30-second timeout for Benzinga API calls
+- **Workers:** Configured for 2 worker processes
+- **Logging:** Structured logging with configurable levels
+- **Authentication:** Azure Managed Identity support for cloud deployment
+
+## 6. Docker Deployment
+
+```bash
+# Build image
+docker build -t benzinga-adapter .
+
+# Run container
+docker run -p 8000:8000 \
+  -e BENZINGA_API_TOKEN=your_token \
+  benzinga-adapter
+```
+
+## 7. Data Flow
+
+1. **Request Reception:** DIS calls `/news` with optional date filters
+2. **API Query:** Service constructs Benzinga API request with relevant channels
+3. **Data Processing:** Raw articles are parsed, HTML-stripped, and timezone-normalized
+4. **Filtering:** Articles filtered by date range if specified
+5. **Transformation:** Each article converted to `RawNewsArticle` model
+6. **Response:** Array of standardized articles returned to DIS
+
+This adapter serves as the entry point for Benzinga news data into the broader News Sentiment Service architecture, where articles are subsequently processed by GPT-4.1 for sentiment analysis and entity extraction.
