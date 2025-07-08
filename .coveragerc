@@ -1,0 +1,10 @@
+[run]
+branch = true
+
+[report]
+show_missing = true
+omit =
+    */.test_venv/*
+    */tests/*
+    */Scripts/*
+    */bin/* 

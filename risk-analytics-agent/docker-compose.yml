@@ -18,7 +18,7 @@ services:
 
   cosmos-init:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./data_ingestion/db_init_service/Dockerfile
     container_name: cosmos-init
     network_mode: host
@@ -99,11 +99,12 @@ services:
 
   benzinga-adapter:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./data_ingestion/adapters/benzinga_adapter/Dockerfile
     ports:
       - "8001:8000" # Expose on http://localhost:8001
     environment:
+      - LOG_LEVEL=DEBUG
       - BENZINGA_API_TOKEN=bz.YWNPB3BPJKUISI4V5J5XQAFEV63XCCYW
       - USE_LOCAL_FALLBACK=true
       # Uncomment Azure App Config endpoint to use it while testing with azure env
@@ -121,19 +122,18 @@ services:
 
   dis-orchestrator-service:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./data_ingestion/orchestrator_service/Dockerfile
     container_name: dis-orchestrator-service
-    networks:
-      - risk-analytics-net
+    network_mode: host
     depends_on:
       servicebus-healthcheck:
         condition: service_healthy
       benzinga-adapter:
         condition: service_healthy
     environment:
-      # Service-to-service communication using Docker network
-      - ADAPTER_URLS=http://benzinga-adapter:8000/news
+      # Service-to-service communication using host network
+      - ADAPTER_URLS=http://localhost:8001/news
       
       # Service Bus configuration - only what's needed for the orchestrator
       - SERVICE_BUS_QUEUE_NAME=articles-to-process
@@ -153,7 +153,7 @@ services:
 
   news-processor-service:
     build:
-      context: ./services/news_sentiment_service
+      context: ./src/news_sentiment_service
       dockerfile: ./news_processor_service/Dockerfile
     container_name: news-processor-service
     network_mode: host
@@ -179,10 +179,14 @@ services:
       - COSMOS_EMULATOR_ENDPOINT=http://localhost:8081
       - COSMOS_EMULATOR_KEY=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
       
-      - AZURE_OPENAI_ENDPOINT=https://placeholder.openai.azure.com/
-      - AZURE_OPENAI_API_KEY=placeholder-key
-      - AZURE_OPENAI_API_VERSION=2024-02-01
-      - AZURE_OPENAI_DEPLOYMENT=gpt-4
+      # Azure OpenAI configuration - REPLACE WITH YOUR ACTUAL VALUES
+      # Example: AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+      # Example: AZURE_OPENAI_API_KEY=your-actual-api-key
+      # Example: AZURE_OPENAI_DEPLOYMENT=your-gpt-4-deployment-name
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_API_VERSION=2023-07-01-preview
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4}
       
       - AZURE_SERVICEBUS_NAMESPACE=placeholder-namespace
       
@@ -194,6 +198,45 @@ services:
       timeout: 20s
       start_period: 30s
       retries: 3
+
+  sentiment-api-service:
+    build:
+      context: ./src/news_sentiment_service
+      dockerfile: ./sentiment_api_service/Dockerfile
+    container_name: sentiment-api-service
+    network_mode: host
+    depends_on:
+      cosmos-init:
+        condition: service_completed_successfully
+    environment:
+      - API_PORT=8002
+      
+      - USE_LOCAL_FALLBACK=true
+      
+      - COSMOS_DATABASE_NAME=risk-analytics-db
+      - COSMOS_CONTAINER_NAME=enriched-news-events
+      - COSMOS_EMULATOR_ENDPOINT=http://localhost:8081
+      - COSMOS_EMULATOR_KEY=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
+      
+      # Uncomment to use Azure App Config in cloud environments
+      # - AZURE_APPCONFIG_ENDPOINT=https://appconfig-risk-analytics-dev.azconfig.io
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+  # Usage: docker-compose up --build test-runner
+  test-runner:
+    image: python:3.13-slim
+    container_name: test-runner
+    working_dir: /app
+    volumes:
+      - ..:/app
+    command: ["bash", "run_all_tests.sh"]
+    restart: "no"
     
 networks:
   risk-analytics-net:
