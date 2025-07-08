@@ -7,7 +7,7 @@ name = "sentiment-api-service"
 version = "0.1.0"
 description = "News Sentiment Score API Service (NSSS) - Calculates and serves aggregated sentiment scores for fixed-income instruments."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
