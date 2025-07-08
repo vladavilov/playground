@@ -70,11 +70,33 @@ This section defines the requirements for calculating credit spreads using ETF d
 - **MDF-AR-02:** Consuming systems (e.g., Market Regime Classification Model, Financial Calculation Service) **shall** consume data exclusively from the Market Data Ingestion Service and **shall not** connect directly to any external data vendor.
 - **MDF-AR-03:** The Market Data Ingestion Service **shall** continuously poll and persist all external market indicators into an internal time-series data store.
 
-### 3.2. Data Delivery
-#### 3.2.1. Real-Time Delivery
-- **MDF-DD-01:** The service **shall** expose a synchronous API endpoint that accepts a target `date` to retrieve market data.
-- **MDF-DD-02:** Upon request, the service **shall** query its internal data store and return the latest available set of market indicators recorded on or before the specified `date`.
-- **MDF-DD-03:** The API response **shall** conform to the following JSON schema, where `data_timestamp` reflects the actual timestamp of the retrieved data.
+### 3.2. Sourcing Requirements
+- **MDF-SR-01:** The Market Data Ingestion Service **shall** source each indicator from the systems and vendors specified in the table below.
+- **MDF-SR-02:** The service **shall** be responsible for all vendor API integration, authentication, and data normalization.
+
+| Feature Name                     | Source System         | Primary Source / Ticker                                       |
+|:---------------------------------|:----------------------|:--------------------------------------------------------------|
+| `vix_index`                      | External Data Vendor  | **CBOE** (e.g., `VIX Index`)                                  |
+| `move_index`                     | External Data Vendor  | **ICE/BofA** (e.g., `MOVE Index`)                             |
+| `investment_grade_credit_spread` | External Data Vendor  | **Bloomberg** (e.g., LQD ETF spread vs. Treasury)             |
+| `high_yield_credit_spread`       | External Data Vendor  | **Bloomberg** (e.g., HYG ETF spread vs. Treasury)             |
+| `tips_breakeven_5y`              | External Data Vendor  | **U.S. Treasury / FRED** (Ticker: `T5YIE`)                    |
+| `swap_spread_10y`                | External Data Vendor  | Market Data Aggregator (e.g., **Bloomberg**)                  |
+| `muni_fund_flows_net`            | External Data Vendor  | **Refinitiv Lipper** or **ICI**                               |
+| `us_cpi_yoy`                     | External Data Vendor  | **U.S. Bureau of Labor Statistics (BLS)**                     |
+! `treasury_curve`                 | External Data Vendor  | FRED  For code in DGS1-DGS30                                  |
+| `swaption_vol`                   | External Data Vendor  | CME,BBG,FinPricing,ICE                                            | 
+  
+
+---
+
+## 4. Data Delivery Contract
+
+### 4.1. Real-Time Delivery
+- **MDF-DC-01:** The service **shall** expose a synchronous API endpoint that accepts a target `date` to retrieve market data.
+- **MDF-DC-02:** Upon receiving a request, the service **shall** query its internal data store and return the latest available set of market indicators recorded on or before the specified `date`.
+- **MDF-DC-03:** The API response **shall** conform to the following JSON schema, where `data_timestamp` reflects the actual timestamp of the retrieved data from the internal store.
+
 
 ```json
 {
