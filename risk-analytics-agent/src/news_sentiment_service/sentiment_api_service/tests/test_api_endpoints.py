@@ -322,17 +322,18 @@ def test_cosmos_db_query_construction_historical(mock_get_cosmos_client, client)
     mock_cosmos_client = Mock()
     mock_cosmos_client.query_items.return_value = []
     mock_get_cosmos_client.return_value = mock_cosmos_client
-    
+
     # Make request
     client.get("/sentiment/historical?as_of_date=2024-01-15&cusip=12345678X")
-    
+
     # Verify that query_items was called with the right parameters
     mock_cosmos_client.query_items.assert_called_once()
     call_args = mock_cosmos_client.query_items.call_args
     query = call_args[0][0]
     assert "SELECT * FROM c" in query
     assert "WHERE" in query
-    assert "@end_of_date" in query
+    # Updated to expect direct date values instead of parameterized queries
+    assert "2024-01-15T23:59:59Z" in query
 
 @patch('src.main.get_cosmos_client')
 def test_query_always_includes_global_market_realtime(mock_get_cosmos_client, client):
@@ -395,18 +396,18 @@ def test_query_uses_or_logic_multiple_parameters(mock_get_cosmos_client, client)
     and_count_between_entities = 0
     or_count_between_entities = 0
     
-    # Check for OR logic patterns
-    if "ARRAY_CONTAINS(c.entities.cusips, @cusip) OR" in query:
+    # Check for OR logic patterns (updated for direct query format)
+    if "ARRAY_CONTAINS(c.entities.cusips, '12345678X') OR" in query:
         or_count_between_entities += 1
-    if "c.entities.sector = @sector OR" in query:
+    if "c.entities.sector = 'Technology' OR" in query:
         or_count_between_entities += 1
-    if "OR c.entities.issuer_name = @issuer_name" in query:
+    if "OR c.entities.issuer_name = 'ABC Corp'" in query:
         or_count_between_entities += 1
         
     # Check for AND logic patterns (should not exist between entities)
-    if "ARRAY_CONTAINS(c.entities.cusips, @cusip) AND c.entities.sector" in query:
+    if "ARRAY_CONTAINS(c.entities.cusips, '12345678X') AND c.entities.sector" in query:
         and_count_between_entities += 1
-    if "c.entities.sector = @sector AND c.entities.issuer_name" in query:
+    if "c.entities.sector = 'Technology' AND c.entities.issuer_name" in query:
         and_count_between_entities += 1
     
     # Should use OR logic, not AND logic between entity conditions
@@ -430,10 +431,10 @@ def test_query_uses_or_logic_two_parameters(mock_get_cosmos_client, client):
     call_args = mock_cosmos_client.query_items.call_args
     query = call_args[0][0]
     
-    # Should contain OR between cusip and sector, not AND
-    cusip_and_sector_and = "ARRAY_CONTAINS(c.entities.cusips, @cusip) AND c.entities.sector = @sector" in query
-    cusip_or_sector = ("ARRAY_CONTAINS(c.entities.cusips, @cusip) OR c.entities.sector = @sector" in query or 
-                       "c.entities.sector = @sector OR ARRAY_CONTAINS(c.entities.cusips, @cusip)" in query)
+    # Should contain OR between cusip and sector, not AND (updated for direct query format)
+    cusip_and_sector_and = "ARRAY_CONTAINS(c.entities.cusips, '12345678X') AND c.entities.sector = 'Technology'" in query
+    cusip_or_sector = ("ARRAY_CONTAINS(c.entities.cusips, '12345678X') OR c.entities.sector = 'Technology'" in query or 
+                       "c.entities.sector = 'Technology' OR ARRAY_CONTAINS(c.entities.cusips, '12345678X')" in query)
     
     assert not cusip_and_sector_and, f"Found unexpected AND logic in query: {query}"
     assert cusip_or_sector, f"Expected OR logic between cusip and sector in query: {query}"
@@ -560,4 +561,31 @@ def test_build_cosmos_query_function_includes_global_market():
     query, params = _build_cosmos_query(None, None, "ABC Corp")
     
     # Should include global_market sector condition
-    assert "global_market" in query.lower() 
+    assert "global_market" in query.lower()
+
+
+def test_sql_injection_protection():
+    """Test that SQL injection attempts are properly escaped in direct queries."""
+    from src.main import _build_cosmos_query
+    
+    # Test SQL injection in cusip
+    malicious_cusip = "'; DROP TABLE c; --"
+    query, params = _build_cosmos_query(malicious_cusip, None, None)
+    
+    # Should escape single quotes to prevent injection
+    assert "''; DROP TABLE c; --'" in query
+    assert "DROP TABLE c" not in query.replace("''; DROP TABLE c; --'", "")
+    
+    # Test SQL injection in sector
+    malicious_sector = "Technology'; DELETE FROM c WHERE 1=1; --"
+    query, params = _build_cosmos_query(None, malicious_sector, None)
+    
+    # Should escape single quotes
+    assert "Technology''; DELETE FROM c WHERE 1=1; --'" in query
+    
+    # Test SQL injection in issuer_name
+    malicious_issuer = "ABC'; UPDATE c SET sentiment = null; --"
+    query, params = _build_cosmos_query(None, None, malicious_issuer)
+    
+    # Should escape single quotes
+    assert "ABC''; UPDATE c SET sentiment = null; --'" in query 
