@@ -1,6 +1,7 @@
 import os
 import logging
 from typing import List, Dict, Any
+from datetime import datetime
 from azure.cosmos import CosmosClient
 from azure.cosmos.partition_key import PartitionKey
 from azure.identity import DefaultAzureCredential
@@ -125,9 +126,37 @@ class CosmosDBClient:
             logger.error(f"Failed to ensure database and container exist: {e}")
             raise
 
+    def _serialize_datetimes(self, obj: Any) -> Any:
+        """
+        Recursively serialize datetime objects to ISO format strings.
+        
+        This method traverses dictionaries, lists, and other data structures,
+        converting any datetime objects to ISO format strings for JSON serialization.
+        
+        Args:
+            obj: The object to serialize (can be dict, list, datetime, or other types)
+            
+        Returns:
+            The object with datetime instances converted to ISO format strings
+        """
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, dict):
+            return {key: self._serialize_datetimes(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._serialize_datetimes(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self._serialize_datetimes(item) for item in obj)
+        else:
+            # Return other types unchanged (str, int, float, bool, None, etc.)
+            return obj
+
     def upsert_item(self, item: Dict[str, Any]) -> None:
         """
         Upserts an item into the specified container.
+        
+        Automatically serializes datetime objects to ISO format strings
+        to ensure JSON compatibility with Cosmos DB.
 
         Args:
             item (Dict[str, Any]): The item to upsert. It must be a dictionary.
@@ -140,8 +169,11 @@ class CosmosDBClient:
                     import uuid
                     item['id'] = str(uuid.uuid4())
             
-            self.container_client.upsert_item(body=item)
-            logger.debug(f"Upserted item with id: {item['id']}")
+            # Serialize datetime objects to ISO format strings
+            serialized_item = self._serialize_datetimes(item)
+            
+            self.container_client.upsert_item(body=serialized_item)
+            logger.debug(f"Upserted item with id: {serialized_item['id']}")
             
         except Exception as e:
             logger.error(f"Failed to upsert item: {e}")
