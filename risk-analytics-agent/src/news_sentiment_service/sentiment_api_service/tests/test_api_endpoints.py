@@ -332,4 +332,232 @@ def test_cosmos_db_query_construction_historical(mock_get_cosmos_client, client)
     query = call_args[0][0]
     assert "SELECT * FROM c" in query
     assert "WHERE" in query
-    assert "@end_of_date" in query 
+    assert "@end_of_date" in query
+
+@patch('src.main.get_cosmos_client')
+def test_query_always_includes_global_market_realtime(mock_get_cosmos_client, client):
+    """Test that global_market sector events are always included in realtime queries."""
+    # Setup mock
+    mock_cosmos_client = Mock()
+    mock_cosmos_client.query_items.return_value = []
+    mock_get_cosmos_client.return_value = mock_cosmos_client
+    
+    # Make request with specific cusip
+    client.get("/sentiment/realtime?cusip=12345678X")
+    
+    # Verify query includes global_market condition
+    mock_cosmos_client.query_items.assert_called_once()
+    call_args = mock_cosmos_client.query_items.call_args
+    query = call_args[0][0]
+    
+    # Should include global_market sector condition
+    assert "c.entities.sector = 'global_market'" in query or "c.entities.sector = @global_market_sector" in query
+
+
+@patch('src.main.get_cosmos_client')
+def test_query_always_includes_global_market_historical(mock_get_cosmos_client, client):
+    """Test that global_market sector events are always included in historical queries."""
+    # Setup mock
+    mock_cosmos_client = Mock()
+    mock_cosmos_client.query_items.return_value = []
+    mock_get_cosmos_client.return_value = mock_cosmos_client
+    
+    # Make request with specific sector
+    client.get("/sentiment/historical?as_of_date=2024-01-15&sector=Technology")
+    
+    # Verify query includes global_market condition
+    mock_cosmos_client.query_items.assert_called_once()
+    call_args = mock_cosmos_client.query_items.call_args
+    query = call_args[0][0]
+    
+    # Should include global_market sector condition
+    assert "c.entities.sector = 'global_market'" in query or "c.entities.sector = @global_market_sector" in query
+
+
+@patch('src.main.get_cosmos_client')
+def test_query_uses_or_logic_multiple_parameters(mock_get_cosmos_client, client):
+    """Test that query uses OR logic when multiple parameters are provided."""
+    # Setup mock
+    mock_cosmos_client = Mock()
+    mock_cosmos_client.query_items.return_value = []
+    mock_get_cosmos_client.return_value = mock_cosmos_client
+    
+    # Make request with multiple parameters
+    client.get("/sentiment/realtime?cusip=12345678X&sector=Technology&issuer_name=ABC%20Corp")
+    
+    # Verify query uses OR logic instead of AND
+    mock_cosmos_client.query_items.assert_called_once()
+    call_args = mock_cosmos_client.query_items.call_args
+    query = call_args[0][0]
+    
+    # Should contain OR conditions for entity parameters
+    # Should NOT contain AND between cusip, sector, and issuer_name
+    and_count_between_entities = 0
+    or_count_between_entities = 0
+    
+    # Check for OR logic patterns
+    if "ARRAY_CONTAINS(c.entities.cusips, @cusip) OR" in query:
+        or_count_between_entities += 1
+    if "c.entities.sector = @sector OR" in query:
+        or_count_between_entities += 1
+    if "OR c.entities.issuer_name = @issuer_name" in query:
+        or_count_between_entities += 1
+        
+    # Check for AND logic patterns (should not exist between entities)
+    if "ARRAY_CONTAINS(c.entities.cusips, @cusip) AND c.entities.sector" in query:
+        and_count_between_entities += 1
+    if "c.entities.sector = @sector AND c.entities.issuer_name" in query:
+        and_count_between_entities += 1
+    
+    # Should use OR logic, not AND logic between entity conditions
+    assert or_count_between_entities > 0, f"Expected OR logic in query: {query}"
+    assert and_count_between_entities == 0, f"Unexpected AND logic between entities in query: {query}"
+
+
+@patch('src.main.get_cosmos_client')
+def test_query_uses_or_logic_two_parameters(mock_get_cosmos_client, client):
+    """Test that query uses OR logic when two parameters are provided."""
+    # Setup mock
+    mock_cosmos_client = Mock()
+    mock_cosmos_client.query_items.return_value = []
+    mock_get_cosmos_client.return_value = mock_cosmos_client
+    
+    # Make request with cusip and sector
+    client.get("/sentiment/realtime?cusip=12345678X&sector=Technology")
+    
+    # Verify query uses OR logic
+    mock_cosmos_client.query_items.assert_called_once()
+    call_args = mock_cosmos_client.query_items.call_args
+    query = call_args[0][0]
+    
+    # Should contain OR between cusip and sector, not AND
+    cusip_and_sector_and = "ARRAY_CONTAINS(c.entities.cusips, @cusip) AND c.entities.sector = @sector" in query
+    cusip_or_sector = ("ARRAY_CONTAINS(c.entities.cusips, @cusip) OR c.entities.sector = @sector" in query or 
+                       "c.entities.sector = @sector OR ARRAY_CONTAINS(c.entities.cusips, @cusip)" in query)
+    
+    assert not cusip_and_sector_and, f"Found unexpected AND logic in query: {query}"
+    assert cusip_or_sector, f"Expected OR logic between cusip and sector in query: {query}"
+
+
+@patch('src.main.get_cosmos_client')
+@patch('src.main.logger')
+def test_info_logging_in_realtime_endpoint(mock_logger, mock_get_cosmos_client, client):
+    """Test that info logging is implemented throughout the realtime endpoint."""
+    # Setup mocks
+    mock_cosmos_client = Mock()
+    mock_cosmos_client.query_items.return_value = []
+    mock_get_cosmos_client.return_value = mock_cosmos_client
+    
+    # Make request
+    client.get("/sentiment/realtime?cusip=12345678X")
+    
+    # Verify that info logging was called
+    # Should have calls for: parameter validation, query building, data fetching, sentiment calculation, response generation
+    info_calls = [call for call in mock_logger.info.call_args_list]
+    assert len(info_calls) >= 3, f"Expected at least 3 info log calls, got {len(info_calls)}"
+
+
+@patch('src.main.get_cosmos_client')
+@patch('src.main.logger')
+def test_info_logging_in_historical_endpoint(mock_logger, mock_get_cosmos_client, client):
+    """Test that info logging is implemented throughout the historical endpoint."""
+    # Setup mocks
+    mock_cosmos_client = Mock()
+    mock_cosmos_client.query_items.return_value = []
+    mock_get_cosmos_client.return_value = mock_cosmos_client
+    
+    # Make request
+    client.get("/sentiment/historical?as_of_date=2024-01-15&sector=Technology")
+    
+    # Verify that info logging was called
+    info_calls = [call for call in mock_logger.info.call_args_list]
+    assert len(info_calls) >= 3, f"Expected at least 3 info log calls, got {len(info_calls)}"
+
+
+@patch('src.main.get_cosmos_client')
+def test_global_market_events_contribute_to_sentiment_score(mock_get_cosmos_client, client):
+    """Test that global_market events are included in sentiment score calculation."""
+    # Setup mock with both specific and global market events
+    global_market_event = {
+        "id": "global_event1",
+        "source": "Bloomberg",
+        "published_at": "2024-01-15T14:00:00Z",
+        "ingested_at": "2024-01-15T14:00:00Z",
+        "event_type": "Federal_Reserve_Policy",
+        "entities": {
+            "issuer_name": "",
+            "sector": "global_market",
+            "state": None,
+            "cusips": []
+        },
+        "sentiment": {
+            "score": -0.5,
+            "magnitude": 0.8
+        },
+        "source_credibility_tier": "TIER_1_REGULATOR",
+        "summary_excerpt": "Fed raises rates",
+        "raw_article_url": "https://example.com/global1"
+    }
+    
+    specific_event = {
+        "id": "specific_event1",
+        "source": "Reuters",
+        "published_at": "2024-01-15T13:00:00Z",
+        "ingested_at": "2024-01-15T13:00:00Z",
+        "event_type": "Earnings_Beat",
+        "entities": {
+            "issuer_name": "ABC Corp",
+            "sector": "Technology",
+            "state": None,
+            "cusips": ["12345678X"]
+        },
+        "sentiment": {
+            "score": 0.7,
+            "magnitude": 0.6
+        },
+        "source_credibility_tier": "TIER_2_PREMIUM_FINANCIAL",
+        "summary_excerpt": "ABC Corp beats earnings",
+        "raw_article_url": "https://example.com/specific1"
+    }
+    
+    mock_cosmos_client = Mock()
+    mock_cosmos_client.query_items.return_value = [global_market_event, specific_event]
+    mock_get_cosmos_client.return_value = mock_cosmos_client
+    
+    # Make request for specific entity
+    response = client.get("/sentiment/realtime?cusip=12345678X")
+    
+    # Verify successful response
+    assert response.status_code == 200
+    response_data = response.json()
+    
+    # Should have 2 contributing articles (global + specific)
+    assert response_data["contributing_articles_count"] == 2
+    
+    # Should have both article URLs
+    assert len(response_data["articles"]) == 2
+    assert "https://example.com/global1" in response_data["articles"]
+    assert "https://example.com/specific1" in response_data["articles"]
+
+
+def test_build_cosmos_query_function_includes_global_market():
+    """Test that _build_cosmos_query function properly includes global_market conditions."""
+    from src.main import _build_cosmos_query
+    
+    # Test with cusip parameter
+    query, params = _build_cosmos_query("12345678X", None, None)
+    
+    # Should include global_market sector condition
+    assert "global_market" in query.lower()
+    
+    # Test with sector parameter  
+    query, params = _build_cosmos_query(None, "Technology", None)
+    
+    # Should include both requested sector and global_market
+    assert "global_market" in query.lower()
+    
+    # Test with issuer_name parameter
+    query, params = _build_cosmos_query(None, None, "ABC Corp")
+    
+    # Should include global_market sector condition
+    assert "global_market" in query.lower() 
