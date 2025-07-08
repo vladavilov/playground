@@ -1,7 +1,7 @@
 import uvicorn
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import logging
 
@@ -78,40 +78,45 @@ def _build_cosmos_query(cusip: Optional[str], sector: Optional[str], issuer_name
     """
     logger.info(f"Building Cosmos query with cusip={cusip}, sector={sector}, issuer_name={issuer_name}, as_of_date={as_of_date}")
     
-    query_parts = ["SELECT * FROM c WHERE 1=1"]
-    parameters = []
-    
-    # Build OR conditions for entity parameters
+    # Build OR conditions for entity parameters using direct string interpolation
     entity_conditions = []
     
     if cusip:
-        entity_conditions.append("ARRAY_CONTAINS(c.entities.cusips, @cusip)")
-        parameters.append({"name": "@cusip", "value": cusip})
+        # Escape single quotes in cusip for SQL safety
+        escaped_cusip = cusip.replace("'", "''")
+        entity_conditions.append(f"ARRAY_CONTAINS(c.entities.cusips, '{escaped_cusip}')")
     
     if sector:
-        entity_conditions.append("c.entities.sector = @sector")
-        parameters.append({"name": "@sector", "value": sector})
+        # Escape single quotes in sector for SQL safety  
+        escaped_sector = sector.replace("'", "''")
+        entity_conditions.append(f"c.entities.sector = '{escaped_sector}'")
     
     if issuer_name:
-        entity_conditions.append("c.entities.issuer_name = @issuer_name")
-        parameters.append({"name": "@issuer_name", "value": issuer_name})
+        # Escape single quotes in issuer_name for SQL safety
+        escaped_issuer = issuer_name.replace("'", "''")
+        entity_conditions.append(f"c.entities.issuer_name = '{escaped_issuer}'")
     
     # Always include global_market events
-    entity_conditions.append("c.entities.sector = @global_market_sector")
-    parameters.append({"name": "@global_market_sector", "value": "global_market"})
+    entity_conditions.append("c.entities.sector = 'global_market'")
     
-    # Combine entity conditions with OR logic
+    # Build the WHERE clause - simplified structure that works with emulator
     if entity_conditions:
         combined_conditions = " OR ".join(entity_conditions)
-        query_parts.append(f"AND ({combined_conditions})")
+        where_clause = f"WHERE ({combined_conditions})"
+    else:
+        # Fallback to just global_market
+        where_clause = "WHERE c.entities.sector = 'global_market'"
+    
+    # Build complete query
+    query_parts = ["SELECT * FROM c", where_clause]
     
     # Add date filtering for historical queries
     if as_of_date:
-        query_parts.append("AND c.published_at <= @end_of_date")
-        end_of_date = f"{as_of_date}T23:59:59Z"
-        parameters.append({"name": "@end_of_date", "value": end_of_date})
+        query_parts.append(f"AND c.published_at <= '{as_of_date}T23:59:59Z'")
     
     query = " ".join(query_parts)
+    parameters = []  # Empty for direct queries
+    
     logger.info(f"Built query: {query}")
     logger.info(f"Query parameters: {parameters}")
     
@@ -187,7 +192,7 @@ async def get_realtime_sentiment(
         query, parameters = _build_cosmos_query(cusip, sector, issuer_name)
         
         logger.info("Fetching events from Cosmos DB")
-        cosmos_events = get_cosmos_client().query_items(query, parameters)
+        cosmos_events = get_cosmos_client().query_items(query, None)
         
         # Convert to model objects
         logger.info("Converting Cosmos events to model objects")
@@ -252,7 +257,7 @@ async def get_historical_sentiment(
         query, parameters = _build_cosmos_query(cusip, sector, issuer_name, as_of_date)
         
         logger.info("Fetching historical events from Cosmos DB")
-        cosmos_events = get_cosmos_client().query_items(query, parameters)
+        cosmos_events = get_cosmos_client().query_items(query, None)
         
         # Convert to model objects
         logger.info("Converting Cosmos events to model objects")
