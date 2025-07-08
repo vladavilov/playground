@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
@@ -69,6 +70,44 @@ class ArticleEnricher:
         self.client = client
         self.deployment_name = deployment_name
     
+    def _clean_openai_response_content(self, content: str) -> str:
+        """
+        Clean OpenAI response content by removing markdown code fence wrapping.
+        
+        OpenAI sometimes returns JSON responses wrapped in markdown code fences like:
+        ```json
+        {"key": "value"}
+        ```
+        
+        This method removes those wrappers to extract clean JSON for parsing.
+        
+        Args:
+            content: Raw response content from OpenAI
+            
+        Returns:
+            str: Cleaned content ready for JSON parsing
+        """
+        if not content:
+            return ""
+            
+        # Strip leading/trailing whitespace
+        content = content.strip()
+        
+        if not content:
+            return ""
+        
+        # Pattern to match code fences with optional language specification
+        # Matches: ```json, ```javascript, ```, ````json, etc.
+        fence_pattern = r'^`{3,}(?:\w+)?\s*\n?(.*?)\n?`{3,}$'
+        
+        match = re.match(fence_pattern, content, re.DOTALL)
+        if match:
+            # Extract content between code fences and strip whitespace
+            return match.group(1).strip()
+        
+        # If no code fence pattern found, return original content
+        return content
+    
     def _determine_source_credibility_tier(self, source_name: str) -> str:
         """
         Determine the credibility tier for a news source based on hardcoded mapping.
@@ -116,7 +155,8 @@ class ArticleEnricher:
         
         # Step 1: Entity Extraction
         entity_response = self._call_openai_entity_extraction(article)
-        entities_data = json.loads(entity_response.choices[0].message.content)
+        cleaned_entity_content = self._clean_openai_response_content(entity_response.choices[0].message.content)
+        entities_data = json.loads(cleaned_entity_content)
         
         # Check if article is 'global_other' sector (filter out with warning)
         if entities_data.get("sector") == "global_other":
@@ -125,7 +165,8 @@ class ArticleEnricher:
         
         # Step 2: Sentiment Analysis and Classification (for relevant articles)
         scoring_response = self._call_openai_scoring(article, entities_data)
-        scoring_data = json.loads(scoring_response.choices[0].message.content)
+        cleaned_scoring_content = self._clean_openai_response_content(scoring_response.choices[0].message.content)
+        scoring_data = json.loads(cleaned_scoring_content)
         
         # Assemble the final EnrichedNewsEvent with script-determined credibility tier
         enriched_event = self._create_enriched_event(article, entities_data, scoring_data)
@@ -493,8 +534,6 @@ class ArticleEnricher:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-    
-
     
     def _create_enriched_event(
         self, 

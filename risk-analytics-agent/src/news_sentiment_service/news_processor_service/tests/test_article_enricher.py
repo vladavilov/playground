@@ -358,48 +358,266 @@ class TestArticleEnricher:
         enricher, 
         mock_azure_openai_client
     ):
-        """Test that enriched events use script-determined credibility tier instead of AI-determined."""
-        # Create article with known source
-        bloomberg_article = RawNewsArticle(
+        """Test that enriched event uses script-determined credibility tier, not AI-provided one."""
+        # Create a raw article with known source
+        sample_article = RawNewsArticle(
             article_text="Test article content",
             source_name="Bloomberg",
             publication_time=datetime(2024, 1, 15, 10, 30, 0),
             title="Test Article",
-            url="https://example.com/news/test",
+            url="https://example.com/test",
             article_hash="test123"
         )
         
-        # Mock entity extraction response (municipal sector, not global_other)
-        entity_response = Mock()
-        entity_response.choices = [Mock()]
-        entity_response.choices[0].message = Mock()
-        entity_response.choices[0].message.content = json.dumps({
-            "issuer_name": "Test City",
-            "sector": "municipal",
-            "state": "CA",
+        # Mock entity extraction response
+        mock_entity_response = Mock()
+        mock_entity_response.choices = [Mock()]
+        mock_entity_response.choices[0].message = Mock()
+        mock_entity_response.choices[0].message.content = json.dumps({
+            "issuer_name": "Test Corp",
+            "sector": "corporate",
+            "state": None,
             "cusips": []
         })
         
-        # Mock scoring response WITHOUT source_credibility_tier
-        scoring_response = Mock()
-        scoring_response.choices = [Mock()]
-        scoring_response.choices[0].message = Mock()
-        scoring_response.choices[0].message.content = json.dumps({
+        # Mock scoring response with AI-provided credibility tier (should be ignored)
+        mock_scoring_response = Mock()
+        mock_scoring_response.choices = [Mock()]
+        mock_scoring_response.choices[0].message = Mock()
+        mock_scoring_response.choices[0].message.content = json.dumps({
             "event_type": "General_News",
-            "sentiment": {
-                "score": 0.1,
-                "magnitude": 0.3
-            },
+            "sentiment": {"score": 0.1, "magnitude": 0.5},
+            "source_credibility_tier": "TIER_5_SYNDICATED",  # This should be ignored
             "summary_excerpt": "Test summary"
         })
         
         enricher.client.chat.completions.create.side_effect = [
-            entity_response,
-            scoring_response
+            mock_entity_response,
+            mock_scoring_response
+        ]
+        
+        # Call the method
+        result = enricher.enrich_article(sample_article)
+        
+        # Verify that script-determined tier is used (Bloomberg = TIER_2_PREMIUM_FINANCIAL)
+        # and AI-provided tier is ignored
+        assert result.source_credibility_tier == "TIER_2_PREMIUM_FINANCIAL"
+    
+    def test_clean_openai_response_content_plain_json(self, enricher):
+        """Test _clean_openai_response_content with plain JSON (no wrapping)."""
+        content = '{"issuer_name": "Test Corp", "sector": "corporate"}'
+        result = enricher._clean_openai_response_content(content)
+        assert result == '{"issuer_name": "Test Corp", "sector": "corporate"}'
+    
+    def test_clean_openai_response_content_json_wrapped(self, enricher):
+        """Test _clean_openai_response_content with markdown JSON wrapping."""
+        content = '''```json
+{"issuer_name": "Test Corp", "sector": "corporate"}
+```'''
+        result = enricher._clean_openai_response_content(content)
+        assert result == '{"issuer_name": "Test Corp", "sector": "corporate"}'
+    
+    def test_clean_openai_response_content_json_wrapped_with_whitespace(self, enricher):
+        """Test _clean_openai_response_content with wrapped JSON and extra whitespace."""
+        content = '''   ```json
+   {"issuer_name": "Test Corp", "sector": "corporate"}
+   ```   '''
+        result = enricher._clean_openai_response_content(content)
+        assert result == '{"issuer_name": "Test Corp", "sector": "corporate"}'
+    
+    def test_clean_openai_response_content_multiline_json(self, enricher):
+        """Test _clean_openai_response_content with multiline JSON in wrapping."""
+        content = '''```json
+{
+    "issuer_name": "Test Corp",
+    "sector": "corporate",
+    "state": null
+}
+```'''
+        expected = '''{
+    "issuer_name": "Test Corp",
+    "sector": "corporate",
+    "state": null
+}'''
+        result = enricher._clean_openai_response_content(content)
+        assert result == expected
+    
+    def test_clean_openai_response_content_javascript_language_tag(self, enricher):
+        """Test _clean_openai_response_content with different language tag (should remove it)."""
+        content = '''```javascript
+{"issuer_name": "Test Corp", "sector": "corporate"}
+```'''
+        result = enricher._clean_openai_response_content(content)
+        assert result == '{"issuer_name": "Test Corp", "sector": "corporate"}'
+    
+    def test_clean_openai_response_content_no_language_tag(self, enricher):
+        """Test _clean_openai_response_content with backticks but no language tag."""
+        content = '''```
+{"issuer_name": "Test Corp", "sector": "corporate"}
+```'''
+        result = enricher._clean_openai_response_content(content)
+        assert result == '{"issuer_name": "Test Corp", "sector": "corporate"}'
+    
+    def test_clean_openai_response_content_extra_backticks(self, enricher):
+        """Test _clean_openai_response_content with more than 3 backticks."""
+        content = '''````json
+{"issuer_name": "Test Corp", "sector": "corporate"}
+````'''
+        result = enricher._clean_openai_response_content(content)
+        assert result == '{"issuer_name": "Test Corp", "sector": "corporate"}'
+    
+    def test_clean_openai_response_content_empty_string(self, enricher):
+        """Test _clean_openai_response_content with empty string."""
+        content = ""
+        result = enricher._clean_openai_response_content(content)
+        assert result == ""
+    
+    def test_clean_openai_response_content_only_whitespace(self, enricher):
+        """Test _clean_openai_response_content with only whitespace."""
+        content = "   \n\t  "
+        result = enricher._clean_openai_response_content(content)
+        assert result == ""
+    
+    def test_enrich_article_with_wrapped_entity_response(
+        self, 
+        enricher, 
+        sample_raw_article
+    ):
+        """Test successful article enrichment when entity extraction response is wrapped in markdown."""
+        # Mock entity extraction response with markdown wrapping
+        mock_entity_response = Mock()
+        mock_entity_response.choices = [Mock()]
+        mock_entity_response.choices[0].message = Mock()
+        mock_entity_response.choices[0].message.content = '''```json
+{
+    "issuer_name": "City of Springfield",
+    "sector": "municipal",
+    "state": "IL",
+    "cusips": ["12345ABC8"]
+}
+```'''
+        
+        # Mock scoring response (regular JSON)
+        mock_scoring_response = Mock()
+        mock_scoring_response.choices = [Mock()]
+        mock_scoring_response.choices[0].message = Mock()
+        mock_scoring_response.choices[0].message.content = json.dumps({
+            "event_type": "Credit_Rating_Upgrade",
+            "sentiment": {"score": 0.75, "magnitude": 0.85},
+            "summary_excerpt": "Springfield issues AAA-rated municipal bond"
+        })
+        
+        enricher.client.chat.completions.create.side_effect = [
+            mock_entity_response,
+            mock_scoring_response
         ]
         
         # Call the method under test
-        result = enricher.enrich_article(bloomberg_article)
+        result = enricher.enrich_article(sample_raw_article)
         
-        # Verify the credibility tier is determined by script (Bloomberg = TIER_2_PREMIUM_FINANCIAL)
-        assert result.source_credibility_tier == "TIER_2_PREMIUM_FINANCIAL" 
+        # Verify the result is correctly parsed despite markdown wrapping
+        assert isinstance(result, EnrichedNewsEvent)
+        assert result.entities.issuer_name == "City of Springfield"
+        assert result.entities.sector == "municipal"
+        assert result.entities.state == "IL"
+        assert result.entities.cusips == ["12345ABC8"]
+    
+    def test_enrich_article_with_wrapped_scoring_response(
+        self, 
+        enricher, 
+        sample_raw_article
+    ):
+        """Test successful article enrichment when scoring response is wrapped in markdown."""
+        # Mock entity extraction response (regular JSON)
+        mock_entity_response = Mock()
+        mock_entity_response.choices = [Mock()]
+        mock_entity_response.choices[0].message = Mock()
+        mock_entity_response.choices[0].message.content = json.dumps({
+            "issuer_name": "City of Springfield",
+            "sector": "municipal", 
+            "state": "IL",
+            "cusips": ["12345ABC8"]
+        })
+        
+        # Mock scoring response with markdown wrapping
+        mock_scoring_response = Mock()
+        mock_scoring_response.choices = [Mock()]
+        mock_scoring_response.choices[0].message = Mock()
+        mock_scoring_response.choices[0].message.content = '''```json
+{
+    "event_type": "Credit_Rating_Upgrade",
+    "sentiment": {
+        "score": 0.75,
+        "magnitude": 0.85
+    },
+    "summary_excerpt": "Springfield issues AAA-rated municipal bond"
+}
+```'''
+        
+        enricher.client.chat.completions.create.side_effect = [
+            mock_entity_response,
+            mock_scoring_response
+        ]
+        
+        # Call the method under test
+        result = enricher.enrich_article(sample_raw_article)
+        
+        # Verify the result is correctly parsed despite markdown wrapping
+        assert isinstance(result, EnrichedNewsEvent)
+        assert result.event_type == "Credit_Rating_Upgrade"
+        assert result.sentiment.score == 0.75
+        assert result.sentiment.magnitude == 0.85
+        assert result.summary_excerpt == "Springfield issues AAA-rated municipal bond"
+    
+    def test_enrich_article_with_both_responses_wrapped(
+        self, 
+        enricher, 
+        sample_raw_article
+    ):
+        """Test successful article enrichment when both responses are wrapped in markdown."""
+        # Mock entity extraction response with markdown wrapping
+        mock_entity_response = Mock()
+        mock_entity_response.choices = [Mock()]
+        mock_entity_response.choices[0].message = Mock()
+        mock_entity_response.choices[0].message.content = '''```json
+{
+    "issuer_name": "City of Springfield",
+    "sector": "municipal",
+    "state": "IL", 
+    "cusips": ["12345ABC8"]
+}
+```'''
+        
+        # Mock scoring response with markdown wrapping
+        mock_scoring_response = Mock()
+        mock_scoring_response.choices = [Mock()]
+        mock_scoring_response.choices[0].message = Mock()
+        mock_scoring_response.choices[0].message.content = '''```json
+{
+    "event_type": "Credit_Rating_Upgrade",
+    "sentiment": {
+        "score": 0.75,
+        "magnitude": 0.85
+    },
+    "summary_excerpt": "Springfield issues AAA-rated municipal bond"
+}
+```'''
+        
+        enricher.client.chat.completions.create.side_effect = [
+            mock_entity_response,
+            mock_scoring_response
+        ]
+        
+        # Call the method under test
+        result = enricher.enrich_article(sample_raw_article)
+        
+        # Verify the result is correctly parsed despite both responses having markdown wrapping
+        assert isinstance(result, EnrichedNewsEvent)
+        assert result.entities.issuer_name == "City of Springfield"
+        assert result.entities.sector == "municipal"
+        assert result.entities.state == "IL"
+        assert result.entities.cusips == ["12345ABC8"]
+        assert result.event_type == "Credit_Rating_Upgrade"
+        assert result.sentiment.score == 0.75
+        assert result.sentiment.magnitude == 0.85
+        assert result.summary_excerpt == "Springfield issues AAA-rated municipal bond" 
