@@ -10,7 +10,8 @@ import tempfile
 import asyncio
 import structlog
 
-from celery_app import celery_app
+# Import celery app from main module
+from main import celery_app
 from services.tika_processor import TikaProcessor
 from utils.blob_storage import BlobStorageClient
 from services.project_management_client import ProjectManagementClient
