@@ -21,7 +21,7 @@ class DocumentUploadResponse(BaseModel):
     """Response model for document upload."""
     document_id: UUID = Field(..., description="Unique document identifier")
     filename: str = Field(..., description="Original filename")
-    file_size: int = Field(..., description="File size in bytes")
+    file_size: int = Field(..., ge=0, description="File size in bytes")
     status: DocumentStatus = Field(..., description="Processing status")
     upload_time: datetime = Field(..., description="Upload timestamp")
     project_id: UUID = Field(..., description="Associated project ID")
