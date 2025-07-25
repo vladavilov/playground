@@ -12,6 +12,7 @@ from neo4j_graphrag.retrievers import VectorRetriever
 from neo4j_graphrag.llm import OpenAILLM
 from neo4j_graphrag.generation import GraphRAG
 from neo4j_graphrag.experimental.pipeline.kg_builder import SimpleKGPipeline
+from neo4j_graphrag.indexes import create_vector_index
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -26,6 +27,17 @@ driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
 
 embedder = OpenAIEmbeddings(model="text‑embedding‑3‑large", api_key=OPENAI_API_KEY)
 INDEX_NAME = "graphrag_index"
+
+create_vector_index(
+    driver,
+    INDEX_NAME,
+    label="Chunk",
+    embedding_property="embedding",
+    dimensions=1536,
+    similarity_fn="cosine",
+    fail_if_exists=False
+)
+
 retriever = VectorRetriever(driver, INDEX_NAME, embedder)
 
 llm = OpenAILLM(model_name=OPENAI_MODEL, model_params={"temperature": 0}, api_key=OPENAI_API_KEY)
