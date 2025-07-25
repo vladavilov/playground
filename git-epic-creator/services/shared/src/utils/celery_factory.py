@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 import importlib
 import structlog
 from celery import Celery
+from celery.signals import task_prerun, task_postrun, task_failure, task_retry, worker_ready
 from configuration.celery_config import CelerySettings, get_celery_settings
 
 logger = structlog.get_logger(__name__)
@@ -60,61 +61,109 @@ class CeleryFactory:
 
         return app
 
-    @staticmethod
-    def create_celery_worker_app(
-        name: str, 
-        settings: Optional[CelerySettings] = None,
-        task_modules: Optional[List[str]] = None
-    ) -> Celery:
-        """
-        Create a Celery worker application with task module discovery and logging integration.
-        
-        Args:
-            name: Application name
-            settings: Celery configuration settings (optional)
-            task_modules: List of task module names to import and register (optional)
-            
-        Returns:
-            Celery: Configured Celery worker application with registered tasks
-        """
-        settings = settings or get_celery_settings()
-        task_modules = task_modules or []
+@task_prerun.connect
+def _log_task_prerun(sender=None, task_id=None, task=None, args=None,
+                     kwargs=None, **kwds):
+    """
+    Log task execution start with structured data.
+    
+    Args:
+        sender: Task class
+        task_id: Unique task identifier
+        task: Task instance (unused)
+        args: Task positional arguments
+        kwargs: Task keyword arguments
+        **kwds: Additional keyword arguments (unused)
+    """
+    logger.info(
+        "Task started",
+        task_name=sender.name if sender else 'unknown',
+        task_id=task_id,
+        args=args,
+        kwargs=kwargs
+    )
 
-        # Create base Celery app using existing method
-        app = CeleryFactory.create_celery_app(name, settings)
+@task_postrun.connect
+def _log_task_postrun(sender=None, task_id=None, task=None, args=None,
+                      kwargs=None, retval=None, state=None, **kwds):
+    """
+    Log task execution completion with result data.
+    
+    Args:
+        sender: Task class
+        task_id: Unique task identifier
+        task: Task instance (unused)
+        args: Task positional arguments (unused)
+        kwargs: Task keyword arguments (unused)
+        retval: Task return value
+        state: Task final state
+        **kwds: Additional keyword arguments (unused)
+    """
+    logger.info(
+        "Task completed",
+        task_name=sender.name if sender else 'unknown',
+        task_id=task_id,
+        state=state,
+        retval=retval
+    )
 
-        # Import and register task modules
-        for module_name in task_modules:
-            try:
-                logger.info(
-                    "Importing task module",
-                    module_name=module_name,
-                    app_name=name
-                )
-                importlib.import_module(module_name)
-                logger.info(
-                    "Successfully imported task module",
-                    module_name=module_name,
-                    app_name=name
-                )
-            except ImportError as e:
-                logger.error(
-                    "Failed to import task module",
-                    module_name=module_name,
-                    app_name=name,
-                    error=str(e)
-                )
-                # Continue with other modules even if one fails
+@task_failure.connect
+def _log_task_failure(sender=None, task_id=None, exception=None,
+                      traceback=None, einfo=None, **kwds):
+    """
+    Log task execution failure with error details.
+    
+    Args:
+        sender: Task class
+        task_id: Unique task identifier
+        exception: Exception that caused the failure
+        traceback: Exception traceback
+        einfo: Exception info object (unused)
+        **kwds: Additional keyword arguments (unused)
+    """
+    logger.error(
+        "Task failed",
+        task_name=sender.name if sender else 'unknown',
+        task_id=task_id,
+        exception=str(exception),
+        traceback=traceback
+    )
 
-        logger.info(
-            "Celery worker application created with task modules",
-            name=name,
-            task_modules_count=len(task_modules),
-            broker_url=settings.CELERY_BROKER_URL,
-            result_backend=settings.CELERY_RESULT_BACKEND
-        )
+@task_retry.connect
+def _log_task_retry(sender=None, task_id=None, reason=None, einfo=None,
+                    **kwds):
+    """
+    Log task retry attempts with retry details.
+    
+    Args:
+        sender: Task class
+        task_id: Unique task identifier
+        reason: Reason for retry
+        einfo: Exception info object
+        **kwds: Additional keyword arguments (unused)
+    """
+    logger.warning(
+        "Task retry",
+        task_name=sender.name if sender else 'unknown',
+        task_id=task_id,
+        reason=str(reason),
+        traceback=einfo.traceback if einfo else None
+    )
 
-        return app
+@worker_ready.connect
+def _log_worker_ready(sender=None, **kwds):
+    """
+    Log worker ready state with worker details.
+    
+    Args:
+        sender: Worker instance
+        **kwds: Additional keyword arguments (unused)
+    """
+    logger.info(
+        "Celery worker ready",
+        worker_hostname=sender.hostname if sender else 'unknown'
+    )
+
 
 @lru_cache()
 def get_celery_app(name: str) -> Celery:

@@ -3,7 +3,7 @@ Tests for document schemas in shared models.
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from pydantic import ValidationError
 
@@ -19,8 +19,26 @@ from models.document_schemas import (
 class TestDocumentStatus:
     """Test cases for DocumentStatus enum."""
 
-    def test_document_status_values(self):
-        """Test that DocumentStatus has correct values."""
+    def test_document_status_enum_values(self):
+        """Test that DocumentStatus has correct enum values."""
+        # Assert
+        assert DocumentStatus.UPLOADED.value == "uploaded"
+        assert DocumentStatus.PROCESSING.value == "processing"
+        assert DocumentStatus.COMPLETED.value == "completed"
+        assert DocumentStatus.FAILED.value == "failed"
+
+    def test_document_status_enum_membership(self):
+        """Test DocumentStatus enum membership."""
+        # Assert
+        assert "uploaded" in [status.value for status in DocumentStatus]
+        assert "processing" in [status.value for status in DocumentStatus]
+        assert "completed" in [status.value for status in DocumentStatus]
+        assert "failed" in [status.value for status in DocumentStatus]
+        assert "invalid_status" not in [status.value for status in DocumentStatus]
+
+    def test_document_status_string_comparison(self):
+        """Test DocumentStatus string comparison functionality."""
+        # Assert
         assert DocumentStatus.UPLOADED == "uploaded"
         assert DocumentStatus.PROCESSING == "processing"
         assert DocumentStatus.COMPLETED == "completed"
@@ -30,48 +48,91 @@ class TestDocumentStatus:
 class TestDocumentUploadResponse:
     """Test cases for DocumentUploadResponse model."""
 
-    def test_document_upload_response_creation(self):
-        """Test successful creation of DocumentUploadResponse."""
-        document_id = uuid4()
-        project_id = uuid4()
-        upload_time = datetime.utcnow()
-        
-        response = DocumentUploadResponse(
-            document_id=document_id,
-            filename="test.pdf",
-            file_size=1024,
-            status=DocumentStatus.UPLOADED,
-            upload_time=upload_time,
-            project_id=project_id
-        )
-        
-        assert response.document_id == document_id
-        assert response.filename == "test.pdf"
-        assert response.file_size == 1024
-        assert response.status == DocumentStatus.UPLOADED
-        assert response.upload_time == upload_time
-        assert response.project_id == project_id
+    @pytest.fixture
+    def sample_upload_response_data(self):
+        """Sample data for DocumentUploadResponse."""
+        return {
+            "document_id": uuid4(),
+            "filename": "test.pdf",
+            "file_size": 1024,
+            "status": DocumentStatus.UPLOADED,
+            "upload_time": datetime.now(timezone.utc),
+            "project_id": uuid4()
+        }
 
-    def test_document_upload_response_serialization(self):
+    def test_document_upload_response_creation(self, sample_upload_response_data):
+        """Test successful creation of DocumentUploadResponse."""
+        # Act
+        response = DocumentUploadResponse(**sample_upload_response_data)
+        
+        # Assert
+        assert response.document_id == sample_upload_response_data["document_id"]
+        assert response.filename == sample_upload_response_data["filename"]
+        assert response.file_size == sample_upload_response_data["file_size"]
+        assert response.status == sample_upload_response_data["status"]
+        assert response.upload_time == sample_upload_response_data["upload_time"]
+        assert response.project_id == sample_upload_response_data["project_id"]
+
+    def test_document_upload_response_serialization(self, sample_upload_response_data):
         """Test UUID and datetime serialization."""
-        document_id = uuid4()
-        project_id = uuid4()
-        upload_time = datetime.utcnow()
+        # Arrange
+        response = DocumentUploadResponse(**sample_upload_response_data)
         
-        response = DocumentUploadResponse(
-            document_id=document_id,
-            filename="test.pdf",
-            file_size=1024,
-            status=DocumentStatus.UPLOADED,
-            upload_time=upload_time,
-            project_id=project_id
-        )
-        
-        # Test model_dump to verify serialization
+        # Act
         data = response.model_dump()
+        
+        # Assert
         assert isinstance(data['document_id'], str)
         assert isinstance(data['project_id'], str)
         assert isinstance(data['upload_time'], str)
+        assert data['document_id'] == str(sample_upload_response_data["document_id"])
+        assert data['project_id'] == str(sample_upload_response_data["project_id"])
+
+    def test_document_upload_response_validation_errors(self):
+        """Test validation errors for DocumentUploadResponse."""
+        # Test missing required fields
+        with pytest.raises(ValidationError) as exc_info:
+            DocumentUploadResponse()
+        
+        errors = exc_info.value.errors()
+        required_fields = {"document_id", "filename", "file_size", "status", "upload_time", "project_id"}
+        error_fields = {error["loc"][0] for error in errors if error["type"] == "missing"}
+        assert required_fields.issubset(error_fields)
+
+    def test_document_upload_response_invalid_uuid(self):
+        """Test DocumentUploadResponse with invalid UUID."""
+        # Arrange
+        invalid_data = {
+            "document_id": "not-a-uuid",
+            "filename": "test.pdf",
+            "file_size": 1024,
+            "status": DocumentStatus.UPLOADED,
+            "upload_time": datetime.now(timezone.utc),
+            "project_id": uuid4()
+        }
+        
+        # Act & Assert
+        with pytest.raises(ValidationError) as exc_info:
+            DocumentUploadResponse(**invalid_data)
+        
+        errors = exc_info.value.errors()
+        uuid_errors = [e for e in errors if "uuid" in e["type"]]
+        assert len(uuid_errors) > 0
+
+    @pytest.mark.parametrize("file_size", [-1, 0])
+    def test_document_upload_response_invalid_file_size(self, file_size, sample_upload_response_data):
+        """Test DocumentUploadResponse with invalid file sizes."""
+        # Arrange
+        sample_upload_response_data["file_size"] = file_size
+        
+        # Act & Assert
+        if file_size < 0:
+            with pytest.raises(ValidationError):
+                DocumentUploadResponse(**sample_upload_response_data)
+        else:
+            # file_size = 0 should be valid (empty file)
+            response = DocumentUploadResponse(**sample_upload_response_data)
+            assert response.file_size == 0
 
 
 class TestDocumentProcessingStatus:
@@ -151,7 +212,7 @@ class TestBulkUploadResponse:
     def test_bulk_upload_response_creation(self):
         """Test successful creation of BulkUploadResponse."""
         project_id = uuid4()
-        upload_time = datetime.utcnow()
+        upload_time = datetime.now(timezone.utc)
         
         response = BulkUploadResponse(
             project_id=project_id,
@@ -177,7 +238,7 @@ class TestBulkUploadResponse:
     def test_bulk_upload_response_default_failed_files(self):
         """Test BulkUploadResponse with default empty failed_files."""
         project_id = uuid4()
-        upload_time = datetime.utcnow()
+        upload_time = datetime.now(timezone.utc)
         
         response = BulkUploadResponse(
             project_id=project_id,
@@ -194,7 +255,7 @@ class TestBulkUploadResponse:
     def test_bulk_upload_response_serialization(self):
         """Test UUID and datetime serialization in BulkUploadResponse."""
         project_id = uuid4()
-        upload_time = datetime.utcnow()
+        upload_time = datetime.now(timezone.utc)
         
         response = BulkUploadResponse(
             project_id=project_id,

@@ -22,7 +22,8 @@ dependencies = [
     "sqlalchemy-utils",
     "fastapi-azure-auth",
     "redis[hiredis]",
-    "celery"
+    "celery",
+    "azure-storage-blob"
 ]
 
 [tool.pytest.ini_options]
