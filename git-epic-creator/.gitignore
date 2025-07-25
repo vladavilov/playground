@@ -1,0 +1,142 @@
+# Git Epic Creator - Git Ignore File
+# This file prevents sensitive and temporary files from being committed to version control
+
+# =============================================================================
+# SECRETS AND SENSITIVE DATA
+# =============================================================================
+
+# Docker secrets directory
+secrets/
+!secrets/README.md
+
+# Environment files with sensitive data
+.env
+.env.local
+.env.production
+.env.staging
+docker-compose.env.local
+docker-compose.env.production
+
+# =============================================================================
+# DOCKER AND CONTAINERS
+# =============================================================================
+
+# Docker volumes (if using host bind mounts)
+neo4j/
+postgres/
+pgadmin/
+
+# Docker Compose overrides
+docker-compose.override.yml
+
+# =============================================================================
+# LOGS AND TEMPORARY FILES
+# =============================================================================
+
+# Application logs
+logs/
+*.log
+*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# =============================================================================
+# DEVELOPMENT ENVIRONMENT
+# =============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# =============================================================================
+# DATABASE FILES
+# =============================================================================
+
+# Local database files (if using SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Database backups
+*.sql.gz
+*.dump
+
+# =============================================================================
+# CERTIFICATES AND KEYS
+# =============================================================================
+
+# SSL certificates
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+
+# SSH keys
+id_rsa
+id_rsa.pub
+*.pub
+
+# =============================================================================
+# BACKUP FILES
+# =============================================================================
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# =============================================================================
+# RUNTIME FILES
+# =============================================================================
+
+# PID files
+*.pid
+
+# Lock files
+*.lock 

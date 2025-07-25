@@ -1,0 +1,239 @@
+# Run from the 'playground/git-epic-creator' directory:
+# > docker-compose up --build
+
+services:
+  # PostgreSQL Database for db_init_service
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    environment:
+      POSTGRES_DB: requirementsdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d requirementsdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Neo4j Database for neo4j_maintanance_service
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: neo4j_db
+    restart: always
+    environment:
+      # Authentication - use environment variables for flexibility
+      NEO4J_AUTH: ${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-neo4j123}
+      # Database configuration
+      NEO4J_initial_dbms_default__database: ${NEO4J_DATABASE:-neo4j}
+      # Memory configuration - adjusted for better performance
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-512m}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-512m}
+      # Security configuration - following Neo4j best practices
+      NEO4J_dbms_security_procedures_unrestricted: gds.*,apoc.*
+      NEO4J_dbms_security_procedures_allowlist: gds.*,apoc.*
+      # Additional security settings
+      NEO4J_dbms_security_auth__minimum__password__length: 8
+      # Connector configuration
+      NEO4J_server_bolt_listen__address: 0.0.0.0:7687
+      NEO4J_server_http_listen__address: 0.0.0.0:7474
+      # Transaction configuration
+      NEO4J_db_transaction_timeout: 60s
+    ports:
+      - "7474:7474"  # Neo4j browser
+      - "7687:7687"  # Bolt protocol
+    volumes:
+      # Data persistence
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_plugins:/plugins
+      - neo4j_config:/conf
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p ${NEO4J_PASSWORD:-neo4j123} 'RETURN 1;'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Database Initialization Service
+  db-init-service:
+    build:
+      context: ./services
+      dockerfile: ./db_init_service/Dockerfile
+    container_name: db_init_service
+    ports:
+      - "8001:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Neo4j Maintenance Service
+  neo4j-maintenance-service:
+    build:
+      context: ./services
+      dockerfile: ./neo4j_maintanance_service/Dockerfile
+    container_name: neo4j_maintenance_service
+    ports:
+      - "8002:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  project-management-service:
+    build:
+      context: ./services
+      dockerfile: ./project_management_service/Dockerfile
+    container_name: project_management_service
+    ports:
+      - "8003:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      db-init-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  document-processing-service:
+    build:
+      context: ./services
+      dockerfile: ./document_processing_service/Dockerfile
+    container_name: document_processing_service
+    ports:
+      - "8004:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      project-management-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  document-processing-worker:
+    build:
+      context: ./services
+      dockerfile: ./document_processing_service/Dockerfile.worker
+    container_name: document_processing_worker
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      project-management-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    restart: unless-stopped
+
+  # Redis for Celery background tasks
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # Optional: Admin tools for database management
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: pgadmin_tool
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+    networks:
+      - microservices_network
+    profiles:
+      - admin-tools
+
+networks:
+  microservices_network:
+    driver: bridge
+    name: git_epic_creator_network
+
+volumes:
+  postgres_data:
+    driver: local
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_plugins:
+    driver: local
+  neo4j_config:
+    driver: local
+  redis_data:
+    driver: local
