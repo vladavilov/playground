@@ -184,7 +184,7 @@ services:
   document-processing-worker:
     build:
       context: ./services
-      dockerfile: ./document_processing_service/Dockerfile.worker
+      dockerfile: ./document_processing_service/Dockerfile
     container_name: document_processing_worker
     environment:
       - API_PORT=8000
