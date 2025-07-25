@@ -14,7 +14,7 @@ This document provides a comprehensive breakdown of **62 detailed technical task
 
 ---
 
-## 1. Infrastructure Foundation (INFRA-001 to INFRA-008)
+## [x] 1. Infrastructure Foundation (INFRA-001 to INFRA-008)
 
 **Architecture Reference:** Section 7.1 Multi-Environment Configuration, Section 6.1 Authentication & Authorization  
 **Business Reference:** NFR-001 Performance Requirements, NFR-003 Security Requirements
@@ -194,7 +194,7 @@ Setup API Gateway infrastructure:
 **Architecture Reference:** Section 5.1 Neo4j Graph Schema, Section 4.4 Project Management Service  
 **Business Reference:** DR-001 Data Storage and Management, DR-002 Data Integration Requirements
 
-### DB-001: Design and Implement PostgreSQL Database Schema
+### [x] DB-001: Design and Implement PostgreSQL Database Schema
 **Priority:** Critical  
 **Dependencies:** INFRA-003  
 **Architecture Mapping:** Section 4.4 Project Management Service  
@@ -204,18 +204,13 @@ Setup API Gateway infrastructure:
 Create PostgreSQL database schema for project management:
 - Projects table with UUID primary keys
 - Azure AD user references (no CID storage)
-- Row-level security implementation
-- Audit logging for all operations
-- Database migration scripts
+- Should be implemented in a one-call microservice, initializing the database and creating the schema
 
 **Acceptance Criteria:**
 - CID-free schema design validated
-- Row-level security prevents unauthorized access
-- Audit logging captures all data operations
-- Migration scripts support rollback capabilities
 - Performance indexes optimized for query patterns
 
-### DB-002: Design and Implement Neo4j Graph RAG Schema
+### [x] DB-002: Design and Implement Neo4j Graph RAG Schema
 **Priority:** Critical  
 **Dependencies:** INFRA-003  
 **Architecture Mapping:** Section 5.1 Neo4j Graph Schema  
@@ -227,16 +222,17 @@ Create Neo4j graph database schema for Graph RAG:
 - Requirement nodes with embedding storage
 - Document and JiraTicket nodes for evidence
 - Relationships: REFERENCED_BY, EVIDENCED_BY, MERGED_FROM
+- Entities: RELATED_TO, DESCRIBED_IN
 - Schema validation and constraints
+- Should be implemented in a one-call microservice, initializing the database and creating the schema, same as DB-001
 
 **Acceptance Criteria:**
 - Graph schema supports requirement-centric design
 - Bidirectional navigation between entities and requirements
 - Evidence tracking through document and ticket relationships
 - Constraint validation prevents data inconsistencies
-- Schema evolution strategy implemented
 
-### DB-003: Configure Neo4j Vector Indexes for Semantic Search
+### [x] DB-003: Configure Neo4j Vector Indexes for Semantic Search
 **Priority:** Critical  
 **Dependencies:** DB-002  
 **Architecture Mapping:** Section 3.1 Vector Embedding Recommendations  

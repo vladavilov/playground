@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "db_init_service"
+version = "0.1.0"
+description = "A one-call microservice to initialize the database schema."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "asyncpg",
+    "sqlalchemy-utils",
+    "structlog",
+    "python-dotenv",
+    "pydantic-settings",
+    "shared @ file:../shared"
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*"] 
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
