@@ -39,8 +39,6 @@ services:
       # Security configuration - following Neo4j best practices
       NEO4J_dbms_security_procedures_unrestricted: gds.*,apoc.*
       NEO4J_dbms_security_procedures_allowlist: gds.*,apoc.*
-      # Additional security settings
-      NEO4J_dbms_security_auth__minimum__password__length: 8
       # Connector configuration
       NEO4J_server_bolt_listen__address: 0.0.0.0:7687
       NEO4J_server_http_listen__address: 0.0.0.0:7474
@@ -159,29 +157,11 @@ services:
     networks:
       - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/celery"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
-
-  document-processing-worker:
-    build:
-      context: ./services
-      dockerfile: ./document_processing_service/Dockerfile.worker
-    container_name: document_processing_worker
-    environment:
-      - API_PORT=8000
-    env_file:
-      - docker-compose.env
-    depends_on:
-      redis:
-        condition: service_healthy
-      project-management-service:
-        condition: service_healthy
-    networks:
-      - microservices_network
     restart: unless-stopped
 
   # Redis for Celery background tasks
