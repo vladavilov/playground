@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+neo4j
+PyPDF2
+python-multipart
+pydantic
+requests
+networkx
+pyvis
+neo4j-graphrag[openai]
