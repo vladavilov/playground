@@ -17,6 +17,7 @@ dependencies = [
     "pydantic",
     "structlog",
     "asyncpg",
+    "psycopg2-binary>=2.9.9",
     "redis[hiredis]",
     "azure-storage-blob",
     "python-multipart",

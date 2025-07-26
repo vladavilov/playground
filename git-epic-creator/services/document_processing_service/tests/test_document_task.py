@@ -8,7 +8,6 @@ internal implementation details.
 import sys
 from uuid import uuid4
 from unittest.mock import Mock, patch
-import pytest
 
 class TestDocumentProcessingIntegration:
     """Integration tests for document processing worker functionality."""
@@ -28,15 +27,20 @@ class TestDocumentProcessingIntegration:
 
     def test_document_processing_task_success(self):
         """Test successful document processing task execution."""
-        with patch('tasks.document_tasks.BlobStorageClient') as mock_blob_client, \
-             patch('tasks.document_tasks.TikaProcessor') as mock_tika, \
-             patch('tasks.document_tasks._update_project_progress_via_http') as mock_progress, \
-             patch('utils.celery_factory.CeleryFactory.create_celery_app') as mock_create_celery_app:
+        # Mock the tika module first
+        mock_tika_module = Mock()
+        mock_tika_parser = Mock()
+        mock_tika_module.parser = mock_tika_parser
+        
+        with patch('utils.blob_storage.BlobStorageClient') as mock_blob_client, \
+             patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+             patch('asyncio.run') as mock_asyncio_run, \
+             patch.dict('sys.modules', {'tika': mock_tika_module, 'tika.parser': mock_tika_parser}):
             
             # Mock Celery app - make task decorator return the original function
             mock_celery_app = Mock()
             mock_celery_app.task.return_value = lambda func: func
-            mock_create_celery_app.return_value = mock_celery_app
+            mock_get_celery_app.return_value = mock_celery_app
             
             # Setup blob storage mock
             mock_blob_instance = Mock()
@@ -55,32 +59,32 @@ class TestDocumentProcessingIntegration:
             mock_delete_result.success = True
             mock_blob_instance.delete_file.return_value = mock_delete_result
             
-            # Setup Tika processor mock
-            mock_tika_instance = Mock()
-            mock_tika.return_value = mock_tika_instance
+            # Setup async progress update mock
+            mock_asyncio_run.return_value = {"success": True}
             
-            mock_processing_result = Mock()
-            mock_processing_result.success = True
-            mock_processing_result.extracted_text = "Sample extracted text"
-            mock_processing_result.file_type = "application/pdf"
-            mock_processing_result.page_count = 1
-            mock_processing_result.metadata = {"title": "Test Document"}
-            mock_processing_result.to_structured_json.return_value = {
-                "text": "Sample extracted text",
-                "metadata": {"title": "Test Document"}
-            }
-            mock_tika_instance.extract_text_with_result.return_value = mock_processing_result
-            
-            # Setup progress update mock
-            mock_progress.return_value = {"success": True}
-            
-            # Import and execute the task
-            from tasks.document_tasks import process_project_documents_task
-            
-            # Call the function directly with proper arguments
-            # The function signature is (self, project_id), so we pass a mock self
-            mock_self = Mock()
-            result = process_project_documents_task.run(self.project_id)
+            # Import and execute the task (after mocking dependencies)
+            with patch('services.tika_processor.TikaProcessor') as mock_tika:
+                # Setup Tika processor mock
+                mock_tika_instance = Mock()
+                mock_tika.return_value = mock_tika_instance
+                
+                mock_processing_result = Mock()
+                mock_processing_result.success = True
+                mock_processing_result.extracted_text = "Sample extracted text"
+                mock_processing_result.file_type = "application/pdf"
+                mock_processing_result.page_count = 1
+                mock_processing_result.metadata = {"title": "Test Document"}
+                mock_processing_result.to_structured_json.return_value = {
+                    "text": "Sample extracted text",
+                    "metadata": {"title": "Test Document"}
+                }
+                mock_tika_instance.extract_text_with_result.return_value = mock_processing_result
+                
+                from tasks.document_tasks import process_project_documents_task
+                
+                # Call the function directly with proper arguments (including mock self)
+                mock_self = Mock()
+                result = process_project_documents_task(mock_self, self.project_id)
             
             # Assert behavior - focus on the result, not internal calls
             assert result["success"] is True
@@ -91,12 +95,12 @@ class TestDocumentProcessingIntegration:
 
     def test_worker_startup_behavior(self):
         """Test that worker starts correctly using the created Celery app."""
-        with patch('utils.celery_factory.CeleryFactory.create_celery_app') as mock_create_celery_app:
+        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app:
             # Mock Celery app and worker
             mock_celery_app = Mock()
             mock_worker = Mock()
             mock_celery_app.Worker.return_value = mock_worker
-            mock_create_celery_app.return_value = mock_celery_app
+            mock_get_celery_app.return_value = mock_celery_app
             
             # Import main to get the start_worker function
             from main import start_worker
@@ -110,13 +114,19 @@ class TestDocumentProcessingIntegration:
 
     def test_document_processing_task_failure_handling(self):
         """Test that task handles failures gracefully and returns appropriate results."""
-        with patch('tasks.document_tasks.BlobStorageClient') as mock_blob_client, \
-             patch('utils.celery_factory.CeleryFactory.create_celery_app') as mock_create_celery_app:
+        # Mock the tika module first
+        mock_tika_module = Mock()
+        mock_tika_parser = Mock()
+        mock_tika_module.parser = mock_tika_parser
+        
+        with patch('utils.blob_storage.BlobStorageClient') as mock_blob_client, \
+             patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+             patch.dict('sys.modules', {'tika': mock_tika_module, 'tika.parser': mock_tika_parser}):
 
             # Mock Celery app - make task decorator return the original function
             mock_celery_app = Mock()
             mock_celery_app.task.return_value = lambda func: func
-            mock_create_celery_app.return_value = mock_celery_app
+            mock_get_celery_app.return_value = mock_celery_app
             
             mock_blob_instance = Mock()
             mock_blob_client.return_value = mock_blob_instance
@@ -129,7 +139,8 @@ class TestDocumentProcessingIntegration:
             
             # Import and execute the task
             from tasks.document_tasks import process_project_documents_task
-            result = process_project_documents_task.run(self.project_id)
+            mock_self = Mock()
+            result = process_project_documents_task(mock_self, self.project_id)
             
             # Assert failure behavior
             assert result["success"] is False
@@ -138,15 +149,20 @@ class TestDocumentProcessingIntegration:
 
     def test_document_processing_partial_failure_behavior(self):
         """Test behavior when some documents fail processing but task continues."""
-        with patch('tasks.document_tasks.BlobStorageClient') as mock_blob_client, \
-             patch('tasks.document_tasks.TikaProcessor') as mock_tika, \
-             patch('tasks.document_tasks._update_project_progress_via_http') as mock_progress, \
-             patch('utils.celery_factory.CeleryFactory.create_celery_app') as mock_create_celery_app:
+        # Mock the tika module first
+        mock_tika_module = Mock()
+        mock_tika_parser = Mock()
+        mock_tika_module.parser = mock_tika_parser
+        
+        with patch('utils.blob_storage.BlobStorageClient') as mock_blob_client, \
+             patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+             patch('asyncio.run') as mock_asyncio_run, \
+             patch.dict('sys.modules', {'tika': mock_tika_module, 'tika.parser': mock_tika_parser}):
             
             # Mock Celery app - make task decorator return the original function
             mock_celery_app = Mock()
             mock_celery_app.task.return_value = lambda func: func
-            mock_create_celery_app.return_value = mock_celery_app
+            mock_get_celery_app.return_value = mock_celery_app
             
             # Setup blob storage mock
             mock_blob_instance = Mock()
@@ -165,30 +181,32 @@ class TestDocumentProcessingIntegration:
             mock_delete_result.success = True
             mock_blob_instance.delete_file.return_value = mock_delete_result
             
-            # Setup Tika processor mock - first succeeds, second fails
-            mock_tika_instance = Mock()
-            mock_tika.return_value = mock_tika_instance
+            # Setup async progress update mock
+            mock_asyncio_run.return_value = {"success": True}
             
-            success_result = Mock()
-            success_result.success = True
-            success_result.extracted_text = "Good content"
-            success_result.file_type = "application/pdf"
-            success_result.page_count = 1
-            success_result.metadata = {}
-            success_result.to_structured_json.return_value = {"text": "Good content"}
-            
-            failure_result = Mock()
-            failure_result.success = False
-            failure_result.error_message = "Corrupted file"
-            
-            mock_tika_instance.extract_text_with_result.side_effect = [success_result, failure_result]
-            
-            # Setup progress update mock
-            mock_progress.return_value = {"success": True}
-            
-            # Import and execute the task
-            from tasks.document_tasks import process_project_documents_task
-            result = process_project_documents_task.run(self.project_id)
+            # Import and execute the task (after mocking dependencies)
+            with patch('services.tika_processor.TikaProcessor') as mock_tika:
+                # Setup Tika processor mock - first succeeds, second fails
+                mock_tika_instance = Mock()
+                mock_tika.return_value = mock_tika_instance
+                
+                success_result = Mock()
+                success_result.success = True
+                success_result.extracted_text = "Good content"
+                success_result.file_type = "application/pdf"
+                success_result.page_count = 1
+                success_result.metadata = {}
+                success_result.to_structured_json.return_value = {"text": "Good content"}
+                
+                failure_result = Mock()
+                failure_result.success = False
+                failure_result.error_message = "Corrupted file"
+                
+                mock_tika_instance.extract_text_with_result.side_effect = [success_result, failure_result]
+                
+                from tasks.document_tasks import process_project_documents_task
+                mock_self = Mock()
+                result = process_project_documents_task(mock_self, self.project_id)
             
             # Assert partial failure behavior
             assert result["success"] is True

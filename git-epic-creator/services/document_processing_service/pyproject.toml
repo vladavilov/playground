@@ -38,7 +38,29 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore:pkg_resources is deprecated as an API.*:UserWarning",
-    "ignore:Deprecated call to `pkg_resources.declare_namespace.*:DeprecationWarning"
+    "ignore:Deprecated call to `pkg_resources.declare_namespace.*:DeprecationWarning",
+    # SQLAlchemy PostgreSQL dialect GenericFunction override warnings
+    "ignore:.*The GenericFunction '_regconfig_fn' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'to_tsvector' is already registered.*:sqlalchemy.exc.SAWarning", 
+    "ignore:.*The GenericFunction 'to_tsquery' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'plainto_tsquery' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'phraseto_tsquery' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'websearch_to_tsquery' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'ts_headline' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'hstore' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'defined' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'delete' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'slice' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'akeys' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'avals' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'hstore_to_array' is already registered.*:sqlalchemy.exc.SAWarning",
+    "ignore:.*The GenericFunction 'hstore_to_matrix' is already registered.*:sqlalchemy.exc.SAWarning",
+    # General catch-all for any other PostgreSQL GenericFunction warnings
+    "ignore:.*The GenericFunction .* is already registered and is going to be overridden.*:sqlalchemy.exc.SAWarning",
+    # Multipart deprecation warning
+    "ignore:.*Please use `import python_multipart` instead.*:PendingDeprecationWarning",
+    # Async coroutine inspection warnings during tests
+    "ignore:coroutine '.*' was never awaited:RuntimeWarning"
 ]
 
 [tool.setuptools.packages.find]
