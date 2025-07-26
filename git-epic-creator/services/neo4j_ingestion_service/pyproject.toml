@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neo4j_ingestion_service"
+version = "0.1.0"
+description = "A microservice to ingest the Neo4j Graph with the data."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "neo4j",
+    "structlog",
+    "python-dotenv",
+    "pydantic-settings",
+    "shared @ file:../shared"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*"] 
+
+[tool.pytest.ini_options]
+pythonpath = ["src"] 
