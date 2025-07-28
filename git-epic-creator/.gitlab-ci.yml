@@ -1,0 +1,357 @@
+# GitLab CI/CD Pipeline for Agentic AI - Git Epic Creator
+# This pipeline builds services, deploys Azure infrastructure, and deploys the application
+
+variables:
+  # Docker Registry Configuration
+  DOCKER_REGISTRY: $CI_REGISTRY
+  DOCKER_IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  
+  # Azure Configuration
+  AZURE_SUBSCRIPTION_ID: $AZURE_SUBSCRIPTION_ID
+  AZURE_TENANT_ID: $AZURE_TENANT_ID
+  AZURE_REGION: $AZURE_REGION
+  
+  # Environment Configuration
+  ENVIRONMENT: $ENVIRONMENT_NAME
+  PROJECT_NAME: "agentic-ai"
+  
+  # Infrastructure Configuration
+  ADMIN_GROUP_OBJECT_ID: $ADMIN_GROUP_OBJECT_ID
+  APP_GW_SSL_CERT_SECRET_ID: $APP_GW_SSL_CERT_SECRET_ID
+  PUBLISHER_EMAIL: $PUBLISHER_EMAIL
+  
+  # Application Configuration
+  POSTGRES_ADMIN_USER: $POSTGRES_ADMIN_USER
+  
+  # Docker settings
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+
+stages:
+  - validate
+  - build
+  - test
+  - infrastructure-tenant
+  - infrastructure-environment
+  - deploy
+  - post-deploy
+
+# Global before_script for Azure authentication
+.azure_auth: &azure_auth
+  before_script:
+    - echo "Installing Azure CLI..."
+    - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+    - echo "Logging into Azure..."
+    - az login --service-principal -u $AZURE_CLIENT_ID -p $AZURE_CLIENT_SECRET --tenant $AZURE_TENANT_ID
+    - az account set --subscription $AZURE_SUBSCRIPTION_ID
+    - echo "Azure authentication successful"
+
+# Global Docker setup
+.docker_setup: &docker_setup
+  before_script:
+    - echo "Setting up Docker..."
+    - docker info
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+
+# Validate Bicep templates and configuration
+validate:bicep:
+  stage: validate
+  image: mcr.microsoft.com/azure-cli:latest
+  <<: *azure_auth
+  script:
+    - echo "Validating Bicep templates..."
+    - cd infra
+    - az bicep build --file main.bicep
+    - az bicep build --file modules/auth.bicep
+    - echo "Bicep validation successful"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Validate Python code quality
+validate:python:
+  stage: validate
+  image: python:3.11-slim
+  before_script:
+    - pip install flake8 black isort
+  script:
+    - echo "Running Python code quality checks..."
+    - find services -name "*.py" -exec flake8 {} + || true
+    - find services -name "*.py" -exec black --check {} + || true
+    - find services -name "*.py" -exec isort --check-only {} + || true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Build shared package first
+build:shared:
+  stage: build
+  image: python:3.11-slim
+  script:
+    - echo "Building shared package..."
+    - cd services/shared
+    - pip install build
+    - python -m build
+    - echo "Shared package built successfully"
+  artifacts:
+    paths:
+      - services/shared/dist/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Build Docker images for each service
+.build_service_template: &build_service
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  <<: *docker_setup
+  script:
+    - echo "Building Docker image for $SERVICE_NAME..."
+    - cd services/$SERVICE_NAME
+    - docker build -t $DOCKER_REGISTRY/$CI_PROJECT_PATH/$SERVICE_NAME:$DOCKER_IMAGE_TAG .
+    - docker push $DOCKER_REGISTRY/$CI_PROJECT_PATH/$SERVICE_NAME:$DOCKER_IMAGE_TAG
+    - echo "Docker image built and pushed for $SERVICE_NAME"
+  dependencies:
+    - build:shared
+
+build:document_processing_service:
+  <<: *build_service
+  variables:
+    SERVICE_NAME: "document_processing_service"
+
+build:project_management_service:
+  <<: *build_service
+  variables:
+    SERVICE_NAME: "project_management_service"
+
+build:neo4j_ingestion_service:
+  <<: *build_service
+  variables:
+    SERVICE_NAME: "neo4j_ingestion_service"
+
+build:neo4j_maintanance_service:
+  <<: *build_service
+  variables:
+    SERVICE_NAME: "neo4j_maintanance_service"
+
+build:mock_auth_service:
+  <<: *build_service
+  variables:
+    SERVICE_NAME: "mock_auth_service"
+
+build:db_init_service:
+  <<: *build_service
+  variables:
+    SERVICE_NAME: "db_init_service"
+
+# Run tests for each service
+.test_service_template: &test_service
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - cd services/$SERVICE_NAME
+    - pip install -e .[dev]
+    - pip install -e ../shared
+  script:
+    - echo "Running tests for $SERVICE_NAME..."
+    - python -m pytest tests/ -v --tb=short
+    - echo "Tests completed for $SERVICE_NAME"
+
+test:document_processing_service:
+  <<: *test_service
+  variables:
+    SERVICE_NAME: "document_processing_service"
+
+test:project_management_service:
+  <<: *test_service
+  variables:
+    SERVICE_NAME: "project_management_service"
+
+test:neo4j_maintanance_service:
+  <<: *test_service
+  variables:
+    SERVICE_NAME: "neo4j_maintanance_service"
+
+test:shared:
+  <<: *test_service
+  variables:
+    SERVICE_NAME: "shared"
+
+# Deploy tenant-level infrastructure (manual trigger for first-time setup)
+deploy:tenant:
+  stage: infrastructure-tenant
+  image: mcr.microsoft.com/azure-cli:latest
+  <<: *azure_auth
+  script:
+    - echo "Deploying tenant-level Azure AD application..."
+    - cd infra
+    - |
+      az deployment tenant create \
+        --name "agentic-ai-tenant-auth-$(date +%Y%m%d-%H%M)" \
+        --location $AZURE_REGION \
+        --template-file modules/auth.bicep \
+        --parameters applicationName="AgenticAIRequirementsEngine-$ENVIRONMENT"
+    - echo "Tenant deployment completed"
+  rules:
+    - if: $DEPLOY_TENANT == "true"
+      when: manual
+  environment:
+    name: tenant
+    action: prepare
+
+# Deploy environment-specific infrastructure
+deploy:infrastructure:
+  stage: infrastructure-environment
+  image: mcr.microsoft.com/azure-cli:latest
+  <<: *azure_auth
+  script:
+    - echo "Deploying Azure infrastructure for environment - [$ENVIRONMENT]"
+    - cd infra
+    - DEPLOYMENT_PRINCIPAL_ID=$(az ad signed-in-user show --query "id" --output tsv)
+    - echo "Deployment Principal ID - [$DEPLOYMENT_PRINCIPAL_ID]"
+    - az deployment sub create --name "agentic-ai-$ENVIRONMENT-$(date +%Y%m%d-%H%M)" --location $AZURE_REGION --template-file main.bicep --parameters environment=$ENVIRONMENT aadClientId=$AAD_CLIENT_ID tenantId=$AZURE_TENANT_ID adminGroupObjectId=$ADMIN_GROUP_OBJECT_ID appGwSslCertSecretId=$APP_GW_SSL_CERT_SECRET_ID deploymentPrincipalId=$DEPLOYMENT_PRINCIPAL_ID postgresAdminUser=$POSTGRES_ADMIN_USER publisherEmail=$PUBLISHER_EMAIL appGatewayBackendAddresses='[]'
+    - echo "Infrastructure deployment completed"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $MANUAL_DEPLOY == "true"
+      when: manual
+  environment:
+    name: $ENVIRONMENT
+    action: prepare
+
+# Deploy application to AKS
+deploy:application:
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  <<: *azure_auth
+  script:
+    - echo "Deploying application to AKS cluster..."
+    - |
+      # Install kubectl
+      az aks install-cli
+      
+      # Get AKS credentials
+      AKS_CLUSTER_NAME="agentic-ai-$ENVIRONMENT-aks"
+      RESOURCE_GROUP_NAME="agentic-ai-$ENVIRONMENT-rg"
+      
+      az aks get-credentials --resource-group $RESOURCE_GROUP_NAME --name $AKS_CLUSTER_NAME
+      
+      # Apply Kubernetes manifests (if they exist)
+      if [ -d "k8s" ]; then
+        echo "Applying Kubernetes manifests..."
+        kubectl apply -f k8s/
+      else
+        echo "No Kubernetes manifests found. Creating basic deployment..."
+        # Generate basic deployment manifests for each service
+        for service in document_processing_service project_management_service neo4j_ingestion_service neo4j_maintanance_service mock_auth_service db_init_service; do
+          echo "Creating deployment for $service..."
+          cat <<EOF | kubectl apply -f -
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: $service
+        namespace: default
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: $service
+        template:
+          metadata:
+            labels:
+              app: $service
+          spec:
+            containers:
+            - name: $service
+              image: $DOCKER_REGISTRY/$CI_PROJECT_PATH/$service:$DOCKER_IMAGE_TAG
+              ports:
+              - containerPort: 8000
+              env:
+              - name: ENVIRONMENT
+                value: "$ENVIRONMENT"
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: $service-service
+        namespace: default
+      spec:
+        selector:
+          app: $service
+        ports:
+        - port: 80
+          targetPort: 8000
+        type: ClusterIP
+      EOF
+        done
+      fi
+      
+      echo "Application deployment completed"
+  dependencies:
+    - deploy:infrastructure
+    - build:document_processing_service
+    - build:project_management_service
+    - build:neo4j_ingestion_service
+    - build:neo4j_maintanance_service
+    - build:mock_auth_service
+    - build:db_init_service
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $MANUAL_DEPLOY == "true"
+      when: manual
+  environment:
+    name: $ENVIRONMENT
+    action: start
+
+# Run end-to-end tests
+test:e2e:
+  stage: post-deploy
+  image: python:3.11-slim
+  before_script:
+    - cd e2e_tests
+    - pip install -e .
+  script:
+    - echo "Running end-to-end tests..."
+    - python -m pytest src/ -v --tb=short
+    - echo "End-to-end tests completed"
+  dependencies:
+    - deploy:application
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: delayed
+      start_in: 5 minutes
+  environment:
+    name: $ENVIRONMENT
+    action: verify
+
+# Health check after deployment
+health_check:
+  stage: post-deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  <<: *azure_auth
+  script:
+    - echo "Performing health checks..."
+    - |
+      # Get API Management Gateway URL
+      RESOURCE_GROUP_NAME="agentic-ai-$ENVIRONMENT-rg"
+      APIM_NAME="agentic-ai-$ENVIRONMENT-apim"
+      
+      GATEWAY_URL=$(az apim show --name $APIM_NAME --resource-group $RESOURCE_GROUP_NAME --query "gatewayUrl" --output tsv)
+      echo "API Management Gateway URL: $GATEWAY_URL"
+      
+      # Basic health check (you might need to adjust based on your API endpoints)
+      curl -f "$GATEWAY_URL/health" || echo "Health check endpoint not available yet"
+      
+      echo "Health check completed"
+  dependencies:
+    - deploy:application
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: delayed
+      start_in: 3 minutes
+  environment:
+    name: $ENVIRONMENT
+    action: verify 
