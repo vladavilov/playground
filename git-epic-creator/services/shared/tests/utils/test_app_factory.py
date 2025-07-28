@@ -183,20 +183,16 @@ class TestFastAPIFactory:
         mock_get_redis_client.assert_called_once()
         mock_check_health.assert_called_once_with(mock_redis_client)
 
-
-
-
-
     @patch('utils.app_factory.get_azure_auth_settings')
-    @patch('utils.app_factory.MultiTenantAzureAuthorizationCodeBearer')
+    @patch('utils.app_factory.create_azure_scheme')
     @patch('utils.app_factory.AzureAuthMiddleware')
-    def test_create_app_with_azure_auth(
+    def test_create_app_with_azure_auth_correct_parameters(
         self,
         mock_azure_middleware_class,
-        mock_azure_scheme_class,
+        mock_create_azure_scheme,
         mock_get_azure_settings
     ):
-        """Test FastAPI application creation with Azure AD authentication."""
+        """Test FastAPI application creation with correct SingleTenantAzureAuthorizationCodeBearer parameters (without validate_iss)."""
         # Arrange
         mock_azure_settings = Mock()
         mock_azure_settings.AZURE_CLIENT_ID = "test-client-id"
@@ -205,14 +201,15 @@ class TestFastAPIFactory:
         mock_azure_settings.OPENAPI_CLIENT_ID = "test-openapi-client-id"
         mock_azure_settings.OPENAPI_AUTHORIZATION_URL = "https://login.microsoftonline.com/test-tenant/oauth2/v2.0/authorize"
         mock_azure_settings.OPENAPI_TOKEN_URL = "https://login.microsoftonline.com/test-tenant/oauth2/v2.0/token"
+        mock_azure_settings.OPENID_CONFIG_URL = "https://login.microsoftonline.com/test-tenant/v2.0/.well-known/openid-configuration"
         mock_get_azure_settings.return_value = mock_azure_settings
-        
+
         mock_azure_scheme = Mock()
-        mock_azure_scheme_class.return_value = mock_azure_scheme
-        
+        mock_create_azure_scheme.return_value = mock_azure_scheme
+
         mock_azure_middleware = Mock()
         mock_azure_middleware_class.return_value = mock_azure_middleware
-        
+
         # Act
         app = FastAPIFactory.create_app(
             title="Test API",
@@ -222,17 +219,19 @@ class TestFastAPIFactory:
             enable_docs_auth=True,
             enable_cors=False
         )
-        
+
         # Assert
         assert isinstance(app, FastAPI)
-        
+
         mock_get_azure_settings.assert_called_once()
-        mock_azure_scheme_class.assert_called_once_with(
+        # Verify create_azure_scheme is called with the custom OpenID config URL parameter
+        mock_create_azure_scheme.assert_called_once_with(
             app_client_id=mock_azure_settings.AZURE_CLIENT_ID,
+            tenant_id=mock_azure_settings.AZURE_TENANT_ID,
             scopes=mock_azure_settings.SCOPES,
             openapi_authorization_url=mock_azure_settings.OPENAPI_AUTHORIZATION_URL,
             openapi_token_url=mock_azure_settings.OPENAPI_TOKEN_URL,
-            validate_iss=False
+            openid_config_url=mock_azure_settings.OPENID_CONFIG_URL
         )
         mock_azure_middleware_class.assert_called_once_with(mock_azure_scheme)
         
@@ -249,7 +248,7 @@ class TestFastAPIFactory:
         assert "/me" in route_paths
 
     @patch('utils.app_factory.get_azure_auth_settings')
-    @patch('utils.app_factory.MultiTenantAzureAuthorizationCodeBearer')
+    @patch('utils.app_factory.SingleTenantAzureAuthorizationCodeBearer')
     @patch('utils.app_factory.AzureAuthMiddleware')
     def test_create_app_with_cors(self, mock_azure_middleware_class, mock_azure_scheme_class, mock_get_azure_settings):
         """Test FastAPI application creation with CORS enabled."""
@@ -262,6 +261,7 @@ class TestFastAPIFactory:
         mock_azure_settings.OPENAPI_CLIENT_ID = "test-openapi-client-id"
         mock_azure_settings.OPENAPI_AUTHORIZATION_URL = "https://login.microsoftonline.com/test-tenant/oauth2/v2.0/authorize"
         mock_azure_settings.OPENAPI_TOKEN_URL = "https://login.microsoftonline.com/test-tenant/oauth2/v2.0/token"
+        mock_azure_settings.OPENID_CONFIG_URL = "https://login.microsoftonline.com/test-tenant/v2.0/.well-known/openid-configuration"
         mock_get_azure_settings.return_value = mock_azure_settings
         
         mock_azure_scheme = Mock()
