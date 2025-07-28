@@ -101,11 +101,34 @@ def celery_health_check(
         logger.info("Celery health check completed", healthy=health_data.get("healthy", False))
         return health_data
     except Exception as e:
+        # Safely access configuration with fallback values
+        # Handle cases where conf object itself might not exist or raise AttributeError
+        broker_url = 'unavailable'
+        backend_url = 'unavailable'
+
+        try:
+            # Try to access conf and its attributes with comprehensive error handling
+            conf = celery_app.conf
+            if conf is not None:
+                broker_url = getattr(conf, 'broker_url', 'unavailable')
+        except (AttributeError, TypeError):
+            # celery_app.conf doesn't exist, can't be accessed, or getattr fails
+            broker_url = 'unavailable'
+
+        try:
+            # Try to access conf and its attributes with comprehensive error handling
+            conf = celery_app.conf
+            if conf is not None:
+                backend_url = getattr(conf, 'result_backend', 'unavailable')
+        except (AttributeError, TypeError):
+            # celery_app.conf doesn't exist, can't be accessed, or getattr fails
+            backend_url = 'unavailable'
+ 
         error_result = {
             "healthy": False,
             "error": str(e),
-            "broker_url": celery_app.broker_url if hasattr(celery_app, 'broker_url') else 'unknown',
-            "backend_url": celery_app.backend_url if hasattr(celery_app, 'backend_url') else 'unknown'
+            "broker_url": broker_url,
+            "backend_url": backend_url
         }
         logger.error("Celery health check failed", error=str(e))
         return error_result

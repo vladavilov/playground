@@ -23,7 +23,7 @@ app = FastAPIFactory.create_app(
     description="A comprehensive microservice for managing projects in the Agentic AI Requirements Engineering System. "
                "Provides CRUD operations with Azure AD authentication and role-based access control.",
     version="1.0.0",
-    enable_azure_auth=False,
+    enable_azure_auth=True,
     enable_docs_auth=False,
     enable_cors=True,
     enable_postgres=True,

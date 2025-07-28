@@ -188,11 +188,22 @@ class CeleryHealthChecker:
         Returns:
             dict: Health check results with details.
         """
+        # Safely access configuration with fallback values
+        try:
+            broker_url = getattr(app.conf, 'broker_url', 'unavailable')
+        except AttributeError:
+            broker_url = 'unavailable'
+        
+        try:
+            backend_url = getattr(app.conf, 'result_backend', 'unavailable')
+        except AttributeError:
+            backend_url = 'unavailable'
+
         result: Dict[str, Any] = {
             "healthy": False,
             "error": None,
-            "broker_url": app.broker_url,
-            "backend_url": app.backend_url,
+            "broker_url": broker_url,
+            "backend_url": backend_url,
             "active_workers_count": 0,
             "worker_details": {},
             "active_tasks": {},
@@ -202,7 +213,8 @@ class CeleryHealthChecker:
         }
         try:
             # Ping workers to get basic connectivity and worker names
-            ping_responses = app.control.ping(timeout=1, reply=True)
+            # Use broadcast directly to avoid parameter conflicts in ping method
+            ping_responses = app.control.broadcast('ping', reply=True, timeout=1)
             if not ping_responses:
                 result["error"] = "No active workers responded to ping."
                 logger.warning(f"Celery detailed health check failed: {result['error']}")

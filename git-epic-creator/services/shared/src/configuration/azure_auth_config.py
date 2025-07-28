@@ -30,6 +30,16 @@ class AzureAuthSettings(BaseConfig):
         default="user_impersonation",
         description="Azure AD scope description"
     )
+    AZURE_AD_AUTHORITY: str = Field(
+        default="https://login.microsoftonline.com",
+        description="Azure AD authority URL (can be overridden for mock service)"
+    )
+    
+    @computed_field
+    @property
+    def OPENID_CONFIG_URL(self) -> str:
+        """Compute the OpenID configuration URL."""
+        return f"{self.AZURE_AD_AUTHORITY}/{self.AZURE_TENANT_ID}/v2.0/.well-known/openid-configuration"
     
     # OpenAPI Configuration
     OPENAPI_CLIENT_ID: str = Field(
@@ -61,13 +71,13 @@ class AzureAuthSettings(BaseConfig):
     @property
     def OPENAPI_AUTHORIZATION_URL(self) -> str:
         """Compute the OpenAPI authorization URL."""
-        return f"https://login.microsoftonline.com/{self.AZURE_TENANT_ID}/oauth2/v2.0/authorize"
+        return f"{self.AZURE_AD_AUTHORITY}/{self.AZURE_TENANT_ID}/oauth2/v2.0/authorize"
     
     @computed_field
     @property
     def OPENAPI_TOKEN_URL(self) -> str:
         """Compute the OpenAPI token URL."""
-        return f"https://login.microsoftonline.com/{self.AZURE_TENANT_ID}/oauth2/v2.0/token"
+        return f"{self.AZURE_AD_AUTHORITY}/{self.AZURE_TENANT_ID}/oauth2/v2.0/token"
 
 @lru_cache()
 def get_azure_auth_settings() -> AzureAuthSettings:

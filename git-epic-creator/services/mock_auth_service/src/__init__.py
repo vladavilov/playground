@@ -1,0 +1,1 @@
+"""Mock Azure AD authentication service package."""
