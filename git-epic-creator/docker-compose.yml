@@ -105,10 +105,10 @@ services:
   neo4j-ingestion-service:
     build:
       context: ./services
-      dockerfile: /neo4j_ingestion_service/Dockerfile
+      dockerfile: ./neo4j_ingestion_service/Dockerfile
     container_name: neo4j_ingestion_service
     ports:
-      - "8005:8000"
+      - "8006:8000"
     environment:
       - API_PORT=8000
     env_file:
@@ -196,6 +196,21 @@ services:
       retries: 5
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
 
+  # Azurite for Azure Blob Storage emulation
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: azurite_storage
+    ports:
+      - "10000:10000"  # Blob storage
+      - "10001:10001"  # Queue storage
+      - "10002:10002"  # Table storage
+    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --blobPort 10000 --queuePort 10001 --tablePort 10002 --loose --debug /workspace/debug.log"
+    volumes:
+      - azurite_data:/workspace
+    networks:
+      - microservices_network
+    restart: unless-stopped
+  
   # Optional: Admin tools for database management
   pgadmin:
     image: dpage/pgadmin4:8
@@ -212,6 +227,77 @@ services:
       - microservices_network
     profiles:
       - admin-tools
+  
+  # Optional: The mock Azure AD authentication server
+  mock-auth-service:
+    build:
+      context: ./services
+      dockerfile: ./mock_auth_service/Dockerfile
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    container_name: mock_auth_service
+    hostname: mock-auth-service
+    ports:
+      - "8005:8000"
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # End-to-end integration tests
+  e2e-tests:
+    build:
+      context: ./e2e_tests
+      dockerfile: ./Dockerfile
+    container_name: e2e_tests_runner
+    environment:
+      # Override service URLs to use internal docker network hostnames
+      - PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
+      - DOCUMENT_PROCESSING_URL=http://document-processing-service:8000
+      - NEO4J_INGESTION_URL=http://neo4j-ingestion-service:8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-init-service:
+        condition: service_healthy
+      neo4j-maintenance-service:
+        condition: service_healthy
+      neo4j-ingestion-service:
+        condition: service_healthy
+      project-management-service:
+        condition: service_healthy
+      document-processing-service:
+        condition: service_healthy
+      mock-auth-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    volumes:
+      # Mount test results and logs for external access
+      - ./e2e_tests/test-results:/e2e-tests/test-results
+    restart: "no"  # Don't restart - tests should run once
+    profiles:
+      - e2e-tests  # Optional profile to run tests on demand
+    command: >
+      sh -c "
+        echo 'Waiting for all services to be fully ready...' &&
+        sleep 10 &&
+        echo 'Starting end-to-end tests...' &&
+        pytest -v --tb=short --junitxml=/e2e-tests/test-results/results.xml
+      "
 
 networks:
   microservices_network:
@@ -230,4 +316,6 @@ volumes:
   neo4j_config:
     driver: local
   redis_data:
+    driver: local
+  azurite_data:
     driver: local

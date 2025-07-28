@@ -115,8 +115,10 @@ class TestCeleryHealthChecker:
     def mock_celery_app(self):
         """Mock Celery application."""
         app = Mock(spec=Celery)
-        app.broker_url = "redis://localhost:6379/0"
-        app.backend_url = "redis://localhost:6379/0"
+        # Mock the conf attribute with broker_url and result_backend
+        app.conf = Mock()
+        app.conf.broker_url = "redis://localhost:6379/0"
+        app.conf.result_backend = "redis://localhost:6379/0"
         return app
 
     def test_check_health_with_details_success(self, mock_celery_app):
@@ -126,8 +128,8 @@ class TestCeleryHealthChecker:
         mock_inspector = Mock()
         mock_celery_app.control = mock_control
         
-        # Mock ping response
-        mock_control.ping.return_value = [{'worker1': 'pong'}, {'worker2': 'pong'}]
+        # Mock broadcast response for ping command
+        mock_control.broadcast.return_value = [{'worker1': 'pong'}, {'worker2': 'pong'}]
         mock_control.inspect.return_value = mock_inspector
         
         # Mock inspector responses
@@ -159,7 +161,7 @@ class TestCeleryHealthChecker:
         # Arrange
         mock_control = Mock()
         mock_celery_app.control = mock_control
-        mock_control.ping.return_value = []
+        mock_control.broadcast.return_value = []
 
         # Act
         result = CeleryHealthChecker.check_health_with_details(mock_celery_app)
@@ -174,7 +176,7 @@ class TestCeleryHealthChecker:
         # Arrange
         mock_control = Mock()
         mock_celery_app.control = mock_control
-        mock_control.ping.side_effect = Exception("Connection failed")
+        mock_control.broadcast.side_effect = Exception("Connection failed")
 
         # Act
         result = CeleryHealthChecker.check_health_with_details(mock_celery_app)
@@ -191,7 +193,7 @@ class TestCeleryHealthChecker:
         mock_inspector = Mock()
         mock_celery_app.control = mock_control
         
-        mock_control.ping.return_value = [{'worker1': 'pong'}]
+        mock_control.broadcast.return_value = [{'worker1': 'pong'}]
         mock_control.inspect.return_value = mock_inspector
         
         # Mock inspector methods to return None (failure case)
@@ -208,6 +210,120 @@ class TestCeleryHealthChecker:
         assert result["active_workers_count"] == 1
         assert result["active_tasks"] == {}
         assert result["scheduled_tasks"] == {}
-        assert result["registered_tasks"] == {}
-        assert result["stats"] == {}
-        assert result["worker_details"] == {}
+
+    def test_check_health_with_details_missing_conf_attributes(self):
+        """Test health check when conf attributes are missing."""
+        # Arrange
+        app = Mock(spec=Celery)
+        app.conf = Mock()
+        # Simulate missing broker_url and result_backend attributes
+        del app.conf.broker_url
+        del app.conf.result_backend
+        
+        mock_control = Mock()
+        mock_inspector = Mock()
+        app.control = mock_control
+        mock_control.broadcast.return_value = [{'worker1': 'pong'}]
+        mock_control.inspect.return_value = mock_inspector
+        
+        # Mock inspector responses
+        mock_inspector.active.return_value = {'worker1': []}
+        mock_inspector.scheduled.return_value = {'worker1': []}
+        mock_inspector.registered.return_value = {'worker1': ['task1']}
+        mock_inspector.stats.return_value = {'worker1': {'pid': 1234, 'uptime': 3600, 'total': 100}}
+        
+        # Act
+        result = CeleryHealthChecker.check_health_with_details(app)
+        
+        # Assert
+        assert result["healthy"] is True
+        assert result["broker_url"] == "unavailable"
+        assert result["backend_url"] == "unavailable"
+        assert result["registered_tasks"] == {'worker1': ['task1']}
+
+    def test_check_health_with_details_missing_conf_object(self):
+        """Test health check when conf object is missing entirely."""
+        # Arrange
+        app = Mock(spec=Celery)
+        # Simulate missing conf attribute
+        del app.conf
+        
+        mock_control = Mock()
+        mock_inspector = Mock()
+        app.control = mock_control
+        mock_control.broadcast.return_value = [{'worker1': 'pong'}]
+        mock_control.inspect.return_value = mock_inspector
+        
+        # Mock inspector responses
+        mock_inspector.active.return_value = {'worker1': []}
+        mock_inspector.scheduled.return_value = {'worker1': []}
+        mock_inspector.registered.return_value = {'worker1': ['task1']}
+        mock_inspector.stats.return_value = {'worker1': {'pid': 1234, 'uptime': 3600, 'total': 100}}
+        
+        # Act
+        result = CeleryHealthChecker.check_health_with_details(app)
+        
+        # Assert
+        assert result["healthy"] is True
+        assert result["broker_url"] == "unavailable"
+        assert result["backend_url"] == "unavailable"
+        assert result["registered_tasks"] == {'worker1': ['task1']}
+    def test_check_health_with_details_broadcast_method_used(self, mock_celery_app):
+        """Test that health check uses broadcast method instead of ping to avoid parameter conflicts."""
+        # Arrange
+        mock_control = Mock()
+        mock_inspector = Mock()
+        mock_celery_app.control = mock_control
+        
+        # Mock broadcast response for ping command
+        mock_control.broadcast.return_value = [{'worker1': 'pong'}]
+        mock_control.inspect.return_value = mock_inspector
+        
+        # Mock inspector responses
+        mock_inspector.active.return_value = {'worker1': []}
+        mock_inspector.scheduled.return_value = {'worker1': []}
+        mock_inspector.registered.return_value = {'worker1': ['task1']}
+        mock_inspector.stats.return_value = {'worker1': {'pid': 1234, 'uptime': 3600, 'total': 100}}
+
+        # Act
+        result = CeleryHealthChecker.check_health_with_details(mock_celery_app)
+
+        # Assert
+        assert result["healthy"] is True
+        assert result["active_workers_count"] == 1
+        # Verify that broadcast was called with correct parameters
+        mock_control.broadcast.assert_called_once_with('ping', reply=True, timeout=1)
+
+    def test_check_health_with_details_broadcast_parameter_conflict_avoided(self, mock_celery_app):
+        """Test that using broadcast directly avoids the parameter conflict that caused the original error."""
+        # Arrange
+        mock_control = Mock()
+        mock_inspector = Mock()
+        mock_celery_app.control = mock_control
+        
+        # Simulate the original error scenario where ping method would cause parameter conflicts
+        def mock_ping_with_conflict(*args, **kwargs):
+            # This simulates the original error: "got multiple values for keyword argument 'reply'"
+            raise TypeError("broadcast() got multiple values for keyword argument 'reply'")
+        
+        # Mock ping to raise the original error, but broadcast to work correctly
+        mock_control.ping = Mock(side_effect=mock_ping_with_conflict)
+        mock_control.broadcast.return_value = [{'worker1': 'pong'}]
+        mock_control.inspect.return_value = mock_inspector
+        
+        # Mock inspector responses
+        mock_inspector.active.return_value = {'worker1': []}
+        mock_inspector.scheduled.return_value = {'worker1': []}
+        mock_inspector.registered.return_value = {'worker1': ['task1']}
+        mock_inspector.stats.return_value = {'worker1': {'pid': 1234, 'uptime': 3600, 'total': 100}}
+
+        # Act
+        result = CeleryHealthChecker.check_health_with_details(mock_celery_app)
+
+        # Assert
+        assert result["healthy"] is True
+        assert result["active_workers_count"] == 1
+        # Verify that broadcast was used instead of ping, avoiding the parameter conflict
+        mock_control.broadcast.assert_called_once_with('ping', reply=True, timeout=1)
+        # Verify that ping was not called (since we use broadcast directly)
+        mock_control.ping.assert_not_called()

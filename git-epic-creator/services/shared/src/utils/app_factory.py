@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_azure_auth import SingleTenantAzureAuthorizationCodeBearer
+from fastapi_azure_auth import MultiTenantAzureAuthorizationCodeBearer
 from middleware.azure_auth_middleware import AzureAuthMiddleware, get_current_user
 from configuration.azure_auth_config import get_azure_auth_settings
 from utils.postgres_client import get_postgres_client, PostgresHealthChecker, PostgresClient
@@ -84,10 +84,12 @@ class FastAPIFactory:
             azure_settings = get_azure_auth_settings()
 
             # Configure Azure AD authentication scheme
-            azure_scheme = SingleTenantAzureAuthorizationCodeBearer(
+            azure_scheme = MultiTenantAzureAuthorizationCodeBearer(
                 app_client_id=azure_settings.AZURE_CLIENT_ID,
-                tenant_id=azure_settings.AZURE_TENANT_ID,
-                scopes=azure_settings.SCOPES
+                scopes=azure_settings.SCOPES,
+                openapi_authorization_url=azure_settings.OPENAPI_AUTHORIZATION_URL,
+                openapi_token_url=azure_settings.OPENAPI_TOKEN_URL,
+                validate_iss=False
             )
 
             # Create Azure AD middleware

@@ -3,7 +3,7 @@ Tests for main.py Celery worker entry point.
 """
 
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, PropertyMock
 import pytest
 from celery import Celery
 from fastapi import FastAPI
@@ -476,3 +476,188 @@ class TestMain:
             assert "startup failed" in str(exc_info.value).lower()
             # Verify error was logged
             assert any("Failed to start" in str(call) for call in mock_logger.error.call_args_list)
+
+    def test_celery_health_endpoint_handles_missing_conf_attribute(self):
+        """Test that /health/celery endpoint handles missing conf attribute gracefully."""
+        mock_task_module = Mock()
+        
+        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+             patch('configuration.logging_config.configure_logging'), \
+             patch('structlog.get_logger') as mock_get_logger, \
+             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
+             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
+             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
+             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
+            
+            # Arrange
+            mock_logger = Mock()
+            mock_celery_app = Mock(spec=Celery)
+            mock_fastapi_app = FastAPI()
+            mock_settings = Mock()
+            mock_settings.API_PORT = 8000
+            
+            # Simulate missing conf attribute
+            del mock_celery_app.conf
+            
+            # Make health check fail to trigger error handling
+            mock_health_check.side_effect = Exception("Health check failed")
+            
+            mock_get_logger.return_value = mock_logger
+            mock_get_celery_app.return_value = mock_celery_app
+            mock_create_app.return_value = mock_fastapi_app
+            mock_get_settings.return_value = mock_settings
+            
+            # Act - Import main module
+            import main
+            
+            # Test the health endpoint error handling
+            client = TestClient(main.app)
+            response = client.get("/health/celery")
+            
+            # Assert
+            assert response.status_code == 200
+            response_data = response.json()
+            assert response_data["healthy"] is False
+            assert response_data["error"] == "Health check failed"
+            assert response_data["broker_url"] == "unavailable"
+            assert response_data["backend_url"] == "unavailable"
+
+    def test_celery_health_endpoint_handles_missing_conf_attributes(self):
+        """Test that /health/celery endpoint handles missing broker_url and result_backend attributes."""
+        mock_task_module = Mock()
+        
+        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+             patch('configuration.logging_config.configure_logging'), \
+             patch('structlog.get_logger') as mock_get_logger, \
+             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
+             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
+             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
+             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
+            
+            # Arrange
+            mock_logger = Mock()
+            mock_celery_app = Mock(spec=Celery)
+            mock_fastapi_app = FastAPI()
+            mock_settings = Mock()
+            mock_settings.API_PORT = 8000
+            
+            # Simulate conf object exists but missing specific attributes
+            mock_celery_app.conf = Mock()
+            del mock_celery_app.conf.broker_url
+            del mock_celery_app.conf.result_backend
+            
+            # Make health check fail to trigger error handling
+            mock_health_check.side_effect = AttributeError("'MockConf' object has no attribute 'broker_url'")
+            
+            mock_get_logger.return_value = mock_logger
+            mock_get_celery_app.return_value = mock_celery_app
+            mock_create_app.return_value = mock_fastapi_app
+            mock_get_settings.return_value = mock_settings
+            
+            # Act - Import main module
+            import main
+            
+            # Test the health endpoint error handling
+            client = TestClient(main.app)
+            response = client.get("/health/celery")
+            
+            # Assert
+            assert response.status_code == 200
+            response_data = response.json()
+            assert response_data["healthy"] is False
+            assert "'MockConf' object has no attribute 'broker_url'" in response_data["error"]
+            assert response_data["broker_url"] == "unavailable"
+            assert response_data["backend_url"] == "unavailable"
+
+    def test_celery_health_endpoint_handles_getattr_exceptions(self):
+        """Test that /health/celery endpoint handles getattr exceptions gracefully."""
+        mock_task_module = Mock()
+        
+        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+             patch('configuration.logging_config.configure_logging'), \
+             patch('structlog.get_logger') as mock_get_logger, \
+             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
+             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
+             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
+             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
+            
+            # Arrange
+            mock_logger = Mock()
+            mock_celery_app = Mock(spec=Celery)
+            mock_fastapi_app = FastAPI()
+            mock_settings = Mock()
+            mock_settings.API_PORT = 8000
+            
+            # Create a conf object that doesn't have broker_url or result_backend attributes
+            mock_conf = Mock()
+            del mock_conf.broker_url
+            del mock_conf.result_backend
+            mock_celery_app.conf = mock_conf
+            
+            # Make health check fail to trigger error handling
+            mock_health_check.side_effect = Exception("Health check failed")
+            
+            mock_get_logger.return_value = mock_logger
+            mock_get_celery_app.return_value = mock_celery_app
+            mock_create_app.return_value = mock_fastapi_app
+            mock_get_settings.return_value = mock_settings
+            
+            # Act - Import main module
+            import main
+            
+            # Test the health endpoint error handling
+            client = TestClient(main.app)
+            response = client.get("/health/celery")
+            
+            # Assert
+            assert response.status_code == 200
+            response_data = response.json()
+            assert response_data["healthy"] is False
+            assert response_data["error"] == "Health check failed"
+            assert response_data["broker_url"] == "unavailable"
+            assert response_data["backend_url"] == "unavailable"
+
+    def test_celery_health_endpoint_handles_conf_access_failure_in_error_handler(self):
+        """Test that /health/celery endpoint error handler handles conf object access failure."""
+        mock_task_module = Mock()
+        
+        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+             patch('configuration.logging_config.configure_logging'), \
+             patch('structlog.get_logger') as mock_get_logger, \
+             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
+             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
+             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
+             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
+            
+            # Arrange
+            mock_logger = Mock()
+            mock_celery_app = Mock(spec=Celery)
+            mock_fastapi_app = FastAPI()
+            mock_settings = Mock()
+            mock_settings.API_PORT = 8000
+            
+            # Make health check fail to trigger error handling path
+            mock_health_check.side_effect = Exception("Health check failed")
+            
+            # Remove the conf attribute entirely to simulate missing attribute
+            del mock_celery_app.conf
+            
+            mock_get_logger.return_value = mock_logger
+            mock_get_celery_app.return_value = mock_celery_app
+            mock_create_app.return_value = mock_fastapi_app
+            mock_get_settings.return_value = mock_settings
+            
+            # Act - Import main module
+            import main
+            
+            # Test the health endpoint error handling
+            client = TestClient(main.app)
+            response = client.get("/health/celery")
+            
+            # Assert
+            assert response.status_code == 200
+            response_data = response.json()
+            assert response_data["healthy"] is False
+            assert response_data["error"] == "Health check failed"
+            assert response_data["broker_url"] == "unavailable"
+            assert response_data["backend_url"] == "unavailable"

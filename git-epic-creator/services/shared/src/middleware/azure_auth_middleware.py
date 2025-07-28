@@ -54,7 +54,10 @@ async def get_current_user(
     """
     try:
         user = await azure_scheme()
-        logger.info("User authenticated successfully", user_id=user.oid, username=user.preferred_username)
+        logger.info("User authenticated successfully", 
+            user_id=user.oid,
+            username=user.preferred_username
+        )
         return user
     except HTTPException as e:
         logger.warning("User authentication failed", status_code=e.status_code, detail=e.detail)
@@ -65,7 +68,7 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
 
 async def get_current_active_user(
     current_user: User = Depends(get_current_user)
@@ -88,7 +91,7 @@ async def get_current_active_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Guest users are not allowed"
         )
-    
+
     logger.info("Active user verified", user_id=current_user.oid, username=current_user.preferred_username)
     return current_user
 
@@ -117,7 +120,7 @@ def require_roles(required_roles: list[str]):
         """
         user_roles = set(current_user.roles or [])
         required_roles_set = set(required_roles)
-        
+
         if not required_roles_set.intersection(user_roles):
             logger.warning(
                 "User lacks required roles",
@@ -129,7 +132,7 @@ def require_roles(required_roles: list[str]):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"User must have one of the following roles: {', '.join(required_roles)}"
             )
-        
+
         logger.info(
             "User role validation passed",
             user_id=current_user.oid,
@@ -137,5 +140,5 @@ def require_roles(required_roles: list[str]):
             required_roles=required_roles
         )
         return current_user
-    
+
     return validate_roles
