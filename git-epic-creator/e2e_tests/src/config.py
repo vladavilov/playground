@@ -152,14 +152,8 @@ class TestConfig:
             Dict with authentication parameters
         """
         return {
-            "tenant_id": (
-                os.getenv("AZURE_TENANT_ID") or 
-                os.getenv("MOCK_TENANT_ID", "e7963c3a-3b3a-43b6-9426-89e433d07e69")
-            ),
-            "client_id": (
-                os.getenv("AZURE_CLIENT_ID") or 
-                os.getenv("MOCK_CLIENT_ID", "a9e304a9-5b6c-4ef7-9b37-23a579a6d7be")
-            ),
+            "tenant_id": os.getenv("AZURE_TENANT_ID", "e7963c3a-3b3a-43b6-9426-89e433d07e69"),
+            "client_id": os.getenv("AZURE_CLIENT_ID", "a9e304a9-5b6c-4ef7-9b37-23a579a6d7be"),
             "client_secret": os.getenv("MOCK_CLIENT_SECRET", "mock-secret"),
             "scope": os.getenv("MOCK_SCOPE", "api://a9e304a9-5b6c-4ef7-9b37-23a579a6d7be/.default")
         }

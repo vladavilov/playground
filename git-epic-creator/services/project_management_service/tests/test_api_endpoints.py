@@ -6,16 +6,20 @@ Combines project API and project member endpoint tests with proper imports.
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch, AsyncMock
 from uuid import uuid4
-import io
 
 import pytest
 from fastapi import status, HTTPException
 from fastapi.testclient import TestClient
 
-from routers.project_router import get_current_active_user, require_roles, get_project_service
-from main import app
-from models.project_db import Project, ProjectMember
-from models.document_schemas import BulkUploadResponse
+# Mock Azure environment variables before importing main
+with patch.dict('os.environ', {
+    'AZURE_TENANT_ID': '12345678-1234-1234-1234-123456789abc',
+    'AZURE_CLIENT_ID': 'test-client-id'
+}):
+    from routers.project_router import get_current_active_user, require_roles, get_project_service
+    from main import app
+    from models.project_db import Project, ProjectMember
+    from models.document_schemas import BulkUploadResponse
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, field_validator
 from dotenv import load_dotenv
+import re
 
 from .base_config import BaseConfig
 
@@ -18,10 +18,42 @@ class AzureAuthSettings(BaseConfig):
         default="",
         description="Azure AD tenant ID"
     )
+    
+    @field_validator('AZURE_TENANT_ID')
+    @classmethod
+    def validate_tenant_id(cls, v: str) -> str:
+        """Validate that tenant ID is not empty and has valid UUID format."""
+        if not v or v.strip() == "":
+            raise ValueError(
+                "AZURE_TENANT_ID is required. Please set this environment variable to your Azure AD tenant ID."
+            )
+        
+        # Check if it's a valid UUID format
+        uuid_pattern = re.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            re.IGNORECASE
+        )
+        if not uuid_pattern.match(v):
+            raise ValueError(
+                f"AZURE_TENANT_ID '{v}' is not a valid UUID format. "
+                f"Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            )
+        
+        return v
     AZURE_CLIENT_ID: str = Field(
         default="",
         description="Azure AD application client ID"
     )
+    
+    @field_validator('AZURE_CLIENT_ID')
+    @classmethod
+    def validate_client_id(cls, v: str) -> str:
+        """Validate that client ID is not empty."""
+        if not v or v.strip() == "":
+            raise ValueError(
+                "AZURE_CLIENT_ID is required. Please set this environment variable to your Azure AD application client ID."
+            )
+        return v
     AZURE_CLIENT_SECRET: str = Field(
         default="",
         description="Azure AD application client secret"
@@ -31,14 +63,14 @@ class AzureAuthSettings(BaseConfig):
         description="Azure AD scope description"
     )
     AZURE_AD_AUTHORITY: str = Field(
-        default="https://login.microsoftonline.com",
-        description="Azure AD authority URL (can be overridden for mock service)"
+        default="https://login.mock.com",
+        description="Azure AD authority URL"
     )
     
     @computed_field
     @property
     def OPENID_CONFIG_URL(self) -> str:
-        """Compute the OpenID configuration URL."""
+        """Compute the OpenID configuration URL using AZURE_AD_AUTHORITY and AZURE_TENANT_ID."""
         return f"{self.AZURE_AD_AUTHORITY}/{self.AZURE_TENANT_ID}/v2.0/.well-known/openid-configuration"
     
     # OpenAPI Configuration

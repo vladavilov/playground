@@ -6,8 +6,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_azure_auth import MultiTenantAzureAuthorizationCodeBearer
-from middleware.azure_auth_middleware import AzureAuthMiddleware, get_current_user
+from middleware.azure_auth_middleware import AzureAuthMiddleware, get_current_user, create_azure_scheme, set_azure_scheme
 from configuration.azure_auth_config import get_azure_auth_settings
 from utils.postgres_client import get_postgres_client, PostgresHealthChecker, PostgresClient
 from utils.neo4j_client import get_neo4j_client, Neo4jHealthChecker, Neo4jClient
@@ -84,13 +83,17 @@ class FastAPIFactory:
             azure_settings = get_azure_auth_settings()
 
             # Configure Azure AD authentication scheme
-            azure_scheme = MultiTenantAzureAuthorizationCodeBearer(
+            azure_scheme = create_azure_scheme(
                 app_client_id=azure_settings.AZURE_CLIENT_ID,
+                tenant_id=azure_settings.AZURE_TENANT_ID,
                 scopes=azure_settings.SCOPES,
                 openapi_authorization_url=azure_settings.OPENAPI_AUTHORIZATION_URL,
                 openapi_token_url=azure_settings.OPENAPI_TOKEN_URL,
-                validate_iss=False
+                openid_config_url=azure_settings.OPENID_CONFIG_URL
             )
+
+            # Set the global azure scheme for dependency injection
+            set_azure_scheme(azure_scheme)
 
             # Create Azure AD middleware
             azure_middleware = AzureAuthMiddleware(azure_scheme)
@@ -100,9 +103,16 @@ class FastAPIFactory:
         async def lifespan(app: FastAPI):
             # Startup logic
             if azure_middleware:
-                await azure_middleware.load_openid_config()
-                logger.info("OpenID configuration loaded on startup")
-
+                try:
+                    await azure_middleware.load_openid_config()
+                    logger.info("OpenID configuration loaded on startup")
+                except Exception as e:
+                    logger.error(
+                        "Failed to load OpenID configuration during startup. ",
+                        error=str(e),
+                        tenant_id=azure_settings.AZURE_TENANT_ID
+                    )
+                    raise
             yield
 
             # Shutdown logic
