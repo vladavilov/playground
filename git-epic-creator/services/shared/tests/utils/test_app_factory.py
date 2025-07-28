@@ -192,7 +192,7 @@ class TestFastAPIFactory:
         mock_create_azure_scheme,
         mock_get_azure_settings
     ):
-        """Test FastAPI application creation with correct SingleTenantAzureAuthorizationCodeBearer parameters (without validate_iss)."""
+        """Test FastAPI application creation with correct Azure authentication scheme parameters."""
         # Arrange
         mock_azure_settings = Mock()
         mock_azure_settings.AZURE_CLIENT_ID = "test-client-id"
@@ -248,9 +248,9 @@ class TestFastAPIFactory:
         assert "/me" in route_paths
 
     @patch('utils.app_factory.get_azure_auth_settings')
-    @patch('utils.app_factory.SingleTenantAzureAuthorizationCodeBearer')
+    @patch('utils.app_factory.create_azure_scheme')
     @patch('utils.app_factory.AzureAuthMiddleware')
-    def test_create_app_with_cors(self, mock_azure_middleware_class, mock_azure_scheme_class, mock_get_azure_settings):
+    def test_create_app_with_cors(self, mock_azure_middleware_class, mock_create_azure_scheme, mock_get_azure_settings):
         """Test FastAPI application creation with CORS enabled."""
         # Arrange
         mock_azure_settings = Mock()
@@ -265,7 +265,7 @@ class TestFastAPIFactory:
         mock_get_azure_settings.return_value = mock_azure_settings
         
         mock_azure_scheme = Mock()
-        mock_azure_scheme_class.return_value = mock_azure_scheme
+        mock_create_azure_scheme.return_value = mock_azure_scheme
         
         mock_azure_middleware = Mock()
         mock_azure_middleware_class.return_value = mock_azure_middleware

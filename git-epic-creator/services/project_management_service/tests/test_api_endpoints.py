@@ -119,20 +119,18 @@ def test_create_project_success(client, mock_user, mock_project_service, sample_
     mock_project_service.create_project.return_value = sample_project
 
     request_body = {
-        "project": {
-            "name": "Test Project",
-            "description": "Test project description",
-            "gitlab_url": "https://gitlab.internal/test-project",
-            "gitlab_repository_url": "https://gitlab.internal/test-project.git",
-            "status": "active"
-        }
+        "name": "Test Project",
+        "description": "Test project description",
+        "gitlab_url": "https://gitlab.internal/test-project",
+        "gitlab_repository_url": "https://gitlab.internal/test-project.git",
+        "status": "active"
     }
 
     response = client.post("/projects", json=request_body)
 
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
-    assert data["name"] == request_body["project"]["name"]
+    assert data["name"] == request_body["name"]
     assert data["created_by"] == mock_user.oid
 
 
@@ -216,13 +214,11 @@ def test_update_project_success(client, mock_project_service, sample_project):
     mock_project_service.update_project.return_value = updated_project
 
     request_body = {
-        "project": {
-            "name": "Updated Project Name",
-            "description": "Test project description",
-            "gitlab_url": "https://gitlab.internal/test-project",
-            "gitlab_repository_url": "https://gitlab.internal/test-project.git",
-            "status": "active"
-        }
+        "name": "Updated Project Name",
+        "description": "Test project description",
+        "gitlab_url": "https://gitlab.internal/test-project",
+        "gitlab_repository_url": "https://gitlab.internal/test-project.git",
+        "status": "active"
     }
 
     response = client.put(f"/projects/{sample_project.id}", json=request_body)
@@ -302,13 +298,11 @@ def test_admin_can_create_project(client, mock_project_service, sample_project):
 
     try:
         request_body = {
-            "project": {
-                "name": "Test Project",
-                "description": "Test project description",
-                "gitlab_url": "https://gitlab.internal/test-project",
-                "gitlab_repository_url": "https://gitlab.internal/test-project.git",
-                "status": "active"
-            }
+            "name": "Test Project",
+            "description": "Test project description",
+            "gitlab_url": "https://gitlab.internal/test-project",
+            "gitlab_repository_url": "https://gitlab.internal/test-project.git",
+            "status": "active"
         }
 
         response = client.post("/projects", json=request_body)

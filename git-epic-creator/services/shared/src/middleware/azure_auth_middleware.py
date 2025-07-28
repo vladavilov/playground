@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import SecurityScopes
 from fastapi_azure_auth import SingleTenantAzureAuthorizationCodeBearer
 from fastapi_azure_auth.user import User
+from fastapi_azure_auth.openid_config import OpenIdConfig
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -66,10 +67,9 @@ def create_azure_scheme(
     """
     Create Azure authentication scheme using SingleTenantAzureAuthorizationCodeBearer with custom OpenID configuration.
     
-    This approach is useful for:
-    - Non-standard Azure AD endpoints (e.g., mock services for testing)
-    - Custom authority URLs that don't follow standard Microsoft patterns
-    - Ensuring consistent behavior across test and production environments
+    This approach works around the limitation that SingleTenantAzureAuthorizationCodeBearer doesn't
+    support the openid_config_url parameter by creating the instance and then modifying its OpenID
+    configuration object.
     
     Args:
         app_client_id: Azure application client ID
@@ -80,7 +80,7 @@ def create_azure_scheme(
         openid_config_url: Custom OpenID configuration URL
         
     Returns:
-        SingleTenantAzureAuthorizationCodeBearer instance
+        SingleTenantAzureAuthorizationCodeBearer instance with custom OpenID config
     """
     logger.info(
         "Creating Azure scheme with custom OpenID config using SingleTenantAzureAuthorizationCodeBearer",
@@ -93,8 +93,21 @@ def create_azure_scheme(
         tenant_id=tenant_id,
         scopes=scopes,
         openapi_authorization_url=openapi_authorization_url,
-        openapi_token_url=openapi_token_url,
-        openid_config_url=openid_config_url
+        openapi_token_url=openapi_token_url
+    )
+    
+    # Override the OpenID configuration with our custom URL
+    # This works because OpenIdConfig accepts config_url parameter
+    azure_scheme.openid_config = OpenIdConfig(
+        tenant_id=tenant_id,
+        multi_tenant=False,  # Single tenant configuration
+        app_id=None,  # Don't use app_id unless specifically needed
+        config_url=openid_config_url
+    )
+    
+    logger.info(
+        "Azure scheme created successfully with custom OpenID config",
+        config_url=azure_scheme.openid_config.config_url
     )
     
     return azure_scheme
