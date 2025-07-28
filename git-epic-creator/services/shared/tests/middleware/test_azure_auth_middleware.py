@@ -68,26 +68,36 @@ def mock_user():
 @pytest.mark.asyncio
 async def test_get_current_user_success(mock_user):
     """Test successful user authentication."""
+    mock_request = AsyncMock()
+    mock_security_scopes = Mock()
+    mock_security_scopes.scopes = []
     mock_azure_scheme = AsyncMock(return_value=mock_user)
-    result = await get_current_user(mock_azure_scheme)
+    
+    result = await get_current_user(mock_request, mock_security_scopes, mock_azure_scheme)
     assert result == mock_user
-    mock_azure_scheme.assert_called_once()
+    mock_azure_scheme.assert_called_once_with(mock_request, mock_security_scopes)
 
 @pytest.mark.asyncio
 async def test_get_current_user_http_exception():
     """Test user authentication HTTP exception."""
+    mock_request = AsyncMock()
+    mock_security_scopes = Mock()
     mock_azure_scheme = AsyncMock(side_effect=HTTPException(status_code=401, detail="Unauthorized"))
+    
     with pytest.raises(HTTPException) as exc_info:
-        await get_current_user(mock_azure_scheme)
+        await get_current_user(mock_request, mock_security_scopes, mock_azure_scheme)
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Unauthorized"
 
 @pytest.mark.asyncio
 async def test_get_current_user_generic_exception():
     """Test user authentication generic exception."""
+    mock_request = AsyncMock()
+    mock_security_scopes = Mock()
     mock_azure_scheme = AsyncMock(side_effect=Exception("Generic error"))
+    
     with pytest.raises(HTTPException) as exc_info:
-        await get_current_user(mock_azure_scheme)
+        await get_current_user(mock_request, mock_security_scopes, mock_azure_scheme)
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Authentication failed"
 
@@ -291,8 +301,8 @@ class TestCreateAzureScheme:
                 openapi_token_url=openapi_token_url
             )
 
-    def test_create_azure_scheme_always_returns_single_tenant(self):
-        """Test that create_azure_scheme always returns SingleTenantAzureAuthorizationCodeBearer."""
+    def test_create_azure_scheme_returns_single_tenant_with_custom_config(self):
+        """Test that create_azure_scheme returns SingleTenantAzureAuthorizationCodeBearer with custom OpenID config."""
         # Arrange
         app_client_id = "test-client-id"
         tenant_id = "12345678-1234-1234-1234-123456789abc"
@@ -311,6 +321,8 @@ class TestCreateAzureScheme:
             openid_config_url=openid_config_url
         )
 
-        # Assert - should ALWAYS be SingleTenantAzureAuthorizationCodeBearer (not B2CMultiTenant)
+        # Assert - should be SingleTenantAzureAuthorizationCodeBearer with custom OpenID config
         assert isinstance(result, SingleTenantAzureAuthorizationCodeBearer)
         assert result.app_client_id == app_client_id
+        # Verify that the custom OpenID config URL was set
+        assert result.openid_config.config_url == openid_config_url
