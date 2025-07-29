@@ -579,3 +579,22 @@ def test_bulk_upload_documents_requires_authentication(mock_blob_storage_class, 
     finally:
         # Clean up - this will be reset by the autouse fixture anyway
         pass
+
+
+def test_bulk_upload_documents_project_not_found(client, mock_project_service):
+    """Test bulk document upload when project doesn't exist."""
+    # Setup mocks
+    project_id = uuid4()
+    mock_project_service.get_project_by_id.return_value = None  # Project not found
+    
+    test_files = [
+        ("files", ("test.pdf", b"PDF content", "application/pdf"))
+    ]
+    
+    response = client.post(f"/projects/{project_id}/documents/upload", files=test_files)
+    
+    # Should return 404 for non-existent project
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    
+    # Project service should have been called to check existence
+    mock_project_service.get_project_by_id.assert_called_once_with(project_id)

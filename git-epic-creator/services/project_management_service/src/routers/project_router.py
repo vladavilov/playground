@@ -19,6 +19,7 @@ from models.project_rest import (
 )
 from models.document_schemas import BulkUploadResponse
 from utils.postgres_client import PostgresClient
+from utils.blob_storage import BlobStorageClient
 from services.project_service import ProjectService
 from services.document_upload_service import DocumentUploadService
 from services.redis_publisher import RedisPublisher, ProjectProgressMessage
@@ -33,12 +34,24 @@ def get_db_client(request: Request) -> PostgresClient:
     """Get PostgreSQL client from application state."""
     return request.app.state.postgres_client
 
+# Dependency to get blob storage client from app state
+def get_blob_storage_client(request: Request) -> BlobStorageClient:
+    """Get blob storage client from application state."""
+    return request.app.state.blob_storage_client
+
 # Dependency to get project service
 def get_project_service(
     db_client: PostgresClient = Depends(get_db_client)
 ) -> ProjectService:
     """Get project service instance."""
     return ProjectService(db_client)
+
+# Dependency to get document upload service
+def get_document_upload_service(
+    blob_storage_client: BlobStorageClient = Depends(get_blob_storage_client)
+) -> DocumentUploadService:
+    """Get document upload service instance."""
+    return DocumentUploadService(blob_storage_client)
 
 # Dependency to get Redis publisher
 def get_redis_publisher() -> RedisPublisher:
@@ -228,10 +241,6 @@ async def delete_project(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found"
         )
-
-
-# Project Member Management Endpoints
-# Implements Requirements 6.7 and 8.2
 
 @router.post(
     "/{project_id}/members",
@@ -543,7 +552,9 @@ async def update_project_status(
 async def bulk_upload_documents(
     project_id: UUID,
     files: List[UploadFile] = File(...),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    document_upload_service: DocumentUploadService = Depends(get_document_upload_service),
+    project_service: ProjectService = Depends(get_project_service)
 ) -> BulkUploadResponse:
     """
     Upload multiple documents for a project.
@@ -552,6 +563,8 @@ async def bulk_upload_documents(
         project_id: Project ID to associate the documents with
         files: List of uploaded files
         current_user: Current authenticated user
+        document_upload_service: Document upload service instance
+        project_service: Project service instance
         
     Returns:
         BulkUploadResponse: Upload response with processing status
@@ -561,7 +574,18 @@ async def bulk_upload_documents(
                 file_count=len(files),
                 user_id=current_user.oid)
 
-    document_upload_service = DocumentUploadService()
+    # Check if project exists before processing upload
+    project = project_service.get_project_by_id(project_id)
+    if not project:
+        logger.warning(
+            "Project not found for document upload",
+            project_id=str(project_id),
+            user_id=current_user.oid
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
 
     try:
         result = await document_upload_service.bulk_upload_documents(project_id, files)
@@ -576,4 +600,7 @@ async def bulk_upload_documents(
                     file_count=len(files),
                     user_id=current_user.oid,
                     error=str(e))
-        raise HTTPException(status_code=500, detail=f"Bulk document upload failed: {str(e)}") from e
+        raise HTTPException(
+                status_code=500,
+                detail=f"Bulk document upload failed: {str(e)}"
+            ) from e

@@ -11,6 +11,7 @@ from configuration.azure_auth_config import get_azure_auth_settings
 from utils.postgres_client import get_postgres_client, PostgresHealthChecker, PostgresClient
 from utils.neo4j_client import get_neo4j_client, Neo4jHealthChecker, Neo4jClient
 from utils.redis_client import get_redis_client, RedisHealthChecker
+from utils.blob_storage import get_blob_storage_client, BlobStorageClient
 import redis.asyncio as redis
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +29,10 @@ def get_neo4j_client_from_state(request: Request) -> Neo4jClient:
 def get_redis_client_from_state(request: Request) -> redis.Redis:
     """Dependency to get Redis client from application state."""
     return request.app.state.redis_client
+
+def get_blob_storage_client_from_state(request: Request) -> BlobStorageClient:
+    """Dependency to get Blob Storage client from application state."""
+    return request.app.state.blob_storage_client
 
 # endregion
 
@@ -48,6 +53,7 @@ class FastAPIFactory:
         enable_postgres: bool = False,
         enable_neo4j: bool = False,
         enable_redis: bool = False,
+        enable_blob_storage: bool = False,
         openapi_url: str = "/openapi.json",
         docs_url: str = "/docs",
         redoc_url: str = "/redoc"
@@ -65,6 +71,7 @@ class FastAPIFactory:
             enable_postgres: Whether to enable PostgreSQL integration
             enable_neo4j: Whether to enable Neo4j integration
             enable_redis: Whether to enable Redis integration
+            enable_blob_storage: Whether to enable blob storage integration
             openapi_url: OpenAPI URL
             docs_url: Swagger UI URL
             redoc_url: ReDoc URL
@@ -78,6 +85,7 @@ class FastAPIFactory:
         postgres_client: PostgresClient = get_postgres_client() if enable_postgres else None
         neo4j_client: Neo4jClient = get_neo4j_client() if enable_neo4j else None
         redis_client: redis.Redis = get_redis_client() if enable_redis else None
+        blob_storage_client: BlobStorageClient = get_blob_storage_client() if enable_blob_storage else None
 
         if enable_azure_auth:
             azure_settings = get_azure_auth_settings()
@@ -147,6 +155,10 @@ class FastAPIFactory:
         if redis_client:
             app.state.redis_client = redis_client
             logger.info("Redis client attached to app.state")
+
+        if blob_storage_client:
+            app.state.blob_storage_client = blob_storage_client
+            logger.info("Blob storage client attached to app.state")
 
         # Configure Swagger UI authentication if enabled
         if enable_azure_auth and enable_docs_auth and azure_settings:
@@ -250,7 +262,19 @@ class FastAPIFactory:
                 """
                 return await RedisHealthChecker.check_health_with_details(client)
 
-
+        # Add blob storage health check endpoint if enabled
+        if enable_blob_storage:
+            @app.get("/health/blob-storage", tags=["Health"])
+            def blob_storage_health_check(
+                client: BlobStorageClient = Depends(get_blob_storage_client_from_state)
+            ):
+                """
+                Blob storage health check endpoint.
+                
+                Returns:
+                    dict: Blob storage health check result
+                """
+                return {"status": "ok", "service": "blob_storage"}
 
         logger.info(
             "FastAPI application created",
@@ -262,6 +286,7 @@ class FastAPIFactory:
             postgres=enable_postgres,
             neo4j=enable_neo4j,
             redis=enable_redis,
+            blob_storage=enable_blob_storage,
         )
 
         return app
