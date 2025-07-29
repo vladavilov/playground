@@ -119,8 +119,8 @@ class TestDocumentWorkflow:
 
         assert db_project is not None, "Project not found in database"
         assert str(db_project[0]) == project_id
-        assert db_project[1] == fixtures.test_project_data["project"]["name"]
-        assert db_project[2] == fixtures.test_project_data["project"]["status"]
+        assert db_project[1] == fixtures.test_project_data["name"]
+        assert db_project[2] == fixtures.test_project_data["status"]
 
     def _upload_document(self, project_id: str, fixtures: WorkflowTestFixtures) -> Dict[str, Any]:
         """Upload document to project and return response."""

@@ -6,7 +6,7 @@ from configuration.common_config import get_app_settings
 from configuration.logging_config import configure_logging
 from utils.postgres_client import PostgresClient, get_postgres_client
 from utils.app_factory import FastAPIFactory
-from models.base import Base
+from models.project_db import Base, Project, ProjectMember
 
 from fastapi import Depends, APIRouter
 import structlog
@@ -33,7 +33,8 @@ db_router = APIRouter(prefix="/db", tags=["Database"])
 @db_router.post("/init")
 def init_db(postgres_client: PostgresClient = Depends(get_postgres_client)):
     """
-    Initializes the database by creating all tables defined in the models.
+    Initializes the database by creating all tables defined in the imported models.
+    Creates 'projects' and 'project_members' tables from the shared models.
     This is an idempotent operation; it will not recreate existing tables.
     
     Uses the shared library's PostgreSQL client for database operations.
@@ -42,7 +43,7 @@ def init_db(postgres_client: PostgresClient = Depends(get_postgres_client)):
         postgres_client: PostgreSQL client from dependency injection
         
     Returns:
-        dict: Initialization result
+        dict: Initialization result with list of tables created
     """
     settings = postgres_client.settings
 
@@ -54,11 +55,15 @@ def init_db(postgres_client: PostgresClient = Depends(get_postgres_client)):
     )
 
     try:
+        # Get list of tables that will be created
+        table_names = [table.name for table in Base.metadata.tables.values()]
+        logger.info("Creating database tables", tables=table_names)
+        
         # Use the synchronous engine to create all tables
         Base.metadata.create_all(bind=postgres_client.sync_engine)
 
-        logger.info("Database initialization successful")
-        return {"status": "Database initialized successfully"}
+        logger.info("Database initialization successful", tables_created=table_names)
+        return {"status": "Database initialized successfully", "tables_created": table_names}
     except (ConnectionError, TimeoutError) as e:
         logger.error("Database connection failed during initialization", error=str(e), exc_info=True)
         return {"status": "error", "detail": f"Connection error: {str(e)}"}

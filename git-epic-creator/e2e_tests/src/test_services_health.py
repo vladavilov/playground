@@ -165,16 +165,19 @@ class TestDatabaseIntegrity:
         """)
         tables = [row[0] for row in cursor.fetchall()]
         
-        # We expect at least some core tables to exist
-        # Note: Adjust this based on your actual database schema
-        if tables:  # If tables exist, verify projects table is among them
-            expected_tables = ['projects']  # Add more as needed
-            for expected_table in expected_tables:
-                if expected_table in tables:
-                    # Verify we can query the table
-                    cursor.execute(f"SELECT COUNT(*) FROM {expected_table}")
-                    count = cursor.fetchone()
-                    assert isinstance(count[0], int)
+        # We expect specific core tables to exist after database initialization
+        expected_tables = ['projects', 'project_members']
+        for expected_table in expected_tables:
+            assert expected_table in tables, (
+                f"Required table '{expected_table}' not found in database. "
+                f"Available tables: {tables}. "
+                f"Database initialization may have failed."
+            )
+            
+            # Verify we can query the table
+            cursor.execute(f"SELECT COUNT(*) FROM {expected_table}")
+            count = cursor.fetchone()
+            assert isinstance(count[0], int), f"Failed to query {expected_table} table"
         
         cursor.close()
 

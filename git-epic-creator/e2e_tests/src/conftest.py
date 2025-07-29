@@ -82,7 +82,8 @@ def services_ready(service_urls: Dict[str, str]) -> None:
         (service_urls["project_management"], TestConstants.HEALTH_ENDPOINT),
         (service_urls["document_processing"], TestConstants.HEALTH_ENDPOINT),
         (service_urls["neo4j_ingestion"], TestConstants.HEALTH_ENDPOINT),
-        (service_urls["mock_auth"], TestConstants.HEALTH_ENDPOINT)
+        (service_urls["mock_auth"], TestConstants.HEALTH_ENDPOINT),
+        (service_urls["init_db_service"], TestConstants.HEALTH_ENDPOINT)
     ]
 
     failed_services = []
@@ -95,6 +96,42 @@ def services_ready(service_urls: Dict[str, str]) -> None:
             f"Skipping tests because the following services are not available: "
             f"{', '.join(failed_services)}. Make sure services are running before running tests."
         )
+
+
+@pytest.fixture(scope="session")
+def postgres_initialized(service_urls: Dict[str, str], services_ready) -> bool:
+    """
+    Initialize PostgreSQL database once before all tests.
+    
+    This fixture calls the init_db_service to set up the database schema
+    and initial data before any tests run.
+    
+    Args:
+        service_urls: Service URL configuration
+        services_ready: Ensures services are healthy before initialization
+        
+    Returns:
+        True if initialization successful
+        
+    Raises:
+        pytest.fail: If initialization fails
+    """
+    try:
+        response = requests.post(
+            f"{service_urls['init_db_service']}/db/init",
+            timeout=TestConstants.DEFAULT_TIMEOUT
+        )
+
+        if response.status_code == TestConstants.HTTP_OK:
+            return True
+
+        pytest.fail(
+            f"Failed to initialize PostgreSQL database: "
+            f"[{service_urls['init_db_service']}/init]"
+            f"{response.status_code} - {response.text}"
+        )
+    except requests.RequestException as e:
+        pytest.fail(f"Error initializing PostgreSQL database: {e}")
 
 
 @pytest.fixture
@@ -293,11 +330,22 @@ def project_manager(
     service_urls: Dict[str, str], 
     auth_headers: Dict[str, str],
     postgres_config: Dict[str, any],
-    neo4j_config: Dict[str, any]
+    neo4j_config: Dict[str, any],
+    postgres_initialized: bool
 ) -> Generator[ProjectManager, None, None]:
     """
     Provide a project manager for creating and cleaning up test projects.
     
+    This fixture depends on postgres_initialized to ensure the database
+    is properly set up before creating projects.
+    
+    Args:
+        service_urls: Service URL configuration
+        auth_headers: Authentication headers
+        postgres_config: PostgreSQL connection configuration
+        neo4j_config: Neo4j connection configuration
+        postgres_initialized: Ensures database is initialized
+        
     Yields:
         ProjectManager instance
     """
