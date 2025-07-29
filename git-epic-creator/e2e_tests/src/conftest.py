@@ -201,11 +201,9 @@ def unique_test_filename() -> str:
 def test_project_data() -> Dict[str, any]:
     """Generate test project data with unique name."""
     return {
-        "project": {
-            "name": f"Test Project {uuid.uuid4().hex[:8]}",
-            "description": "Integration test project",
-            "status": TestConstants.PROJECT_STATUS_ACTIVE
-        }
+        "name": f"Test Project {uuid.uuid4().hex[:8]}",
+        "description": "Integration test project",
+        "status": TestConstants.PROJECT_STATUS_ACTIVE
     }
 
 
