@@ -10,13 +10,22 @@ from middleware.azure_auth_middleware import AzureAuthMiddleware, get_current_us
 from configuration.azure_auth_config import get_azure_auth_settings
 from utils.postgres_client import get_postgres_client, PostgresHealthChecker, PostgresClient
 from utils.neo4j_client import get_neo4j_client, Neo4jHealthChecker, Neo4jClient
-from utils.redis_client import get_redis_client, RedisHealthChecker
+from utils.redis_client import get_redis_client
+from utils.redis_abstractions import RedisHealthMixin
 from utils.blob_storage import get_blob_storage_client, BlobStorageClient
 import redis.asyncio as redis
 
 logger = structlog.get_logger(__name__)
 
-# region Dependencies to get clients from app state
+# region Dependencies for dependency injection
+
+
+class RedisHealthService(RedisHealthMixin):
+    """Helper class for Redis health checking using RedisHealthMixin."""
+    
+    def __init__(self, redis_client):
+        self.redis_client = redis_client
+
 
 def get_postgres_client_from_state(request: Request) -> PostgresClient:
     """Dependency to get PostgreSQL client from application state."""
@@ -260,7 +269,8 @@ class FastAPIFactory:
                 Returns:
                     dict: Redis health check result
                 """
-                return await RedisHealthChecker.check_health_with_details(client)
+                health_service = RedisHealthService(client)
+                return await health_service.check_health_with_details()
 
         # Add blob storage health check endpoint if enabled
         if enable_blob_storage:

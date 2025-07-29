@@ -19,6 +19,7 @@ Enhanced with comprehensive logging and monitoring for:
 
 import threading
 import uvicorn
+import asyncio
 import structlog
 from typing import Dict, Any
 from fastapi import Depends, Request, APIRouter
@@ -29,6 +30,8 @@ from configuration.logging_config import configure_logging
 from configuration.common_config import get_app_settings
 from utils.celery_factory import get_celery_app, CeleryHealthChecker
 from utils.app_factory import FastAPIFactory
+from utils.unified_redis_messages import create_redis_message_factory
+from utils.redis_client import get_redis_client
 
 # Import signal handlers from celery_factory to make them available in main module
 from utils.celery_factory import (
@@ -210,5 +213,72 @@ def start_service():
         logger.error("Failed to start Document Processing Service", error=error_msg)
         raise Exception(error_msg)
 
+
+def start_task_subscriber():
+    """
+    Start TaskRequestSubscriber to listen for Redis task requests.
+    Runs in a separate thread and handles Redis pub/sub messages.
+    """
+    try:
+        logger.info("Starting TaskRequestSubscriber")
+        
+        # Create subscriber using factory method
+        redis_client = get_redis_client()
+        _, _, subscriber = create_redis_message_factory(redis_client)
+        
+        # Run the async listener in the thread
+        asyncio.run(subscriber.start_listening())
+        
+    except Exception as e:
+        logger.error("TaskRequestSubscriber failed", error=str(e), exc_info=True)
+
+
+def start_service_with_subscriber():
+    """
+    Start FastAPI server, Celery worker, and TaskRequestSubscriber concurrently using threading.
+    
+    This function creates separate threads for:
+    1. FastAPI server for health monitoring and API endpoints
+    2. Celery worker for document processing tasks
+    3. TaskRequestSubscriber for Redis task request handling
+    
+    All services run concurrently in the same process.
+    
+    Raises:
+        Exception: If any service startup fails
+    """
+    try:
+        logger.info("Starting Document Processing Service with FastAPI, Celery, and TaskRequestSubscriber")
+        
+        # Create threads for concurrent execution
+        fastapi_thread = threading.Thread(target=start_fastapi_server, name="FastAPI-Server")
+        celery_thread = threading.Thread(target=start_worker, name="Celery-Worker")
+        subscriber_thread = threading.Thread(target=start_task_subscriber, name="TaskSubscriber")
+        
+        # Set as daemon threads so they terminate when main process exits
+        fastapi_thread.daemon = True
+        celery_thread.daemon = True
+        subscriber_thread.daemon = True
+        
+        # Start all threads
+        fastapi_thread.start()
+        celery_thread.start()
+        subscriber_thread.start()
+        
+        logger.info("All service threads started (FastAPI, Celery, TaskSubscriber)")
+        
+        # Wait for all threads to complete
+        fastapi_thread.join()
+        celery_thread.join()
+        subscriber_thread.join()
+        
+        logger.info("Document Processing Service shutdown completed")
+        
+    except Exception as e:
+        error_msg = f"Service startup failed: {str(e)}"
+        logger.error("Failed to start Document Processing Service with subscriber", error=error_msg)
+        raise Exception(error_msg)
+
+
 if __name__ == "__main__":
-    start_service()
+    start_service_with_subscriber()

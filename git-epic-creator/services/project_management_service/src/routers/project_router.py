@@ -22,7 +22,11 @@ from utils.postgres_client import PostgresClient
 from utils.blob_storage import BlobStorageClient
 from services.project_service import ProjectService
 from services.document_upload_service import DocumentUploadService
-from services.redis_publisher import RedisPublisher, ProjectProgressMessage
+from utils.unified_redis_messages import (
+    ProjectProgressPublisher,
+    create_redis_message_factory
+)
+from utils.redis_client import get_redis_client
 
 logger = structlog.get_logger(__name__)
 
@@ -54,9 +58,11 @@ def get_document_upload_service(
     return DocumentUploadService(blob_storage_client)
 
 # Dependency to get Redis publisher
-def get_redis_publisher() -> RedisPublisher:
+def get_redis_publisher() -> ProjectProgressPublisher:
     """Get Redis publisher instance."""
-    return RedisPublisher()
+    redis_client = get_redis_client()
+    _, progress_publisher, _ = create_redis_message_factory(redis_client)
+    return progress_publisher
 
 
 @router.post(
@@ -437,7 +443,7 @@ async def update_project_status(
     update_request: ProjectProgressUpdateRequest,
     current_user: User = Depends(get_current_active_user),
     project_service: ProjectService = Depends(get_project_service),
-    redis_publisher: RedisPublisher = Depends(get_redis_publisher)
+    redis_publisher: ProjectProgressPublisher = Depends(get_redis_publisher)
 ) -> ProjectResponse:
     """
     Update project status with progress information or reset status.
@@ -496,17 +502,13 @@ async def update_project_status(
 
         # Publish project update to Redis (non-blocking)
         try:
-            progress_message = ProjectProgressMessage(
+            publish_success = await redis_publisher.publish_project_update(
                 project_id=project_id,
                 status=project.status,
                 processed_count=update_request.processed_count,
                 total_count=update_request.total_count,
-                processed_pct=project.processed_pct,
-                timestamp=datetime.now()
+                processed_pct=project.processed_pct
             )
-
-            # Publish to Redis (don't let Redis failures affect API response)
-            publish_success = await redis_publisher.publish_project_update(progress_message)
 
             if publish_success:
                 logger.info(

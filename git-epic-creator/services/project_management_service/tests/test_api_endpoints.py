@@ -16,10 +16,18 @@ with patch.dict('os.environ', {
     'AZURE_TENANT_ID': '12345678-1234-1234-1234-123456789abc',
     'AZURE_CLIENT_ID': 'test-client-id'
 }):
-    from routers.project_router import get_current_active_user, require_roles, get_project_service
+    from routers.project_router import (
+        get_current_active_user, 
+        require_roles, 
+        get_project_service,
+        get_blob_storage_client,
+        get_document_upload_service
+    )
     from main import app
     from models.project_db import Project, ProjectMember
     from models.document_schemas import BulkUploadResponse
+    from utils.blob_storage import BlobStorageClient
+    from services.document_upload_service import DocumentUploadService
 
 
 @pytest.fixture
@@ -43,6 +51,20 @@ def mock_user():
 def mock_project_service():
     """Mock project service."""
     return Mock()
+
+
+@pytest.fixture
+def mock_blob_storage_client():
+    """Mock blob storage client for document upload tests."""
+    mock_client = Mock(spec=BlobStorageClient)
+    return mock_client
+
+
+@pytest.fixture
+def mock_document_upload_service():
+    """Mock document upload service for upload tests."""
+    mock_service = Mock(spec=DocumentUploadService)
+    return mock_service
 
 
 @pytest.fixture
@@ -97,14 +119,18 @@ def contributor_user():
 
 
 @pytest.fixture(autouse=True)
-def setup_dependency_overrides(mock_user, mock_project_service):
+def setup_dependency_overrides(mock_user, mock_project_service, mock_blob_storage_client, mock_document_upload_service):
     """Setup dependency overrides for all tests."""
     # Override dependencies
     app.dependency_overrides[get_current_active_user] = lambda: mock_user
     app.dependency_overrides[require_roles(["Admin"])] = lambda: mock_user
-
+    
     # Override the project service dependency
     app.dependency_overrides[get_project_service] = lambda: mock_project_service
+    
+    # Override blob storage and document upload dependencies to prevent real Azurite calls
+    app.dependency_overrides[get_blob_storage_client] = lambda: mock_blob_storage_client
+    app.dependency_overrides[get_document_upload_service] = lambda: mock_document_upload_service
 
     yield
 
@@ -417,14 +443,8 @@ def test_role_based_project_filtering(client, mock_project_service):
 
 # Document Upload Endpoint Tests
 
-@patch('services.document_upload_service.BlobStorageClient')
-@patch('routers.project_router.DocumentUploadService')
-def test_bulk_upload_documents_success(mock_upload_service_class, mock_blob_storage_class, client, mock_user, sample_project):
+def test_bulk_upload_documents_success(client, mock_user, mock_document_upload_service, sample_project):
     """Test successful bulk document upload."""
-    # Mock the document upload service
-    mock_upload_service = Mock()
-    mock_upload_service_class.return_value = mock_upload_service
-    
     # Mock successful upload response
     upload_response = BulkUploadResponse(
         project_id=sample_project.id,
@@ -436,46 +456,33 @@ def test_bulk_upload_documents_success(mock_upload_service_class, mock_blob_stor
         uploaded_files=["test1.pdf", "test2.docx"],
         failed_files=[]
     )
-    mock_upload_service.bulk_upload_documents = AsyncMock(return_value=upload_response)
+    mock_document_upload_service.bulk_upload_documents = AsyncMock(return_value=upload_response)
     
-    # Override authentication
-    app.dependency_overrides[get_current_active_user] = lambda: mock_user
+    # Create test files
+    test_files = [
+        ("files", ("test1.pdf", b"PDF content", "application/pdf")),
+        ("files", ("test2.docx", b"DOCX content", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+    ]
     
-    try:
-        # Create test files
-        test_files = [
-            ("files", ("test1.pdf", b"PDF content", "application/pdf")),
-            ("files", ("test2.docx", b"DOCX content", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-        ]
-        
-        response = client.post(f"/projects/{sample_project.id}/documents/upload", files=test_files)
-        
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["project_id"] == str(sample_project.id)
-        assert data["total_files"] == 2
-        assert data["successful_uploads"] == 2
-        assert data["failed_uploads"] == 0
-        assert data["processing_initiated"] is True
-        assert len(data["uploaded_files"]) == 2
-        assert "test1.pdf" in data["uploaded_files"]
-        assert "test2.docx" in data["uploaded_files"]
-        
-        # Verify service was called
-        mock_upload_service.bulk_upload_documents.assert_called_once()
-        
-    finally:
-        app.dependency_overrides.clear()
+    response = client.post(f"/projects/{sample_project.id}/documents/upload", files=test_files)
+    
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["project_id"] == str(sample_project.id)
+    assert data["total_files"] == 2
+    assert data["successful_uploads"] == 2
+    assert data["failed_uploads"] == 0
+    assert data["processing_initiated"] is True
+    assert len(data["uploaded_files"]) == 2
+    assert "test1.pdf" in data["uploaded_files"]
+    assert "test2.docx" in data["uploaded_files"]
+    
+    # Verify service was called
+    mock_document_upload_service.bulk_upload_documents.assert_called_once()
 
 
-@patch('services.document_upload_service.BlobStorageClient')
-@patch('routers.project_router.DocumentUploadService')
-def test_bulk_upload_documents_partial_failure(mock_upload_service_class, mock_blob_storage_class, client, mock_user, sample_project):
+def test_bulk_upload_documents_partial_failure(client, mock_user, mock_document_upload_service, sample_project):
     """Test bulk document upload with partial failures."""
-    # Mock the document upload service
-    mock_upload_service = Mock()
-    mock_upload_service_class.return_value = mock_upload_service
-    
     # Mock partial failure response
     upload_response = BulkUploadResponse(
         project_id=sample_project.id,
@@ -487,80 +494,73 @@ def test_bulk_upload_documents_partial_failure(mock_upload_service_class, mock_b
         uploaded_files=["success.pdf"],
         failed_files=["failure.docx"]
     )
-    mock_upload_service.bulk_upload_documents = AsyncMock(return_value=upload_response)
+    mock_document_upload_service.bulk_upload_documents = AsyncMock(return_value=upload_response)
     
-    # Override authentication
-    app.dependency_overrides[get_current_active_user] = lambda: mock_user
+    # Create test files
+    test_files = [
+        ("files", ("success.pdf", b"PDF content", "application/pdf")),
+        ("files", ("failure.docx", b"DOCX content", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+    ]
     
-    try:
-        # Create test files
-        test_files = [
-            ("files", ("success.pdf", b"PDF content", "application/pdf")),
-            ("files", ("failure.docx", b"DOCX content", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-        ]
-        
-        response = client.post(f"/projects/{sample_project.id}/documents/upload", files=test_files)
-        
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["project_id"] == str(sample_project.id)
-        assert data["total_files"] == 2
-        assert data["successful_uploads"] == 1
-        assert data["failed_uploads"] == 1
-        assert data["processing_initiated"] is True
-        assert len(data["uploaded_files"]) == 1
-        assert "success.pdf" in data["uploaded_files"]
-        assert len(data["failed_files"]) == 1
-        assert "failure.docx" in data["failed_files"]
-        
-    finally:
-        app.dependency_overrides.clear()
+    response = client.post(f"/projects/{sample_project.id}/documents/upload", files=test_files)
+    
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["project_id"] == str(sample_project.id)
+    assert data["total_files"] == 2
+    assert data["successful_uploads"] == 1
+    assert data["failed_uploads"] == 1
+    assert data["processing_initiated"] is True
+    assert len(data["uploaded_files"]) == 1
+    assert "success.pdf" in data["uploaded_files"]
+    assert len(data["failed_files"]) == 1
+    assert "failure.docx" in data["failed_files"]
 
 
-@patch('services.document_upload_service.BlobStorageClient')
-@patch('routers.project_router.DocumentUploadService')
-def test_bulk_upload_documents_service_exception(mock_upload_service_class, mock_blob_storage_class, client, mock_user, sample_project):
+def test_bulk_upload_documents_service_exception(client, mock_user, mock_document_upload_service, sample_project):
     """Test bulk document upload when service raises exception."""
     # Mock the document upload service to raise exception
-    mock_upload_service = Mock()
-    mock_upload_service_class.return_value = mock_upload_service
-    mock_upload_service.bulk_upload_documents = AsyncMock(side_effect=Exception("Service error"))
+    mock_document_upload_service.bulk_upload_documents = AsyncMock(side_effect=Exception("Service error"))
     
-    # Override authentication
-    app.dependency_overrides[get_current_active_user] = lambda: mock_user
-    
-    try:
-        # Create test files
-        test_files = [
-            ("files", ("test.pdf", b"PDF content", "application/pdf"))
-        ]
-        
-        response = client.post(f"/projects/{sample_project.id}/documents/upload", files=test_files)
-        
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        data = response.json()
-        assert "Bulk document upload failed" in data["detail"]
-        
-    finally:
-        app.dependency_overrides.clear()
-
-
-@patch('services.document_upload_service.BlobStorageClient')
-def test_bulk_upload_documents_endpoint_exists(mock_blob_storage_class, client, sample_project):
-    """Test that document upload endpoint exists."""
+    # Create test files
     test_files = [
         ("files", ("test.pdf", b"PDF content", "application/pdf"))
     ]
     
     response = client.post(f"/projects/{sample_project.id}/documents/upload", files=test_files)
     
-    # Azure AD auth middleware causes 422 in test environment - this is expected
-    # The important thing is that the endpoint exists (not 404)
-    assert response.status_code != status.HTTP_404_NOT_FOUND
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    data = response.json()
+    assert "Bulk document upload failed" in data["detail"]
 
 
-@patch('services.document_upload_service.BlobStorageClient')
-def test_bulk_upload_documents_requires_authentication(mock_blob_storage_class, client, sample_project):
+def test_bulk_upload_documents_endpoint_exists(client, mock_document_upload_service, sample_project):
+    """Test that document upload endpoint exists."""
+    # Configure mock response to prevent validation errors
+    upload_response = BulkUploadResponse(
+        project_id=sample_project.id,
+        total_files=1,
+        successful_uploads=1,
+        failed_uploads=0,
+        upload_time=datetime.now(timezone.utc),
+        processing_initiated=True,
+        uploaded_files=["test.pdf"],
+        failed_files=[]
+    )
+    mock_document_upload_service.bulk_upload_documents = AsyncMock(return_value=upload_response)
+    
+    test_files = [
+        ("files", ("test.pdf", b"PDF content", "application/pdf"))
+    ]
+    
+    response = client.post(f"/projects/{sample_project.id}/documents/upload", files=test_files)
+    
+    # With proper mocking, the endpoint should work without hitting Azurite
+    # The important thing is that the endpoint exists (not 404) and works properly
+    assert response.status_code == status.HTTP_200_OK
+
+
+def test_bulk_upload_documents_requires_authentication(client, sample_project):
     """Test that document upload endpoint requires authentication."""
     # Clear dependency overrides to test authentication
     app.dependency_overrides.clear()

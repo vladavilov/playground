@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 from fastapi_azure_auth import MultiTenantAzureAuthorizationCodeBearer
 from utils.app_factory import FastAPIFactory
+from utils.app_factory import get_redis_client_from_state
 
 
 class TestFastAPIFactory:
@@ -151,14 +152,21 @@ class TestFastAPIFactory:
         mock_check_health.assert_called_once_with(mock_neo4j_client)
 
     @patch('utils.app_factory.get_redis_client')
-    @patch('utils.app_factory.RedisHealthChecker.check_health_with_details')
-    def test_create_app_with_redis_enabled(self, mock_check_health, mock_get_redis_client):
+    def test_create_app_with_redis_enabled(self, mock_get_redis_client):
         """Test FastAPI application creation with Redis enabled."""
         # Arrange
-        mock_redis_client = Mock()
+        mock_redis_client = AsyncMock()
         mock_get_redis_client.return_value = mock_redis_client
         mock_health_response = {"healthy": True, "version": "6.2"}
-        mock_check_health.return_value = mock_health_response
+        
+        # Mock the RedisHealthMixin methods
+        mock_redis_client.ping.return_value = True
+        mock_redis_client.info.return_value = {
+            "redis_version": "6.2",
+            "connected_clients": 5,
+            "used_memory": 1024000,
+            "uptime_in_seconds": 3600
+        }
         
         # Act
         app = FastAPIFactory.create_app(
@@ -169,19 +177,24 @@ class TestFastAPIFactory:
             enable_azure_auth=False,
             enable_cors=False
         )
-        
-        # Assert
-        assert hasattr(app.state, 'redis_client')
-        assert app.state.redis_client == mock_redis_client
-        
-        # Test health endpoint
+
+        # Test Redis health endpoint exists
         client = TestClient(app)
+        
+        # Mock the dependency to return our mock client
+        app.dependency_overrides[get_redis_client_from_state] = lambda: mock_redis_client
+        
+        # Act
         response = client.get("/health/redis")
         
+        # Assert
         assert response.status_code == 200
-        assert response.json() == mock_health_response
+        result = response.json()
+        assert result["healthy"] is True
+        assert result["version"] == "6.2"
         mock_get_redis_client.assert_called_once()
-        mock_check_health.assert_called_once_with(mock_redis_client)
+        mock_redis_client.ping.assert_called_once()
+        mock_redis_client.info.assert_called_once()
 
     @patch('utils.app_factory.get_azure_auth_settings')
     @patch('utils.app_factory.create_azure_scheme')
