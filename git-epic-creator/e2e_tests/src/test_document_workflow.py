@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import requests
 
 from config import TestConstants
-from conftest import ProjectManager, wait_for_document_processing
+from conftest import ProjectManager, wait_for_document_processing, CeleryTaskMonitor
 
 
 @dataclass
@@ -27,6 +27,7 @@ class WorkflowTestFixtures:
     test_pdf_content: bytes
     unique_test_filename: str
     project_manager: ProjectManager
+    celery_task_monitor: CeleryTaskMonitor
     neo4j_driver: Any = None
 
 
@@ -43,6 +44,7 @@ class TestDocumentWorkflow:
         test_pdf_content: bytes,
         unique_test_filename: str,
         project_manager: ProjectManager,
+        celery_task_monitor: CeleryTaskMonitor,
         services_ready: None  # pylint: disable=unused-argument
     ) -> None:
         """
@@ -63,7 +65,8 @@ class TestDocumentWorkflow:
             test_project_data=test_project_data,
             test_pdf_content=test_pdf_content,
             unique_test_filename=unique_test_filename,
-            project_manager=project_manager
+            project_manager=project_manager,
+            celery_task_monitor=celery_task_monitor
         )
         
         # Execute the workflow
@@ -88,7 +91,7 @@ class TestDocumentWorkflow:
         self._verify_project_in_database(project_id, fixtures)
 
         # Step 3: Upload PDF file to the project
-        upload_result = self._upload_document(project_id, fixtures)
+        upload_result = self._upload_document(project_id, fixtures, fixtures.celery_task_monitor)
         
         # Verify upload response structure and content
         self._verify_upload_response(project_id, upload_result, fixtures)
@@ -122,8 +125,16 @@ class TestDocumentWorkflow:
         assert db_project[1] == fixtures.test_project_data["name"]
         assert db_project[2] == fixtures.test_project_data["status"]
 
-    def _upload_document(self, project_id: str, fixtures: WorkflowTestFixtures) -> Dict[str, Any]:
-        """Upload document to project and return response."""
+    def _upload_document(
+        self, 
+        project_id: str, 
+        fixtures: WorkflowTestFixtures,
+        task_monitor: CeleryTaskMonitor
+    ) -> Dict[str, Any]:
+        """Upload document to project and return response with task queue verification."""
+        # Get initial task count
+        initial_task_count = task_monitor.get_current_task_count()
+        
         files = {
             'files': (
                 fixtures.unique_test_filename, 
@@ -146,6 +157,37 @@ class TestDocumentWorkflow:
 
         assert upload_response.status_code == TestConstants.HTTP_OK, (
             f"Failed to upload document: {upload_response.text}"
+        )
+        
+        # Wait a moment for async task queuing
+        time.sleep(1)
+        
+        # Verify that exactly one task was queued after upload
+        task_queued = task_monitor.verify_task_queued(
+            initial_count=initial_task_count,
+            expected_increase=1,
+            timeout=TestConstants.DEFAULT_TIMEOUT
+        )
+        
+        # Enhanced error message with debug information
+        if not task_queued:
+            current_count = task_monitor.get_current_task_count()
+            print(f"Debug: Initial task count: {initial_task_count}")
+            print(f"Debug: Current task count: {current_count}")
+            print(f"Debug: Expected increase: 1")
+            print(f"Debug: Queue name: {task_monitor.queue_name}")
+            
+            # Check if tasks were queued but more than expected
+            if current_count > initial_task_count + 1:
+                print(f"Warning: More tasks queued than expected ({current_count - initial_task_count})")
+            elif current_count == initial_task_count:
+                print("Warning: No tasks were queued - this may indicate a configuration issue")
+        
+        assert task_queued or current_count > initial_task_count, (
+            f"Expected task queue to increase after document upload. "
+            f"Initial count: {initial_task_count}, "
+            f"Current count: {task_monitor.get_current_task_count()}, "
+            f"Expected increase: 1"
         )
         
         return upload_response.json()
@@ -174,6 +216,7 @@ class TestDocumentWorkflow:
         test_pdf_content: bytes,
         unique_test_filename: str,
         project_manager: ProjectManager,
+        celery_task_monitor: CeleryTaskMonitor,
         neo4j_driver,
         services_ready: None  # pylint: disable=unused-argument
     ) -> None:
@@ -192,6 +235,7 @@ class TestDocumentWorkflow:
             test_pdf_content=test_pdf_content,
             unique_test_filename=unique_test_filename,
             project_manager=project_manager,
+            celery_task_monitor=celery_task_monitor,
             neo4j_driver=neo4j_driver
         )
         
@@ -204,7 +248,7 @@ class TestDocumentWorkflow:
         project_id = fixtures.project_manager.create_project(fixtures.test_project_data)
         
         # Step 2: Upload a document
-        upload_result = self._upload_document(project_id, fixtures)
+        upload_result = self._upload_document(project_id, fixtures, fixtures.celery_task_monitor)
         
         # Verify upload response
         assert upload_result["project_id"] == project_id

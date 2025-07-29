@@ -5,15 +5,17 @@ This module provides reusable fixtures for authentication, database connections,
 service health checks, and test data management.
 """
 
+import os
 import time
 import uuid
-from typing import Dict, Generator, Optional
+from typing import Dict, Any, Generator, Optional
+from pathlib import Path
 
 import pytest
+import redis
 import requests
 import psycopg2
 from neo4j import GraphDatabase
-import redis
 
 from config import TestConfig, TestConstants
 
@@ -366,6 +368,8 @@ def wait_for_document_processing(
     """
     Wait for document processing to complete by monitoring Redis/Celery and project status.
     
+    Uses CeleryTaskMonitor for consistent task monitoring following DRY principles.
+    
     Args:
         project_id: ID of the project being processed
         service_urls: Service URL configuration
@@ -376,28 +380,160 @@ def wait_for_document_processing(
     Raises:
         AssertionError: If processing doesn't complete within timeout
     """
-    redis_client = redis.Redis(**redis_config)
-    start_time = time.time()
+    monitor = CeleryTaskMonitor(redis_config)
+    monitor.wait_for_task_completion_with_project_status(
+        project_id=project_id,
+        service_urls=service_urls,
+        auth_headers=auth_headers,
+        timeout=timeout
+    ) 
 
-    while time.time() - start_time < timeout:
-        try:
-            # Check if there are any active Celery tasks
-            active_tasks = redis_client.llen('celery')
-            if active_tasks == 0:
-                # Also check project status
-                response = requests.get(
-                    f"{service_urls['project_management']}/projects/{project_id}",
-                    headers=auth_headers,
-                    timeout=TestConstants.DEFAULT_TIMEOUT
-                )
-                if response.status_code == TestConstants.HTTP_OK:
-                    project = response.json()
-                    if project["status"] != TestConstants.PROJECT_STATUS_PROCESSING:
-                        return  # Processing completed
 
-        except (redis.RedisError, requests.RequestException) as e:
-            print(f"Warning: Error checking processing status: {e}")
+class CeleryTaskMonitor:
+    """
+    Centralized Celery task monitoring for end-to-end tests.
+    
+    Provides consistent task queue monitoring functionality following DRY principles.
+    """
+    
+    def __init__(self, redis_config: Dict[str, Any], queue_name: str = 'celery'):
+        """
+        Initialize CeleryTaskMonitor with Redis connection.
+        
+        Args:
+            redis_config: Redis configuration dictionary
+            queue_name: Name of the Celery queue to monitor (default: 'celery')
+        """
+        self.redis_client = redis.Redis(**redis_config)
+        self.queue_name = queue_name
+    
+    def get_current_task_count(self) -> int:
+        """
+        Get current number of tasks in the Celery queue.
+        
+        Returns:
+            Number of tasks currently in the queue
+            
+        Raises:
+            redis.RedisError: If Redis connection fails
+        """
+        return self.redis_client.llen(self.queue_name)
+    
+    def verify_task_queued(
+        self, 
+        initial_count: int, 
+        expected_increase: int = 1, 
+        timeout: int = TestConstants.DEFAULT_TIMEOUT
+    ) -> bool:
+        """
+        Verify that the task queue increased by the expected amount.
+        
+        Args:
+            initial_count: Initial task count before operation
+            expected_increase: Expected increase in task count
+            timeout: Maximum time to wait for task to be queued
+            
+        Returns:
+            True if task was properly queued, False otherwise
+        """
+        start_time = time.time()
+        expected_count = initial_count + expected_increase
+        
+        while time.time() - start_time < timeout:
+            try:
+                current_count = self.get_current_task_count()
+                if current_count == expected_count:
+                    return True
+                elif current_count > expected_count:
+                    # More tasks queued than expected
+                    return False
+                    
+            except redis.RedisError as e:
+                print(f"Warning: Error checking task queue: {e}")
+                
+            time.sleep(0.5)
+            
+        return False
+    
+    def wait_for_task_completion(self, timeout: int = TestConstants.DOCUMENT_PROCESSING_TIMEOUT) -> None:
+        """
+        Wait for all Celery tasks to complete.
+        
+        Args:
+            timeout: Maximum time to wait in seconds
+            
+        Raises:
+            AssertionError: If tasks don't complete within timeout
+        """
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                active_tasks = self.get_current_task_count()
+                if active_tasks == 0:
+                    return  # All tasks completed
+                    
+            except redis.RedisError as e:
+                print(f"Warning: Error checking task completion: {e}")
+                
+            time.sleep(5)
+            
+        raise AssertionError(f"Tasks did not complete within {timeout} seconds")
+    
+    def wait_for_task_completion_with_project_status(
+        self,
+        project_id: str,
+        service_urls: Dict[str, str],
+        auth_headers: Dict[str, str],
+        timeout: int = TestConstants.DOCUMENT_PROCESSING_TIMEOUT
+    ) -> None:
+        """
+        Wait for task completion with additional project status verification.
+        
+        Args:
+            project_id: ID of the project being processed
+            service_urls: Service URL configuration
+            auth_headers: Authentication headers
+            timeout: Maximum time to wait in seconds
+            
+        Raises:
+            AssertionError: If processing doesn't complete within timeout
+        """
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                # Check if there are any active Celery tasks
+                active_tasks = self.get_current_task_count()
+                if active_tasks == 0:
+                    # Also check project status
+                    response = requests.get(
+                        f"{service_urls['project_management']}/projects/{project_id}",
+                        headers=auth_headers,
+                        timeout=TestConstants.DEFAULT_TIMEOUT
+                    )
+                    if response.status_code == TestConstants.HTTP_OK:
+                        project = response.json()
+                        if project["status"] != TestConstants.PROJECT_STATUS_PROCESSING:
+                            return  # Processing completed
 
-        time.sleep(5)
+            except (redis.RedisError, requests.RequestException) as e:
+                print(f"Warning: Error checking processing status: {e}")
 
-    raise AssertionError(f"Document processing did not complete within {timeout} seconds") 
+            time.sleep(5)
+
+        raise AssertionError(f"Document processing did not complete within {timeout} seconds") 
+
+
+@pytest.fixture(scope="function")
+def celery_task_monitor(redis_config: Dict[str, any]) -> CeleryTaskMonitor:
+    """
+    Provide CeleryTaskMonitor instance for task queue monitoring.
+    
+    Args:
+        redis_config: Redis configuration fixture
+        
+    Returns:
+        CeleryTaskMonitor instance
+    """
+    return CeleryTaskMonitor(redis_config) 
