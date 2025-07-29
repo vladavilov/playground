@@ -13,13 +13,7 @@ from fastapi import UploadFile
 from utils.blob_storage import BlobStorageClient
 from models.document_schemas import BulkUploadResponse
 
-# Import the task from document processing service
-# This will be available when both services are running
-try:
-    from tasks.document_tasks import process_project_documents_task
-except ImportError:
-    # Fallback for testing or when document processing service is not available
-    process_project_documents_task = None
+from services.task_publisher import TaskRequestPublisher
 
 logger = structlog.get_logger(__name__)
 
@@ -126,12 +120,19 @@ class DocumentUploadService:
         )
 
         # Initiate background processing if any files were uploaded successfully
-        if successful_uploads > 0 and process_project_documents_task is not None:
+        if successful_uploads > 0:
             try:
-                process_project_documents_task.delay(str(project_id))
-                logger.info("Background processing initiated",
-                           project_id=str(project_id),
-                           file_count=successful_uploads)
+                task_publisher = TaskRequestPublisher()
+                task_request_success = await task_publisher.request_document_processing(project_id)
+                
+                if task_request_success:
+                    logger.info("Background processing initiated",
+                               project_id=str(project_id),
+                               file_count=successful_uploads)
+                else:
+                    logger.error("Failed to initiate background processing via TaskRequestPublisher",
+                               project_id=str(project_id))
+                    # Don't fail the upload response if task submission fails
             except Exception as e:
                 logger.error("Failed to initiate background processing",
                            project_id=str(project_id),
