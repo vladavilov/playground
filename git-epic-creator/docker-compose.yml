@@ -238,7 +238,6 @@ services:
     env_file:
       - docker-compose.env
     container_name: mock_auth_service
-    hostname: mock-auth-service
     ports:
       - "8005:8000"
     networks:
