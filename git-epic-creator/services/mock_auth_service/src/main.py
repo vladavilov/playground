@@ -1,53 +1,22 @@
 """
 Mock Azure AD authentication service.
 """
-import base64
 import os
 import time
 import uuid
 from fastapi import FastAPI, Response, Request, status
 from jose import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
 import uvicorn
 
 from .config import settings
+from .key_manager import KeyManager
 
-# --- Key Generation (Done once on startup) ---
-# In a real-world scenario, you might load these from a file or a secret store.
-# For a self-contained local mock, generating them on the fly is fine.
-private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-public_key = private_key.public_key()
-KEY_ID = "local-test-kid" # Key ID
-
-# Extract public key components for JWK
-pem = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo
-)
-public_numbers = public_key.public_numbers()
+# Initialize persistent key management
+key_manager = KeyManager()
 
 MOCK_TENANT_ID: str = settings.AZURE_AD_TENANT_ID
 MOCK_CLIENT_ID: str = settings.AZURE_AD_CLIENT_ID
-BASE_URL: str = settings.AZURE_AD_AUTHORITY
-
-def base64url_encode(data):
-    """
-    Helper function to encode bytes to base64url.
-    """
-    return base64.urlsafe_b64encode(data).rstrip(b'=').decode('utf-8')
-
-n = base64url_encode(public_numbers.n.to_bytes((public_numbers.n.bit_length() + 7) // 8, 'big'))
-e = base64url_encode(public_numbers.e.to_bytes((public_numbers.e.bit_length() + 7) // 8, 'big'))
-
-# Create the JSON Web Key (JWK)
-jwk = {
-    "kty": "RSA",
-    "use": "sig",
-    "kid": KEY_ID,
-    "n": n,
-    "e": e
-}
+BASE_URL: str = str(settings.AZURE_AD_AUTHORITY).rstrip('/')
 
 app = FastAPI(
     title="Mock Azure AD OIDC Server",
@@ -106,7 +75,7 @@ async def get_jwks(tenant_id: str):
     """
     if tenant_id != MOCK_TENANT_ID:
         return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
-    return {"keys": [jwk]}
+    return {"keys": [key_manager.get_jwk()]}
 
 
 @app.post("/{tenant_id}/oauth2/v2.0/token")
@@ -146,9 +115,9 @@ async def get_token(tenant_id: str, request: Request):
     # Sign the token with the private key
     token = jwt.encode(
         claims,
-        private_key,
+        key_manager.get_private_key(),
         algorithm="RS256",
-        headers={"kid": KEY_ID} # Include the Key ID in the header
+        headers={"kid": key_manager.get_key_id()} # Include the Key ID in the header
     )
 
     return {
