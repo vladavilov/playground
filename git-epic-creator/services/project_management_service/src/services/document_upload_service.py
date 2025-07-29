@@ -30,12 +30,15 @@ class DocumentUploadService:
     Handles business logic for uploading documents to Azure Blob Storage.
     """
 
-    def __init__(self):
+    def __init__(self, blob_storage_client: BlobStorageClient):
         """
         Initialize the document upload service.
+        
+        Args:
+            blob_storage_client: Injected blob storage client instance
         """
-        self.blob_storage_client = BlobStorageClient()
-        logger.info("DocumentUploadService initialized")
+        self.blob_storage_client = blob_storage_client
+        logger.info("DocumentUploadService initialized with injected blob storage client")
 
     async def bulk_upload_documents(
         self,
@@ -52,8 +55,8 @@ class DocumentUploadService:
         Returns:
             BulkUploadResponse: Upload response with processing status
         """
-        logger.info("Processing bulk document upload", 
-                   project_id=str(project_id), 
+        logger.info("Processing bulk document upload",
+                   project_id=str(project_id),
                    file_count=len(files))
 
         uploaded_files = []
@@ -135,8 +138,8 @@ class DocumentUploadService:
                            error=str(e))
                 # Don't fail the upload response if task submission fails
 
-        logger.info("Bulk document upload completed", 
-                   project_id=str(project_id), 
+        logger.info("Bulk document upload completed",
+                   project_id=str(project_id),
                    successful_uploads=successful_uploads,
                    failed_uploads=failed_uploads)
 

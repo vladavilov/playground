@@ -388,7 +388,8 @@ class TestDocumentWorkflow:
         auth_headers: Dict[str, str]
     ) -> None:
         """Test uploading to a non-existent project."""
-        fake_project_id = "non-existent-project-id"
+        # Use valid UUID format but definitely non-existent project
+        fake_project_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
         files = {
             'files': ("test.pdf", io.BytesIO(b"fake pdf content"), 'application/pdf')
         }
@@ -401,9 +402,13 @@ class TestDocumentWorkflow:
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
         
-        # Should return not found or bad request
-        assert upload_response.status_code in [TestConstants.HTTP_NOT_FOUND, 400], (
-            "Should return error for non-existent project"
+        # Should return not found for non-existent project
+        if upload_response.status_code != TestConstants.HTTP_NOT_FOUND:
+            print(f"DEBUG: Response status: {upload_response.status_code}")
+            print(f"DEBUG: Response content: {upload_response.text}")
+            print(f"DEBUG: Response headers: {upload_response.headers}")
+        assert upload_response.status_code == TestConstants.HTTP_NOT_FOUND, (
+            f"Should return 404 for non-existent project, got {upload_response.status_code}. Response: {upload_response.text}"
         )
 
     def test_project_status_transitions(

@@ -6,8 +6,11 @@ import os
 from typing import Optional, List
 from dataclasses import dataclass
 from uuid import UUID
+from functools import lru_cache
 import structlog
 from azure.storage.blob import BlobServiceClient
+from azure.core.exceptions import ResourceExistsError, HttpResponseError
+from configuration.blob_storage_config import BlobStorageSettings, get_blob_storage_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -31,27 +34,58 @@ class BlobStorageClient:
     Handles document upload, download, and cleanup operations.
     """
 
-    def __init__(self, connection_string: Optional[str] = None, container_name: str = "documents"):
+    def __init__(self, settings: Optional[BlobStorageSettings] = None):
         """
         Initialize the Azure Blob Storage client.
         
         Args:
-            connection_string: Azure Storage connection string (defaults to environment variable)
-            container_name: Name of the blob container
+            settings: Blob storage configuration settings
         """
-        self.connection_string = connection_string or os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-        self.container_name = container_name
+        self.settings = settings or get_blob_storage_settings()
+        self.connection_string = self.settings.AZURE_STORAGE_CONNECTION_STRING
+        self.container_name = self.settings.AZURE_STORAGE_CONTAINER_NAME
+        
         if not self.connection_string:
-                raise ValueError("Azure Storage connection string not provided")
+            raise ValueError("Azure Storage connection string not provided")
         
         self.blob_service_client = None
-        logger.info("BlobStorageClient initialized successfully", container_name=container_name)
+        logger.info("BlobStorageClient initialized successfully", container_name=self.container_name)
 
     def _get_blob_service_client(self):
         """Get or create the blob service client."""
         if self.blob_service_client is None:    
             self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
         return self.blob_service_client
+
+    def _ensure_container_exists(self) -> bool:
+        """
+        Ensure the storage container exists, creating it if necessary.
+        
+        Returns:
+            bool: True if container exists or was created successfully, False otherwise
+        """
+        try:
+            blob_service_client = self._get_blob_service_client()
+            container_client = blob_service_client.get_container_client(self.container_name)
+            
+            # Check if container already exists
+            if container_client.exists():
+                logger.debug("Container already exists", container_name=self.container_name)
+                return True
+            
+            # Create the container
+            container_client.create_container()
+            logger.info("Container created successfully", container_name=self.container_name)
+            return True
+            
+        except ResourceExistsError:
+            # Container was created by another process between our check and create
+            logger.debug("Container already exists (created by another process)", container_name=self.container_name)
+            return True
+        except (HttpResponseError, Exception) as e:
+            error_msg = str(e)
+            logger.error("Failed to create container", container_name=self.container_name, error=error_msg)
+            return False
 
     def upload_file(self, file_path: str, blob_name: str, project_id: Optional[UUID] = None) -> BlobStorageResult:
         """
@@ -77,6 +111,15 @@ class BlobStorageClient:
             )
 
         try:
+            # Ensure container exists before attempting upload
+            if not self._ensure_container_exists():
+                error_msg = "Container does not exist and could not be created"
+                logger.error("Container creation failed", container_name=self.container_name)
+                return BlobStorageResult(
+                    success=False,
+                    error_message=error_msg
+                )
+
             full_blob_name = self._generate_blob_name(blob_name, project_id)
 
             blob_service_client = self._get_blob_service_client()
@@ -122,6 +165,15 @@ class BlobStorageClient:
         logger.info("Starting file download", blob_name=blob_name, local_path=local_path)
 
         try:
+            # Ensure container exists before attempting download
+            if not self._ensure_container_exists():
+                error_msg = "Container does not exist and could not be created"
+                logger.error("Container creation failed", container_name=self.container_name)
+                return BlobStorageResult(
+                    success=False,
+                    error_message=error_msg
+                )
+
             blob_service_client = self._get_blob_service_client()
             container_client = blob_service_client.get_container_client(self.container_name)
 
@@ -161,6 +213,15 @@ class BlobStorageClient:
         logger.info("Starting file deletion", blob_name=blob_name)
 
         try:
+            # Ensure container exists before attempting deletion
+            if not self._ensure_container_exists():
+                error_msg = "Container does not exist and could not be created"
+                logger.error("Container creation failed", container_name=self.container_name)
+                return BlobStorageResult(
+                    success=False,
+                    error_message=error_msg
+                )
+
             blob_service_client = self._get_blob_service_client()
             container_client = blob_service_client.get_container_client(self.container_name)
 
@@ -197,6 +258,15 @@ class BlobStorageClient:
         logger.info("Starting file listing", project_id=str(project_id) if project_id else None, prefix=prefix)
 
         try:
+            # Ensure container exists before attempting to list files
+            if not self._ensure_container_exists():
+                error_msg = "Container does not exist and could not be created"
+                logger.error("Container creation failed", container_name=self.container_name)
+                return BlobStorageResult(
+                    success=False,
+                    error_message=error_msg
+                )
+
             blob_service_client = self._get_blob_service_client()
             container_client = blob_service_client.get_container_client(self.container_name)
 
@@ -278,3 +348,12 @@ class BlobStorageClient:
                 success=False,
                 error_message=error_msg
             )
+
+
+@lru_cache()
+def get_blob_storage_client() -> BlobStorageClient:
+    """
+    Creates a cached instance of BlobStorageClient.
+    This ensures that the client is created only once and reused.
+    """
+    return BlobStorageClient()

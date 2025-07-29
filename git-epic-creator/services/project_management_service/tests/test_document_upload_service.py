@@ -53,7 +53,7 @@ class TestDocumentUploadService:
         mock_task.delay.return_value = Mock(id='test-task-id')
         
         # Create service instance
-        service = DocumentUploadService()
+        service = DocumentUploadService(mock_blob_instance)
         
         # Create test files
         test_files = [
@@ -111,7 +111,7 @@ class TestDocumentUploadService:
         mock_task.delay.return_value = Mock(id='test-task-id')
         
         # Create service instance
-        service = DocumentUploadService()
+        service = DocumentUploadService(mock_blob_instance)
         
         # Create test files
         test_files = [
@@ -155,7 +155,7 @@ class TestDocumentUploadService:
         mock_blob_instance.upload_file.return_value = mock_upload_result
         
         # Create service instance
-        service = DocumentUploadService()
+        service = DocumentUploadService(mock_blob_instance)
         
         # Create test files
         test_files = [
@@ -190,7 +190,7 @@ class TestDocumentUploadService:
         mock_blob_client_class.return_value = mock_blob_instance
         
         # Create service instance
-        service = DocumentUploadService()
+        service = DocumentUploadService(mock_blob_instance)
         
         # Act
         result = await service.bulk_upload_documents(self.project_id, [])

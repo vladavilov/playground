@@ -58,7 +58,7 @@ class Project(BaseModel):
     gitlab_url = Column(Text, nullable=True)
     gitlab_repository_url = Column(Text, nullable=True)
     status = Column(String(50), default='active')  # Supports: active, processing, inactive
-    processed_pct = Column(Float, default=0.0, nullable=False)  # Percentage of processed documents (0.0-100.0)
+    processed_pct = Column(Float, default=0.0, nullable=False)  # Percentage (0.0-100.0)
     created_by = Column(String(255), nullable=False)  # Stores Azure AD user ID
 
     # These override the BaseModel columns to use default instead of server_default

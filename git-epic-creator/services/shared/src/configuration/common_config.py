@@ -10,6 +10,7 @@ from .neo4j_config import Neo4jSettings
 from .redis_config import RedisSettings
 from .celery_config import CelerySettings
 from .http_client_config import HTTPClientSettings
+from .blob_storage_config import BlobStorageSettings
 
 # Explicitly load .env file at the module level.
 load_dotenv()
@@ -29,6 +30,7 @@ class AppSettings(BaseConfig):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     celery: CelerySettings = Field(default_factory=CelerySettings)
     http_client: HTTPClientSettings = Field(default_factory=HTTPClientSettings)
+    blob_storage: BlobStorageSettings = Field(default_factory=BlobStorageSettings)
 
 @lru_cache()
 def get_app_settings() -> AppSettings:

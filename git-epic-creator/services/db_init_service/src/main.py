@@ -24,7 +24,7 @@ app = FastAPIFactory.create_app(
     enable_azure_auth=False,  # Disable Azure auth for this service
     enable_docs_auth=False,   # Disable docs auth for this service
     enable_cors=True,         # Enable CORS for API access
-    enable_postgres=True      # Enable PostgreSQL integration
+    enable_postgres=True  # Enable PostgreSQL integration
 )
 
 # Create API router for database operations
@@ -45,16 +45,20 @@ def init_db(postgres_client: PostgresClient = Depends(get_postgres_client)):
     Returns:
         dict: Initialization result with list of tables created
     """
-    settings = postgres_client.settings
+    client_settings = postgres_client.settings
 
     logger.info(
         "Database initialization requested",
-        host=settings.POSTGRES_HOST,
-        port=settings.POSTGRES_PORT,
-        db=settings.POSTGRES_DB
+        host=client_settings.POSTGRES_HOST,
+        port=client_settings.POSTGRES_PORT,
+        db=client_settings.POSTGRES_DB
     )
 
     try:
+        # Ensure models are registered with metadata by referencing them
+        models = [Project, ProjectMember]  # This registers the models with Base.metadata
+        logger.info("Registered models", model_count=len(models))
+        
         # Get list of tables that will be created
         table_names = [table.name for table in Base.metadata.tables.values()]
         logger.info("Creating database tables", tables=table_names)
@@ -63,16 +67,31 @@ def init_db(postgres_client: PostgresClient = Depends(get_postgres_client)):
         Base.metadata.create_all(bind=postgres_client.sync_engine)
 
         logger.info("Database initialization successful", tables_created=table_names)
-        return {"status": "Database initialized successfully", "tables_created": table_names}
+        return {
+            "status": "Database initialized successfully", 
+            "tables_created": table_names
+        }
     except (ConnectionError, TimeoutError) as e:
-        logger.error("Database connection failed during initialization", error=str(e), exc_info=True)
+        logger.error(
+            "Database connection failed during initialization", 
+            error=str(e), 
+            exc_info=True
+        )
         return {"status": "error", "detail": f"Connection error: {str(e)}"}
     except ImportError as e:
-        logger.error("Model import error during initialization", error=str(e), exc_info=True)
+        logger.error(
+            "Model import error during initialization", 
+            error=str(e), 
+            exc_info=True
+        )
         return {"status": "error", "detail": f"Model import error: {str(e)}"}
     except Exception as e:  # pylint: disable=broad-except
-        # Still keep a general exception handler as a last resort, but with more specific logging
-        logger.error("Database initialization failed", error=str(e), exc_info=True)
+        # Keep a general exception handler as a last resort
+        logger.error(
+            "Database initialization failed", 
+            error=str(e), 
+            exc_info=True
+        )
         return {"status": "error", "detail": f"Unexpected error: {str(e)}"}
 
 app.include_router(db_router)

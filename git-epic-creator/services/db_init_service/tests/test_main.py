@@ -1,10 +1,10 @@
 """
 Unit tests for the database initialization service.
 """
+import sys
 from unittest.mock import patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 
 # Use a test-specific database URL (in-memory SQLite)
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -18,8 +18,9 @@ class MockPostgresClient:
     """Mock PostgreSQL client for testing."""
     def __init__(self, settings=None):
         self.settings = settings or MockPostgresSettings()
-        self.sync_engine = create_engine(TEST_DATABASE_URL)
-  
+        # Create a mock sync_engine instead of real SQLAlchemy engine
+        self.sync_engine = MagicMock()
+
     def get_sync_session(self):
         """Get a mock session."""
         return MagicMock()
@@ -38,7 +39,7 @@ class MockPostgresHealthChecker:
     def check_health(client):
         """Mock health check method."""
         return True
-    
+
     @staticmethod
     def check_health_with_details(client):
         """Mock detailed health check method."""
@@ -51,22 +52,87 @@ class MockPostgresHealthChecker:
             "port": 5432
         }
 
+# Session-scoped fixture to prevent SQLAlchemy re-registration
+@pytest.fixture(scope="session", autouse=True)
+def mock_sqlalchemy_modules():
+    """Mock SQLAlchemy modules to prevent import conflicts."""
+    # Create comprehensive mocks for all SQLAlchemy components
+    mock_base = MagicMock()
+    mock_base.Base = MockBase
+    mock_base.declarative_base.return_value = MockBase
+
+    mock_project_db = MagicMock()
+    mock_project_db.Base = MockBase
+    mock_project_db.Project = MagicMock()
+    mock_project_db.ProjectMember = MagicMock()
+
+    mock_models_init = MagicMock()
+    mock_models_init.Project = MagicMock()
+    mock_models_init.ProjectMember = MagicMock()
+
+    # Mock all the modules that could cause SQLAlchemy conflicts
+    modules_to_mock = {
+        'models.project_db': mock_project_db,
+        'models': mock_models_init,
+        'sqlalchemy.orm': MagicMock(),
+        'sqlalchemy.inspection': MagicMock(),
+        'sqlalchemy.orm.base': MagicMock(),
+        'sqlalchemy.orm.attributes': MagicMock(),
+        'sqlalchemy.orm.collections': MagicMock(),
+        'sqlalchemy.orm.exc': MagicMock(),
+        'sqlalchemy.orm.util': MagicMock(),
+    }
+
+    with patch.dict(sys.modules, modules_to_mock):
+        yield
+
 # Fixtures
 @pytest.fixture(autouse=True)
 def mock_imports():
     """Mock imports for testing."""
-    with patch.dict('sys.modules', {
-        'models.base': MagicMock(Base=MockBase),
-        'utils.postgres_client': MagicMock(
-            PostgresClient=MockPostgresClient,
-            PostgresHealthChecker=MockPostgresHealthChecker,
-            get_postgres_client=lambda: MockPostgresClient()
-        ),
-        'configuration.postgres_config': MagicMock(
-            PostgresSettings=MockPostgresSettings,
-            get_postgres_settings=lambda: MockPostgresSettings()
-        )
-    }):
+    mock_postgres_client = MagicMock(
+        PostgresClient=MockPostgresClient,
+        PostgresHealthChecker=MockPostgresHealthChecker,
+        get_postgres_client=lambda: MockPostgresClient()
+    )
+
+    mock_postgres_config = MagicMock(
+        PostgresSettings=MockPostgresSettings,
+        get_postgres_settings=lambda: MockPostgresSettings()
+    )
+
+    mock_common_config = MagicMock()
+    mock_common_config.get_app_settings.return_value = MagicMock(API_PORT=8000)
+
+    mock_logging_config = MagicMock()
+    # Create a real FastAPI app for testing with health endpoint
+    from fastapi import FastAPI, APIRouter
+    mock_app = FastAPI()
+    
+    # Add the health endpoint that the FastAPI factory would normally add
+    health_router = APIRouter(prefix="/health", tags=["Health"])
+    
+    @health_router.get("/postgres")
+    def postgres_health_check():
+        """Mock PostgreSQL health check endpoint."""
+        return MockPostgresHealthChecker.check_health_with_details(None)
+    
+    mock_app.include_router(health_router)
+    
+    mock_app_factory = MagicMock()
+    mock_app_factory.FastAPIFactory.create_app.return_value = mock_app
+
+    modules_to_mock = {
+        'utils.postgres_client': mock_postgres_client,
+        'configuration.postgres_config': mock_postgres_config,
+        'configuration.common_config': mock_common_config,
+        'configuration.logging_config': mock_logging_config,
+        'utils.app_factory': mock_app_factory,
+        'structlog': MagicMock(),
+        'uvicorn': MagicMock(),
+    }
+
+    with patch.dict(sys.modules, modules_to_mock):
         yield
 
 @pytest.fixture

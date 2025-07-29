@@ -27,7 +27,8 @@ app = FastAPIFactory.create_app(
     enable_docs_auth=False,
     enable_cors=True,
     enable_postgres=True,
-    enable_redis=True
+    enable_redis=True,
+    enable_blob_storage=True
 )
 
 # Include routers

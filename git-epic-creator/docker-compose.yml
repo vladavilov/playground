@@ -204,7 +204,7 @@ services:
       - "10000:10000"  # Blob storage
       - "10001:10001"  # Queue storage
       - "10002:10002"  # Table storage
-    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --blobPort 10000 --queuePort 10001 --tablePort 10002 --loose --debug /workspace/debug.log"
+    command: "azurite --skipApiVersionCheck --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --blobPort 10000 --queuePort 10001 --tablePort 10002 --loose --debug /workspace/debug.log"
     volumes:
       - azurite_data:/workspace
     networks:
