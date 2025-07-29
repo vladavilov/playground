@@ -31,7 +31,8 @@ class TestConfig:
             "project_management": os.getenv("PROJECT_MANAGEMENT_SERVICE_URL", "http://localhost:8003"),
             "document_processing": os.getenv("DOCUMENT_PROCESSING_URL", "http://localhost:8004"),
             "neo4j_ingestion": os.getenv("NEO4J_INGESTION_URL", "http://localhost:8006"),
-            "mock_auth": os.getenv("AZURE_AD_AUTHORITY", "http://localhost:8005")
+            "mock_auth": os.getenv("AZURE_AD_AUTHORITY", "http://localhost:8005"),
+            "init_db_service": os.getenv("INIT_DB_SERVICE_URL", "http://localhost:8001")
         }
     
     @classmethod
