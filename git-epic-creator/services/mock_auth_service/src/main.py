@@ -73,9 +73,9 @@ async def openid_configuration(tenant_id: str):
         return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
 
     return {
-        "token_endpoint": f"{ISSUER}/oauth2/v2.0/token",
+        "token_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/token",
         "token_endpoint_auth_methods_supported": ["client_secret_post", "private_key_jwt", "client_secret_basic"],
-        "jwks_uri": f"{ISSUER}/discovery/v2.0/keys",
+        "jwks_uri": f"{BASE_URL}/{MOCK_TENANT_ID}/discovery/v2.0/keys",
         "response_modes_supported": ["query", "fragment", "form_post"],
         "subject_types_supported": ["pairwise"],
         "id_token_signing_alg_values_supported": ["RS256"],
@@ -84,13 +84,13 @@ async def openid_configuration(tenant_id: str):
         "issuer": ISSUER,
         "request_uri_parameter_supported": False,
         "userinfo_endpoint": f"{BASE_URL}/v1.0/me", # Mock userinfo endpoint
-        "authorization_endpoint": f"{ISSUER}/oauth2/v2.0/authorize",
-        "device_authorization_endpoint": f"{ISSUER}/oauth2/v2.0/devicecode",
+        "authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/authorize",
+        "device_authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/devicecode",
         "http_logout_supported": True,
         "frontchannel_logout_supported": True,
-        "end_session_endpoint": f"{ISSUER}/oauth2/v2.0/logout",
+        "end_session_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/logout",
         "claims_supported": ["sub", "iss", "cloud_instance_name", "cloud_instance_host_name", "cloud_graph_host_name", "msgraph_host", "aud", "exp", "iat", "auth_time", "acr", "nonce", "preferred_username", "name", "tid", "ver", "at_hash", "c_hash", "email"],
-        "kerberos_endpoint": f"{ISSUER}/kerberos",
+        "kerberos_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/kerberos",
         "tenant_region_scope": "NA",
         "cloud_instance_name": "mock-cloud",
         "cloud_graph_host_name": "graph.mock.com",
@@ -134,8 +134,8 @@ async def get_token(tenant_id: str, request: Request):
         "oid": user_object_id,  # Object ID of the user
         "preferred_username": "mock.user@example.com",
         "roles": [              # Add roles here to test RBAC
-            "User.Read",
-            "Admin.Write"
+            "User",
+            "Admin"
         ],
         "sub": str(uuid.uuid4()), # Subject - a unique identifier for the user
         "tid": MOCK_TENANT_ID,  # Tenant ID
@@ -158,6 +158,54 @@ async def get_token(tenant_id: str, request: Request):
         "ext_expires_in": 3599,
         "access_token": token
     }
+
+
+@app.get("/{tenant_id}/oauth2/v2.0/authorize")
+async def authorize_endpoint(tenant_id: str):
+    """
+    Mock authorization endpoint. In a real scenario, this would handle OAuth2 authorization flow.
+    For mock purposes, returns a simple response.
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    
+    return {"message": "Mock authorization endpoint", "tenant_id": tenant_id}
+
+
+@app.post("/{tenant_id}/oauth2/v2.0/devicecode")
+async def device_code_endpoint(tenant_id: str):
+    """
+    Mock device authorization endpoint. In a real scenario, this would handle device code flow.
+    For mock purposes, returns a simple response.
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    
+    return {"message": "Mock device code endpoint", "tenant_id": tenant_id}
+
+
+@app.post("/{tenant_id}/oauth2/v2.0/logout")
+async def logout_endpoint(tenant_id: str):
+    """
+    Mock logout endpoint. In a real scenario, this would handle logout flow.
+    For mock purposes, returns a simple response.
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    
+    return {"message": "Mock logout endpoint", "tenant_id": tenant_id}
+
+
+@app.get("/{tenant_id}/kerberos")
+async def kerberos_endpoint(tenant_id: str):
+    """
+    Mock Kerberos endpoint. In a real scenario, this would handle Kerberos authentication.
+    For mock purposes, returns a simple response.
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    
+    return {"message": "Mock Kerberos endpoint", "tenant_id": tenant_id}
 
 
 if __name__ == "__main__":
