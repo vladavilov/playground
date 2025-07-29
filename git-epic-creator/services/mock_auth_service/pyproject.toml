@@ -25,7 +25,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest"
+    "pytest",
+    "httpx"
 ]
 
 [tool.setuptools.packages.find]
