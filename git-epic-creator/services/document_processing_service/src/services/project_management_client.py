@@ -4,6 +4,7 @@ HTTP client for communicating with the Project Management Service.
 from typing import Optional, Dict, Any
 from uuid import UUID
 from dataclasses import dataclass
+import os
 import httpx
 import structlog
 from tenacity import (
@@ -14,8 +15,8 @@ from tenacity import (
     retry_if_result
 )
 
-from configuration.http_client_config import HTTPClientSettings
 from configuration.common_config import get_app_settings
+from utils.azure_token_provider import AzureTokenProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -47,10 +48,12 @@ class ProjectManagementClient:
         settings = get_app_settings()
         self.config = settings.http_client
         self._client: Optional[httpx.AsyncClient] = None
+        self._token_provider: Optional[AzureTokenProvider] = None
 
     async def __aenter__(self) -> 'ProjectManagementClient':
         """Async context manager entry."""
         await self._ensure_client()
+        await self._ensure_token_provider()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -78,11 +81,20 @@ class ProjectManagementClient:
                 base_url=self.config.PROJECT_MANAGEMENT_SERVICE_URL
             )
 
+    async def _ensure_token_provider(self) -> None:
+        """Ensure Azure token provider is initialized if authentication is enabled."""
+        if self.config.ENABLE_AZURE_AUTH and self._token_provider is None:
+            self._token_provider = AzureTokenProvider()
+            await self._token_provider.__aenter__()
+
     async def close(self) -> None:
         """Close the HTTP client and cleanup resources."""
         if self._client:
             await self._client.aclose()
             self._client = None
+        if self._token_provider:
+            await self._token_provider.close()
+            self._token_provider = None
 
     def _should_retry_on_result(self, result: httpx.Response) -> bool:
         """
@@ -134,6 +146,34 @@ class ProjectManagementClient:
             reraise=True
         )
         async def _make_request():
+            # Add authentication headers if Azure auth is enabled
+            request_kwargs = kwargs.copy()
+            
+            if self.config.ENABLE_AZURE_AUTH and self._token_provider:
+                try:
+                    auth_headers = await self._token_provider.get_authorization_header()
+                    
+                    # Merge with existing headers
+                    if "headers" in request_kwargs:
+                        request_kwargs["headers"].update(auth_headers)
+                    else:
+                        request_kwargs["headers"] = auth_headers
+                        
+                    logger.debug(
+                        "Added Azure authentication headers to request",
+                        method=method,
+                        endpoint=endpoint
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to acquire authentication token",
+                        method=method,
+                        endpoint=endpoint,
+                        error=str(e)
+                    )
+                    # Re-raise as this is a critical authentication failure
+                    raise
+
             logger.info(
                 "Making HTTP request",
                 method=method,
@@ -141,7 +181,16 @@ class ProjectManagementClient:
                 base_url=self.config.PROJECT_MANAGEMENT_SERVICE_URL
             )
 
-            response = await self._client.request(method, endpoint, **kwargs)
+            response = await self._client.request(method, endpoint, **request_kwargs)
+
+            # Check for authentication errors and invalidate token if necessary
+            if response.status_code == 401 and self.config.ENABLE_AZURE_AUTH and self._token_provider:
+                logger.warning(
+                    "Received 401 Unauthorized, invalidating cached token",
+                    method=method,
+                    endpoint=endpoint
+                )
+                self._token_provider.invalidate_token()
 
             logger.info(
                 "HTTP request completed",
@@ -180,7 +229,15 @@ class ProjectManagementClient:
         """
         # Validate project_id format
         try:
-            UUID(project_id)
+            parsed_uuid = UUID(project_id)
+            logger.info(
+                "ProjectManagementClient received project_id",
+                project_id=project_id,
+                project_id_type=type(project_id).__name__,
+                project_id_repr=repr(project_id),
+                parsed_uuid=str(parsed_uuid),
+                parsed_uuid_type=type(parsed_uuid).__name__
+            )
         except ValueError as e:
             raise ValueError("Invalid project_id format. Must be a valid UUID string.") from e
 
@@ -218,11 +275,17 @@ class ProjectManagementClient:
 
         endpoint = f"/projects/{project_id}/status"
 
-        logger.info(
-            "Updating project status",
+        # Get a fresh logger instance for this operation
+        client_logger = structlog.get_logger(__name__)
+        
+        client_logger.info(
+            "PROJECT MANAGEMENT CLIENT - updating project status",
             project_id=project_id,
+            project_id_type=type(project_id).__name__,
             payload=payload,
-            endpoint=endpoint
+            endpoint=endpoint,
+            full_url=f"{self.config.PROJECT_MANAGEMENT_SERVICE_URL}{endpoint}",
+            worker_pid=os.getpid()
         )
 
         try:

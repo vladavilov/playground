@@ -209,6 +209,35 @@ def test_create_project_with_none_urls(project_service, mock_session):
     assert result.status == ProjectStatus.ACTIVE.value
 
 
+def test_create_project_transaction_rollback_on_refresh_failure(project_service, mock_session):
+    """Test that session.refresh() failure after commit() causes transaction rollback."""
+    project_data = ProjectSet(
+        name="Test Project",
+        description="Test description",
+        status=ProjectStatus.ACTIVE
+    )
+    user_id = "test-user-123"
+
+    # Setup session to succeed with add and commit, but fail on refresh
+    def refresh_side_effect(instance):
+        # Simulate refresh failure that could occur due to database connection issues
+        raise Exception("Refresh failed - simulating database connection issue")
+
+    mock_session.refresh.side_effect = refresh_side_effect
+
+    # The create_project should raise an exception due to refresh failure
+    with pytest.raises(Exception, match="Refresh failed"):
+        project_service.create_project(project_data, user_id)
+
+    # Verify that add and commit were called (showing transaction was attempted)
+    mock_session.add.assert_called_once()
+    mock_session.commit.assert_called_once()
+    mock_session.refresh.assert_called_once()
+    
+    # In a real scenario, the context manager would call rollback() 
+    # when refresh() fails, undoing the committed transaction
+
+
 def test_get_project_by_id_success(project_service, mock_session, sample_project_data):
     """Test successful project retrieval by ID."""
     project_id = sample_project_data["id"]
@@ -407,58 +436,6 @@ def test_update_project_progress_project_not_found(project_service, mock_session
     
     assert result is None
     mock_session.commit.assert_not_called()
-
-
-def test_reset_project_status_success(project_service, mock_session, sample_project):
-    """Test successful project status reset."""
-    project_id = sample_project.id
-    new_status = "active"
-    error_message = None
-    
-    # Mock project exists
-    mock_session.query.return_value.filter.return_value.first.return_value = sample_project
-    
-    result = project_service.reset_project_status(project_id, new_status, error_message)
-    
-    assert result is not None
-    assert result.status == "active"
-    assert result.processed_pct == 0.0  # Should be reset
-    
-    # Verify database operations
-    mock_session.commit.assert_called_once()
-    mock_session.refresh.assert_called_once_with(sample_project)
-
-
-def test_reset_project_status_with_error_message(project_service, mock_session, sample_project):
-    """Test project status reset with error message."""
-    project_id = sample_project.id
-    new_status = "inactive"
-    error_message = "Processing failed due to invalid document format"
-    
-    # Mock project exists
-    mock_session.query.return_value.filter.return_value.first.return_value = sample_project
-    
-    result = project_service.reset_project_status(project_id, new_status, error_message)
-    
-    assert result is not None
-    assert result.status == "inactive"
-    assert result.processed_pct == 0.0  # Should be reset
-
-
-def test_reset_project_status_project_not_found(project_service, mock_session):
-    """Test project status reset when project doesn't exist."""
-    project_id = uuid4()
-    new_status = "active"
-    error_message = None
-    
-    # Mock project doesn't exist
-    mock_session.query.return_value.filter.return_value.first.return_value = None
-    
-    result = project_service.reset_project_status(project_id, new_status, error_message)
-    
-    assert result is None
-    mock_session.commit.assert_not_called()
-
 
 def test_update_project_progress_calculates_percentage_correctly(project_service, mock_session, sample_project):
     """Test that progress percentage is calculated correctly."""

@@ -46,11 +46,15 @@ def test_logging_produces_filtered_json():
     )
     
     log_output = log_capture_stream.getvalue().strip()
-
+    
+    # Handle multiple JSON lines - get the last one (the user login attempt)
+    log_lines = log_output.split('\n')
+    user_log_line = log_lines[-1]
+    
     try:
-        log_json = json.loads(log_output)
+        log_json = json.loads(user_log_line)
     except json.JSONDecodeError:
-        pytest.fail(f"Log output is not valid JSON: {log_output!r}")
+        pytest.fail(f"Log output is not valid JSON: {user_log_line!r}")
 
     assert log_json['event'] == 'user login attempt'
     assert log_json['password'] == '[FILTERED]'

@@ -22,7 +22,6 @@ class RedisClientFactory:
             password=settings.REDIS_PASSWORD,
             db=settings.REDIS_DB,
             max_connections=settings.REDIS_MAX_CONNECTIONS,
-            retry_on_timeout=settings.REDIS_RETRY_ON_TIMEOUT,
             socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT,
             socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
             decode_responses=True

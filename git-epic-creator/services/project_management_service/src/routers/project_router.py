@@ -4,7 +4,6 @@ FastAPI router for project management endpoints.
 
 from typing import List
 from uuid import UUID
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi_azure_auth.user import User
 import structlog
@@ -20,13 +19,10 @@ from models.project_rest import (
 from models.document_schemas import BulkUploadResponse
 from utils.postgres_client import PostgresClient
 from utils.blob_storage import BlobStorageClient
+from utils.redis_client import get_redis_client
 from services.project_service import ProjectService
 from services.document_upload_service import DocumentUploadService
-from utils.unified_redis_messages import (
-    ProjectProgressPublisher,
-    create_redis_message_factory
-)
-from utils.redis_client import get_redis_client
+from services.project_status_publisher import ProjectStatusPublisher
 
 logger = structlog.get_logger(__name__)
 
@@ -57,12 +53,11 @@ def get_document_upload_service(
     """Get document upload service instance."""
     return DocumentUploadService(blob_storage_client)
 
-# Dependency to get Redis publisher
-def get_redis_publisher() -> ProjectProgressPublisher:
-    """Get Redis publisher instance."""
+# Dependency to get project status publisher
+def get_project_status_publisher() -> ProjectStatusPublisher:
+    """Get project status publisher instance."""
     redis_client = get_redis_client()
-    _, progress_publisher, _ = create_redis_message_factory(redis_client)
-    return progress_publisher
+    return ProjectStatusPublisher(redis_client)
 
 
 @router.post(
@@ -443,7 +438,7 @@ async def update_project_status(
     update_request: ProjectProgressUpdateRequest,
     current_user: User = Depends(get_current_active_user),
     project_service: ProjectService = Depends(get_project_service),
-    redis_publisher: ProjectProgressPublisher = Depends(get_redis_publisher)
+    project_status_publisher: ProjectStatusPublisher = Depends(get_project_status_publisher)
 ) -> ProjectResponse:
     """
     Update project status with progress information or reset status.
@@ -462,6 +457,8 @@ async def update_project_status(
     logger.info(
         "Updating project status via API",
         project_id=str(project_id),
+        project_id_type=type(project_id).__name__,
+        project_id_repr=repr(project_id),
         status=update_request.status,
         user_id=current_user.oid
     )
@@ -502,7 +499,7 @@ async def update_project_status(
 
         # Publish project update to Redis (non-blocking)
         try:
-            publish_success = await redis_publisher.publish_project_update(
+            publish_success = await project_status_publisher.publish_project_update(
                 project_id=project_id,
                 status=project.status,
                 processed_count=update_request.processed_count,

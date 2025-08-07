@@ -59,6 +59,13 @@ class HTTPClientSettings(BaseSettings):
         alias="HTTP_MAX_KEEPALIVE_CONNECTIONS"
     )
 
+    # Authentication settings
+    ENABLE_AZURE_AUTH: bool = Field(
+        default=True,
+        description="Enable Azure AD authentication for HTTP requests",
+        alias="HTTP_ENABLE_AZURE_AUTH"
+    )
+
     @field_validator('PROJECT_MANAGEMENT_SERVICE_URL')
     @classmethod
     def validate_url(cls, v: str) -> str:

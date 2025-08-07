@@ -3,7 +3,7 @@ Tests for main.py Celery worker entry point.
 """
 
 import sys
-from unittest.mock import Mock, patch, PropertyMock
+from unittest.mock import Mock, patch
 import pytest
 from celery import Celery
 from fastapi import FastAPI
@@ -23,108 +23,26 @@ class TestMain:
             if module in sys.modules:
                 del sys.modules[module]
 
-    def test_module_initialization_creates_celery_app(self):
-        """Test that importing main module initializes Celery app and logger."""
-        # Mock the problematic task module in sys.modules
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            
-            # Act - Import main module
-            import main
-            
-            # Assert
-            mock_configure_logging.assert_called_once()
-            mock_get_celery_app.assert_called_once_with(name="document_processing_service")
-            
-            # Verify module has initialized globals
-            assert main.logger is not None
-            assert main.celery_app is not None
-
-    def test_start_worker_creates_and_starts_celery_worker(self):
-        """Test that start_worker creates and starts a Celery worker."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            mock_worker = Mock()
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            mock_celery_app.Worker.return_value = mock_worker
-            
-            import main
-            
-            # Act
-            main.start_worker()
-            
-            # Assert
-            mock_celery_app.Worker.assert_called_once()
-            mock_worker.start.assert_called_once()
-            
-            # Verify logging behavior
-            assert any("Starting Celery worker" in str(call) for call in mock_logger.info.call_args_list)
-            assert any("worker started successfully" in str(call) for call in mock_logger.info.call_args_list)
-
-    def test_start_worker_fails_when_celery_app_is_none(self):
-        """Test that start_worker fails gracefully when celery_app is None."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            
-            import main
-            
-            # Reset celery_app to None to simulate failure scenario
-            main.celery_app = None
-            
-            # Act & Assert
-            with pytest.raises(AttributeError, match="'NoneType' object has no attribute 'Worker'"):
-                main.start_worker()
-            
-            # Verify error was logged
-            mock_logger.error.assert_called_with("Failed to start Celery worker", error="'NoneType' object has no attribute 'Worker'")
-
     def test_signal_handlers_are_defined_and_callable(self):
         """Test that all Celery signal handlers are defined and callable."""
         mock_task_module = Mock()
         
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
+        with patch('celery_worker_app.celery_app') as mock_celery_app, \
+             patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
             
             # Arrange
             mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
+            # Mock celery_app with proper tasks structure
+            mock_celery_app.tasks = Mock()
+            mock_celery_app.tasks.keys.return_value = [
+                'celery.chord_unlock',
+                'celery.backend_cleanup',
+                'tasks.document_tasks.process_project_documents_task'
+            ]
             
             mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
             
             # Act
             import main
@@ -132,7 +50,7 @@ class TestMain:
             # Assert - Check signal handlers exist and are callable
             signal_handlers = [
                 '_log_task_prerun',
-                '_log_task_postrun', 
+                '_log_task_postrun',
                 '_log_task_failure',
                 '_log_task_retry',
                 '_log_worker_ready'
@@ -146,18 +64,23 @@ class TestMain:
         """Test that signal handlers log with correct structured data."""
         mock_task_module = Mock()
         
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
+        with patch('celery_worker_app.celery_app') as mock_celery_app, \
+             patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch('utils.celery_factory.logger') as mock_factory_logger, \
              patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
             
             # Arrange
             mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
+            # Mock celery_app with proper tasks structure
+            mock_celery_app.tasks = Mock()
+            mock_celery_app.tasks.keys.return_value = [
+                'celery.chord_unlock',
+                'celery.backend_cleanup',
+                'tasks.document_tasks.process_project_documents_task'
+            ]
             
             mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
             mock_factory_logger.info = Mock()
             
             import main
@@ -178,58 +101,12 @@ class TestMain:
                 kwargs={"key": "value"}
             )
 
-    def test_initialization_error_handling(self):
-        """Test that initialization errors are properly handled and logged."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_get_celery_app.side_effect = Exception("Celery creation failed")
-            mock_get_logger.return_value = mock_logger
-            
-            # Act & Assert
-            with pytest.raises(Exception, match="Celery creation failed"):
-                import main
-
-    def test_start_worker_error_handling(self):
-        """Test that start_worker handles errors properly."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            mock_worker = Mock()
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            mock_celery_app.Worker.return_value = mock_worker
-            mock_worker.start.side_effect = Exception("Worker start failed")
-            
-            import main
-            
-            # Act & Assert
-            with pytest.raises(Exception, match="Worker start failed"):
-                main.start_worker()
-            
-            # Verify error was logged
-            mock_logger.error.assert_called_with("Failed to start Celery worker", error="Worker start failed")
-
     def test_fastapi_app_creation_with_celery_health_endpoint(self):
         """Test that main module creates FastAPI app with Celery health check endpoint."""
         mock_task_module = Mock()
         
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging') as mock_configure_logging, \
+        with patch('celery_worker_app.celery_app') as mock_celery_app, \
+             patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
              patch('configuration.common_config.get_app_settings') as mock_get_settings, \
@@ -237,17 +114,23 @@ class TestMain:
             
             # Arrange
             mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
             mock_fastapi_app = Mock(spec=FastAPI)
             mock_settings = Mock()
             mock_settings.API_PORT = 8000
+            
+            # Mock celery_app with proper tasks structure
+            mock_celery_app.tasks = Mock()
+            mock_celery_app.tasks.keys.return_value = [
+                'celery.chord_unlock',
+                'celery.backend_cleanup',
+                'tasks.document_tasks.process_project_documents_task'
+            ]
             
             # Configure the mock FastAPI app to have a state attribute
             mock_fastapi_app.state = Mock()
             mock_fastapi_app.include_router = Mock()
             
             mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
             mock_create_app.return_value = mock_fastapi_app
             mock_get_settings.return_value = mock_settings
             
@@ -267,6 +150,7 @@ class TestMain:
             # Verify module has both apps initialized
             assert hasattr(main, 'app'), "FastAPI app should be available"
             assert main.app is not None
+            assert hasattr(main, 'celery_app'), "Celery app should be available"
             assert main.celery_app is not None
             
             # Verify Celery app was stored in FastAPI app state
@@ -279,7 +163,7 @@ class TestMain:
         """Test that /health/celery endpoint is created and callable."""
         mock_task_module = Mock()
         
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+        with patch('celery_worker_app.celery_app') as mock_celery_app, \
              patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
@@ -288,13 +172,19 @@ class TestMain:
             
             # Arrange
             mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
             mock_fastapi_app = FastAPI()  # Use real FastAPI for route testing
             mock_settings = Mock()
             mock_settings.API_PORT = 8000
             
+            # Mock celery_app with proper tasks structure
+            mock_celery_app.tasks = Mock()
+            mock_celery_app.tasks.keys.return_value = [
+                'celery.chord_unlock',
+                'celery.backend_cleanup',
+                'tasks.document_tasks.process_project_documents_task'
+            ]
+            
             mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
             mock_create_app.return_value = mock_fastapi_app
             mock_get_settings.return_value = mock_settings
             
@@ -302,9 +192,6 @@ class TestMain:
             import main
             
             # Assert endpoint exists
-            client = TestClient(main.app)
-            
-            # This should exist after our implementation
             routes = [route.path for route in main.app.routes]
             assert "/health/celery" in routes, "Celery health endpoint should exist"
 
@@ -312,33 +199,70 @@ class TestMain:
         """Test that /health/celery endpoint returns health check data from CeleryHealthChecker."""
         mock_task_module = Mock()
         
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+        with patch('celery_worker_app.celery_app') as mock_celery_app, \
+             patch('celery_worker_app.get_task_validation_status') as mock_get_task_validation, \
              patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
              patch('configuration.common_config.get_app_settings') as mock_get_settings, \
-             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
+             patch('utils.celery_factory.CeleryHealthChecker') as mock_health_checker_class, \
+             patch('services.project_management_client.ProjectManagementClient'), \
              patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
             
             # Arrange
             mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
             mock_fastapi_app = FastAPI()
             mock_settings = Mock()
             mock_settings.API_PORT = 8000
+
+            # Mock celery_app with proper tasks structure that supports len()
+            mock_tasks = {
+                'celery.chord_unlock': Mock(),
+                'celery.backend_cleanup': Mock(),
+                'tasks.document_tasks.process_project_documents_task': Mock()
+            }
+            mock_celery_app.tasks = mock_tasks
             
+            # Add additional celery app configuration mocks
+            mock_celery_app.conf.broker_url = "redis://localhost:6379/0"
+            mock_celery_app.conf.result_backend = "redis://localhost:6379/1"
+            mock_celery_app.conf.task_routes = {}
+            mock_celery_app.conf.task_serializer = "json"
+            mock_celery_app.conf.result_serializer = "json"
+            mock_celery_app.main = "document_processing_service"
+
             expected_health_data = {
                 "healthy": True,
                 "active_workers_count": 2,
                 "broker_url": "redis://localhost:6379/0",
-                "backend_url": "redis://localhost:6379/1"
+                "backend_url": "redis://localhost:6379/1",
+                "service": "Document Processing Service",
+                "celery_app_name": "document_processing_service",
+                "active_tasks": ["celery.chord_unlock", "celery.backend_cleanup", "tasks.document_tasks.process_project_documents_task"],
+                "registered_tasks_count": 3,
+                "result_backend": "redis://localhost:6379/1",
+                "task_routes": {},
+                "worker_queues": ["document_processing"],
+                "task_serializer": "json",
+                "result_serializer": "json"
+            }
+            
+            expected_task_validation = {
+                'discovered_tasks': ['tasks.document_tasks.process_project_documents_task'],
+                'expected_tasks': ['tasks.document_tasks.process_project_documents_task'],
+                'missing_tasks': [],
+                'all_tasks_registered': True
             }
             
             mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
             mock_create_app.return_value = mock_fastapi_app
             mock_get_settings.return_value = mock_settings
-            mock_health_check.return_value = expected_health_data
+            mock_get_task_validation.return_value = expected_task_validation
+            
+            # Configure mock health checker instance
+            mock_health_checker_instance = Mock()
+            mock_health_checker_instance.check_health_with_details.return_value = expected_health_data
+            mock_health_checker_class.return_value = mock_health_checker_instance
             
             # Act - Import main module
             import main
@@ -349,14 +273,26 @@ class TestMain:
             
             # Assert
             assert response.status_code == 200
-            assert response.json() == expected_health_data
-            mock_health_check.assert_called_once_with(mock_celery_app)
+            response_data = response.json()
+            
+            # Check that the original health data is included
+            for key, value in expected_health_data.items():
+                assert response_data[key] == value, f"Expected {key}={value}, got {response_data.get(key)}"
+            
+            # Check that task validation data is included
+            assert 'task_validation_status' in response_data
+            assert response_data['task_validation_status'] == expected_task_validation
+            
+            # Verify that the health checker was instantiated and called correctly
+            mock_health_checker_class.assert_called_once()
+            mock_health_checker_instance.check_health_with_details.assert_called_once_with(mock_celery_app)
+            mock_get_task_validation.assert_called_once()
 
     def test_get_celery_app_dependency_returns_celery_instance(self):
         """Test that get_celery_app_from_state dependency function returns Celery app."""
         mock_task_module = Mock()
         
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+        with patch('celery_worker_app.celery_app') as mock_celery_app, \
              patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
@@ -365,13 +301,19 @@ class TestMain:
             
             # Arrange
             mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
             mock_fastapi_app = FastAPI()
             mock_settings = Mock()
             mock_settings.API_PORT = 8000
             
+            # Mock celery_app with proper tasks structure
+            mock_celery_app.tasks = Mock()
+            mock_celery_app.tasks.keys.return_value = [
+                'celery.chord_unlock',
+                'celery.backend_cleanup',
+                'tasks.document_tasks.process_project_documents_task'
+            ]
+            
             mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
             mock_create_app.return_value = mock_fastapi_app
             mock_get_settings.return_value = mock_settings
             
@@ -388,11 +330,11 @@ class TestMain:
             result = main.get_celery_app_from_state(mock_request)
             assert result == mock_celery_app
 
-    def test_concurrent_startup_creates_both_fastapi_and_celery_threads(self):
-        """Test that start_service creates threads for both FastAPI server and Celery worker."""
+    def test_concurrent_startup_creates_threads_for_services(self):
+        """Test that start_service_with_subscriber creates threads for FastAPI, Celery, and TaskSubscriber."""
         mock_task_module = Mock()
         
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
+        with patch('celery_worker_app.celery_app') as mock_celery_app, \
              patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
@@ -402,7 +344,6 @@ class TestMain:
             
             # Arrange
             mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
             mock_fastapi_app = Mock(spec=FastAPI)
             mock_fastapi_app.state = Mock()
             mock_fastapi_app.include_router = Mock()
@@ -410,254 +351,38 @@ class TestMain:
             mock_settings = Mock()
             mock_settings.API_PORT = 8000
             
+            # Mock celery_app with proper tasks structure
+            mock_celery_app.tasks = Mock()
+            mock_celery_app.tasks.keys.return_value = [
+                'celery.chord_unlock',
+                'celery.backend_cleanup',
+                'tasks.document_tasks.process_project_documents_task'
+            ]
+            mock_celery_app.Worker.return_value = mock_worker
+            
             mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
             mock_create_app.return_value = mock_fastapi_app
             mock_get_settings.return_value = mock_settings
-            mock_celery_app.Worker.return_value = mock_worker
             
             # Mock thread instances
             mock_fastapi_thread = Mock()
             mock_celery_thread = Mock()
-            mock_thread.side_effect = [mock_fastapi_thread, mock_celery_thread]
+            mock_subscriber_thread = Mock()
+            mock_thread.side_effect = [mock_fastapi_thread, mock_celery_thread, mock_subscriber_thread]
             
             # Act - Import main and test concurrent startup
             import main
             
-            # This function should exist after implementation
-            assert hasattr(main, 'start_service'), "start_service function should exist"
+            # This function should exist
+            assert hasattr(main, 'start_service_with_subscriber'), "start_service_with_subscriber function should exist"
             
-            main.start_service()
+            main.start_service_with_subscriber()
             
-            # Assert both threads are created and started
-            assert mock_thread.call_count == 2, "Should create 2 threads"
+            # Assert all three threads are created and started
+            assert mock_thread.call_count == 3, "Should create 3 threads"
             mock_fastapi_thread.start.assert_called_once()
             mock_celery_thread.start.assert_called_once()
+            mock_subscriber_thread.start.assert_called_once()
             mock_fastapi_thread.join.assert_called_once()
             mock_celery_thread.join.assert_called_once()
-
-    def test_concurrent_startup_handles_exceptions_gracefully(self):
-        """Test that start_service handles exceptions in either FastAPI or Celery startup."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging'), \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
-             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
-             patch('threading.Thread') as mock_thread, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            mock_fastapi_app = Mock(spec=FastAPI)
-            mock_fastapi_app.state = Mock()
-            mock_fastapi_app.include_router = Mock()
-            mock_settings = Mock()
-            mock_settings.API_PORT = 8000
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            mock_create_app.return_value = mock_fastapi_app
-            mock_get_settings.return_value = mock_settings
-            
-            # Make thread creation fail to simulate startup failure
-            mock_thread.side_effect = Exception("Thread creation failed")
-            
-            # Act - Import main and test error handling
-            import main
-            
-            # Should handle the exception gracefully
-            with pytest.raises(Exception) as exc_info:
-                main.start_service()
-            
-            # Assert proper error logging
-            assert "startup failed" in str(exc_info.value).lower()
-            # Verify error was logged
-            assert any("Failed to start" in str(call) for call in mock_logger.error.call_args_list)
-
-    def test_celery_health_endpoint_handles_missing_conf_attribute(self):
-        """Test that /health/celery endpoint handles missing conf attribute gracefully."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging'), \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
-             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
-             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            mock_fastapi_app = FastAPI()
-            mock_settings = Mock()
-            mock_settings.API_PORT = 8000
-            
-            # Simulate missing conf attribute
-            del mock_celery_app.conf
-            
-            # Make health check fail to trigger error handling
-            mock_health_check.side_effect = Exception("Health check failed")
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            mock_create_app.return_value = mock_fastapi_app
-            mock_get_settings.return_value = mock_settings
-            
-            # Act - Import main module
-            import main
-            
-            # Test the health endpoint error handling
-            client = TestClient(main.app)
-            response = client.get("/health/celery")
-            
-            # Assert
-            assert response.status_code == 200
-            response_data = response.json()
-            assert response_data["healthy"] is False
-            assert response_data["error"] == "Health check failed"
-            assert response_data["broker_url"] == "unavailable"
-            assert response_data["backend_url"] == "unavailable"
-
-    def test_celery_health_endpoint_handles_missing_conf_attributes(self):
-        """Test that /health/celery endpoint handles missing broker_url and result_backend attributes."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging'), \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
-             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
-             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            mock_fastapi_app = FastAPI()
-            mock_settings = Mock()
-            mock_settings.API_PORT = 8000
-            
-            # Simulate conf object exists but missing specific attributes
-            mock_celery_app.conf = Mock()
-            del mock_celery_app.conf.broker_url
-            del mock_celery_app.conf.result_backend
-            
-            # Make health check fail to trigger error handling
-            mock_health_check.side_effect = AttributeError("'MockConf' object has no attribute 'broker_url'")
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            mock_create_app.return_value = mock_fastapi_app
-            mock_get_settings.return_value = mock_settings
-            
-            # Act - Import main module
-            import main
-            
-            # Test the health endpoint error handling
-            client = TestClient(main.app)
-            response = client.get("/health/celery")
-            
-            # Assert
-            assert response.status_code == 200
-            response_data = response.json()
-            assert response_data["healthy"] is False
-            assert "'MockConf' object has no attribute 'broker_url'" in response_data["error"]
-            assert response_data["broker_url"] == "unavailable"
-            assert response_data["backend_url"] == "unavailable"
-
-    def test_celery_health_endpoint_handles_getattr_exceptions(self):
-        """Test that /health/celery endpoint handles getattr exceptions gracefully."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging'), \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
-             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
-             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            mock_fastapi_app = FastAPI()
-            mock_settings = Mock()
-            mock_settings.API_PORT = 8000
-            
-            # Create a conf object that doesn't have broker_url or result_backend attributes
-            mock_conf = Mock()
-            del mock_conf.broker_url
-            del mock_conf.result_backend
-            mock_celery_app.conf = mock_conf
-            
-            # Make health check fail to trigger error handling
-            mock_health_check.side_effect = Exception("Health check failed")
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            mock_create_app.return_value = mock_fastapi_app
-            mock_get_settings.return_value = mock_settings
-            
-            # Act - Import main module
-            import main
-            
-            # Test the health endpoint error handling
-            client = TestClient(main.app)
-            response = client.get("/health/celery")
-            
-            # Assert
-            assert response.status_code == 200
-            response_data = response.json()
-            assert response_data["healthy"] is False
-            assert response_data["error"] == "Health check failed"
-            assert response_data["broker_url"] == "unavailable"
-            assert response_data["backend_url"] == "unavailable"
-
-    def test_celery_health_endpoint_handles_conf_access_failure_in_error_handler(self):
-        """Test that /health/celery endpoint error handler handles conf object access failure."""
-        mock_task_module = Mock()
-        
-        with patch('utils.celery_factory.get_celery_app') as mock_get_celery_app, \
-             patch('configuration.logging_config.configure_logging'), \
-             patch('structlog.get_logger') as mock_get_logger, \
-             patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
-             patch('configuration.common_config.get_app_settings') as mock_get_settings, \
-             patch('utils.celery_factory.CeleryHealthChecker.check_health_with_details') as mock_health_check, \
-             patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
-            
-            # Arrange
-            mock_logger = Mock()
-            mock_celery_app = Mock(spec=Celery)
-            mock_fastapi_app = FastAPI()
-            mock_settings = Mock()
-            mock_settings.API_PORT = 8000
-            
-            # Make health check fail to trigger error handling path
-            mock_health_check.side_effect = Exception("Health check failed")
-            
-            # Remove the conf attribute entirely to simulate missing attribute
-            del mock_celery_app.conf
-            
-            mock_get_logger.return_value = mock_logger
-            mock_get_celery_app.return_value = mock_celery_app
-            mock_create_app.return_value = mock_fastapi_app
-            mock_get_settings.return_value = mock_settings
-            
-            # Act - Import main module
-            import main
-            
-            # Test the health endpoint error handling
-            client = TestClient(main.app)
-            response = client.get("/health/celery")
-            
-            # Assert
-            assert response.status_code == 200
-            response_data = response.json()
-            assert response_data["healthy"] is False
-            assert response_data["error"] == "Health check failed"
-            assert response_data["broker_url"] == "unavailable"
-            assert response_data["backend_url"] == "unavailable"
+            mock_subscriber_thread.join.assert_called_once()

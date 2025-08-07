@@ -9,11 +9,11 @@ from typing import Dict, Any
 
 import pytest
 import requests
-import psycopg2
 from neo4j import GraphDatabase
 import redis
 
 from config import TestConstants
+from shared_utils import HTTPUtils, ServiceHealthChecker, DatabaseUtils
 
 
 class TestServicesHealth:
@@ -21,79 +21,53 @@ class TestServicesHealth:
 
     def test_project_management_service_health(
         self, 
-        service_urls: Dict[str, str],
-        services_ready: None  # pylint: disable=unused-argument
+        service_urls: Dict[str, str]
     ) -> None:
         """Test that project management service is healthy and responds correctly."""
-        response = requests.get(
-            f"{service_urls['project_management']}{TestConstants.HEALTH_ENDPOINT}",
-            timeout=TestConstants.DEFAULT_TIMEOUT
-        )
+        assert HTTPUtils.check_service_health(service_urls['project_management'])
         
-        assert response.status_code == TestConstants.HTTP_OK
+        # Additional check for response format
+        response = HTTPUtils.make_request_with_retry(
+            method="GET",
+            url=f"{service_urls['project_management']}{TestConstants.HEALTH_ENDPOINT}"
+        )
         health_data = response.json()
         assert health_data["status"] == "ok"
 
     def test_document_processing_service_health(
         self, 
-        service_urls: Dict[str, str],
-        services_ready: None  # pylint: disable=unused-argument
+        service_urls: Dict[str, str]
     ) -> None:
         """Test that document processing service is healthy."""
-        response = requests.get(
-            f"{service_urls['document_processing']}{TestConstants.HEALTH_ENDPOINT}",
-            timeout=TestConstants.DEFAULT_TIMEOUT
-        )
-        
-        assert response.status_code == TestConstants.HTTP_OK
+        assert HTTPUtils.check_service_health(service_urls['document_processing'])
 
     def test_neo4j_ingestion_service_health(
         self, 
-        service_urls: Dict[str, str],
-        services_ready: None  # pylint: disable=unused-argument
+        service_urls: Dict[str, str]
     ) -> None:
         """Test that Neo4j ingestion service is healthy."""
-        response = requests.get(
-            f"{service_urls['neo4j_ingestion']}{TestConstants.HEALTH_ENDPOINT}",
-            timeout=TestConstants.DEFAULT_TIMEOUT
-        )
-        
-        assert response.status_code == TestConstants.HTTP_OK
+        assert HTTPUtils.check_service_health(service_urls['neo4j_ingestion'])
 
     def test_mock_auth_service_health(
         self, 
-        service_urls: Dict[str, str],
-        services_ready: None  # pylint: disable=unused-argument
+        service_urls: Dict[str, str]
     ) -> None:
         """Test that mock authentication service is healthy."""
-        response = requests.get(
-            f"{service_urls['mock_auth']}{TestConstants.HEALTH_ENDPOINT}",
-            timeout=TestConstants.DEFAULT_TIMEOUT
-        )
-        
-        assert response.status_code == TestConstants.HTTP_OK
+        assert HTTPUtils.check_service_health(service_urls['mock_auth'])
 
     def test_postgres_connectivity(self, postgres_connection) -> None:
         """Test PostgreSQL database connectivity and basic operations."""
-        cursor = postgres_connection.cursor()
-        
         # Test basic query execution
-        cursor.execute("SELECT 1 as test_value")
-        result = cursor.fetchone()
-        assert result[0] == 1
+        result = DatabaseUtils.execute_query_with_retry(
+            postgres_connection, "SELECT 1 as test_value"
+        )
+        assert result[0][0] == 1
         
         # Test that we can query the projects table (assuming it exists)
-        try:
-            cursor.execute("SELECT COUNT(*) FROM projects")
-            count = cursor.fetchone()
-            assert isinstance(count[0], int)
-        except psycopg2.ProgrammingError:
-            # Table might not exist yet, which is acceptable for health check
-            pass
-        
-        cursor.close()
-
-
+        result = DatabaseUtils.execute_query_with_retry(
+            postgres_connection, "SELECT COUNT(*) FROM projects"
+        )
+        assert isinstance(result[0][0], int)
 
     def test_neo4j_connectivity(self, neo4j_driver: GraphDatabase.driver) -> None:
         """Test Neo4j connectivity and basic operations."""
@@ -131,17 +105,15 @@ class TestServicesHealth:
 
     def test_all_services_accessible(self, service_urls: Dict[str, str]) -> None:
         """Test that all configured services are accessible."""
-        for service_name, service_url in service_urls.items():
-            try:
-                response = requests.get(
-                    f"{service_url}{TestConstants.HEALTH_ENDPOINT}",
-                    timeout=TestConstants.DEFAULT_TIMEOUT
-                )
-                assert response.status_code == TestConstants.HTTP_OK, (
-                    f"Service {service_name} at {service_url} is not healthy"
-                )
-            except requests.RequestException as e:
-                pytest.fail(f"Failed to connect to {service_name} at {service_url}: {e}")
+        health_status = ServiceHealthChecker.check_all_services_health(service_urls)
+        
+        failed_services = [
+            service_name for service_name, is_healthy in health_status.items()
+            if not is_healthy
+        ]
+        
+        if failed_services:
+            pytest.fail(f"The following services are not healthy: {', '.join(failed_services)}")
 
 
 class TestDatabaseIntegrity:
@@ -149,21 +121,23 @@ class TestDatabaseIntegrity:
 
     def test_postgres_schema_exists(self, postgres_connection) -> None:
         """Test that expected PostgreSQL schema exists."""
-        cursor = postgres_connection.cursor()
-        
         # Check that we can connect to the expected database
-        cursor.execute("SELECT current_database()")
-        current_db = cursor.fetchone()[0]
+        result = DatabaseUtils.execute_query_with_retry(
+            postgres_connection, "SELECT current_database()"
+        )
+        current_db = result[0][0]
         assert current_db is not None
         
         # Check for expected tables (adjust based on actual schema)
-        cursor.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_type = 'BASE TABLE'
-        """)
-        tables = [row[0] for row in cursor.fetchall()]
+        tables_result = DatabaseUtils.execute_query_with_retry(
+            postgres_connection, """
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_type = 'BASE TABLE'
+            """
+        )
+        tables = [row[0] for row in tables_result]
         
         # We expect specific core tables to exist after database initialization
         expected_tables = ['projects', 'project_members']
@@ -174,12 +148,10 @@ class TestDatabaseIntegrity:
                 f"Database initialization may have failed."
             )
             
-            # Verify we can query the table
-            cursor.execute(f"SELECT COUNT(*) FROM {expected_table}")
-            count = cursor.fetchone()
-            assert isinstance(count[0], int), f"Failed to query {expected_table} table"
-        
-        cursor.close()
+            # Verify we can query the table using utility
+            assert DatabaseUtils.verify_table_exists(postgres_connection, expected_table), (
+                f"Failed to query {expected_table} table"
+            )
 
     def test_neo4j_database_accessible(self, neo4j_driver: GraphDatabase.driver) -> None:
         """Test that Neo4j database is accessible and responsive."""

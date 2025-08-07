@@ -7,13 +7,17 @@ workflow, from project creation to document upload and processing completion.
 
 import io
 import time
+import redis
 from typing import Dict, Any
 from dataclasses import dataclass
 
 import requests
 
 from config import TestConstants
-from conftest import ProjectManager, wait_for_document_processing, CeleryTaskMonitor
+from conftest import ProjectManager
+from services.redis_test_monitor import RedisTestMonitor
+from shared_utils import ProjectTestUtils
+from neo4j import GraphDatabase
 
 
 @dataclass
@@ -27,7 +31,7 @@ class WorkflowTestFixtures:
     test_pdf_content: bytes
     unique_test_filename: str
     project_manager: ProjectManager
-    celery_task_monitor: CeleryTaskMonitor
+    redis_monitor: RedisTestMonitor
     neo4j_driver: Any = None
 
 
@@ -44,8 +48,8 @@ class TestDocumentWorkflow:
         test_pdf_content: bytes,
         unique_test_filename: str,
         project_manager: ProjectManager,
-        celery_task_monitor: CeleryTaskMonitor,
-        services_ready: None  # pylint: disable=unused-argument
+        redis_monitor: RedisTestMonitor,
+        neo4j_driver: GraphDatabase.driver
     ) -> None:
         """
         Test the complete end-to-end document processing workflow.
@@ -56,6 +60,7 @@ class TestDocumentWorkflow:
         3. Document processing initiation
         4. Processing completion verification
         5. Project status updates during processing
+        6. Neo4j data ingestion
         """
         fixtures = WorkflowTestFixtures(
             service_urls=service_urls,
@@ -66,7 +71,8 @@ class TestDocumentWorkflow:
             test_pdf_content=test_pdf_content,
             unique_test_filename=unique_test_filename,
             project_manager=project_manager,
-            celery_task_monitor=celery_task_monitor
+            redis_monitor=redis_monitor,
+            neo4j_driver=neo4j_driver
         )
         
         # Execute the workflow
@@ -90,28 +96,116 @@ class TestDocumentWorkflow:
         # Step 2: Verify project exists in database
         self._verify_project_in_database(project_id, fixtures)
 
-        # Step 3: Upload PDF file to the project
-        upload_result = self._upload_document(project_id, fixtures, fixtures.celery_task_monitor)
+        # Step 3: Start UI progress monitoring BEFORE document processing
+        fixtures.redis_monitor.start_ui_progress_monitoring(project_id)
         
-        # Verify upload response structure and content
-        self._verify_upload_response(project_id, upload_result, fixtures)
+        try:
+            # Step 4: Upload PDF file to the project
+            upload_result = self._upload_document(project_id, fixtures, fixtures.redis_monitor)
+            
+            # Verify upload response structure and content
+            self._verify_upload_response(project_id, upload_result, fixtures)
 
-        # Step 4: Wait for and verify document processing
-        wait_for_document_processing(
-            project_id=project_id,
-            service_urls=fixtures.service_urls,
-            auth_headers=fixtures.auth_headers,
-            redis_config=fixtures.redis_config,
-            timeout=TestConstants.DOCUMENT_PROCESSING_TIMEOUT
-        )
+            # Step 5: Wait for document processing while monitoring UI messages
+            self._wait_for_processing_with_ui_monitoring(
+                project_id=project_id,
+                fixtures=fixtures
+            )
+            
+            # Step 6: Verify that Redis messages were properly consumed
+            self._verify_redis_message_consumed(fixtures)
 
-        # Step 5: Verify project status was updated during processing
+            # Step 7: Verify project progress messages were captured during processing
+            self._verify_ui_progress_messages_received(project_id, fixtures.redis_monitor)
+            
+        finally:
+            fixtures.redis_monitor.stop_ui_progress_monitoring()
+
+        # Step 8: Verify project status was updated during processing
         self._verify_project_processing_status(
             project_id=project_id,
             fixtures=fixtures
         )
         
         return project_id
+
+    def _wait_for_processing_with_ui_monitoring(
+        self,
+        project_id: str,
+        fixtures: WorkflowTestFixtures
+    ) -> None:
+        """
+        Wait for document processing while continuously monitoring UI progress messages.
+        
+        This method uses real-time pub/sub monitoring combined with processing status
+        checks to ensure comprehensive validation of the workflow.
+        """
+        
+        def check_processing_complete() -> bool:
+            """Check if document processing is complete."""
+            try:
+                project_url = ProjectTestUtils.build_project_url(
+                    fixtures.service_urls['project_management'], project_id
+                )
+                response = requests.get(
+                    project_url,
+                    headers=fixtures.auth_headers,
+                    timeout=TestConstants.DEFAULT_TIMEOUT
+                )
+                
+                if response.status_code == TestConstants.HTTP_OK:
+                    project = response.json()
+                    return project["status"] == TestConstants.PROJECT_STATUS_ACTIVE
+                    
+            except requests.RequestException as e:
+                # Ignore individual status check errors during monitoring
+                pass
+                
+            return False
+        
+        success = fixtures.redis_monitor.monitor_ui_during_processing(
+            processing_check_func=check_processing_complete,
+            timeout=TestConstants.DOCUMENT_PROCESSING_TIMEOUT,
+            check_interval=1.0
+        )
+        
+        assert success, "Processing monitoring failed"
+
+    def _verify_ui_progress_messages_received(
+        self,
+        project_id: str,
+        redis_monitor: RedisTestMonitor
+    ) -> None:
+        """
+        Verify that UI progress messages were actually received during processing.
+        
+        This validation confirms that the pub/sub mechanism worked correctly
+        and that messages were published and captured at the right time.
+        """
+        messages_count = redis_monitor.get_ui_messages_count()
+        messages = redis_monitor.get_ui_messages()
+        
+        assert messages_count > 0, (
+            f"No UI progress messages received for project {project_id}. "
+            f"This indicates the pub/sub mechanism may not be working. "
+            f"Expected at least 1 progress message during document processing. "
+            f"Monitored channel: {redis_monitor.ui_progress_channel}"
+        )
+        
+        # Verify message structure and content
+        valid_messages = 0
+        for message in messages:
+            # Validate message structure
+            if (message.get('project_id') == project_id and
+                message.get('message_type') == 'project_progress' and
+                'status' in message):
+                valid_messages += 1
+        
+        assert valid_messages > 0, f"No valid UI progress messages found for project {project_id}"
+        assert valid_messages == messages_count, (
+            f"Some UI progress messages had invalid structure. "
+            f"Valid: {valid_messages}/{messages_count}"
+        )
 
     def _verify_project_in_database(self, project_id: str, fixtures: WorkflowTestFixtures) -> None:
         """Verify project exists in database with correct data."""
@@ -129,11 +223,12 @@ class TestDocumentWorkflow:
         self, 
         project_id: str, 
         fixtures: WorkflowTestFixtures,
-        task_monitor: CeleryTaskMonitor
+        task_monitor: RedisTestMonitor
     ) -> Dict[str, Any]:
-        """Upload document to project and return response with task queue verification."""
-        # Get initial task count
+        """Upload document to project and return response with comprehensive task verification."""
+        # Get initial state for multiple monitoring strategies
         initial_task_count = task_monitor.get_current_task_count()
+        initial_stream_count = task_monitor.get_stream_message_count()
         
         files = {
             'files': (
@@ -143,9 +238,8 @@ class TestDocumentWorkflow:
             )
         }
 
-        upload_url = (
-            f"{fixtures.service_urls['project_management']}"
-            f"/projects/{project_id}/documents/upload"
+        upload_url = ProjectTestUtils.build_upload_url(
+            fixtures.service_urls['project_management'], project_id
         )
         
         upload_response = requests.post(
@@ -159,38 +253,152 @@ class TestDocumentWorkflow:
             f"Failed to upload document: {upload_response.text}"
         )
         
-        # Wait a moment for async task queuing
-        time.sleep(1)
+        # Wait a moment for async task queuing and Redis message publishing
+        time.sleep(2)
         
-        # Verify that exactly one task was queued after upload
-        task_queued = task_monitor.verify_task_queued(
-            initial_count=initial_task_count,
-            expected_increase=1,
+        # Use comprehensive verification strategy
+        verification_results = task_monitor.verify_task_published_comprehensive(
+            project_id=project_id,
+            initial_stream_count=initial_stream_count,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
         
-        # Enhanced error message with debug information
-        if not task_queued:
-            current_count = task_monitor.get_current_task_count()
-            print(f"Debug: Initial task count: {initial_task_count}")
-            print(f"Debug: Current task count: {current_count}")
-            print(f"Debug: Expected increase: 1")
-            print(f"Debug: Queue name: {task_monitor.queue_name}")
-            
-            # Check if tasks were queued but more than expected
-            if current_count > initial_task_count + 1:
-                print(f"Warning: More tasks queued than expected ({current_count - initial_task_count})")
-            elif current_count == initial_task_count:
-                print("Warning: No tasks were queued - this may indicate a configuration issue")
+        # Accept verification if any strong indicator is present
+        verification_passed = (
+            verification_results['verification_successful'] or
+            verification_results['stream_message_found'] or 
+            verification_results['stream_count_increased'] or
+            task_monitor.get_current_task_count() > initial_task_count
+        )
         
-        assert task_queued or current_count > initial_task_count, (
-            f"Expected task queue to increase after document upload. "
-            f"Initial count: {initial_task_count}, "
-            f"Current count: {task_monitor.get_current_task_count()}, "
-            f"Expected increase: 1"
+        assert verification_passed, (
+            f"Expected task publishing verification to pass after document upload. "
+            f"Verification results: {verification_results}. "
+            f"Traditional queue: {initial_task_count} -> {task_monitor.get_current_task_count()}. "
+            f"Stream messages: {initial_stream_count} -> {task_monitor.get_stream_message_count()}"
         )
         
         return upload_response.json()
+
+    def _verify_redis_message_published(self, project_id: str, fixtures: WorkflowTestFixtures) -> None:
+        """Verify that a task request message was published to Redis streams."""
+        try:
+            redis_client = redis.Redis(
+                host=fixtures.redis_config.get('host', 'localhost'),
+                port=fixtures.redis_config.get('port', 6379),
+                db=fixtures.redis_config.get('db', 0),
+                decode_responses=True
+            )
+            
+            stream_name = "task_streams:document_processing"
+            
+            try:
+                stream_info = redis_client.xinfo_stream(stream_name)
+                stream_length = stream_info.get('length', 0)
+                
+                assert stream_length > 0, (
+                    f"Expected messages in Redis stream '{stream_name}', but found {stream_length} messages"
+                )
+                
+                # Get the latest message to verify it's for our project
+                latest_messages = redis_client.xrevrange(stream_name, count=1)
+                if latest_messages:
+                    message_id, message_data = latest_messages[0]
+                    message_project_id = message_data.get('project_id')
+                    
+                    assert message_project_id == project_id, (
+                        f"Expected message for project {project_id}, but found message for project {message_project_id}"
+                    )
+                    
+                    message_type = message_data.get('message_type')
+                    assert message_type == 'task_request', (
+                        f"Expected message_type 'task_request', but found '{message_type}'"
+                    )
+                    
+                    # Verify task type
+                    task_type = message_data.get('task_type')
+                    assert task_type == 'process_project_documents', (
+                        f"Expected task_type 'process_project_documents', but found '{task_type}'"
+                    )
+                else:
+                    assert False, f"No messages found in Redis stream '{stream_name}'"
+                    
+            except redis.ResponseError as e:
+                if "no such key" in str(e).lower():
+                    assert False, f"Redis stream '{stream_name}' does not exist - message was not published"
+                else:
+                    raise
+                    
+        except Exception as e:
+            raise Exception(f"Redis message verification failed: {e}")
+
+    def _verify_redis_message_consumed(self, fixtures: WorkflowTestFixtures) -> None:
+        """Verify that Redis messages were properly consumed and acknowledged."""
+        
+        redis_client = redis.Redis(
+            host=fixtures.redis_config.get('host', 'localhost'),
+            port=fixtures.redis_config.get('port', 6379),
+            db=fixtures.redis_config.get('db', 0),
+            decode_responses=True
+        )
+        
+        stream_name = "task_streams:document_processing"
+        consumer_group = "document_processors"
+        
+        try:
+            # Check pending messages in consumer group
+            pending_info = redis_client.xpending(stream_name, consumer_group)
+            
+            # Extract pending count from the response
+            if isinstance(pending_info, dict):
+                pending_count = pending_info.get('pending', 0)
+            elif isinstance(pending_info, list) and len(pending_info) > 0:
+                pending_count = pending_info[0]  # First element is usually the count
+            else:
+                pending_count = 0
+            
+            if pending_count > 0:
+                raise Exception(f"Found {pending_count} pending messages - may indicate incomplete processing")
+                
+            # Check consumer group info
+            groups_info = redis_client.xinfo_groups(stream_name)
+            for group_info in groups_info:
+                if group_info.get('name') == consumer_group:
+                    consumers_count = group_info.get('consumers', 0)
+                    pending_group = group_info.get('pending', 0)
+                    
+                    if (consumers_count < 1):
+                        raise Exception(f"Found {consumers_count} consumers in consumer group '{consumer_group}' - may indicate incomplete processing")
+                    
+                    if (pending_group > 0):
+                        raise Exception(f"Found {pending_group} pending messages in consumer group '{consumer_group}' - may indicate incomplete processing")
+
+                    break
+                    
+        except redis.ResponseError as e:
+            if "nogroup" in str(e).lower():
+                raise Exception(f"Consumer group '{consumer_group}' does not exist")
+            else:
+                raise Exception(f"Redis error checking message consumption: {e}")
+        except Exception as e:
+            raise Exception(f"Error verifying message consumption: {e}")
+
+    def _verify_ui_project_progress_published(self, project_id: str, fixtures: WorkflowTestFixtures) -> None:
+        """
+        Verify that project progress messages were published to the UI channel.
+        
+        This validation ensures the pub/sub mechanism is working correctly
+        for real-time UI updates during document processing workflow.
+        """
+        progress_found = fixtures.redis_monitor.wait_for_ui_project_progress_message(
+            project_id=project_id,
+            expected_status=None,  # Accept any status update
+            timeout=15 
+        )
+        
+        assert progress_found, (
+            f"Expected UI project progress message for project {project_id}, but no message found"
+        )
 
     def _verify_upload_response(
         self, 
@@ -206,127 +414,13 @@ class TestDocumentWorkflow:
         assert upload_result["processing_initiated"] is True
         assert fixtures.unique_test_filename in upload_result["uploaded_files"]
 
-    def test_complete_workflow_with_neo4j_verification(
-        self,
-        service_urls: Dict[str, str],
-        auth_headers: Dict[str, str],
-        postgres_connection,
-        redis_config: Dict[str, Any],
-        test_project_data: Dict[str, Any],
-        test_pdf_content: bytes,
-        unique_test_filename: str,
-        project_manager: ProjectManager,
-        celery_task_monitor: CeleryTaskMonitor,
-        neo4j_driver,
-        services_ready: None  # pylint: disable=unused-argument
-    ) -> None:
-        """
-        Test complete end-to-end workflow with Neo4j verification.
-        
-        This test combines the full document processing workflow with 
-        verification that data appears correctly in Neo4j.
-        """
-        fixtures = WorkflowTestFixtures(
-            service_urls=service_urls,
-            auth_headers=auth_headers,
-            postgres_connection=postgres_connection,
-            redis_config=redis_config,
-            test_project_data=test_project_data,
-            test_pdf_content=test_pdf_content,
-            unique_test_filename=unique_test_filename,
-            project_manager=project_manager,
-            celery_task_monitor=celery_task_monitor,
-            neo4j_driver=neo4j_driver
-        )
-        
-        # Execute workflow with Neo4j verification
-        self._execute_workflow_with_neo4j_verification(fixtures)
-
-    def _execute_workflow_with_neo4j_verification(self, fixtures: WorkflowTestFixtures) -> None:
-        """Execute workflow and verify Neo4j data ingestion."""
-        # Step 1: Create a project
-        project_id = fixtures.project_manager.create_project(fixtures.test_project_data)
-        
-        # Step 2: Upload a document
-        upload_result = self._upload_document(project_id, fixtures, fixtures.celery_task_monitor)
-        
-        # Verify upload response
-        assert upload_result["project_id"] == project_id
-        assert upload_result["successful_uploads"] == 1
-        assert fixtures.unique_test_filename in upload_result["uploaded_files"]
-        
-        # Step 3: Wait for document processing
-        wait_for_document_processing(
-            project_id=project_id,
-            service_urls=fixtures.service_urls,
-            auth_headers=fixtures.auth_headers,
-            redis_config=fixtures.redis_config,
-            timeout=TestConstants.DOCUMENT_PROCESSING_TIMEOUT
-        )
-        
-        # Step 4: Wait additional time for Neo4j ingestion
-        time.sleep(10)  # Give time for async Neo4j processing
-        
-        # Step 5: Verify data appears in Neo4j
-        self._verify_neo4j_data_ingestion(project_id, fixtures)
-
-    def _verify_neo4j_data_ingestion(self, project_id: str, fixtures: WorkflowTestFixtures) -> None:
-        """Verify that data was properly ingested into Neo4j."""
-        try:
-            with fixtures.neo4j_driver.session() as session:
-                # Look for project node
-                project_query = (
-                    "MATCH (p:Project) WHERE p.project_id = $project_id OR p.id = $project_id "
-                    "RETURN p"
-                )
-                result = session.run(project_query, project_id=project_id)
-                project_nodes = list(result)
-                
-                if project_nodes:
-                    self._verify_neo4j_project_and_documents(session, project_id)
-                else:
-                    print("Warning: No project data found in Neo4j - "
-                          "ingestion may not be fully implemented")
-        except Exception as e:  # pylint: disable=broad-except
-            print(f"Warning: Neo4j verification failed: {e}")
-            # Don't fail the test if Neo4j ingestion isn't fully implemented yet
-
-    def _verify_neo4j_project_and_documents(self, session, project_id: str) -> None:
-        """Verify Neo4j project and document structure."""
-        document_query = """
-            MATCH (p:Project) 
-            WHERE p.project_id = $project_id OR p.id = $project_id
-            OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
-            RETURN p, collect(d) as documents
-        """
-        result = session.run(document_query, project_id=project_id)
-        
-        record = result.single()
-        if record:
-            project_node = record["p"]
-            documents = record["documents"]
-            
-            # Verify project data
-            assert project_node is not None
-            
-            # If documents were ingested, verify their structure
-            if documents and documents != [None]:
-                # At least one document should be present
-                valid_docs = [d for d in documents if d is not None]
-                assert len(valid_docs) >= 1
-                
-                # Verify document properties
-                for doc in valid_docs:
-                    assert 'filename' in doc or 'content' in doc
-
     def test_multiple_document_upload_workflow(
         self,
         service_urls: Dict[str, str],
         auth_headers: Dict[str, str],
         test_project_data: Dict[str, Any],
         test_pdf_content: bytes,
-        project_manager: ProjectManager,
-        services_ready: None  # pylint: disable=unused-argument
+        project_manager: ProjectManager
     ) -> None:
         """
         Test uploading multiple documents to a single project.
@@ -341,7 +435,7 @@ class TestDocumentWorkflow:
         files, expected_filenames = self._prepare_multiple_files(project_id, test_pdf_content)
 
         # Upload multiple documents
-        upload_url = f"{service_urls['project_management']}/projects/{project_id}/documents/upload"
+        upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], project_id)
         upload_response = requests.post(
             upload_url,
             files=files,
@@ -381,7 +475,6 @@ class TestDocumentWorkflow:
         assert upload_result["failed_uploads"] == 0
         assert upload_result["processing_initiated"] is True
         
-        # Verify all expected filenames are in the uploaded files list
         for filename in expected_filenames:
             assert filename in upload_result["uploaded_files"]
 
@@ -390,15 +483,13 @@ class TestDocumentWorkflow:
         service_urls: Dict[str, str],
         auth_headers: Dict[str, str],
         test_project_data: Dict[str, Any],
-        project_manager: ProjectManager,
-        services_ready: None  # pylint: disable=unused-argument
+        project_manager: ProjectManager
     ) -> None:
         """
         Test error handling during document upload.
         
         This test verifies proper error responses for invalid uploads.
         """
-        # Create a project
         project_id = project_manager.create_project(test_project_data)
 
         # Test 1: Upload without files
@@ -414,7 +505,7 @@ class TestDocumentWorkflow:
         auth_headers: Dict[str, str]
     ) -> None:
         """Test uploading without any files."""
-        upload_url = f"{service_urls['project_management']}/projects/{project_id}/documents/upload"
+        upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], project_id)
         upload_response = requests.post(
             upload_url,
             headers=auth_headers,
@@ -438,7 +529,7 @@ class TestDocumentWorkflow:
             'files': ("test.pdf", io.BytesIO(b"fake pdf content"), 'application/pdf')
         }
         
-        upload_url = f"{service_urls['project_management']}/projects/{fake_project_id}/documents/upload"
+        upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], fake_project_id)
         upload_response = requests.post(
             upload_url,
             files=files,
@@ -447,12 +538,9 @@ class TestDocumentWorkflow:
         )
         
         # Should return not found for non-existent project
-        if upload_response.status_code != TestConstants.HTTP_NOT_FOUND:
-            print(f"DEBUG: Response status: {upload_response.status_code}")
-            print(f"DEBUG: Response content: {upload_response.text}")
-            print(f"DEBUG: Response headers: {upload_response.headers}")
         assert upload_response.status_code == TestConstants.HTTP_NOT_FOUND, (
-            f"Should return 404 for non-existent project, got {upload_response.status_code}. Response: {upload_response.text}"
+            f"Should return 404 for non-existent project, got {upload_response.status_code}. "
+            f"Response: {upload_response.text}"
         )
 
     def test_project_status_transitions(
@@ -464,7 +552,7 @@ class TestDocumentWorkflow:
         test_pdf_content: bytes,
         unique_test_filename: str,
         project_manager: ProjectManager,
-        services_ready: None  # pylint: disable=unused-argument
+        redis_monitor: RedisTestMonitor
     ) -> None:
         """
         Test that project status transitions correctly during processing.
@@ -480,7 +568,7 @@ class TestDocumentWorkflow:
         # Upload document and verify status transitions
         self._test_status_transition_after_upload(
             project_id, service_urls, auth_headers, test_pdf_content, 
-            unique_test_filename, postgres_connection
+            unique_test_filename, postgres_connection, redis_monitor
         )
 
     def _verify_initial_project_status(
@@ -490,8 +578,9 @@ class TestDocumentWorkflow:
         auth_headers: Dict[str, str]
     ) -> None:
         """Verify the initial project status."""
+        project_url = ProjectTestUtils.build_project_url(service_urls['project_management'], project_id)
         response = requests.get(
-            f"{service_urls['project_management']}/projects/{project_id}",
+            project_url,
             headers=auth_headers,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
@@ -506,15 +595,15 @@ class TestDocumentWorkflow:
         auth_headers: Dict[str, str],
         test_pdf_content: bytes,
         unique_test_filename: str,
-        postgres_connection
+        postgres_connection,
+        redis_monitor: RedisTestMonitor
     ) -> None:
         """Test status transitions after document upload."""
-        # Upload document
         files = {
             'files': (unique_test_filename, io.BytesIO(test_pdf_content), 'application/pdf')
         }
 
-        upload_url = f"{service_urls['project_management']}/projects/{project_id}/documents/upload"
+        upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], project_id)
         upload_response = requests.post(
             upload_url,
             files=files,
@@ -535,14 +624,41 @@ class TestDocumentWorkflow:
         expected_statuses = [TestConstants.PROJECT_STATUS_PROCESSING, TestConstants.PROJECT_STATUS_ACTIVE]
         assert db_status in expected_statuses
 
+        # Verify that project status changes triggered pub/sub messages
+        self._verify_status_change_pubsub_messages(project_id, redis_monitor)
+
+    def _verify_status_change_pubsub_messages(
+        self, 
+        project_id: str, 
+        redis_monitor: RedisTestMonitor
+    ) -> None:
+        """
+        Verify that project status changes triggered pub/sub messages.
+        
+        This validation ensures that status transitions publish appropriate
+        messages to the UI progress channel for real-time updates.
+        """
+        
+        # Check for any project progress messages published during status transitions
+        progress_found = redis_monitor.wait_for_ui_project_progress_message(
+            project_id=project_id,
+            expected_status=None,  # Accept any status change
+            timeout=10  # Short timeout since status changes should be immediate
+        )
+        
+        assert progress_found, f"No status change pub/sub messages found for project {project_id}"
+
     def _verify_project_processing_status(
         self,
         project_id: str,
         fixtures: WorkflowTestFixtures
     ) -> None:
         """Verify that project status reflects processing state correctly."""
+        project_url = ProjectTestUtils.build_project_url(
+            fixtures.service_urls['project_management'], project_id
+        )
         response = requests.get(
-            f"{fixtures.service_urls['project_management']}/projects/{project_id}",
+            project_url,
             headers=fixtures.auth_headers,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
@@ -563,8 +679,11 @@ class TestDocumentWorkflow:
     ) -> None:
         """Verify that document processing completed successfully."""
         # Check final project status via API
+        project_url = ProjectTestUtils.build_project_url(
+            fixtures.service_urls['project_management'], project_id
+        )
         response = requests.get(
-            f"{fixtures.service_urls['project_management']}/projects/{project_id}",
+            project_url,
             headers=fixtures.auth_headers,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
@@ -585,8 +704,43 @@ class TestDocumentWorkflow:
 
         assert db_project is not None
         assert db_project[0] == TestConstants.PROJECT_STATUS_ACTIVE
-        # processed_pct should be 100 or None (depending on implementation)
-        # Note: This assertion may need adjustment based on actual schema
+
+        time.sleep(10)  # Give time for async Neo4j processing
+        
+        with fixtures.neo4j_driver.session() as session:
+            # Look for project node
+            project_query = (
+                "MATCH (p:Project) WHERE p.project_id = $project_id OR p.id = $project_id "
+                "RETURN p"
+            )
+            result = session.run(project_query, project_id=project_id)
+            project_nodes = list(result)
+            
+            assert project_nodes, f"No project nodes found in Neo4j for project {project_id}"
+            
+            # Verify Neo4j project and document structure
+            document_query = """
+                MATCH (p:Project) 
+                WHERE p.project_id = $project_id OR p.id = $project_id
+                OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
+                RETURN p, collect(d) as documents
+            """
+            result = session.run(document_query, project_id=project_id)
+            
+            record = result.single()
+            assert record, f"No record found in Neo4j for project {project_id}"
+            
+            project_node = record["p"]
+            documents = record["documents"]
+            
+            assert project_node is not None
+            
+            assert documents and documents != [None]
+            valid_docs = [d for d in documents if d is not None]
+            assert len(valid_docs) >= 1
+            
+            for doc in valid_docs:
+                assert 'filename' in doc or 'content' in doc
 
 
 class TestDocumentWorkflowEdgeCases:
@@ -612,7 +766,7 @@ class TestDocumentWorkflowEdgeCases:
             'files': ("large_test.pdf", io.BytesIO(large_pdf_content), 'application/pdf')
         }
 
-        upload_url = f"{service_urls['project_management']}/projects/{project_id}/documents/upload"
+        upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], project_id)
         upload_response = requests.post(
             upload_url,
             files=files,
@@ -631,8 +785,7 @@ class TestDocumentWorkflowEdgeCases:
         auth_headers: Dict[str, str],
         test_project_data: Dict[str, Any],
         test_pdf_content: bytes,
-        project_manager: ProjectManager,
-        services_ready: None  # pylint: disable=unused-argument
+        project_manager: ProjectManager
     ) -> None:
         """
         Test handling of concurrent document uploads to the same project.
@@ -650,7 +803,7 @@ class TestDocumentWorkflowEdgeCases:
                 'files': (f"concurrent_test_{i}.pdf", io.BytesIO(test_pdf_content), 'application/pdf')
             }
             
-            upload_url = f"{service_urls['project_management']}/projects/{project_id}/documents/upload"
+            upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], project_id)
             response = requests.post(
                 upload_url,
                 files=files,
@@ -665,4 +818,4 @@ class TestDocumentWorkflowEdgeCases:
                 f"Concurrent upload {i} failed: {response.text}"
             )
             result = response.json()
-            assert result["successful_uploads"] == 1 
+            assert result["successful_uploads"] == 1
