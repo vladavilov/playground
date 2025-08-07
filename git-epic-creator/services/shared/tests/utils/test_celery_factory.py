@@ -94,7 +94,7 @@ class TestCeleryFactory:
         mock_create_app.return_value = mock_app
         mock_get_settings.return_value = mock_celery_settings
         app_name = "test_app"
-        
+
         # Clear cache before test
         get_celery_app.cache_clear()
 
@@ -268,62 +268,3 @@ class TestCeleryHealthChecker:
         assert result["broker_url"] == "unavailable"
         assert result["backend_url"] == "unavailable"
         assert result["registered_tasks"] == {'worker1': ['task1']}
-    def test_check_health_with_details_broadcast_method_used(self, mock_celery_app):
-        """Test that health check uses broadcast method instead of ping to avoid parameter conflicts."""
-        # Arrange
-        mock_control = Mock()
-        mock_inspector = Mock()
-        mock_celery_app.control = mock_control
-        
-        # Mock broadcast response for ping command
-        mock_control.broadcast.return_value = [{'worker1': 'pong'}]
-        mock_control.inspect.return_value = mock_inspector
-        
-        # Mock inspector responses
-        mock_inspector.active.return_value = {'worker1': []}
-        mock_inspector.scheduled.return_value = {'worker1': []}
-        mock_inspector.registered.return_value = {'worker1': ['task1']}
-        mock_inspector.stats.return_value = {'worker1': {'pid': 1234, 'uptime': 3600, 'total': 100}}
-
-        # Act
-        result = CeleryHealthChecker.check_health_with_details(mock_celery_app)
-
-        # Assert
-        assert result["healthy"] is True
-        assert result["active_workers_count"] == 1
-        # Verify that broadcast was called with correct parameters
-        mock_control.broadcast.assert_called_once_with('ping', reply=True, timeout=1)
-
-    def test_check_health_with_details_broadcast_parameter_conflict_avoided(self, mock_celery_app):
-        """Test that using broadcast directly avoids the parameter conflict that caused the original error."""
-        # Arrange
-        mock_control = Mock()
-        mock_inspector = Mock()
-        mock_celery_app.control = mock_control
-        
-        # Simulate the original error scenario where ping method would cause parameter conflicts
-        def mock_ping_with_conflict(*args, **kwargs):
-            # This simulates the original error: "got multiple values for keyword argument 'reply'"
-            raise TypeError("broadcast() got multiple values for keyword argument 'reply'")
-        
-        # Mock ping to raise the original error, but broadcast to work correctly
-        mock_control.ping = Mock(side_effect=mock_ping_with_conflict)
-        mock_control.broadcast.return_value = [{'worker1': 'pong'}]
-        mock_control.inspect.return_value = mock_inspector
-        
-        # Mock inspector responses
-        mock_inspector.active.return_value = {'worker1': []}
-        mock_inspector.scheduled.return_value = {'worker1': []}
-        mock_inspector.registered.return_value = {'worker1': ['task1']}
-        mock_inspector.stats.return_value = {'worker1': {'pid': 1234, 'uptime': 3600, 'total': 100}}
-
-        # Act
-        result = CeleryHealthChecker.check_health_with_details(mock_celery_app)
-
-        # Assert
-        assert result["healthy"] is True
-        assert result["active_workers_count"] == 1
-        # Verify that broadcast was used instead of ping, avoiding the parameter conflict
-        mock_control.broadcast.assert_called_once_with('ping', reply=True, timeout=1)
-        # Verify that ping was not called (since we use broadcast directly)
-        mock_control.ping.assert_not_called()

@@ -18,11 +18,11 @@ class TestBlobStorageSettings:
         """Test that default configuration values are set correctly."""
         settings = BlobStorageSettings()
         
-        assert settings.AZURE_STORAGE_CONNECTION_STRING == "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
+        assert settings.AZURE_STORAGE_CONNECTION_STRING == "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://localhost:10000/devstoreaccount1;"
         assert settings.AZURE_STORAGE_CONTAINER_NAME == "documents"
         assert settings.AZURE_STORAGE_ACCOUNT_NAME == "devstoreaccount1"
         assert settings.AZURE_STORAGE_ACCOUNT_KEY == "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-        assert settings.AZURE_STORAGE_BLOB_ENDPOINT == "http://azurite:10000/devstoreaccount1"
+        assert settings.AZURE_STORAGE_BLOB_ENDPOINT == "http://localhost:10000/devstoreaccount1"
         assert settings.AZURE_STORAGE_MAX_SINGLE_PUT_SIZE == 64 * 1024 * 1024  # 64MB
         assert settings.AZURE_STORAGE_MAX_BLOCK_SIZE == 4 * 1024 * 1024  # 4MB
 
@@ -226,5 +226,5 @@ class TestGetAppSettingsWithBlobStorage:
         # Verify environment override worked
         assert settings.AZURE_STORAGE_CONTAINER_NAME == 'integration-test-container'
         assert settings.AZURE_STORAGE_CONNECTION_STRING == 'test_connection_string'
-        assert client.container_name == 'integration-test-container'
+        assert client.base_container_name == 'integration-test-container'
         assert client.connection_string == 'test_connection_string'

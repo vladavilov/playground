@@ -62,7 +62,13 @@ class ProjectService:
             session.commit()
             session.refresh(project)
 
-            logger.info("Project created successfully", project_id=str(project.id), project_name=project.name)
+            logger.info(
+                "Project created successfully", 
+                project_id=str(project.id), 
+                project_id_type=type(project.id).__name__,
+                project_id_repr=repr(project.id),
+                project_name=project.name
+            )
             return project
 
     def get_project_by_id(self, project_id: UUID) -> Optional[Project]:
@@ -358,8 +364,6 @@ class ProjectService:
     def update_project_progress(self, project_id: UUID, processed_count: int, total_count: int, status: ProjectStatus) -> Optional[Project]:
         """
         Update project progress with processed and total document counts.
-        Sets status to PROCESSING and calculates processed percentage.
-        Implements Requirements 2.1 and 2.2.
 
         Args:
             project_id: Project ID
@@ -373,16 +377,31 @@ class ProjectService:
         logger.info(
             "Updating project progress",
             project_id=str(project_id),
+            project_id_type=type(project_id).__name__,
+            project_id_repr=repr(project_id),
             processed_count=processed_count,
             total_count=total_count,
             status=status
         )
 
         with self.postgres_client.get_sync_session() as session:
+            # Add comprehensive debugging for the database query
+            logger.info(
+                "Executing project lookup query",
+                project_id=str(project_id),
+                project_id_type=type(project_id).__name__,
+                query_filter_value=project_id,
+                query_filter_repr=repr(project_id)
+            )
+            
             project = session.query(Project).filter(Project.id == project_id).first()
 
             if not project:
-                logger.warning("Project not found for progress update", project_id=str(project_id))
+                logger.warning(
+                    "Project not found for progress update", 
+                    project_id=str(project_id),
+                    project_id_type=type(project_id).__name__
+                )
                 return None
 
             project.status = status.value
@@ -396,46 +415,5 @@ class ProjectService:
                 project_id=str(project_id),
                 new_status=project.status,
                 processed_pct=project.processed_pct
-            )
-            return project
-
-    def reset_project_status(self, project_id: UUID, new_status: str, error_message: Optional[str]) -> Optional[Project]:
-        """
-        Reset project status and clear progress information.
-        Implements Requirements 2.1 and 2.2.
-
-        Args:
-            project_id: Project ID
-            new_status: New project status
-            error_message: Optional error message (for logging purposes)
-
-        Returns:
-            Project: Updated project instance or None if not found
-        """
-        logger.info(
-            "Resetting project status",
-            project_id=str(project_id),
-            new_status=new_status,
-            error_message=error_message
-        )
-
-        with self.postgres_client.get_sync_session() as session:
-            project = session.query(Project).filter(Project.id == project_id).first()
-
-            if not project:
-                logger.warning("Project not found for status reset", project_id=str(project_id))
-                return None
-
-            # Reset project status and progress
-            project.status = new_status
-            project.processed_pct = 0.0
-
-            session.commit()
-            session.refresh(project)
-
-            logger.info(
-                "Project status reset successfully",
-                project_id=str(project_id),
-                new_status=project.status
             )
             return project

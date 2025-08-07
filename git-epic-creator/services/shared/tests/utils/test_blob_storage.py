@@ -58,7 +58,7 @@ class TestBlobStorageClient:
         
         assert client.settings == mock_settings
         assert client.connection_string == mock_settings.AZURE_STORAGE_CONNECTION_STRING
-        assert client.container_name == mock_settings.AZURE_STORAGE_CONTAINER_NAME
+        assert client.base_container_name == mock_settings.AZURE_STORAGE_CONTAINER_NAME
 
     def test_initialization_without_settings_uses_default(self):
         """Test that client uses default settings when none provided."""
@@ -127,13 +127,16 @@ class TestBlobStorageClient:
                 if os.path.exists(temp_file_path):
                     os.unlink(temp_file_path)
 
-    def test_upload_file_with_project_prefix(self, blob_client, mock_azure_clients):
-        """Test file upload with project-specific prefix."""
+    def test_upload_file_with_project_id(self, blob_client, mock_azure_clients):
+        """Test file upload with project-specific container (not blob name prefixing)."""
         project_id = uuid4()
-        expected_blob_name = f"{project_id}/document.docx"
-        mock_azure_clients['blob'].url = f"https://mockaccount.blob.core.windows.net/documents/{expected_blob_name}"
+        expected_container_name = f"documents-{project_id}"
+        expected_blob_name = "document.docx"  # No project prefix in blob name
+        mock_azure_clients['blob'].url = f"https://mockaccount.blob.core.windows.net/{expected_container_name}/{expected_blob_name}"
         
         with patch.object(blob_client, '_get_blob_service_client', return_value=mock_azure_clients['service']):
+            # Mock container exists check for _ensure_container_exists
+            mock_azure_clients['container'].exists.return_value = True
             mock_azure_clients['blob'].upload_blob.return_value = None
             
             with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as temp_file:
@@ -144,10 +147,21 @@ class TestBlobStorageClient:
                 result = blob_client.upload_file(temp_file_path, 'document.docx', project_id=project_id)
                 
                 assert result.success is True
-                assert str(project_id) in result.blob_name
-                assert result.blob_name.endswith('document.docx')
-                assert result.blob_name == expected_blob_name
+                assert result.blob_name == expected_blob_name  # Blob name stored as-is
+                assert result.blob_url == mock_azure_clients['blob'].url
+                assert result.error_message is None
                 
+                # Verify correct container was used (called twice: once for _ensure_container_exists, once for upload)
+                expected_calls = [
+                    ((expected_container_name,), {}),  # _ensure_container_exists call
+                    ((expected_container_name,), {})   # upload_file call
+                ]
+                assert mock_azure_clients['service'].get_container_client.call_count == 2
+                actual_calls = mock_azure_clients['service'].get_container_client.call_args_list
+                for expected_call, actual_call in zip(expected_calls, actual_calls):
+                    assert actual_call.args == expected_call[0]
+                
+                # Verify blob client was called with original blob name (no project prefix)
                 mock_azure_clients['container'].get_blob_client.assert_called_once_with(expected_blob_name)
                 
             finally:
@@ -235,53 +249,94 @@ class TestBlobStorageClient:
             mock_azure_clients['blob'].delete_blob.assert_called_once()
 
     def test_list_files_success(self, blob_client, mock_azure_clients):
-        """Test successful file listing from blob storage."""
+        """Test successful file listing from blob storage with project-specific container."""
+        project_id = uuid4()
+        expected_container_name = f"documents-{project_id}"
+        
         with patch.object(blob_client, '_get_blob_service_client', return_value=mock_azure_clients['service']):
-            # Mock blob list
+            # Mock container exists check for _ensure_container_exists
+            mock_azure_clients['container'].exists.return_value = True
+            
+            # Mock blob list - files stored as-is in project-specific container
             mock_blob1 = Mock()
-            mock_blob1.name = 'project1/document1.pdf'
+            mock_blob1.name = 'document1.pdf'  # No project prefix in blob names
             mock_blob2 = Mock()
-            mock_blob2.name = 'project1/document2.docx'
+            mock_blob2.name = 'document2.docx'  # No project prefix in blob names
             mock_azure_clients['container'].list_blobs.return_value = [mock_blob1, mock_blob2]
-
-            project_id = uuid4()
             
             result = blob_client.list_files(project_id=project_id)
             
             assert isinstance(result, BlobStorageResult)
             assert result.success is True
             assert len(result.file_list) == 2
-            assert 'project1/document1.pdf' in result.file_list
-            assert 'project1/document2.docx' in result.file_list
+            assert 'document1.pdf' in result.file_list
+            assert 'document2.docx' in result.file_list
             
-            mock_azure_clients['container'].list_blobs.assert_called_once_with(name_starts_with=f"{project_id}/")
+            # Verify correct container was used (called twice: once for _ensure_container_exists, once for list_files)
+            expected_calls = [
+                ((expected_container_name,), {}),  # _ensure_container_exists call
+                ((expected_container_name,), {})   # list_files call
+            ]
+            assert mock_azure_clients['service'].get_container_client.call_count == 2
+            actual_calls = mock_azure_clients['service'].get_container_client.call_args_list
+            for expected_call, actual_call in zip(expected_calls, actual_calls):
+                assert actual_call.args == expected_call[0]
+            
+            # When no prefix is provided, name_starts_with should be None
+            mock_azure_clients['container'].list_blobs.assert_called_once_with(name_starts_with=None)
 
-    def test_generate_blob_name_with_project(self, blob_client):
-        """Test blob name generation with project ID."""
+    def test_list_files_with_prefix(self, blob_client, mock_azure_clients):
+        """Test file listing with prefix parameter uses project-specific container and passes prefix as-is."""
         project_id = uuid4()
-        
-        blob_name = blob_client._generate_blob_name('document.pdf', project_id=project_id)
-        
-        assert str(project_id) in blob_name
-        assert blob_name.endswith('document.pdf')
-        assert '/' in blob_name  # Should have project prefix
-
-    def test_generate_blob_name_without_project(self, blob_client):
-        """Test blob name generation without project ID."""
-        blob_name = blob_client._generate_blob_name('document.pdf')
-        
-        assert blob_name == 'document.pdf'
-
-    def test_cleanup_project_files_success(self, blob_client, mock_azure_clients):
-        """Test successful cleanup of project files."""
-        project_id = uuid4()
+        expected_container_name = f"documents-{project_id}"
+        prefix = "uploads/"
         
         with patch.object(blob_client, '_get_blob_service_client', return_value=mock_azure_clients['service']):
-            # Mock blob list
+            # Mock container exists check for _ensure_container_exists
+            mock_azure_clients['container'].exists.return_value = True
+            
+            # Mock blob list with prefix
             mock_blob1 = Mock()
-            mock_blob1.name = f'{project_id}/document1.pdf'
+            mock_blob1.name = 'uploads/file1.pdf'
             mock_blob2 = Mock()
-            mock_blob2.name = f'{project_id}/document2.docx'
+            mock_blob2.name = 'uploads/file2.docx'
+            mock_azure_clients['container'].list_blobs.return_value = [mock_blob1, mock_blob2]
+            
+            result = blob_client.list_files(project_id=project_id, prefix=prefix)
+            
+            assert isinstance(result, BlobStorageResult)
+            assert result.success is True
+            assert len(result.file_list) == 2
+            assert 'uploads/file1.pdf' in result.file_list
+            assert 'uploads/file2.docx' in result.file_list
+            
+            # Verify correct container was used
+            expected_calls = [
+                ((expected_container_name,), {}),  # _ensure_container_exists call
+                ((expected_container_name,), {})   # list_files call
+            ]
+            assert mock_azure_clients['service'].get_container_client.call_count == 2
+            actual_calls = mock_azure_clients['service'].get_container_client.call_args_list
+            for expected_call, actual_call in zip(expected_calls, actual_calls):
+                assert actual_call.args == expected_call[0]
+            
+            # Prefix should be passed as-is to name_starts_with
+            mock_azure_clients['container'].list_blobs.assert_called_once_with(name_starts_with=prefix)
+
+    def test_cleanup_project_files_success(self, blob_client, mock_azure_clients):
+        """Test successful cleanup of project files using project-specific container."""
+        project_id = uuid4()
+        expected_container_name = f"documents-{project_id}"
+        
+        with patch.object(blob_client, '_get_blob_service_client', return_value=mock_azure_clients['service']):
+            # Mock container exists check for _ensure_container_exists
+            mock_azure_clients['container'].exists.return_value = True
+            
+            # Mock blob list - files stored as-is in project-specific container (no project prefix)
+            mock_blob1 = Mock()
+            mock_blob1.name = 'document1.pdf'
+            mock_blob2 = Mock()
+            mock_blob2.name = 'document2.docx'
             mock_azure_clients['container'].list_blobs.return_value = [mock_blob1, mock_blob2]
             
             # Mock successful deletion
@@ -296,6 +351,20 @@ class TestBlobStorageClient:
                 assert "Deleted 2 files" in result.file_list[0]
                 
                 assert mock_delete.call_count == 2
+                mock_delete.assert_any_call('document1.pdf', project_id=project_id)
+                mock_delete.assert_any_call('document2.docx', project_id=project_id)
+
+    def test_get_container_name_without_project_id(self, blob_client):
+        """Test that _get_container_name returns base container name when no project_id provided."""
+        container_name = blob_client._get_container_name()
+        assert container_name == "documents"
+
+    def test_get_container_name_with_project_id(self, blob_client):
+        """Test that _get_container_name returns project-specific container name when project_id provided."""
+        project_id = uuid4()
+        container_name = blob_client._get_container_name(project_id)
+        expected_name = f"documents-{project_id}"
+        assert container_name == expected_name
 
 
 class TestGetBlobStorageClient:

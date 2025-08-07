@@ -134,14 +134,17 @@ class TestConfig:
         redis_config = {
             "host": host,
             "port": port,
-            "db": int(os.getenv("REDIS_DB", "0"))
+            "db": int(os.getenv("REDIS_DB", "0")),
+            "max_connections": int(os.getenv("REDIS_MAX_CONNECTIONS", "10")),
+            "socket_connect_timeout": float(os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "5.0")),
+            "socket_timeout": float(os.getenv("REDIS_SOCKET_TIMEOUT", "5.0"))
         }
         
         # Add password only if it's provided and non-empty
         redis_password = os.getenv("REDIS_PASSWORD")
         if redis_password:
             redis_config["password"] = redis_password
-            
+
         return redis_config
     
     @classmethod
@@ -172,42 +175,6 @@ class TestConfig:
             "result_backend": os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
         }
     
-    @classmethod
-    def get_enhanced_postgres_config(cls) -> Dict[str, Any]:
-        """
-        Get enhanced PostgreSQL configuration with pool settings.
-        
-        Returns:
-            Dict with PostgreSQL connection and pool parameters
-        """
-        base_config = cls.get_postgres_config()
-        base_config.update({
-            "pool_size": int(os.getenv("POSTGRES_POOL_SIZE", "5")),
-            "max_overflow": int(os.getenv("POSTGRES_MAX_OVERFLOW", "10")),
-            "pool_timeout": int(os.getenv("POSTGRES_POOL_TIMEOUT", "30")),
-            "pool_recycle": int(os.getenv("POSTGRES_POOL_RECYCLE", "1800")),
-            "schema": os.getenv("POSTGRES_SCHEMA", "public")
-        })
-        return base_config
-    
-    @classmethod
-    def get_enhanced_redis_config(cls) -> Dict[str, Any]:
-        """
-        Get enhanced Redis configuration with additional connection settings.
-        
-        Returns:
-            Dict with Redis connection and advanced parameters
-        """
-        base_config = cls.get_redis_config()
-        base_config.update({
-            "max_connections": int(os.getenv("REDIS_MAX_CONNECTIONS", "10")),
-            "retry_on_timeout": os.getenv("REDIS_RETRY_ON_TIMEOUT", "true").lower() == "true",
-            "socket_connect_timeout": float(os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "5.0")),
-            "socket_timeout": float(os.getenv("REDIS_SOCKET_TIMEOUT", "5.0"))
-        })
-        return base_config
-
-
 class TestConstants:
     """Constants used across e2e tests."""
     

@@ -25,13 +25,16 @@ from typing import Dict, Any
 from fastapi import Depends, Request, APIRouter
 from celery import Celery
 
-# Import configuration and utilities
 from configuration.logging_config import configure_logging
+
+# Initialize logging and configuration before all other modules (using logger) are initialized
+configure_logging()
 from configuration.common_config import get_app_settings
-from utils.celery_factory import get_celery_app, CeleryHealthChecker
+from utils.celery_factory import CeleryHealthChecker
 from utils.app_factory import FastAPIFactory
-from utils.unified_redis_messages import create_redis_message_factory
 from utils.redis_client import get_redis_client
+from services.tika_processor import TikaProcessor
+from task_subscriber import create_task_subscriber
 
 # Import signal handlers from celery_factory to make them available in main module
 from utils.celery_factory import (
@@ -39,22 +42,24 @@ from utils.celery_factory import (
     _log_task_postrun, 
     _log_task_failure,
     _log_task_retry,
-    _log_worker_ready
+    _log_worker_ready,
+    _configure_worker_logging
 )
 
-# Initialize logging and configuration
-configure_logging()
 logger = structlog.get_logger(__name__)
 settings = get_app_settings()
 
-# Create celery app with proper error handling
 try:
-    celery_app = get_celery_app(name="document_processing_service")
+    # Import the Celery app from the worker entrypoint
+    # This ensures tasks are registered and validated
+    from celery_worker_app import celery_app, get_task_validation_status
+
+    logger.debug("Celery app imported successfully")
+
 except Exception as e:
-    logger.error("Failed to initialize Celery app", error=str(e))
+    logger.error("Failed to import Celery app", error=str(e))
     raise
 
-# Create FastAPI app using the factory pattern
 app = FastAPIFactory.create_app(
     title="Document Processing Service",
     description="A microservice for processing documents with Celery tasks",
@@ -84,153 +89,188 @@ celery_router = APIRouter(prefix="/health", tags=["Health"])
 
 @celery_router.get("/celery")
 def celery_health_check(
-    celery_app: Celery = Depends(get_celery_app_from_state)
+    scoped_celery_app: Celery = Depends(get_celery_app_from_state)
 ) -> Dict[str, Any]:
     """
     Celery health check endpoint that returns detailed health information.
     
     Args:
-        celery_app: Celery application instance from dependency injection
+        scoped_celery_app: Celery application instance from dependency injection
         
     Returns:
-        Dict[str, Any]: Comprehensive health check results including:
-            - Connection status to broker and backend
-            - Active workers count and details
-            - Active, scheduled, and registered tasks
-            - Worker statistics and performance metrics
+        Dict[str, Any]: Health check response with Celery status
     """
     try:
-        health_data = CeleryHealthChecker.check_health_with_details(celery_app)
-        logger.info("Celery health check completed", healthy=health_data.get("healthy", False))
-        return health_data
+        health_checker = CeleryHealthChecker()
+        
+        health_status = health_checker.check_health_with_details(scoped_celery_app)
+        
+        health_status.update({
+            "service": "Document Processing Service",
+            "celery_app_name": scoped_celery_app.main,
+            "task_validation_status": get_task_validation_status(),
+            "active_tasks": list(scoped_celery_app.tasks.keys()),
+            "registered_tasks_count": len(scoped_celery_app.tasks),
+            "broker_url": scoped_celery_app.conf.broker_url,
+            "result_backend": scoped_celery_app.conf.result_backend,
+            "task_routes": scoped_celery_app.conf.task_routes,
+            "worker_queues": ["document_processing"],  # Expected worker queues
+            "task_serializer": scoped_celery_app.conf.task_serializer,
+            "result_serializer": scoped_celery_app.conf.result_serializer
+        })
+        
+        logger.debug("Celery health check completed", status=health_status.get("healthy"))
+        return health_status
+        
     except Exception as e:
-        # Safely access configuration with fallback values
-        # Handle cases where conf object itself might not exist or raise AttributeError
-        broker_url = 'unavailable'
-        backend_url = 'unavailable'
-
-        try:
-            # Try to access conf and its attributes with comprehensive error handling
-            conf = celery_app.conf
-            if conf is not None:
-                broker_url = getattr(conf, 'broker_url', 'unavailable')
-        except (AttributeError, TypeError):
-            # celery_app.conf doesn't exist, can't be accessed, or getattr fails
-            broker_url = 'unavailable'
-
-        try:
-            # Try to access conf and its attributes with comprehensive error handling
-            conf = celery_app.conf
-            if conf is not None:
-                backend_url = getattr(conf, 'result_backend', 'unavailable')
-        except (AttributeError, TypeError):
-            # celery_app.conf doesn't exist, can't be accessed, or getattr fails
-            backend_url = 'unavailable'
- 
-        error_result = {
+        error_msg = f"Celery health check failed: {str(e)}"
+        logger.error("Celery health check error", error=error_msg, exc_info=True)
+        return {
             "healthy": False,
-            "error": str(e),
-            "broker_url": broker_url,
-            "backend_url": backend_url
+            "error": error_msg,
+            "service": "Document Processing Service"
         }
-        logger.error("Celery health check failed", error=str(e))
-        return error_result
 
-# Include the Celery router in the FastAPI app
+@celery_router.get("/tika")
+def tika_health_check() -> Dict[str, Any]:
+    """
+    Tika health check endpoint that returns Tika processor status.
+    
+    Returns:
+        Dict[str, Any]: Health check response with Tika status
+    """
+    try:
+        tika_processor = TikaProcessor()
+        
+        health_status = tika_processor.check_health()
+        
+        health_status.update({
+            "service": "Document Processing Service",
+            "component": "Tika Processor"
+        })
+        
+        logger.debug("Tika health check completed", status=health_status.get("healthy"))
+        return health_status
+        
+    except Exception as e:
+        error_msg = f"Tika health check failed: {str(e)}"
+        logger.error("Tika health check error", error=error_msg, exc_info=True)
+        return {
+            "healthy": False,
+            "error": error_msg,
+            "service": "Document Processing Service",
+            "component": "Tika Processor"
+        }
+
 app.include_router(celery_router)
+
+def configure_thread_logging(thread_name: str):
+    """
+    Configure structured logging for threads.
+    
+    Args:
+        thread_name: Name of the thread for logging context
+    """
+    # Configure structlog for the thread
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.processors.JSONRenderer()
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+    
+    # Create thread-specific logger
+    thread_logger = structlog.get_logger(thread_name)
+    thread_logger.debug("Thread logging configured", thread_name=thread_name)
+    
+    return thread_logger
 
 def start_worker():
     """
-    Start the Celery worker with enhanced monitoring and error handling.
-    
-    Raises:
-        Exception: If worker startup fails
+    Start Celery worker for document processing tasks.
+    Runs in a separate thread and handles task execution.
     """
+    thread_logger = configure_thread_logging("Celery-Worker")
+    
     try:
-        logger.info("Starting Celery worker with enhanced monitoring")
-        worker = celery_app.Worker()
-        worker.start()
-        logger.info("Celery worker started successfully")
+        celery_app.worker_main([
+            'worker',
+            '--loglevel=info',
+            '--concurrency=2',
+            '--hostname=document-processor@%h',
+            '--queues=document_processing',
+            '--prefetch-multiplier=1'
+        ])
+        
+        thread_logger.debug("Celery worker started successfully")
     except Exception as e:
         error_msg = str(e)
-        logger.error("Failed to start Celery worker", error=error_msg)
+        thread_logger.error("Failed to start Celery worker", error=error_msg, exc_info=True)
         raise
 
 def start_fastapi_server():
     """
-    Start the FastAPI server for health monitoring and API endpoints.
+    Start FastAPI server for health monitoring and API endpoints.
+    Runs in a separate thread and provides HTTP interface.
     
     Raises:
         Exception: If FastAPI server startup fails
     """
+    thread_logger = configure_thread_logging("FastAPI-Server")
+    
     try:
-        logger.info("Starting FastAPI server for health monitoring", port=settings.API_PORT)
-        uvicorn.run(app, host="0.0.0.0", port=settings.API_PORT, log_config=None)
-        logger.info("FastAPI server started successfully")
+        thread_logger.debug("Starting FastAPI server for health monitoring", port=settings.API_PORT)
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=settings.API_PORT, 
+            log_config=None,
+            access_log=False
+        )
+        thread_logger.info("FastAPI server started successfully")
     except Exception as e:
         error_msg = str(e)
-        logger.error("Failed to start FastAPI server", error=error_msg)
+        thread_logger.error("Failed to start FastAPI server", error=error_msg)
         raise
-
-def start_service():
-    """
-    Start both FastAPI server and Celery worker concurrently using threading.
-    
-    This function creates separate threads for:
-    1. FastAPI server for health monitoring and API endpoints
-    2. Celery worker for document processing tasks
-    
-    Both services run concurrently in the same process.
-    
-    Raises:
-        Exception: If either service startup fails
-    """
-    try:
-        logger.info("Starting Document Processing Service with both FastAPI and Celery")
-        
-        # Create threads for concurrent execution
-        fastapi_thread = threading.Thread(target=start_fastapi_server, name="FastAPI-Server")
-        celery_thread = threading.Thread(target=start_worker, name="Celery-Worker")
-        
-        # Set as daemon threads so they terminate when main process exits
-        fastapi_thread.daemon = True
-        celery_thread.daemon = True
-        
-        # Start both threads
-        fastapi_thread.start()
-        celery_thread.start()
-        
-        logger.info("Both FastAPI server and Celery worker threads started")
-        
-        # Wait for both threads to complete
-        fastapi_thread.join()
-        celery_thread.join()
-        
-        logger.info("Document Processing Service shutdown completed")
-        
-    except Exception as e:
-        error_msg = f"Service startup failed: {str(e)}"
-        logger.error("Failed to start Document Processing Service", error=error_msg)
-        raise Exception(error_msg)
-
 
 def start_task_subscriber():
     """
     Start TaskRequestSubscriber to listen for Redis task requests.
     Runs in a separate thread and handles Redis pub/sub messages.
     """
+    thread_logger = configure_thread_logging("TaskSubscriber")
+    
     try:
-        logger.info("Starting TaskRequestSubscriber")
-        
-        # Create subscriber using factory method
+        thread_logger.debug("Starting TaskRequestSubscriber")
+
+        # Import the Celery task function from the registered tasks
+        from tasks.document_tasks import process_project_documents_task
+
         redis_client = get_redis_client()
-        _, _, subscriber = create_redis_message_factory(redis_client)
+        subscriber = create_task_subscriber(redis_client, process_project_documents_task)
+
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        # Run the async listener in the thread
-        asyncio.run(subscriber.start_listening())
-        
+        try:
+            loop.run_until_complete(subscriber.start_listening())
+        finally:
+            loop.close()
+
     except Exception as e:
-        logger.error("TaskRequestSubscriber failed", error=str(e), exc_info=True)
+        thread_logger.error("TaskRequestSubscriber failed", error=str(e), exc_info=True)
 
 
 def start_service_with_subscriber():
@@ -249,35 +289,34 @@ def start_service_with_subscriber():
     """
     try:
         logger.info("Starting Document Processing Service with FastAPI, Celery, and TaskRequestSubscriber")
-        
-        # Create threads for concurrent execution
+
         fastapi_thread = threading.Thread(target=start_fastapi_server, name="FastAPI-Server")
         celery_thread = threading.Thread(target=start_worker, name="Celery-Worker")
         subscriber_thread = threading.Thread(target=start_task_subscriber, name="TaskSubscriber")
-        
+
         # Set as daemon threads so they terminate when main process exits
         fastapi_thread.daemon = True
         celery_thread.daemon = True
         subscriber_thread.daemon = True
-        
+
         # Start all threads
         fastapi_thread.start()
         celery_thread.start()
         subscriber_thread.start()
-        
+
         logger.info("All service threads started (FastAPI, Celery, TaskSubscriber)")
-        
+
         # Wait for all threads to complete
         fastapi_thread.join()
         celery_thread.join()
         subscriber_thread.join()
-        
+
         logger.info("Document Processing Service shutdown completed")
-        
+
     except Exception as e:
         error_msg = f"Service startup failed: {str(e)}"
         logger.error("Failed to start Document Processing Service with subscriber", error=error_msg)
-        raise Exception(error_msg)
+        raise Exception(error_msg) from e
 
 
 if __name__ == "__main__":

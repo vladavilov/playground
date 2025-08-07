@@ -146,6 +146,57 @@ class TestDocumentUploadService:
 
     @patch('services.document_upload_service.TaskRequestPublisher')
     @patch('services.document_upload_service.BlobStorageClient')
+    async def test_blob_name_generation_uses_simple_filename(self, mock_blob_client_class, mock_task_publisher_class):
+        """Test that DocumentUploadService passes simple filenames to BlobStorageClient, not full project paths."""
+        # Import here to avoid initialization issues
+        from services.document_upload_service import DocumentUploadService
+        
+        # Mock blob storage client instance
+        mock_blob_instance = Mock()
+        mock_blob_client_class.return_value = mock_blob_instance
+        
+        # Mock successful upload results
+        mock_upload_result = Mock()
+        mock_upload_result.success = True
+        mock_blob_instance.upload_file.return_value = mock_upload_result
+        
+        # Mock task publisher instance
+        mock_task_publisher_instance = AsyncMock()
+        mock_task_publisher_class.return_value = mock_task_publisher_instance
+        mock_task_publisher_instance.request_document_processing.return_value = True
+        
+        # Create service instance
+        service = DocumentUploadService(mock_blob_instance)
+        
+        # Create test file
+        test_files = [
+            self._create_mock_upload_file("test_document.pdf", b"PDF content")
+        ]
+        
+        # Act
+        result = await service.bulk_upload_documents(self.project_id, test_files)
+        
+        # Assert that upload_file was called with simple filename (UUID + original name)
+        # NOT with full "projects/{project_id}/documents/{filename}" path
+        mock_blob_instance.upload_file.assert_called_once()
+        call_args = mock_blob_instance.upload_file.call_args
+        
+        # Extract the blob_name parameter (second positional argument)
+        blob_name = call_args[0][1]  # (file_path, blob_name, project_id=...)
+        project_id_kwarg = call_args[1]['project_id']
+        
+        # The blob_name should be a simple filename with UUID prefix, NOT a full path
+        assert not blob_name.startswith("projects/")
+        assert blob_name.endswith("_test_document.pdf")
+        assert str(self.project_id) not in blob_name  # Project ID should be in kwarg, not blob_name
+        assert project_id_kwarg == self.project_id
+        
+        # Verify the result is still successful
+        assert result.successful_uploads == 1
+        assert result.failed_uploads == 0
+
+    @patch('services.document_upload_service.TaskRequestPublisher')
+    @patch('services.document_upload_service.BlobStorageClient')
     async def test_bulk_upload_documents_all_failures(self, mock_blob_client_class, mock_task_publisher_class):
         """Test bulk document upload with all failures."""
         # Import here to avoid initialization issues

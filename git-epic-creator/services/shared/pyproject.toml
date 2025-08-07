@@ -23,7 +23,8 @@ dependencies = [
     "fastapi-azure-auth",
     "redis[hiredis]",
     "celery",
-    "azure-storage-blob"
+    "azure-storage-blob",
+    "tenacity"
 ]
 
 [tool.pytest.ini_options]

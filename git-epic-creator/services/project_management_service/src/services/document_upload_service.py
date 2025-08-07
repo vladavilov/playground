@@ -11,9 +11,9 @@ import structlog
 from fastapi import UploadFile
 
 from utils.blob_storage import BlobStorageClient
-from models.document_schemas import BulkUploadResponse
-
+from utils.redis_client import get_redis_client
 from services.task_publisher import TaskRequestPublisher
+from models.document_schemas import BulkUploadResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -69,8 +69,9 @@ class DocumentUploadService:
                     temp_file.write(content)
                     temp_file.flush()
 
-                    # Upload to blob storage with project-specific path
-                    blob_name = f"projects/{project_id}/documents/{uuid4()}_{filename}"
+                    # Upload to blob storage with UUID-prefixed filename
+                    # BlobStorageClient will handle project organization via project_id parameter
+                    blob_name = f"{uuid4()}_{filename}"
                     upload_result = self.blob_storage_client.upload_file(
                         temp_file.name,
                         blob_name,
@@ -122,15 +123,17 @@ class DocumentUploadService:
         # Initiate background processing if any files were uploaded successfully
         if successful_uploads > 0:
             try:
-                task_publisher = TaskRequestPublisher()
+                redis_client = get_redis_client()
+                task_publisher = TaskRequestPublisher(redis_client)
                 task_request_success = await task_publisher.request_document_processing(project_id)
                 
                 if task_request_success:
                     logger.info("Background processing initiated",
                                project_id=str(project_id),
-                               file_count=successful_uploads)
+                               file_count=successful_uploads,
+                               note="Task may be deduplicated if already running for this project")
                 else:
-                    logger.error("Failed to initiate background processing via TaskRequestPublisher",
+                    logger.error("Failed to initiate background processing via redis task publisher",
                                project_id=str(project_id))
                     # Don't fail the upload response if task submission fails
             except Exception as e:

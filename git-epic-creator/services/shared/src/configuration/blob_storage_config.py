@@ -12,8 +12,8 @@ class BlobStorageSettings(BaseConfig):
     Defines the Azure Blob Storage configuration settings.
     """
     AZURE_STORAGE_CONNECTION_STRING: str = Field(
-        default="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;",
-        description="Azure Storage connection string"
+        default="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://localhost:10000/devstoreaccount1;",
+        description="Azure Storage connection string - use localhost for local development, azurite for Docker"
     )
     AZURE_STORAGE_CONTAINER_NAME: str = Field(
         default="documents",
@@ -28,8 +28,8 @@ class BlobStorageSettings(BaseConfig):
         description="Azure Storage account key"
     )
     AZURE_STORAGE_BLOB_ENDPOINT: str = Field(
-        default="http://azurite:10000/devstoreaccount1",
-        description="Azure Storage blob endpoint"
+        default="http://localhost:10000/devstoreaccount1",
+        description="Azure Storage blob endpoint - use localhost for local development, azurite for Docker"
     )
     AZURE_STORAGE_MAX_SINGLE_PUT_SIZE: int = Field(
         default=64 * 1024 * 1024,  # 64MB

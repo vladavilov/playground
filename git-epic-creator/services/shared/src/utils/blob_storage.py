@@ -43,13 +43,13 @@ class BlobStorageClient:
         """
         self.settings = settings or get_blob_storage_settings()
         self.connection_string = self.settings.AZURE_STORAGE_CONNECTION_STRING
-        self.container_name = self.settings.AZURE_STORAGE_CONTAINER_NAME
+        self.base_container_name = self.settings.AZURE_STORAGE_CONTAINER_NAME
         
         if not self.connection_string:
             raise ValueError("Azure Storage connection string not provided")
         
         self.blob_service_client = None
-        logger.info("BlobStorageClient initialized successfully", container_name=self.container_name)
+        logger.info("BlobStorageClient initialized successfully", base_container_name=self.base_container_name)
 
     def _get_blob_service_client(self):
         """Get or create the blob service client."""
@@ -57,34 +57,52 @@ class BlobStorageClient:
             self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
         return self.blob_service_client
 
-    def _ensure_container_exists(self) -> bool:
+    def _get_container_name(self, project_id: Optional[UUID] = None) -> str:
+        """
+        Generate container name based on project ID.
+        
+        Args:
+            project_id: Optional project ID for project-specific containers
+            
+        Returns:
+            str: Container name
+        """
+        if project_id:
+            return f"{self.base_container_name}-{project_id}"
+        return self.base_container_name
+
+    def _ensure_container_exists(self, project_id: Optional[UUID] = None) -> bool:
         """
         Ensure the storage container exists, creating it if necessary.
         
+        Args:
+            project_id: Optional project ID for project-specific containers
+            
         Returns:
             bool: True if container exists or was created successfully, False otherwise
         """
+        container_name = self._get_container_name(project_id)
         try:
             blob_service_client = self._get_blob_service_client()
-            container_client = blob_service_client.get_container_client(self.container_name)
+            container_client = blob_service_client.get_container_client(container_name)
             
             # Check if container already exists
             if container_client.exists():
-                logger.debug("Container already exists", container_name=self.container_name)
+                logger.debug("Container already exists", container_name=container_name)
                 return True
             
             # Create the container
             container_client.create_container()
-            logger.info("Container created successfully", container_name=self.container_name)
+            logger.info("Container created successfully", container_name=container_name)
             return True
             
         except ResourceExistsError:
             # Container was created by another process between our check and create
-            logger.debug("Container already exists (created by another process)", container_name=self.container_name)
+            logger.debug("Container already exists (created by another process)", container_name=container_name)
             return True
         except (HttpResponseError, Exception) as e:
             error_msg = str(e)
-            logger.error("Failed to create container", container_name=self.container_name, error=error_msg)
+            logger.error("Failed to create container", container_name=container_name, error=error_msg)
             return False
 
     def upload_file(self, file_path: str, blob_name: str, project_id: Optional[UUID] = None) -> BlobStorageResult:
@@ -112,18 +130,21 @@ class BlobStorageClient:
 
         try:
             # Ensure container exists before attempting upload
-            if not self._ensure_container_exists():
+            if not self._ensure_container_exists(project_id):
+                container_name = self._get_container_name(project_id)
                 error_msg = "Container does not exist and could not be created"
-                logger.error("Container creation failed", container_name=self.container_name)
+                logger.error("Container creation failed", container_name=container_name)
                 return BlobStorageResult(
                     success=False,
                     error_message=error_msg
                 )
 
-            full_blob_name = self._generate_blob_name(blob_name, project_id)
+            # Use blob name as-is (no project prefixing)
+            full_blob_name = blob_name
+            container_name = self._get_container_name(project_id)
 
             blob_service_client = self._get_blob_service_client()
-            container_client = blob_service_client.get_container_client(self.container_name)
+            container_client = blob_service_client.get_container_client(container_name)
 
             blob_client = container_client.get_blob_client(full_blob_name)
 
@@ -151,13 +172,14 @@ class BlobStorageClient:
                 error_message=error_msg
             )
 
-    def download_file(self, blob_name: str, local_path: str) -> BlobStorageResult:
+    def download_file(self, blob_name: str, local_path: str, project_id: Optional[UUID] = None) -> BlobStorageResult:
         """
         Download a file from Azure Blob Storage.
         
         Args:
             blob_name: Name of the blob to download
             local_path: Local path where to save the file
+            project_id: Optional project ID for project-specific containers
             
         Returns:
             BlobStorageResult: Download operation result
@@ -166,16 +188,18 @@ class BlobStorageClient:
 
         try:
             # Ensure container exists before attempting download
-            if not self._ensure_container_exists():
+            if not self._ensure_container_exists(project_id):
+                container_name = self._get_container_name(project_id)
                 error_msg = "Container does not exist and could not be created"
-                logger.error("Container creation failed", container_name=self.container_name)
+                logger.error("Container creation failed", container_name=container_name)
                 return BlobStorageResult(
                     success=False,
                     error_message=error_msg
                 )
 
+            container_name = self._get_container_name(project_id)
             blob_service_client = self._get_blob_service_client()
-            container_client = blob_service_client.get_container_client(self.container_name)
+            container_client = blob_service_client.get_container_client(container_name)
 
             blob_client = container_client.get_blob_client(blob_name)
 
@@ -200,12 +224,13 @@ class BlobStorageClient:
                 error_message=error_msg
             )
 
-    def delete_file(self, blob_name: str) -> BlobStorageResult:
+    def delete_file(self, blob_name: str, project_id: Optional[UUID] = None) -> BlobStorageResult:
         """
         Delete a file from Azure Blob Storage.
         
         Args:
             blob_name: Name of the blob to delete
+            project_id: Optional project ID for project-specific containers
             
         Returns:
             BlobStorageResult: Delete operation result
@@ -214,16 +239,18 @@ class BlobStorageClient:
 
         try:
             # Ensure container exists before attempting deletion
-            if not self._ensure_container_exists():
+            if not self._ensure_container_exists(project_id):
+                container_name = self._get_container_name(project_id)
                 error_msg = "Container does not exist and could not be created"
-                logger.error("Container creation failed", container_name=self.container_name)
+                logger.error("Container creation failed", container_name=container_name)
                 return BlobStorageResult(
                     success=False,
                     error_message=error_msg
                 )
 
+            container_name = self._get_container_name(project_id)
             blob_service_client = self._get_blob_service_client()
-            container_client = blob_service_client.get_container_client(self.container_name)
+            container_client = blob_service_client.get_container_client(container_name)
 
             blob_client = container_client.get_blob_client(blob_name)
 
@@ -259,26 +286,27 @@ class BlobStorageClient:
 
         try:
             # Ensure container exists before attempting to list files
-            if not self._ensure_container_exists():
+            if not self._ensure_container_exists(project_id):
+                container_name = self._get_container_name(project_id)
                 error_msg = "Container does not exist and could not be created"
-                logger.error("Container creation failed", container_name=self.container_name)
+                logger.error("Container creation failed", container_name=container_name)
                 return BlobStorageResult(
                     success=False,
                     error_message=error_msg
                 )
 
+            container_name = self._get_container_name(project_id)
             blob_service_client = self._get_blob_service_client()
-            container_client = blob_service_client.get_container_client(self.container_name)
+            container_client = blob_service_client.get_container_client(container_name)
 
+            # With project-specific containers, use prefix as-is (no project prefixing needed)
             list_prefix = prefix
-            if project_id and not prefix:
-                list_prefix = f"{project_id}/"
 
             blob_list = []
             for blob in container_client.list_blobs(name_starts_with=list_prefix):
                 blob_list.append(blob.name)
 
-            logger.info("File listing completed", file_count=len(blob_list), prefix=list_prefix)
+            logger.info("File listing completed", file_count=len(blob_list), prefix=list_prefix, container_name=container_name)
 
             return BlobStorageResult(
                 success=True,
@@ -292,21 +320,6 @@ class BlobStorageClient:
                 success=False,
                 error_message=error_msg
             )
-
-    def _generate_blob_name(self, filename: str, project_id: Optional[UUID] = None) -> str:
-        """
-        Generate a blob name with optional project prefix.
-        
-        Args:
-            filename: Original filename
-            project_id: Optional project ID for organizing files
-            
-        Returns:
-            str: Generated blob name
-        """
-        if project_id:
-            return f"{project_id}/{filename}"
-        return filename
 
     def cleanup_project_files(self, project_id: UUID) -> BlobStorageResult:
         """
@@ -328,7 +341,7 @@ class BlobStorageClient:
 
             deleted_count = 0
             for blob_name in list_result.file_list or []:
-                delete_result = self.delete_file(blob_name)
+                delete_result = self.delete_file(blob_name, project_id=project_id)
                 if delete_result.success:
                     deleted_count += 1
                 else:
