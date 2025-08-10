@@ -1,7 +1,4 @@
-"""
-Neo4j client utilities following SOLID principles.
-Separates client creation from configuration.
-"""
+"""Neo4j client utilities and health checks."""
 
 from functools import lru_cache
 import time
@@ -14,22 +11,11 @@ from configuration.common_config import get_app_settings
 logger = structlog.get_logger(__name__)
 
 class Neo4jClientFactory:
-    """
-    Factory class for creating Neo4j clients.
-    Follows the Factory pattern and Single Responsibility Principle.
-    """
+    """Create Neo4j driver from settings."""
     
     @staticmethod
     def create_driver(settings: Neo4jSettings) -> Driver:
-        """
-        Create a Neo4j driver from settings.
-        
-        Args:
-            settings: Neo4j configuration settings
-            
-        Returns:
-            Driver: Configured Neo4j driver
-        """
+        """Create a Neo4j driver from settings."""
         driver = GraphDatabase.driver(
             settings.NEO4J_URI,
             auth=(settings.NEO4J_USERNAME, settings.NEO4J_PASSWORD),
@@ -38,16 +24,11 @@ class Neo4jClientFactory:
             max_transaction_retry_time=settings.NEO4J_MAX_TRANSACTION_RETRY_TIME
         )
         
-        logger.info(
-            "Neo4j driver created",
-            uri=settings.NEO4J_URI,
-            database=settings.NEO4J_DATABASE,
-            username=settings.NEO4J_USERNAME
-        )
+        logger.info("Neo4j driver created", uri=settings.NEO4J_URI)
         return driver
 
 class Neo4jClient:
-    """A client for interacting with a Neo4j database."""
+    """Client for interacting with a Neo4j database."""
 
     def __init__(self, settings: Neo4jSettings):
         self.settings = settings
@@ -74,42 +55,15 @@ class Neo4jClient:
         logger.info("Closing Neo4j client")
     
     def get_session(self, database: str = None) -> Session:
-        """
-        Get a Neo4j session.
-        
-        Args:
-            database: Database name (optional)
-            
-        Returns:
-            Session: Neo4j session
-        """
+        """Get a Neo4j session."""
         return self.driver.session(database=database or self.settings.NEO4J_DATABASE)
     
     def get_async_session(self, database=None):
-        """
-        Get a Neo4j session for async-compatible mocking in tests.
-        In real implementation, this would return an AsyncSession.
-        
-        Args:
-            database: Database name (optional)
-            
-        Returns:
-            Session: Neo4j session that can be mocked for async tests
-        """
+        """Get a Neo4j session for async-compatible mocking in tests."""
         return self.driver.session(database=database or self.settings.NEO4J_DATABASE)
     
     def execute_query_with_retry(self, query, parameters=None, database=None):
-        """
-        Execute a Cypher query with retry logic.
-        
-        Args:
-            query: Cypher query string
-            parameters: Query parameters (optional)
-            database: Database name (optional)
-            
-        Returns:
-            Result: Query result
-        """
+        """Execute a Cypher query with retry logic."""
         retry_count = 0
         last_error = None
         
@@ -187,15 +141,7 @@ class Neo4jHealthChecker:
     
     @staticmethod
     def check_health_with_details(client: Neo4jClient) -> dict:
-        """
-        Check Neo4j connection health with detailed information.
-        
-        Args:
-            client: Neo4j client instance
-            
-        Returns:
-            dict: Health check results with details
-        """
+        """Check Neo4j connection health with details."""
         try:
             with client.get_session() as session:
                 # Basic connectivity test
@@ -233,17 +179,3 @@ class Neo4jHealthChecker:
             }
             logger.error("Neo4j detailed health check failed", **result)
             return result
-
-# Convenience function for backward compatibility
-def check_neo4j_health(client: Neo4jClient) -> bool:
-    """
-    Check Neo4j connection health.
-    Convenience wrapper for Neo4jHealthChecker.
-    
-    Args:
-        client: Neo4j client instance
-        
-    Returns:
-        bool: True if Neo4j is healthy, False otherwise
-    """
-    return Neo4jHealthChecker.check_health(client)

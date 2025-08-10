@@ -1,9 +1,4 @@
-"""
-Project Management Service
-
-A FastAPI microservice for managing projects in the Agentic AI Requirements Engineering System.
-Provides CRUD operations for projects with Azure AD authentication and role-based access control.
-"""
+"""Project Management Service (FastAPI)."""
 
 import uvicorn
 import structlog
@@ -20,21 +15,20 @@ logger = structlog.get_logger(__name__)
 
 app = FastAPIFactory.create_app(
     title="Project Management Service",
-    description="A comprehensive microservice for managing projects in the Agentic AI Requirements Engineering System. "
-               "Provides CRUD operations with Azure AD authentication and role-based access control.",
+    description="CRUD operations with Azure AD auth and RBAC.",
     version="1.0.0",
     enable_azure_auth=True,
     enable_docs_auth=False,
     enable_cors=True,
     enable_postgres=True,
     enable_redis=True,
-    enable_blob_storage=True
+    enable_blob_storage=True,
 )
 
 # Include routers
 app.include_router(project_router)
 
-logger.info("Project Management Service initialized successfully")
+logger.info("Project Management Service ready")
 
 if __name__ == "__main__":
     settings = get_app_settings()

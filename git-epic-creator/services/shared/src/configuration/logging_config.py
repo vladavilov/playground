@@ -14,20 +14,7 @@ def filter_sensitive_data(logger, log_method, event_dict):
     return event_dict
 
 def configure_logging(log_level=logging.INFO, stream=None, force_reconfigure=False):
-    """
-    Configures logging for the application using structlog with threading and multiprocessing support.
-    
-    This function properly handles:
-    - Thread-safe logging configuration
-    - Multiprocess worker logging (Celery workers)
-    - Context variable management
-    - Processor chain optimization
-    
-    Args:
-        log_level: The minimum log level to output.
-        stream: The stream to log to. Defaults to sys.stdout.
-        force_reconfigure: Force reconfiguration even if already configured.
-    """
+    """Configure structlog-based JSON logging."""
     if stream is None:
         stream = sys.stdout
     
@@ -50,7 +37,6 @@ def configure_logging(log_level=logging.INFO, stream=None, force_reconfigure=Fal
     # Ensure root logger level is set correctly
     logging.root.setLevel(log_level)
     
-    # Shared processors for consistent logging across threads and processes
     shared_processors = [
         # Filter by level first for performance
         structlog.stdlib.filter_by_level,
@@ -78,39 +64,4 @@ def configure_logging(log_level=logging.INFO, stream=None, force_reconfigure=Fal
         cache_logger_on_first_use=False,
     )
     
-    # Mark as configured
     structlog._configured = True
-    
-    # Explicitly configure loggers that might be created before this configuration
-    # This is critical for thread and process isolation
-    early_logger_names = [
-        'utils.blob_storage',
-        'utils.celery_factory', 
-        'utils.app_factory',
-        'utils.redis_client',
-        'utils.redis_abstractions',
-        'tasks.document_tasks',
-        'services.tika_processor',
-        'services.project_management_client',
-        'configuration.common_config',
-        '__main__',
-        'celery',
-        'celery.worker',
-        'celery.app.trace'
-    ]
-    
-    for logger_name in early_logger_names:
-        logger_obj = logging.getLogger(logger_name)
-        logger_obj.setLevel(log_level)
-        # Ensure handlers are properly configured
-        if not logger_obj.handlers:
-            handler = logging.StreamHandler(stream)
-            handler.setFormatter(logging.Formatter('%(message)s'))
-            logger_obj.addHandler(handler)
-            logger_obj.propagate = True
-    
-    # Test that logging is working correctly
-    test_logger = structlog.get_logger("logging_config_test")
-    test_logger.info("Logging configuration completed", 
-                    log_level=log_level,
-                    processors_count=len(shared_processors))

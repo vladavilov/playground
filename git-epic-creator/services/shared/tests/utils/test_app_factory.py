@@ -2,12 +2,10 @@
 Tests for FastAPI application factory.
 """
 
-import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
-from fastapi_azure_auth import MultiTenantAzureAuthorizationCodeBearer
 from utils.app_factory import FastAPIFactory
 from utils.app_factory import get_redis_client_from_state
 
@@ -43,7 +41,6 @@ class TestFastAPIFactory:
         # Check required routes exist
         route_paths = [route.path for route in app.routes]
         assert "/health" in route_paths
-        assert "/version" in route_paths
         assert "/me" not in route_paths  # Should not exist when auth is disabled
 
     def test_create_app_health_endpoint(self):
@@ -64,26 +61,6 @@ class TestFastAPIFactory:
         # Assert
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
-
-    def test_create_app_version_endpoint(self):
-        """Test that version endpoint returns correct response."""
-        # Arrange
-        version = "2.1.0"
-        app = FastAPIFactory.create_app(
-            title="Test API",
-            description="Test description",
-            version=version,
-            enable_azure_auth=False,
-            enable_cors=False
-        )
-        client = TestClient(app)
-        
-        # Act
-        response = client.get("/version")
-        
-        # Assert
-        assert response.status_code == 200
-        assert response.json() == {"version": version}
 
     @patch('utils.app_factory.get_postgres_client')
     @patch('utils.app_factory.PostgresHealthChecker.check_health_with_details')

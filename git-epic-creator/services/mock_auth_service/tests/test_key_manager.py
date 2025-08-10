@@ -4,11 +4,11 @@ Tests for the key management functionality of the mock auth service.
 import os
 import tempfile
 import pytest
-from unittest.mock import patch, mock_open
+from unittest.mock import patch
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
-from src.key_manager import KeyManager
+from key_manager import KeyManager
 
 
 class TestKeyManager:
@@ -26,9 +26,9 @@ class TestKeyManager:
         
         with patch.dict(os.environ, {'MOCK_AUTH_PRIVATE_KEY': pem_data}):
             # Need to patch the settings to reload with new environment
-            from src.config import Settings
+            from config import Settings
             test_settings = Settings()
-            with patch('src.key_manager.settings', test_settings):
+            with patch('key_manager.settings', test_settings):
                 key_manager = KeyManager()
                 loaded_key = key_manager.get_private_key()
                 
@@ -57,7 +57,7 @@ class TestKeyManager:
         
         try:
             with patch.dict(os.environ, {}, clear=True):
-                with patch('src.key_manager.KeyManager._get_key_file_path', return_value=temp_file_path):
+                with patch('key_manager.KeyManager._get_key_file_path', return_value=temp_file_path):
                     key_manager = KeyManager()
                     loaded_key = key_manager.get_private_key()
                     
@@ -73,7 +73,7 @@ class TestKeyManager:
             key_file_path = os.path.join(temp_dir, 'private_key.pem')
             
             with patch.dict(os.environ, {}, clear=True):
-                with patch('src.key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
+                with patch('key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
                     key_manager = KeyManager()
                     generated_key = key_manager.get_private_key()
                     
@@ -105,8 +105,8 @@ class TestKeyManager:
             kid_file_path = os.path.join(temp_dir, 'key_id.txt')
             
             with patch.dict(os.environ, {}, clear=True):
-                with patch('src.key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
-                    with patch('src.key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
+                with patch('key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
+                    with patch('key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
                         # First instance - should generate key and ID
                         key_manager1 = KeyManager()
                         key_id1 = key_manager1.get_key_id()
@@ -126,9 +126,9 @@ class TestKeyManager:
         
         with patch.dict(os.environ, {'MOCK_AUTH_KEY_ID': test_key_id}):
             # Need to patch the settings to reload with new environment
-            from src.config import Settings
+            from config import Settings
             test_settings = Settings()
-            with patch('src.key_manager.settings', test_settings):
+            with patch('key_manager.settings', test_settings):
                 key_manager = KeyManager()
                 loaded_key_id = key_manager.get_key_id()
                 
@@ -140,9 +140,9 @@ class TestKeyManager:
         
         with patch.dict(os.environ, {'MOCK_AUTH_PRIVATE_KEY': invalid_pem}):
             # Need to patch the settings to reload with new environment
-            from src.config import Settings
+            from config import Settings
             test_settings = Settings()
-            with patch('src.key_manager.settings', test_settings):
+            with patch('key_manager.settings', test_settings):
                 with pytest.raises(ValueError, match="Invalid private key"):
                     KeyManager()
 
@@ -156,7 +156,7 @@ class TestKeyManager:
         
         try:
             with patch.dict(os.environ, {}, clear=True):
-                with patch('src.key_manager.KeyManager._get_key_file_path', return_value=temp_file_path):
+                with patch('key_manager.KeyManager._get_key_file_path', return_value=temp_file_path):
                     with pytest.raises(ValueError, match="Invalid private key"):
                         KeyManager()
         finally:

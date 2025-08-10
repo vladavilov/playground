@@ -1,10 +1,7 @@
 
-"""
-Celery tasks for document processing operations.
-"""
+"""Celery tasks for document processing."""
 
 from typing import Dict, Any
-from uuid import UUID
 import os
 import asyncio
 import structlog
@@ -14,7 +11,7 @@ from utils.blob_storage import BlobStorageClient
 from services.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
 
-logger = None
+logger = structlog.get_logger(__name__)
 
 # Import the Celery app from the factory to avoid circular imports
 from utils.celery_factory import get_celery_app
@@ -99,9 +96,6 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Processing result
     """
-    global logger
-    logger= structlog.get_logger(__name__)
-    
     logger.info("TASK EXECUTION STARTED - project documents processing", 
                 project_id=project_id,
                 task_id=self.request.id,
@@ -141,10 +135,3 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
             'task_id': self.request.id,
             'error_message': error_msg
         }
-
-def get_celery_app_with_tasks():
-    """
-    Get the Celery app instance that has tasks registered.
-    This provides access to the configured app with registered tasks.
-    """
-    return celery_app

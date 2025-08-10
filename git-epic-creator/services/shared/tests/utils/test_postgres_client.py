@@ -3,11 +3,10 @@ Tests for PostgreSQL client utilities.
 """
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 from utils.postgres_client import (
     PostgresClient,
-    get_postgres_client,
-    check_postgres_health
+    get_postgres_client
 )
 from configuration.common_config import AppSettings
 from configuration.postgres_config import PostgresSettings
@@ -115,15 +114,3 @@ def test_get_postgres_client_cached(mock_get_settings, mock_client_class, mock_a
     
     mock_client_class.assert_called_once_with(mock_app_settings.postgres)
     assert client1 == client2
-
-@pytest.mark.asyncio
-async def test_check_postgres_health():
-    """Test check_postgres_health function."""
-    mock_client = Mock(spec=PostgresClient)
-    
-    with patch('utils.postgres_client.PostgresHealthChecker.check_health', new_callable=AsyncMock) as mock_check_health:
-        mock_check_health.return_value = {"healthy": True}
-        result = await check_postgres_health(mock_client)
-        
-        assert result["healthy"] is True
-        mock_check_health.assert_called_once_with(mock_client)

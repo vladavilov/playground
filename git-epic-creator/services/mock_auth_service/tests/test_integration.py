@@ -10,8 +10,8 @@ from jose import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
-from src.main import app
-from src.config import settings
+from main import app
+from config import settings
 
 
 class TestMockAuthServiceIntegration:
@@ -126,10 +126,10 @@ class TestMockAuthServiceIntegration:
             kid_file_path = os.path.join(temp_dir, 'key_id.txt')
             
             with patch.dict(os.environ, {}, clear=True):
-                with patch('src.key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
-                    with patch('src.key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
+                with patch('key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
+                    with patch('key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
                         # Create first KeyManager instance
-                        from src.key_manager import KeyManager
+                        from key_manager import KeyManager
                         first_key_manager = KeyManager()
                         first_jwk = first_key_manager.get_jwk()
                         

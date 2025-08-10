@@ -1,6 +1,4 @@
-"""
-FastAPI router for project management endpoints.
-"""
+"""Project management API router."""
 
 from typing import List
 from uuid import UUID
@@ -17,8 +15,6 @@ from models.project_rest import (
     ProjectProgressUpdateRequest
 )
 from models.document_schemas import BulkUploadResponse
-from utils.postgres_client import PostgresClient
-from utils.blob_storage import BlobStorageClient
 from utils.redis_client import get_redis_client
 from services.project_service import ProjectService
 from services.document_upload_service import DocumentUploadService
@@ -26,38 +22,16 @@ from services.project_status_publisher import ProjectStatusPublisher
 
 logger = structlog.get_logger(__name__)
 
-# Create router
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
-# Dependency to get postgres client from app state
-def get_db_client(request: Request) -> PostgresClient:
-    """Get PostgreSQL client from application state."""
-    return request.app.state.postgres_client
+def get_project_service(request: Request) -> ProjectService:
+    return ProjectService(request.app.state.postgres_client)
 
-# Dependency to get blob storage client from app state
-def get_blob_storage_client(request: Request) -> BlobStorageClient:
-    """Get blob storage client from application state."""
-    return request.app.state.blob_storage_client
+def get_document_upload_service(request: Request) -> DocumentUploadService:
+    return DocumentUploadService(request.app.state.blob_storage_client)
 
-# Dependency to get project service
-def get_project_service(
-    db_client: PostgresClient = Depends(get_db_client)
-) -> ProjectService:
-    """Get project service instance."""
-    return ProjectService(db_client)
-
-# Dependency to get document upload service
-def get_document_upload_service(
-    blob_storage_client: BlobStorageClient = Depends(get_blob_storage_client)
-) -> DocumentUploadService:
-    """Get document upload service instance."""
-    return DocumentUploadService(blob_storage_client)
-
-# Dependency to get project status publisher
 def get_project_status_publisher() -> ProjectStatusPublisher:
-    """Get project status publisher instance."""
-    redis_client = get_redis_client()
-    return ProjectStatusPublisher(redis_client)
+    return ProjectStatusPublisher(get_redis_client())
 
 
 @router.post(
@@ -68,18 +42,7 @@ async def create_project(
     current_user: User = Depends(require_roles(["Admin"])),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
-    """
-    Create a new project.
-    Requires Admin role.
-    
-    Args:
-        project: Project creation data
-        current_user: Current authenticated user
-        project_service: Project service instance
-        
-    Returns:
-        ProjectResponse: Created project
-    """
+    """Create a project (Admin only)."""
     logger.info(
         "Creating project via API",
         project_name=project.name,
@@ -104,17 +67,7 @@ async def list_projects(
     current_user: User = Depends(get_current_active_user),
     project_service: ProjectService = Depends(get_project_service)
 ) -> List[ProjectResponse]:
-    """
-    List projects accessible to the current user based on Azure AD roles.
-    Implements role-based access control (Requirements 6.7, 8.2).
-    
-    Args:
-        current_user: Current authenticated user
-        project_service: Project service instance
-        
-    Returns:
-        List[ProjectResponse]: List of accessible projects
-    """
+    """List projects available to current user (RBAC)."""
     logger.info("Listing projects via API", user_id=current_user.oid)
 
     try:
@@ -136,17 +89,7 @@ async def get_project(
     current_user: User = Depends(get_current_active_user),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
-    """
-    Get a specific project by ID.
-    
-    Args:
-        project_id: Project ID
-        current_user: Current authenticated user
-        project_service: Project service instance
-        
-    Returns:
-        ProjectResponse: Project details
-    """
+    """Get project by ID."""
     logger.info(
         "Getting project via API",
         project_id=str(project_id),
@@ -165,8 +108,6 @@ async def get_project(
             detail="Project not found"
         )
 
-    # NOTE: Access control based on Azure AD groups needs implementation
-    # Currently allowing access to any authenticated user
     return ProjectResponse.model_validate(project)
 
 
@@ -177,18 +118,7 @@ async def update_project(
     current_user: User = Depends(get_current_active_user),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
-    """
-    Update a project.
-    
-    Args:
-        project_id: Project ID
-        project: Project update data
-        current_user: Current authenticated user
-        project_service: Project service instance
-        
-    Returns:
-        ProjectResponse: Updated project
-    """
+    """Update a project."""
     logger.info(
         "Updating project via API",
         project_id=str(project_id),
@@ -216,15 +146,7 @@ async def delete_project(
     current_user: User = Depends(require_roles(["Admin"])),
     project_service: ProjectService = Depends(get_project_service)
 ) -> None:
-    """
-    Delete a project.
-    Requires Admin role.
-    
-    Args:
-        project_id: Project ID
-        current_user: Current authenticated user
-        project_service: Project service instance
-    """
+    """Delete a project (Admin only)."""
     logger.info(
         "Deleting project via API",
         project_id=str(project_id),
@@ -254,20 +176,7 @@ async def add_project_member(
     current_user: User = Depends(get_current_active_user),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectMemberResponse:
-    """
-    Add a member to a project.
-    Requires Admin role or Project Manager role for own projects.
-    Implements Requirements 6.7 and 8.2.
-    
-    Args:
-        project_id: Project ID
-        member_data: Project member data
-        current_user: Current authenticated user
-        project_service: Project service instance
-        
-    Returns:
-        ProjectMemberResponse: Created project member
-    """
+    """Add a member (Admin or PM for own projects)."""
     logger.info(
         "Adding project member via API",
         project_id=str(project_id),
@@ -276,8 +185,7 @@ async def add_project_member(
         added_by=current_user.oid
     )
 
-    # Check permissions: Admin can add to any project,
-    # Project Manager can add to own projects
+    # Admin can add to any project; PM only to own
     if "Admin" not in current_user.roles:
         if "Project Manager" not in current_user.roles:
             logger.warning(
@@ -290,7 +198,6 @@ async def add_project_member(
                 detail="Insufficient permissions to add project members"
             )
 
-        # Check if Project Manager owns the project
         project = project_service.get_project_by_id(project_id)
         if not project or project.created_by != current_user.oid:
             logger.warning(
@@ -338,26 +245,13 @@ async def list_project_members(
     current_user: User = Depends(get_current_active_user),
     project_service: ProjectService = Depends(get_project_service)
 ) -> List[ProjectMemberResponse]:
-    """
-    List all members of a project.
-    Requires access to the project (Admin, Project Manager for own projects, or project member).
-    Implements Requirements 6.7 and 8.2.
-    
-    Args:
-        project_id: Project ID
-        current_user: Current authenticated user
-        project_service: Project service instance
-        
-    Returns:
-        List[ProjectMemberResponse]: List of project members
-    """
+    """List project members (requires access)."""
     logger.info(
         "Listing project members via API",
         project_id=str(project_id),
         user_id=current_user.oid
     )
 
-    # Check if user has access to this project
     has_access = project_service.check_user_project_access(
         project_id, current_user.oid, current_user.roles
     )
@@ -398,17 +292,7 @@ async def remove_project_member(
     current_user: User = Depends(require_roles(["Admin"])),
     project_service: ProjectService = Depends(get_project_service)
 ) -> None:
-    """
-    Remove a member from a project.
-    Requires Admin role only.
-    Implements Requirements 6.7 and 8.2.
-    
-    Args:
-        project_id: Project ID
-        member_id: Member user ID to remove
-        current_user: Current authenticated user
-        project_service: Project service instance
-    """
+    """Remove a member (Admin only)."""
     logger.info(
         "Removing project member via API",
         project_id=str(project_id),
@@ -430,8 +314,6 @@ async def remove_project_member(
         )
 
 
-# Project Status Update Endpoint
-
 @router.put("/{project_id}/status", response_model=ProjectResponse)
 async def update_project_status(
     project_id: UUID,
@@ -440,20 +322,7 @@ async def update_project_status(
     project_service: ProjectService = Depends(get_project_service),
     project_status_publisher: ProjectStatusPublisher = Depends(get_project_status_publisher)
 ) -> ProjectResponse:
-    """
-    Update project status with progress information or reset status.
-    Handles both progress updates (with counts) and status resets (without counts).
-    Implements Requirements 2.1, 2.2, and 5.1.
-    
-    Args:
-        project_id: Project ID
-        update_request: Project status update request
-        current_user: Current authenticated user
-        project_service: Project service instance
-        
-    Returns:
-        ProjectResponse: Updated project
-    """
+    """Update project status and publish progress."""
     logger.info(
         "Updating project status via API",
         project_id=str(project_id),
@@ -464,14 +333,6 @@ async def update_project_status(
     )
 
     try:
-        logger.info(
-                "Project status update",
-                project_id=str(project_id),
-                processed_count=update_request.processed_count,
-                total_count=update_request.total_count,
-                status=update_request.status
-            )
-
         project = project_service.update_project_progress(
             project_id,
             update_request.processed_count,
@@ -490,13 +351,6 @@ async def update_project_status(
                 detail="Project not found"
             )
 
-        logger.info(
-            "Project status updated successfully",
-            project_id=str(project_id),
-            new_status=project.status,
-            user_id=current_user.oid
-        )
-
         # Publish project update to Redis (non-blocking)
         try:
             publish_success = await project_status_publisher.publish_project_update(
@@ -507,21 +361,14 @@ async def update_project_status(
                 processed_pct=project.processed_pct
             )
 
-            if publish_success:
-                logger.info(
-                    "Project update published to Redis successfully",
-                    project_id=str(project_id),
-                    status=project.status
-                )
-            else:
+            if not publish_success:
                 logger.warning(
-                    "Failed to publish project update to Redis, but API operation succeeded",
+                    "Publish to Redis failed; API update succeeded",
                     project_id=str(project_id),
                     status=project.status
                 )
 
         except Exception as e:
-            # Log Redis publishing errors but don't fail the API
             logger.error(
                 "Redis publishing failed, but API operation succeeded",
                 project_id=str(project_id),

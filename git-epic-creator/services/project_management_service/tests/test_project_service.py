@@ -262,17 +262,19 @@ def test_get_project_by_id_not_found(project_service, mock_session):
     assert result is None
 
 
-def test_get_projects_by_user_success(project_service, mock_session, sample_project_data):
-    """Test successful retrieval of all projects for a specific user."""
+def test_get_projects_by_user_and_roles_creator_only(project_service, mock_session, sample_project_data):
+    """Test retrieval via RBAC for non-admin user (creator only)."""
     user_id = sample_project_data["created_by"]
-    mock_projects = [Project(**sample_project_data)]
-    mock_session.query.return_value.filter.return_value.all.return_value = mock_projects
+    mock_union_query = Mock()
+    mock_union_query.all.return_value = [Project(**sample_project_data)]
+    mock_owned_query = Mock()
+    mock_owned_query.union.return_value = mock_union_query
+    mock_session.query.return_value.filter.return_value = mock_owned_query
 
-    result = project_service.get_projects_by_user(user_id)
+    result = project_service.get_projects_by_user_and_roles(user_id, ["Contributor"])
 
     assert len(result) == 1
     assert result[0].created_by == user_id
-    mock_session.query.return_value.filter.assert_called_once()
 
 
 def test_update_project_success(project_service, mock_session, sample_project_data):

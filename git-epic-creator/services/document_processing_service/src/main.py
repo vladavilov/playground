@@ -1,21 +1,4 @@
-"""
-Celery worker and FastAPI server entry point for Document Processing Service.
-
-This module configures and starts both:
-1. Celery workers for processing document tasks
-2. FastAPI server for health monitoring and API endpoints
-
-It uses the enhanced CeleryFactory to create a worker application with automatic
-task module discovery and proper error handling, alongside a FastAPI application
-for health checks and monitoring.
-
-Enhanced with comprehensive logging and monitoring for:
-- Worker startup and shutdown events
-- Task execution lifecycle (start, success, failure, retry)
-- Structured logging with consistent format
-- Error handling and monitoring
-- Health check endpoints for system monitoring
-"""
+"""Entry point that starts FastAPI, Celery worker, and task subscriber with health endpoints."""
 
 import threading
 import uvicorn
@@ -35,16 +18,6 @@ from utils.app_factory import FastAPIFactory
 from utils.redis_client import get_redis_client
 from services.tika_processor import TikaProcessor
 from task_subscriber import create_task_subscriber
-
-# Import signal handlers from celery_factory to make them available in main module
-from utils.celery_factory import (
-    _log_task_prerun,
-    _log_task_postrun, 
-    _log_task_failure,
-    _log_task_retry,
-    _log_worker_ready,
-    _configure_worker_logging
-)
 
 logger = structlog.get_logger(__name__)
 settings = get_app_settings()
@@ -165,44 +138,14 @@ def tika_health_check() -> Dict[str, Any]:
 app.include_router(celery_router)
 
 def configure_thread_logging(thread_name: str):
-    """
-    Configure structured logging for threads.
-    
-    Args:
-        thread_name: Name of the thread for logging context
-    """
-    # Configure structlog for the thread
-    structlog.configure(
-        processors=[
-            structlog.stdlib.filter_by_level,
-            structlog.stdlib.add_logger_name,
-            structlog.stdlib.add_log_level,
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer()
-        ],
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        wrapper_class=structlog.stdlib.BoundLogger,
-        cache_logger_on_first_use=True,
-    )
-    
-    # Create thread-specific logger
-    thread_logger = structlog.get_logger(thread_name)
-    thread_logger.debug("Thread logging configured", thread_name=thread_name)
-    
-    return thread_logger
+    """Deprecated: threads reuse module logger."""
+    return logger
 
 def start_worker():
     """
     Start Celery worker for document processing tasks.
     Runs in a separate thread and handles task execution.
     """
-    thread_logger = configure_thread_logging("Celery-Worker")
-    
     try:
         celery_app.worker_main([
             'worker',
@@ -212,11 +155,10 @@ def start_worker():
             '--queues=document_processing',
             '--prefetch-multiplier=1'
         ])
-        
-        thread_logger.debug("Celery worker started successfully")
+        logger.debug("Celery worker started successfully")
     except Exception as e:
         error_msg = str(e)
-        thread_logger.error("Failed to start Celery worker", error=error_msg, exc_info=True)
+        logger.error("Failed to start Celery worker", error=error_msg, exc_info=True)
         raise
 
 def start_fastapi_server():
@@ -227,10 +169,8 @@ def start_fastapi_server():
     Raises:
         Exception: If FastAPI server startup fails
     """
-    thread_logger = configure_thread_logging("FastAPI-Server")
-    
     try:
-        thread_logger.debug("Starting FastAPI server for health monitoring", port=settings.API_PORT)
+        logger.debug("Starting FastAPI server for health monitoring", port=settings.API_PORT)
         uvicorn.run(
             app, 
             host="0.0.0.0", 
@@ -238,10 +178,10 @@ def start_fastapi_server():
             log_config=None,
             access_log=False
         )
-        thread_logger.info("FastAPI server started successfully")
+        logger.info("FastAPI server started successfully")
     except Exception as e:
         error_msg = str(e)
-        thread_logger.error("Failed to start FastAPI server", error=error_msg)
+        logger.error("Failed to start FastAPI server", error=error_msg)
         raise
 
 def start_task_subscriber():
@@ -249,10 +189,8 @@ def start_task_subscriber():
     Start TaskRequestSubscriber to listen for Redis task requests.
     Runs in a separate thread and handles Redis pub/sub messages.
     """
-    thread_logger = configure_thread_logging("TaskSubscriber")
-    
     try:
-        thread_logger.debug("Starting TaskRequestSubscriber")
+        logger.debug("Starting TaskRequestSubscriber")
 
         # Import the Celery task function from the registered tasks
         from tasks.document_tasks import process_project_documents_task
@@ -270,7 +208,7 @@ def start_task_subscriber():
             loop.close()
 
     except Exception as e:
-        thread_logger.error("TaskRequestSubscriber failed", error=str(e), exc_info=True)
+        logger.error("TaskRequestSubscriber failed", error=str(e), exc_info=True)
 
 
 def start_service_with_subscriber():

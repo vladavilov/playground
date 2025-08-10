@@ -1,7 +1,4 @@
-"""
-PostgreSQL database client utilities following SOLID principles.
-Separates client creation from configuration.
-"""
+"""PostgreSQL client utilities and health checks."""
 
 from functools import lru_cache
 import structlog
@@ -14,22 +11,11 @@ from configuration.common_config import get_app_settings
 logger = structlog.get_logger(__name__)
 
 class PostgresClientFactory:
-    """
-    Factory class for creating PostgreSQL clients.
-    Follows the Factory pattern and Single Responsibility Principle.
-    """
+    """Create sync/async SQLAlchemy engines and sessions."""
     
     @staticmethod
     def create_sync_engine(settings: PostgresSettings):
-        """
-        Create a synchronous SQLAlchemy engine from settings.
-        
-        Args:
-            settings: PostgreSQL configuration settings
-            
-        Returns:
-            Engine: Configured SQLAlchemy engine
-        """
+        """Create synchronous SQLAlchemy engine from settings."""
         engine = create_engine(
             settings.DATABASE_URL,
             pool_size=settings.POSTGRES_POOL_SIZE,
@@ -51,15 +37,7 @@ class PostgresClientFactory:
     
     @staticmethod
     def create_async_engine(settings: PostgresSettings):
-        """
-        Create an asynchronous SQLAlchemy engine from settings.
-        
-        Args:
-            settings: PostgreSQL configuration settings
-            
-        Returns:
-            AsyncEngine: Configured SQLAlchemy async engine
-        """
+        """Create asynchronous SQLAlchemy engine from settings."""
         engine = create_async_engine(
             settings.ASYNC_DATABASE_URL,
             pool_size=settings.POSTGRES_POOL_SIZE,
@@ -81,15 +59,7 @@ class PostgresClientFactory:
     
     @staticmethod
     def create_sync_session_factory(engine):
-        """
-        Create a synchronous session factory from an engine.
-        
-        Args:
-            engine: SQLAlchemy engine
-            
-        Returns:
-            sessionmaker: Session factory
-        """
+        """Create synchronous session factory from engine."""
         return sessionmaker(
             autocommit=False,
             autoflush=False,
@@ -98,15 +68,7 @@ class PostgresClientFactory:
     
     @staticmethod
     def create_async_session_factory(engine):
-        """
-        Create an asynchronous session factory from an engine.
-        
-        Args:
-            engine: SQLAlchemy async engine
-            
-        Returns:
-            async_sessionmaker: Async session factory
-        """
+        """Create asynchronous session factory from engine."""
         return async_sessionmaker(
             autocommit=False,
             autoflush=False,
@@ -116,10 +78,7 @@ class PostgresClientFactory:
         )
 
 class PostgresClient:
-    """
-    PostgreSQL client for database operations.
-    Provides access to session factories and metadata.
-    """
+    """Provides sync/async sessions and metadata."""
     
     def __init__(self, settings: PostgresSettings):
         """
@@ -138,22 +97,11 @@ class PostgresClient:
         logger.info("PostgreSQL client initialized")
     
     def get_sync_session(self) -> Session:
-        """
-        Get a synchronous database session.
-        
-        Returns:
-            Session: SQLAlchemy session
-        """
+        """Get a synchronous session."""
         return self.sync_session_factory()
     
     def get_async_session(self):
-        """
-        Get an asynchronous database session.
-        For test compatibility, this returns a session that can be mocked.
-        
-        Returns:
-            AsyncSession: SQLAlchemy async session
-        """
+        """Get an asynchronous session."""
         return self.async_session_factory()
 
 @lru_cache()
@@ -169,22 +117,11 @@ def get_postgres_client() -> PostgresClient:
     return PostgresClient(settings.postgres)
 
 class PostgresHealthChecker:
-    """
-    Health checker for PostgreSQL connections.
-    Follows Single Responsibility Principle.
-    """
+    """Health checks for PostgreSQL connections."""
     
     @staticmethod
     def check_health(client: PostgresClient) -> bool:
-        """
-        Check PostgreSQL connection health.
-        
-        Args:
-            client: PostgreSQL client instance
-            
-        Returns:
-            bool: True if PostgreSQL is healthy, False otherwise
-        """
+        """Check PostgreSQL connection health."""
         try:
             with client.get_sync_session() as session:
                 session.execute("SELECT 1")
@@ -196,15 +133,7 @@ class PostgresHealthChecker:
     
     @staticmethod
     def check_health_with_details(client: PostgresClient) -> dict:
-        """
-        Check PostgreSQL connection health with detailed information.
-        
-        Args:
-            client: PostgreSQL client instance
-            
-        Returns:
-            dict: Health check results with details
-        """
+        """Check PostgreSQL connection health with details."""
         try:
             # Test basic connectivity
             with client.get_sync_session() as session:
@@ -236,17 +165,3 @@ class PostgresHealthChecker:
             }
             logger.error("PostgreSQL detailed health check failed", **result)
             return result
-
-# Convenience function for backward compatibility
-def check_postgres_health(client: PostgresClient) -> bool:
-    """
-    Check PostgreSQL connection health.
-    Convenience wrapper for PostgresHealthChecker.
-    
-    Args:
-        client: PostgreSQL client instance
-        
-    Returns:
-        bool: True if PostgreSQL is healthy, False otherwise
-    """
-    return PostgresHealthChecker.check_health(client)
