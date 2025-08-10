@@ -8,8 +8,8 @@ from fastapi import FastAPI, Response, Request, status
 from jose import jwt
 import uvicorn
 
-from .config import settings
-from .key_manager import KeyManager
+from config import settings
+from key_manager import KeyManager
 
 # Initialize persistent key management
 key_manager = KeyManager()

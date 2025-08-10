@@ -1,6 +1,4 @@
-"""
-FastAPI application factory for creating standardized FastAPI applications.
-"""
+"""FastAPI application factory for standardized apps."""
 
 from contextlib import asynccontextmanager
 import structlog
@@ -21,35 +19,32 @@ logger = structlog.get_logger(__name__)
 
 
 class RedisHealthService(RedisHealthMixin):
-    """Helper class for Redis health checking using RedisHealthMixin."""
+    """Helper for Redis health checking."""
     
     def __init__(self, redis_client):
         self.redis_client = redis_client
 
 
 def get_postgres_client_from_state(request: Request) -> PostgresClient:
-    """Dependency to get PostgreSQL client from application state."""
+    """Get PostgreSQL client from app state."""
     return request.app.state.postgres_client
 
 def get_neo4j_client_from_state(request: Request) -> Neo4jClient:
-    """Dependency to get Neo4j client from application state."""
+    """Get Neo4j client from app state."""
     return request.app.state.neo4j_client
 
 def get_redis_client_from_state(request: Request) -> redis.Redis:
-    """Dependency to get Redis client from application state."""
+    """Get Redis client from app state."""
     return request.app.state.redis_client
 
 def get_blob_storage_client_from_state(request: Request) -> BlobStorageClient:
-    """Dependency to get Blob Storage client from application state."""
+    """Get Blob Storage client from app state."""
     return request.app.state.blob_storage_client
 
 # endregion
 
 class FastAPIFactory:
-    """
-    Factory class for creating FastAPI applications.
-    Follows the Factory pattern and Single Responsibility Principle.
-    """
+    """Create FastAPI apps with shared configuration."""
 
     @staticmethod
     def create_app(
@@ -67,27 +62,7 @@ class FastAPIFactory:
         docs_url: str = "/docs",
         redoc_url: str = "/redoc"
     ) -> FastAPI:
-        """
-        Create a FastAPI application with standard configuration.
-        
-        Args:
-            title: Application title
-            description: Application description
-            version: Application version
-            enable_azure_auth: Whether to enable Azure AD authentication
-            enable_docs_auth: Whether to enable authentication for docs
-            enable_cors: Whether to enable CORS
-            enable_postgres: Whether to enable PostgreSQL integration
-            enable_neo4j: Whether to enable Neo4j integration
-            enable_redis: Whether to enable Redis integration
-            enable_blob_storage: Whether to enable blob storage integration
-            openapi_url: OpenAPI URL
-            docs_url: Swagger UI URL
-            redoc_url: ReDoc URL
-            
-        Returns:
-            FastAPI: Configured FastAPI application
-        """
+        """Create a FastAPI application with standard configuration."""
         # Configure Azure AD authentication if enabled
         azure_middleware = None
         azure_settings = None
@@ -109,10 +84,8 @@ class FastAPIFactory:
                 openid_config_url=azure_settings.OPENID_CONFIG_URL
             )
 
-            # Set the global azure scheme for dependency injection
             set_azure_scheme(azure_scheme)
 
-            # Create Azure AD middleware
             azure_middleware = AzureAuthMiddleware(azure_scheme)
 
         # Create lifespan context manager
@@ -199,18 +172,6 @@ class FastAPIFactory:
             """
             return {"status": "ok"}
 
-        # Add version endpoint
-        @app.get("/version", tags=["Version"])
-        def get_version():
-            """
-            Get application version.
-            
-            Returns:
-                dict: Application version
-            """
-            return {"version": version}
-
-        # Add user info endpoint if Azure AD authentication is enabled
         if enable_azure_auth:
             @app.get("/me", tags=["User"])
             async def get_user_info(current_user = Depends(get_current_user)):
@@ -229,7 +190,6 @@ class FastAPIFactory:
                     "roles": current_user.roles
                 }
 
-        # Add PostgreSQL health check endpoint if enabled
         if enable_postgres:
             @app.get("/health/postgres", tags=["Health"])
             def postgres_health_check(
@@ -243,7 +203,6 @@ class FastAPIFactory:
                 """
                 return PostgresHealthChecker.check_health_with_details(client)
 
-        # Add Neo4j health check endpoint if enabled
         if enable_neo4j:
             @app.get("/health/neo4j", tags=["Health"])
             def neo4j_health_check(
@@ -257,7 +216,6 @@ class FastAPIFactory:
                 """
                 return Neo4jHealthChecker.check_health_with_details(client)
 
-        # Add Redis health check endpoint if enabled
         if enable_redis:
             @app.get("/health/redis", tags=["Health"])
             async def redis_health_check(
@@ -272,7 +230,6 @@ class FastAPIFactory:
                 health_service = RedisHealthService(client)
                 return await health_service.check_health_with_details()
 
-        # Add blob storage health check endpoint if enabled
         if enable_blob_storage:
             @app.get("/health/blob-storage", tags=["Health"])
             def blob_storage_health_check(

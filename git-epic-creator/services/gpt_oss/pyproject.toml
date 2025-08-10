@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpt-oss-service"
+version = "0.1.0"
+description = "Container utilities for GPT-OSS vLLM service (prefetch tools)"
+authors = [{ name = "OpenAI", email = "vladyslav.avilov@example.com" }]
+requires-python = ">=3.12"
+readme = "README.md"
+
+license = { text = "Apache-2.0" }
+
+dependencies = [
+  "huggingface_hub[hf_transfer]",
+  "gpt-oss",
+  "openai-harmony",
+]
+
+[project.scripts]
+gpt-oss-prefetch = "prefetch:main"
+
+[tool.setuptools]
+py-modules = ["prefetch"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*"] 
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+

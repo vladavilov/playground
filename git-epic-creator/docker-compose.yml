@@ -250,6 +250,27 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  gpt-oss-service:
+    build:
+      context: ./services
+      dockerfile: ./gpt_oss/Dockerfile
+    container_name: gpt_oss_service
+    ports:
+      - "8010:11434"
+    env_file:
+      - docker-compose.env
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    profiles:
+      - gpt-oss
+
   # End-to-end integration tests
   e2e-tests:
     build:

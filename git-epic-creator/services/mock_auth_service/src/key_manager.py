@@ -11,7 +11,7 @@ from typing import Optional
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
-from .config import settings
+from config import settings
 
 
 class KeyManager:

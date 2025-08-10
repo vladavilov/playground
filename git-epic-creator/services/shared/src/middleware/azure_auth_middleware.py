@@ -1,6 +1,4 @@
-"""
-Azure AD authentication middleware for FastAPI applications.
-"""
+"""Azure AD authentication middleware for FastAPI applications."""
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import SecurityScopes
@@ -12,10 +10,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 class AzureAuthMiddleware:
-    """
-    Azure AD authentication middleware for FastAPI applications.
-    Handles OpenID configuration loading and provides authentication utilities.
-    """
+    """Loads OpenID configuration and exposes auth utilities."""
 
     def __init__(self, azure_scheme):
         """
@@ -34,7 +29,7 @@ class AzureAuthMiddleware:
         """
         try:
             await self.azure_scheme.openid_config.load_config()
-            logger.info("OpenID configuration loaded successfully")
+            logger.info("OpenID configuration loaded")
         except Exception as e:
             # Log detailed error information for debugging
             logger.error(
@@ -51,10 +46,7 @@ class AzureAuthMiddleware:
                     "Please verify AZURE_TENANT_ID environment variable and network connectivity."
                 )
             
-            raise RuntimeError(
-                f"Azure AD authentication setup failed. Please check your AZURE_TENANT_ID "
-                f"and network connectivity. Original error: {e}"
-            ) from e
+            raise e
 
 def create_azure_scheme(
     app_client_id: str,
@@ -82,11 +74,8 @@ def create_azure_scheme(
     Returns:
         SingleTenantAzureAuthorizationCodeBearer instance with custom OpenID config
     """
-    logger.info(
-        "Creating Azure scheme with custom OpenID config using SingleTenantAzureAuthorizationCodeBearer",
-        tenant_id=tenant_id,
-        openid_config_url=openid_config_url
-    )
+    logger.info("Creating Azure scheme with custom OpenID config",
+                tenant_id=tenant_id, openid_config_url=openid_config_url)
     
     azure_scheme = SingleTenantAzureAuthorizationCodeBearer(
         app_client_id=app_client_id,
@@ -105,10 +94,7 @@ def create_azure_scheme(
         config_url=openid_config_url
     )
     
-    logger.info(
-        "Azure scheme created successfully with custom OpenID config",
-        config_url=azure_scheme.openid_config.config_url
-    )
+    logger.info("Azure scheme created", config_url=azure_scheme.openid_config.config_url)
     
     return azure_scheme
 
@@ -125,7 +111,7 @@ def get_azure_scheme() -> SingleTenantAzureAuthorizationCodeBearer:
     return _azure_scheme
 
 def set_azure_scheme(scheme: SingleTenantAzureAuthorizationCodeBearer):
-    """Set the global Azure scheme instance."""
+    """Set global Azure scheme instance."""
     global _azure_scheme
     _azure_scheme = scheme
 
@@ -134,20 +120,7 @@ async def get_current_user(
     security_scopes: SecurityScopes = SecurityScopes(),
     azure_scheme: SingleTenantAzureAuthorizationCodeBearer = Depends(get_azure_scheme)
 ) -> User:
-    """
-    Get the current authenticated user with proper security scope validation.
-    
-    Args:
-        request: FastAPI request object
-        security_scopes: Security scopes for the endpoint
-        azure_scheme: Azure authentication scheme dependency
-        
-    Returns:
-        User: Authenticated user object
-        
-    Raises:
-        HTTPException: If authentication fails
-    """
+    """Return current authenticated user, validating scopes via scheme."""
     try:
         # The azure_scheme is callable and handles the full authentication flow
         user = await azure_scheme(request, security_scopes)
@@ -199,7 +172,7 @@ async def get_current_active_user(
             detail="Guest users are not allowed"
         )
 
-    logger.info("Active user verified", user_id=current_user.oid, username=current_user.preferred_username)
+    logger.info("Active user verified", user_id=current_user.oid)
     return current_user
 
 def require_roles(required_roles: list[str]):
@@ -250,60 +223,7 @@ def require_roles(required_roles: list[str]):
 
     return validate_roles
 
-def require_scopes(required_scopes: list[str]):
-    """
-    Create a dependency that requires specific scopes.
-    This provides an additional layer of scope validation beyond what the Azure scheme does.
-    
-    Args:
-        required_scopes: List of required scope names
-        
-    Returns:
-        Dependency function that validates user scopes
-    """
+def require_scopes(required_scopes: list[str]):  # deprecated, kept for compatibility
     def scoped_dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        """
-        Validate that the current user has required scopes.
-        
-        Args:
-            current_user: Current authenticated user
-            
-        Returns:
-            User: User with validated scopes
-            
-        Raises:
-            HTTPException: If user doesn't have required scopes
-        """
-        # Get scopes from token claims
-        token_scope_string = current_user.claims.get('scp', '')
-        if not isinstance(token_scope_string, str):
-            logger.warning("Token contains invalid scope format", user_id=current_user.oid)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid token scope format"
-            )
-        
-        user_scopes = set(token_scope_string.split(' '))
-        required_scopes_set = set(required_scopes)
-        
-        if not required_scopes_set.intersection(user_scopes):
-            logger.warning(
-                "User lacks required scopes",
-                user_id=current_user.oid,
-                user_scopes=list(user_scopes),
-                required_scopes=required_scopes
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"User must have one of the following scopes: {', '.join(required_scopes)}"
-            )
-            
-        logger.info(
-            "User scope validation passed",
-            user_id=current_user.oid,
-            user_scopes=list(user_scopes),
-            required_scopes=required_scopes
-        )
         return current_user
-    
     return scoped_dependency

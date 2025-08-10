@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class TaskRequestMessage(RedisMessage):
-    """Unified task request message for cross-service communication."""
+    """Task request message for cross-service communication."""
     task_type: str
     project_id: UUID
     correlation_id: UUID
@@ -71,7 +71,7 @@ class TaskRequestMessage(RedisMessage):
 
 @dataclass
 class ProjectProgressMessage(RedisMessage):
-    """Unified project progress message for real-time updates."""
+    """Project progress message for real-time updates."""
     project_id: UUID
     status: str
     processed_count: Optional[int] = None

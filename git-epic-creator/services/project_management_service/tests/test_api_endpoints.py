@@ -20,13 +20,11 @@ with patch.dict('os.environ', {
         get_current_active_user, 
         require_roles, 
         get_project_service,
-        get_blob_storage_client,
         get_document_upload_service
     )
     from main import app
     from models.project_db import Project, ProjectMember
     from models.document_schemas import BulkUploadResponse
-    from utils.blob_storage import BlobStorageClient
     from services.document_upload_service import DocumentUploadService
 
 
@@ -51,14 +49,6 @@ def mock_user():
 def mock_project_service():
     """Mock project service."""
     return Mock()
-
-
-@pytest.fixture
-def mock_blob_storage_client():
-    """Mock blob storage client for document upload tests."""
-    mock_client = Mock(spec=BlobStorageClient)
-    return mock_client
-
 
 @pytest.fixture
 def mock_document_upload_service():
@@ -119,7 +109,7 @@ def contributor_user():
 
 
 @pytest.fixture(autouse=True)
-def setup_dependency_overrides(mock_user, mock_project_service, mock_blob_storage_client, mock_document_upload_service):
+def setup_dependency_overrides(mock_user, mock_project_service, mock_document_upload_service):
     """Setup dependency overrides for all tests."""
     # Override dependencies
     app.dependency_overrides[get_current_active_user] = lambda: mock_user
@@ -127,9 +117,7 @@ def setup_dependency_overrides(mock_user, mock_project_service, mock_blob_storag
     
     # Override the project service dependency
     app.dependency_overrides[get_project_service] = lambda: mock_project_service
-    
-    # Override blob storage and document upload dependencies to prevent real Azurite calls
-    app.dependency_overrides[get_blob_storage_client] = lambda: mock_blob_storage_client
+
     app.dependency_overrides[get_document_upload_service] = lambda: mock_document_upload_service
 
     yield

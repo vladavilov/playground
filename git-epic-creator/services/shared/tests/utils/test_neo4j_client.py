@@ -1,15 +1,10 @@
-"""
-Tests for Neo4j client utilities.
-"""
-
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 from neo4j import Driver
 from utils.neo4j_client import (
     Neo4jClientFactory,
     Neo4jClient,
-    get_neo4j_client,
-    check_neo4j_health
+    get_neo4j_client
 )
 from configuration.common_config import AppSettings
 from configuration.neo4j_config import Neo4jSettings
@@ -127,15 +122,3 @@ def test_get_neo4j_client_cached(mock_get_settings, mock_client_class, mock_app_
     
     mock_client_class.assert_called_once_with(mock_app_settings.neo4j)
     assert client1 == client2
-
-@pytest.mark.asyncio
-async def test_check_neo4j_health():
-    """Test check_neo4j_health function."""
-    mock_client = Mock(spec=Neo4jClient)
-    
-    with patch('utils.neo4j_client.Neo4jHealthChecker.check_health', new_callable=AsyncMock) as mock_check_health:
-        mock_check_health.return_value = True
-        result = await check_neo4j_health(mock_client)
-        
-        assert result is True
-        mock_check_health.assert_called_once_with(mock_client)

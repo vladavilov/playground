@@ -3,13 +3,12 @@ Tests for KeyManager integration with centralized configuration.
 """
 import os
 import tempfile
-import pytest
 from unittest.mock import patch
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
-from src.key_manager import KeyManager
-from src.config import Settings
+from key_manager import KeyManager
+from config import Settings
 
 
 class TestKeyManagerConfigIntegration:
@@ -28,7 +27,7 @@ class TestKeyManagerConfigIntegration:
         # Create custom settings with the private key
         test_settings = Settings(MOCK_AUTH_PRIVATE_KEY=pem_data)
         
-        with patch('src.key_manager.settings', test_settings):
+        with patch('key_manager.settings', test_settings):
             key_manager = KeyManager()
             loaded_key = key_manager.get_private_key()
             
@@ -48,7 +47,7 @@ class TestKeyManagerConfigIntegration:
         # Create custom settings with the key ID
         test_settings = Settings(MOCK_AUTH_KEY_ID=test_key_id)
         
-        with patch('src.key_manager.settings', test_settings):
+        with patch('key_manager.settings', test_settings):
             key_manager = KeyManager()
             loaded_key_id = key_manager.get_key_id()
             
@@ -63,9 +62,9 @@ class TestKeyManagerConfigIntegration:
             key_file_path = os.path.join(temp_dir, 'private_key.pem')
             kid_file_path = os.path.join(temp_dir, 'key_id.txt')
             
-            with patch('src.key_manager.settings', test_settings):
-                with patch('src.key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
-                    with patch('src.key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
+            with patch('key_manager.settings', test_settings):
+                with patch('key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
+                    with patch('key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
                         key_manager = KeyManager()
                         
                         # Should generate new key and ID since settings are empty
@@ -118,9 +117,9 @@ class TestKeyManagerConfigIntegration:
                 MOCK_AUTH_KEY_ID=settings_key_id
             )
             
-            with patch('src.key_manager.settings', test_settings):
-                with patch('src.key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
-                    with patch('src.key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
+            with patch('key_manager.settings', test_settings):
+                with patch('key_manager.KeyManager._get_key_file_path', return_value=key_file_path):
+                    with patch('key_manager.KeyManager._get_kid_file_path', return_value=kid_file_path):
                         key_manager = KeyManager()
                         
                         # Should use settings values, not file values

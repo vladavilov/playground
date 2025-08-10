@@ -1,6 +1,4 @@
-"""
-Base models for SQLAlchemy ORM.
-"""
+"""SQLAlchemy ORM base models."""
 
 import uuid
 from sqlalchemy import Column, String, DateTime, Text, Float, func
@@ -10,10 +8,7 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
 class BaseModel(Base):
-    """
-    Base model for all SQLAlchemy models.
-    Provides common fields and functionality.
-    """
+    """Common fields for ORM models."""
     __abstract__ = True
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -21,34 +16,8 @@ class BaseModel(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by = Column(String(255), nullable=False)
 
-    def to_dict(self):
-        """
-        Convert model instance to dictionary.
-        
-        Returns:
-            dict: Model as dictionary
-        """
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
-
-    @classmethod
-    def from_dict(cls, data):
-        """
-        Create model instance from dictionary.
-        
-        Args:
-            data: Dictionary with model data
-            
-        Returns:
-            BaseModel: Model instance
-        """
-        return cls(**{k: v for k, v in data.items() if k in cls.__table__.columns.keys()})
-
 class Project(BaseModel):
-    """
-    SQLAlchemy model for the 'projects' table.
-    This schema is based on the system_architecture.md document.
-    Extended to support document processing with PROCESSING status and processed_pct field.
-    """
+    """`projects` table."""
     __tablename__ = "projects"
 
     name = Column(String(255), nullable=False)
@@ -64,15 +33,11 @@ class Project(BaseModel):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     def __repr__(self):
-        """String representation of Project instance."""
         return f"<Project(id={self.id}, name='{self.name}')>"
 
 
 class ProjectMember(BaseModel):
-    """
-    SQLAlchemy model for the 'project_members' table.
-    Implements project member management for Requirements 6.7 and 8.2.
-    """
+    """`project_members` table."""
     __tablename__ = "project_members"
 
     # Override id from BaseModel to use UUID type
@@ -87,5 +52,4 @@ class ProjectMember(BaseModel):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     def __repr__(self):
-        """String representation of ProjectMember instance."""
         return f"<ProjectMember(project_id={self.project_id}, user_id='{self.user_id}', role='{self.role}')>"
