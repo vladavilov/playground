@@ -93,7 +93,7 @@ Each task is small, TDD-friendly, and references the exact parts of `../README.m
     - Multiple jobs for different `project_id`s can run concurrently without file conflicts; repeated imports are idempotent.
     - Parquet rows import idempotently; `NEO4J_BATCH_SIZE` supports 1000+ rows without timeouts; constraints remain stable across reruns.
 
-- [ ] Task 10 — Dead-letter strategy and exponential backoff
+- [x] Task 10 — Dead-letter strategy and exponential backoff
   - Description: Track `attempts`; retry with exponential backoff; move to DLQ after `MAX_ATTEMPTS`; support replay.
   - Doc refs: README L36–47 (message contract, DLQ), L156–160 (operational notes)
   - Example: On failure, increment attempts and re-enqueue with `countdown`.

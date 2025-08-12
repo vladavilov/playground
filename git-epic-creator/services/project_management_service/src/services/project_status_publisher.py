@@ -3,6 +3,7 @@ from uuid import UUID
 
 from utils.redis_abstractions import RedisMode
 from utils.unified_redis_messages import ProjectProgressMessage
+from constants import UI_CHANNEL_PREFIX, UI_PROJECT_PROGRESS_NAME
 from services.redis_publisher import SimpleRedisPublisher
 
 
@@ -10,7 +11,13 @@ class ProjectStatusPublisher(SimpleRedisPublisher):
     """Thin wrapper over SimpleRedisPublisher for UI progress."""
 
     def __init__(self, redis_client):
-        super().__init__(redis_client, prefix="ui", default_name="project_progress", mode=RedisMode.PUB_SUB)
+        # Build from shared constants to avoid string drift
+        super().__init__(
+            redis_client,
+            prefix=UI_CHANNEL_PREFIX,
+            default_name=UI_PROJECT_PROGRESS_NAME,
+            mode=RedisMode.PUB_SUB,
+        )
 
     async def publish_project_update(
         self,

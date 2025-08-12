@@ -74,6 +74,8 @@ def mock_sqlalchemy_modules():
     modules_to_mock = {
         'models.project_db': mock_project_db,
         'models': mock_models_init,
+        'sqlalchemy': MagicMock(),
+        'sqlalchemy.sql': MagicMock(),
         'sqlalchemy.orm': MagicMock(),
         'sqlalchemy.inspection': MagicMock(),
         'sqlalchemy.orm.base': MagicMock(),
@@ -118,6 +120,13 @@ def mock_imports():
         return MockPostgresHealthChecker.check_health_with_details(None)
     
     mock_app.include_router(health_router)
+
+    # Register shared error handlers to test formatted exceptions
+    try:
+        from utils.error_handler import ErrorHandler
+        ErrorHandler().register_exception_handlers(mock_app)
+    except Exception:
+        pass
     
     mock_app_factory = MagicMock()
     mock_app_factory.FastAPIFactory.create_app.return_value = mock_app
@@ -188,13 +197,13 @@ def test_init_db_success(client):
         mock_create_all.assert_called_once()
 
 def test_init_db_error(client):
-    """Test error handling during database initialization."""
-    with patch.object(MockBase.metadata, 'create_all', 
-                     side_effect=Exception("Test error")):
+    """Test error handling during database initialization (formatted)."""
+    with patch.object(MockBase.metadata, 'create_all', side_effect=Exception("Test error")):
         response = client.post("/db/init")
-        assert response.status_code == 200
+        assert response.status_code == 500
         data = response.json()
         assert data["status"] == "error"
+        assert "Unexpected error" in data["detail"]
         assert "Test error" in data["detail"]
 
 def test_init_db_is_idempotent(client):

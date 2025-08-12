@@ -15,9 +15,11 @@ async def test_ingestion_subscriber_enqueues_and_xacks():
 
     subscriber = create_task_subscriber(redis_client, task)
 
+    from constants import INGESTION_TRIGGER_STREAM
+
     messages = [
         (
-            "ingestion.trigger",
+            INGESTION_TRIGGER_STREAM,
             [
                 (
                     "1738359478123-0",

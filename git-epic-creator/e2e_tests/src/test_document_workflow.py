@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import requests
 
+from constants import TASK_REQUEST_STREAM, DOCUMENT_PROCESSORS_CONSUMER_GROUP
 from config import TestConstants
 from conftest import ProjectManager
 from services.redis_test_monitor import RedisTestMonitor
@@ -290,7 +291,8 @@ class TestDocumentWorkflow:
                 decode_responses=True
             )
             
-            stream_name = "task_streams:document_processing"
+            from constants import TASK_REQUEST_STREAM
+            stream_name = TASK_REQUEST_STREAM
             
             try:
                 stream_info = redis_client.xinfo_stream(stream_name)
@@ -342,8 +344,9 @@ class TestDocumentWorkflow:
             decode_responses=True
         )
         
-        stream_name = "task_streams:document_processing"
-        consumer_group = "document_processors"
+        
+        stream_name = TASK_REQUEST_STREAM
+        consumer_group = DOCUMENT_PROCESSORS_CONSUMER_GROUP
         
         try:
             # Check pending messages in consumer group

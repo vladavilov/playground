@@ -48,7 +48,11 @@ def mock_user():
 @pytest.fixture
 def mock_project_service():
     """Mock project service."""
-    return Mock()
+    svc = Mock()
+    # Ensure commonly iterated endpoints see iterable defaults
+    svc.get_project_members.return_value = []
+    svc.get_projects_by_user_and_roles.return_value = []
+    return svc
 
 @pytest.fixture
 def mock_document_upload_service():

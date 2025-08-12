@@ -11,6 +11,7 @@ from utils.neo4j_client import get_neo4j_client, Neo4jHealthChecker, Neo4jClient
 from utils.redis_client import get_redis_client
 from utils.redis_abstractions import RedisHealthMixin
 from utils.blob_storage import get_blob_storage_client, BlobStorageClient
+from utils.error_handler import ErrorHandler
 import redis.asyncio as redis
 
 logger = structlog.get_logger(__name__)
@@ -123,6 +124,9 @@ class FastAPIFactory:
             redoc_url=redoc_url,
             lifespan=lifespan
         )
+
+        # Register global exception handlers for consistent error responses
+        ErrorHandler().register_exception_handlers(app)
 
         # Attach clients to app.state immediately after app creation
         # This ensures they're available for dependency injection and testing

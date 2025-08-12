@@ -4,11 +4,11 @@ from utils.redis_abstractions import RedisMode
 from utils.unified_redis_messages import TaskRequestMessage
 from services.redis_publisher import SimpleRedisPublisher
 
-
 class TaskRequestPublisher(SimpleRedisPublisher):
     """Thin wrapper over SimpleRedisPublisher for task requests."""
 
     def __init__(self, redis_client):
+        # Keep using the same naming scheme via RedisChannelConfig; ensure default matches constant
         super().__init__(redis_client, prefix="task_streams", default_name="document_processing", mode=RedisMode.STREAMS)
 
     async def request_document_processing(self, project_id: UUID) -> bool:
