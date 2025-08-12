@@ -35,9 +35,14 @@ class RedisTestMonitor:
         """
         self.redis_client = redis.Redis(**redis_config)
         self.queue_name = queue_name
-        self.stream_name = "task_streams:document_processing"
-        self.consumer_group = "document_processors"
-        self.ui_progress_channel = "ui:project_progress"  # Unified UI progress channel
+        from constants import (
+            TASK_REQUEST_STREAM,
+            DOCUMENT_PROCESSORS_CONSUMER_GROUP,
+            UI_PROJECT_PROGRESS_CHANNEL,
+        )
+        self.stream_name = TASK_REQUEST_STREAM
+        self.consumer_group = DOCUMENT_PROCESSORS_CONSUMER_GROUP
+        self.ui_progress_channel = UI_PROJECT_PROGRESS_CHANNEL  # Unified UI progress channel
         self.tracked_task_ids = set()  # Track Celery task IDs for verification
         
         # UI Progress monitoring state (consolidated from UIProgressMonitor)

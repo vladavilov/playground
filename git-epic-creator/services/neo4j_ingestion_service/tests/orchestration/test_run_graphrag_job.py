@@ -2,10 +2,38 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 
-def test_run_graphrag_job_happy_path_minimal_contract():
+def test_run_graphrag_job_happy_path_minimal_contract(monkeypatch, tmp_path):
     from tasks.graphrag import run_graphrag_job
 
-    res = run_graphrag_job.run("job-1", "proj-1", 0)
+    # Avoid any external IO by patching collaborators
+    monkeypatch.setenv("RAG_WORKSPACE_ROOT", str(tmp_path / "graphrag"))
+
+    from types import SimpleNamespace
+
+    # Patch blob client to return empty list
+    blob_client = SimpleNamespace(
+        list_files=lambda **kwargs: SimpleNamespace(success=True, file_list=[]),
+        download_file=lambda *args, **kwargs: SimpleNamespace(success=True, local_path=str(tmp_path / "null")),
+    )
+    with patch("services.ingestion_service.get_blob_storage_client", return_value=blob_client):
+        # Patch graphrag runner to return a valid workdir
+        with patch(
+            "services.ingestion_service.run_index",
+            return_value=tmp_path / "graphrag" / "proj-1",
+        ):
+            # Patch importer to return zero counts
+            with patch(
+                "services.ingestion_service.import_graphrag_outputs",
+                return_value={
+                    "documents": 0,
+                    "text_units": 0,
+                    "entities": 0,
+                    "relationships": 0,
+                    "communities": 0,
+                    "community_reports": 0,
+                },
+            ):
+                res = run_graphrag_job.run("job-1", "proj-1", 0)
 
     assert isinstance(res, dict)
     for k in [
@@ -48,7 +76,7 @@ def test_orchestration_blob_sync_runner_and_import(tmp_path, monkeypatch):
     fake_files = ["inputs/proj-1/a.json", "inputs/proj-1/b.json"]
     blob_client = MagicMock()
     blob_client.list_files.return_value = MagicMock(success=True, file_list=fake_files)
-    blob_client.download_file.return_value = MagicMock(success=True, local_path="/dev/null")
+    blob_client.download_file.return_value = MagicMock(success=True, local_path=str(tmp_path/"null"))
 
     with patch("services.ingestion_service.get_blob_storage_client", return_value=blob_client):
         with patch("services.ingestion_service.run_index", return_value=tmp_path / "graphrag" / "proj-1"):

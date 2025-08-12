@@ -7,6 +7,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, field_serializer
+from typing import Dict
 
 
 class IngestionTriggerMessage(BaseModel):
@@ -29,4 +30,23 @@ class IngestionTriggerMessage(BaseModel):
     def _serialize_uuid(self, value: UUID) -> str:  # noqa: D401
         return str(value)
 
+
+def to_stream_fields(msg: IngestionTriggerMessage) -> Dict[str, str]:
+    """Serialize an `IngestionTriggerMessage` to Redis Streams field map (all strings)."""
+    data = msg.model_dump()
+    # model_dump already stringifies project_id via field_serializer
+    return {
+        "job_id": str(data["job_id"]),
+        "project_id": str(data["project_id"]),
+        "attempts": str(data.get("attempts", 0)),
+    }
+
+
+def to_stream_fields_raw(job_id: str, project_id: str, attempts: int | str = 0) -> Dict[str, str]:
+    """Serialize raw fields to Redis Streams map (no validation)."""
+    return {
+        "job_id": str(job_id),
+        "project_id": str(project_id),
+        "attempts": str(attempts if attempts is not None else 0),
+    }
 

@@ -9,9 +9,8 @@ Enhanced with maintenance capabilities.
 
 from typing import Dict, Any
 import uvicorn
-from fastapi import HTTPException, APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-import neo4j
 import structlog
 
 # Import shared library components
@@ -111,16 +110,6 @@ async def init_neo4j(
         }
 
         return JSONResponse(status_code=200, content=response_data)
-
-    except neo4j.exceptions.ServiceUnavailable as e:
-        error_handler = ErrorHandler()
-        return error_handler.format_neo4j_error(e)
-    except neo4j.exceptions.AuthError as e:
-        error_handler = ErrorHandler()
-        return error_handler.format_neo4j_error(e)
-    except (neo4j.exceptions.Neo4jError, ValueError, TypeError, KeyError) as e:
-        error_handler = ErrorHandler()
-        return error_handler.format_generic_error(e)
     except Exception as e:
         error_handler = ErrorHandler()
         return error_handler.format_generic_error(e)
@@ -162,27 +151,22 @@ async def get_index_health(
     Returns:
         Dict[str, Any]: Index health status
     """
-    try:
-        health_statuses = await maintenance_service.check_index_health()
+    health_statuses = await maintenance_service.check_index_health()
 
-        return {
-            "status": "success",
-            "health_statuses": [
-                {
-                    "index_name": h.index_name,
-                    "is_healthy": h.is_healthy,
-                    "last_maintenance": h.last_maintenance.isoformat(),
-                    "next_maintenance": h.next_maintenance.isoformat(),
-                    "issues": h.issues,
-                    "recommendations": h.recommendations
-                }
-                for h in health_statuses
-            ]
-        }
-
-    except (neo4j.exceptions.Neo4jError, ValueError, TypeError, AttributeError) as e:
-        logger.error("Failed to get index health", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "status": "success",
+        "health_statuses": [
+            {
+                "index_name": h.index_name,
+                "is_healthy": h.is_healthy,
+                "last_maintenance": h.last_maintenance.isoformat(),
+                "next_maintenance": h.next_maintenance.isoformat(),
+                "issues": h.issues,
+                "recommendations": h.recommendations
+            }
+            for h in health_statuses
+        ]
+    }
 
 @neo4j_router.post("/maintenance/run")
 async def run_maintenance(
@@ -194,31 +178,26 @@ async def run_maintenance(
     Returns:
         Dict[str, Any]: Maintenance results
     """
-    try:
-        # Auto-schedule maintenance based on health
-        await maintenance_service.auto_schedule_maintenance()
+    # Auto-schedule maintenance based on health
+    await maintenance_service.auto_schedule_maintenance()
 
-        # Run scheduled tasks
-        completed_tasks = await maintenance_service.run_maintenance_tasks()
+    # Run scheduled tasks
+    completed_tasks = await maintenance_service.run_maintenance_tasks()
 
-        return {
-            "status": "success",
-            "completed_tasks": len(completed_tasks),
-            "tasks": [
-                {
-                    "task_id": task.task_id,
-                    "index_name": task.index_name,
-                    "task_type": task.task_type,
-                    "status": task.status,
-                    "result": task.result
-                }
-                for task in completed_tasks
-            ]
-        }
-
-    except (neo4j.exceptions.Neo4jError, ValueError, TypeError, AttributeError) as e:
-        logger.error("Failed to run maintenance", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "status": "success",
+        "completed_tasks": len(completed_tasks),
+        "tasks": [
+            {
+                "task_id": task.task_id,
+                "index_name": task.index_name,
+                "task_type": task.task_type,
+                "status": task.status,
+                "result": task.result
+            }
+            for task in completed_tasks
+        ]
+    }
 
 @neo4j_router.get("/maintenance/status")
 async def get_maintenance_status(
@@ -230,17 +209,12 @@ async def get_maintenance_status(
     Returns:
         Dict[str, Any]: Maintenance status
     """
-    try:
-        status = await maintenance_service.get_maintenance_status()
+    status = await maintenance_service.get_maintenance_status()
 
-        return {
-            "status": "success",
-            "maintenance_status": status
-        }
-
-    except (neo4j.exceptions.Neo4jError, ValueError, TypeError, AttributeError) as e:
-        logger.error("Failed to get maintenance status", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "status": "success",
+        "maintenance_status": status
+    }
 
 # Include the Neo4j router in the main app
 app.include_router(neo4j_router)

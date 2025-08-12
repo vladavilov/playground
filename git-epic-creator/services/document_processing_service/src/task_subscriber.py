@@ -5,14 +5,15 @@ Refactored to use shared TaskStreamSubscriber.
 
 import structlog
 from utils.task_stream_subscriber import TaskStreamSubscriber
+from constants import TASK_REQUEST_STREAM, DOCUMENT_PROCESSORS_CONSUMER_GROUP
 
 logger = structlog.get_logger(__name__)
 
 
 def create_task_subscriber(redis_client, process_project_documents_task) -> TaskStreamSubscriber:
     """Create task subscriber for document processing service using shared Streams subscriber."""
-    stream_key = "task_streams:document_processing"
-    consumer_group = "document_processors"
+    stream_key = TASK_REQUEST_STREAM
+    consumer_group = DOCUMENT_PROCESSORS_CONSUMER_GROUP
     consumer_name = "worker"
 
     def build_apply_kwargs(fields: dict) -> dict:

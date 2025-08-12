@@ -2,7 +2,9 @@
 
 import re
 from typing import Optional
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 import neo4j
 import structlog
 
@@ -55,6 +57,58 @@ class ErrorHandler:
         logger.error("Generic error occurred", message=sanitized_message)
         return JSONResponse(status_code=500, content=response_data)
     
+    def format_http_exception(self, error: HTTPException) -> JSONResponse:
+        """Format FastAPI HTTPException preserving status code and headers."""
+        sanitized_message = self._sanitize_error_message(str(error.detail))
+        detail = self._create_error_detail("HTTP error", sanitized_message)
+
+        response_data = {
+            "status": "error",
+            "detail": detail,
+        }
+
+        # Preserve headers like WWW-Authenticate if provided
+        headers = getattr(error, "headers", None) or {}
+        logger.warning(
+            "HTTPException handled",
+            status_code=error.status_code,
+            message=sanitized_message,
+        )
+        return JSONResponse(status_code=error.status_code, content=response_data, headers=headers)
+
+    def format_validation_error(self, error: RequestValidationError) -> JSONResponse:
+        """Format request validation errors into a concise, consistent structure."""
+        # Build a concise summary; avoid leaking raw payloads
+        sanitized_message = self._sanitize_error_message("Request validation failed")
+        detail = self._create_error_detail("Validation error", sanitized_message)
+
+        response_data = {
+            "status": "error",
+            "detail": detail,
+        }
+
+        logger.warning("Request validation error", errors=error.errors())
+        return JSONResponse(status_code=422, content=response_data)
+
+    def register_exception_handlers(self, app: FastAPI) -> None:
+        """Register global exception handlers on a FastAPI app."""
+
+        @app.exception_handler(HTTPException)
+        def _http_exception_handler(_: Request, exc: HTTPException):  # type: ignore[override]
+            return self.format_http_exception(exc)
+
+        @app.exception_handler(RequestValidationError)
+        def _validation_exception_handler(_: Request, exc: RequestValidationError):  # type: ignore[override]
+            return self.format_validation_error(exc)
+
+        @app.exception_handler(neo4j.exceptions.Neo4jError)
+        def _neo4j_exception_handler(_: Request, exc: neo4j.exceptions.Neo4jError):  # type: ignore[override]
+            return self.format_neo4j_error(exc)
+
+        @app.exception_handler(Exception)
+        def _generic_exception_handler(_: Request, exc: Exception):  # type: ignore[override]
+            return self.format_generic_error(exc)
+
     
     def _create_error_detail(self, message: str, context: Optional[str]) -> str:
         """

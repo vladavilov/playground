@@ -9,6 +9,7 @@ from utils.app_factory import FastAPIFactory
 from models.project_db import Base, Project, ProjectMember
 
 from fastapi import Depends, APIRouter
+from utils.error_handler import ErrorHandler
 import structlog
 import uvicorn
 
@@ -26,6 +27,10 @@ app = FastAPIFactory.create_app(
     enable_cors=True,         # Enable CORS for API access
     enable_postgres=True  # Enable PostgreSQL integration
 )
+
+# Ensure global error handlers are registered (FastAPIFactory already does this,
+# but keep explicit in case of direct app creation in tests)
+ErrorHandler().register_exception_handlers(app)
 
 # Create API router for database operations
 db_router = APIRouter(prefix="/db", tags=["Database"])
@@ -55,7 +60,6 @@ def init_db(postgres_client: PostgresClient = Depends(get_postgres_client)):
     )
 
     try:
-        # Ensure models are registered with metadata by referencing them
         models = [Project, ProjectMember]  # This registers the models with Base.metadata
         logger.info("Registered models", model_count=len(models))
         
@@ -71,28 +75,9 @@ def init_db(postgres_client: PostgresClient = Depends(get_postgres_client)):
             "status": "Database initialized successfully", 
             "tables_created": table_names
         }
-    except (ConnectionError, TimeoutError) as e:
-        logger.error(
-            "Database connection failed during initialization", 
-            error=str(e), 
-            exc_info=True
-        )
-        return {"status": "error", "detail": f"Connection error: {str(e)}"}
-    except ImportError as e:
-        logger.error(
-            "Model import error during initialization", 
-            error=str(e), 
-            exc_info=True
-        )
-        return {"status": "error", "detail": f"Model import error: {str(e)}"}
-    except Exception as e:  # pylint: disable=broad-except
-        # Keep a general exception handler as a last resort
-        logger.error(
-            "Database initialization failed", 
-            error=str(e), 
-            exc_info=True
-        )
-        return {"status": "error", "detail": f"Unexpected error: {str(e)}"}
+    except Exception as e:
+        handler = ErrorHandler()
+        return handler.format_generic_error(e)
 
 app.include_router(db_router)
 

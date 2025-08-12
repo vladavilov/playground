@@ -1,8 +1,7 @@
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
+from constants import INGESTION_TRIGGER_STREAM
 
 @pytest.mark.asyncio
 async def test_process_messages_enqueues_and_xacks():
@@ -22,9 +21,10 @@ async def test_process_messages_enqueues_and_xacks():
             "correlation_id": fields.get("correlation_id"),
         }
 
+    
     subscriber = TaskStreamSubscriber(
         redis_client=redis_client,
-        stream_key="ingestion.jobs",
+        stream_key=INGESTION_TRIGGER_STREAM,
         consumer_group="neo4j_ingestor",
         consumer_name="ingestor-1",
         task=task,
@@ -34,7 +34,7 @@ async def test_process_messages_enqueues_and_xacks():
 
     messages = [
         (
-            "ingestion.jobs",
+            INGESTION_TRIGGER_STREAM,
             [
                 (
                     "1738359478123-0",
@@ -69,9 +69,10 @@ async def test_idle_claim_calls_xautoclaim():
     task = MagicMock()
     task.apply_async = MagicMock()
 
+    from constants import INGESTION_TRIGGER_STREAM
     subscriber = TaskStreamSubscriber(
         redis_client=redis_client,
-        stream_key="ingestion.jobs",
+        stream_key=INGESTION_TRIGGER_STREAM,
         consumer_group="neo4j_ingestor",
         consumer_name="ingestor-1",
         task=task,

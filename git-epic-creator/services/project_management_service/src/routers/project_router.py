@@ -49,17 +49,8 @@ async def create_project(
         user_id=current_user.oid
     )
 
-    try:
-        created_project = project_service.create_project(project, current_user.oid)
-        return ProjectResponse.model_validate(created_project)
-    except Exception as e:
-        logger.error(
-            "Failed to create project", error=str(e), user_id=current_user.oid
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create project"
-        ) from e
+    created_project = project_service.create_project(project, current_user.oid)
+    return ProjectResponse.model_validate(created_project)
 
 
 @router.get("", response_model=List[ProjectResponse])
@@ -70,17 +61,10 @@ async def list_projects(
     """List projects available to current user (RBAC)."""
     logger.info("Listing projects via API", user_id=current_user.oid)
 
-    try:
-        projects = project_service.get_projects_by_user_and_roles(
-            current_user.oid, current_user.roles
-        )
-        return [ProjectResponse.model_validate(project) for project in projects]
-    except Exception as e:
-        logger.error("Failed to list projects", error=str(e), user_id=current_user.oid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve projects"
-        ) from e
+    projects = project_service.get_projects_by_user_and_roles(
+        current_user.oid, current_user.roles
+    )
+    return [ProjectResponse.model_validate(project) for project in projects]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -226,17 +210,6 @@ async def add_project_member(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         ) from e
-    except Exception as e:
-        logger.error(
-            "Failed to add project member",
-            error=str(e),
-            project_id=str(project_id),
-            user_id=current_user.oid
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to add project member"
-        ) from e
 
 
 @router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
@@ -266,20 +239,8 @@ async def list_project_members(
             detail="Access denied to this project"
         )
 
-    try:
-        members = project_service.get_project_members(project_id)
-        return [ProjectMemberResponse.model_validate(member) for member in members]
-    except Exception as e:
-        logger.error(
-            "Failed to list project members",
-            error=str(e),
-            project_id=str(project_id),
-            user_id=current_user.oid
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve project members"
-        ) from e
+    members = project_service.get_project_members(project_id)
+    return [ProjectMemberResponse.model_validate(member) for member in members]
 
 
 @router.delete(
@@ -332,64 +293,50 @@ async def update_project_status(
         user_id=current_user.oid
     )
 
-    try:
-        project = project_service.update_project_progress(
-            project_id,
-            update_request.processed_count,
-            update_request.total_count,
-            status=update_request.status
-        )
+    project = project_service.update_project_progress(
+        project_id,
+        update_request.processed_count,
+        update_request.total_count,
+        status=update_request.status
+    )
 
-        if not project:
-            logger.warning(
-                "Project not found for status update",
-                project_id=str(project_id),
-                user_id=current_user.oid
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
-
-        # Publish project update to Redis (non-blocking)
-        try:
-            publish_success = await project_status_publisher.publish_project_update(
-                project_id=project_id,
-                status=project.status,
-                processed_count=update_request.processed_count,
-                total_count=update_request.total_count,
-                processed_pct=project.processed_pct
-            )
-
-            if not publish_success:
-                logger.warning(
-                    "Publish to Redis failed; API update succeeded",
-                    project_id=str(project_id),
-                    status=project.status
-                )
-
-        except Exception as e:
-            logger.error(
-                "Redis publishing failed, but API operation succeeded",
-                project_id=str(project_id),
-                error=str(e),
-                exc_info=True
-            )
-
-        return ProjectResponse.model_validate(project)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            "Failed to update project status",
-            error=str(e),
+    if not project:
+        logger.warning(
+            "Project not found for status update",
             project_id=str(project_id),
             user_id=current_user.oid
         )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update project status"
-        ) from e
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+
+    # Publish project update to Redis (non-blocking)
+    try:
+        publish_success = await project_status_publisher.publish_project_update(
+            project_id=project_id,
+            status=project.status,
+            processed_count=update_request.processed_count,
+            total_count=update_request.total_count,
+            processed_pct=project.processed_pct
+        )
+
+        if not publish_success:
+            logger.warning(
+                "Publish to Redis failed; API update succeeded",
+                project_id=str(project_id),
+                status=project.status
+            )
+
+    except Exception as e:
+        logger.error(
+            "Redis publishing failed, but API operation succeeded",
+            project_id=str(project_id),
+            error=str(e),
+            exc_info=True
+        )
+
+    return ProjectResponse.model_validate(project)
 
 
 # Document Upload Endpoint
@@ -440,13 +387,10 @@ async def bulk_upload_documents(
                    file_count=len(files),
                    user_id=current_user.oid)
         return result
-    except Exception as e:
+    except Exception as e:  # Let tests assert specific error message
         logger.error("Bulk document upload failed",
                     project_id=str(project_id),
                     file_count=len(files),
                     user_id=current_user.oid,
                     error=str(e))
-        raise HTTPException(
-                status_code=500,
-                detail=f"Bulk document upload failed: {str(e)}"
-            ) from e
+        raise HTTPException(status_code=500, detail=f"Bulk document upload failed: {str(e)}") from e
