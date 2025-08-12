@@ -89,6 +89,7 @@ def test_success_single_file():
     assert result["total_documents"] == 1
     assert result["processed_documents"] == 1
     assert result["failed_documents"] == 0
+    assert isinstance(result.get("documents_for_ingestion"), list)
 
 
 def test_list_failure_returns_false():

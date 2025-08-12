@@ -65,7 +65,7 @@ def process_project_documents_core(
     total_documents = len(file_list)
     processed_documents = 0
     failed_documents = 0
-    all_extracted_data: List[Dict[str, Any]] = []
+    documents_for_ingestion: List[Dict[str, Any]] = []
 
     if total_documents == 0:
         log.info(
@@ -97,16 +97,14 @@ def process_project_documents_core(
 
             processing_result = tika_processor.extract_text_with_result(temp_file_path)
             if getattr(processing_result, "success", False):
-                document_data = {
-                    "filename": os.path.basename(blob_name),
-                    "blob_name": blob_name,
-                    "extracted_text": getattr(processing_result, "extracted_text", None),
-                    "file_type": getattr(processing_result, "file_type", None),
-                    "page_count": getattr(processing_result, "page_count", None),
+                # Map to ingestion document schema fields (creation_date unknown upstream)
+                documents_for_ingestion.append({
+                    "id": None,
+                    "title": os.path.basename(blob_name),
+                    "text": getattr(processing_result, "extracted_text", None) or "",
+                    "creation_date": None,
                     "metadata": getattr(processing_result, "metadata", None),
-                    "structured_data": processing_result.to_structured_json() if hasattr(processing_result, "to_structured_json") else None,
-                }
-                all_extracted_data.append(document_data)
+                })
                 processed_documents += 1
             else:
                 failed_documents += 1
@@ -138,13 +136,7 @@ def process_project_documents_core(
                 except Exception:  # pragma: no cover - best-effort cleanup
                     pass
 
-    # Placeholder for Graph RAG integration
-    if all_extracted_data:
-        log.info(
-            "Would send data to Graph RAG Context Service",
-            project_id=project_id,
-            document_count=len(all_extracted_data),
-        )
+    # Ingestion is performed asynchronously via Redis job published by the Celery task
 
     # Cleanup blob storage files
     deleted_count = 0
@@ -198,7 +190,7 @@ def process_project_documents_core(
         "total_documents": total_documents,
         "processed_documents": processed_documents,
         "failed_documents": failed_documents,
-        "extracted_data_count": len(all_extracted_data),
+        "documents_for_ingestion": documents_for_ingestion,
         "cleanup": {
             "deleted_count": deleted_count,
             "already_deleted_count": already_deleted_count,

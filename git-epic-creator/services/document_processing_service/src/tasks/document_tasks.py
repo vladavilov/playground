@@ -8,15 +8,15 @@ import structlog
 
 from services.tika_processor import TikaProcessor
 from utils.blob_storage import BlobStorageClient
+from utils.redis_client import get_redis_client
 from services.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
+from services.ingestion_job_publisher import IngestionJobPublisher
 
 logger = structlog.get_logger(__name__)
 
-# Import the Celery app from the factory to avoid circular imports
 from utils.celery_factory import get_celery_app
 
-# Get the Celery app instance
 celery_app = get_celery_app("document_processing_service")
 
 async def _update_project_progress_via_http(
@@ -117,10 +117,12 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
             logger=logger,
         )
 
-        # Attach task_id for compatibility
         if isinstance(result, dict):
-            result.setdefault('project_id', project_id)
-            result['task_id'] = self.request.id
+            try:
+                publisher = IngestionJobPublisher(get_redis_client())
+                asyncio.run(publisher.publish(job_id=self.request.id, project_id=project_id, attempts=0))
+            except Exception as pub_error:
+                logger.error('Failed to publish ingestion trigger', error=str(pub_error))
         return result
 
     except Exception as e:
