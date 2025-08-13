@@ -2,6 +2,18 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 
+@pytest.fixture(autouse=True)
+def mute_pm_updates(monkeypatch):
+    from clients.project_management_client import UpdateProjectStatusResult
+    async def _noop(*args, **kwargs):
+        return UpdateProjectStatusResult(success=True)
+    monkeypatch.setattr(
+        "clients.project_management_client.ProjectManagementClient.update_project_status",
+        _noop,
+        raising=True,
+    )
+
+
 def test_run_graphrag_job_happy_path_minimal_contract(monkeypatch, tmp_path):
     from tasks.graphrag import run_graphrag_job
 

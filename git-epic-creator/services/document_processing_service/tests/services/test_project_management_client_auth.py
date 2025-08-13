@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from uuid import uuid4
 
-from services.project_management_client import ProjectManagementClient, UpdateProjectStatusResult
+from clients.project_management_client import ProjectManagementClient, UpdateProjectStatusResult
 
 
 class TestProjectManagementClientAuth:
@@ -44,7 +44,7 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_init_with_auth_enabled(self, mock_settings):
         """Test initialization with Azure auth enabled."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
             client = ProjectManagementClient()
             
             assert client.config.ENABLE_AZURE_AUTH is True
@@ -53,7 +53,7 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_init_with_auth_disabled(self, mock_settings_no_auth):
         """Test initialization with Azure auth disabled."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings_no_auth):
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings_no_auth):
             client = ProjectManagementClient()
             
             assert client.config.ENABLE_AZURE_AUTH is False
@@ -62,8 +62,8 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_context_manager_with_auth(self, mock_settings):
         """Test context manager initialization with authentication."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
-            with patch('services.project_management_client.AzureTokenProvider') as mock_token_provider:
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
+            with patch('clients.project_management_client.AzureTokenProvider') as mock_token_provider:
                 mock_provider_instance = AsyncMock()
                 mock_token_provider.return_value = mock_provider_instance
 
@@ -78,7 +78,7 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_context_manager_without_auth(self, mock_settings_no_auth):
         """Test context manager initialization without authentication."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings_no_auth):
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings_no_auth):
             client = ProjectManagementClient()
             
             async with client as c:
@@ -89,8 +89,8 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_close_with_auth(self, mock_settings):
         """Test close method with authentication resources."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
-            with patch('services.project_management_client.AzureTokenProvider') as mock_token_provider:
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
+            with patch('clients.project_management_client.AzureTokenProvider') as mock_token_provider:
                 mock_provider_instance = AsyncMock()
                 mock_token_provider.return_value = mock_provider_instance
 
@@ -104,8 +104,8 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_make_request_with_auth_headers(self, mock_settings):
         """Test that requests include authentication headers when auth is enabled."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
-            with patch('services.project_management_client.AzureTokenProvider') as mock_token_provider:
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
+            with patch('clients.project_management_client.AzureTokenProvider') as mock_token_provider:
                 mock_provider_instance = AsyncMock()
                 mock_provider_instance.get_authorization_header.return_value = {
                     "Authorization": "Bearer test_token"
@@ -141,7 +141,7 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_make_request_without_auth_headers(self, mock_settings_no_auth):
         """Test that requests don't include authentication headers when auth is disabled."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings_no_auth):
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings_no_auth):
             client = ProjectManagementClient()
             
             # Mock the HTTP client
@@ -169,8 +169,8 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_token_invalidation_on_401(self, mock_settings):
         """Test that token is invalidated when receiving 401 response."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
-            with patch('services.project_management_client.AzureTokenProvider') as mock_token_provider:
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
+            with patch('clients.project_management_client.AzureTokenProvider') as mock_token_provider:
                 mock_provider_instance = AsyncMock()
                 mock_provider_instance.get_authorization_header.return_value = {
                     "Authorization": "Bearer expired_token"
@@ -197,8 +197,8 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_auth_token_acquisition_failure(self, mock_settings):
         """Test handling of authentication token acquisition failures."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
-            with patch('services.project_management_client.AzureTokenProvider') as mock_token_provider:
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
+            with patch('clients.project_management_client.AzureTokenProvider') as mock_token_provider:
                 mock_provider_instance = AsyncMock()
                 mock_provider_instance.get_authorization_header.side_effect = Exception("Token acquisition failed")
                 mock_token_provider.return_value = mock_provider_instance
@@ -217,8 +217,8 @@ class TestProjectManagementClientAuth:
         """Test update_project_status with authentication integration."""
         project_id = str(uuid4())
         
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
-            with patch('services.project_management_client.AzureTokenProvider') as mock_token_provider:
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
+            with patch('clients.project_management_client.AzureTokenProvider') as mock_token_provider:
                 mock_provider_instance = AsyncMock()
                 mock_provider_instance.get_authorization_header.return_value = {
                     "Authorization": "Bearer test_token"
@@ -262,8 +262,8 @@ class TestProjectManagementClientAuth:
     @pytest.mark.asyncio
     async def test_header_merging(self, mock_settings):
         """Test that authentication headers are properly merged with existing headers."""
-        with patch('services.project_management_client.get_app_settings', return_value=mock_settings):
-            with patch('services.project_management_client.AzureTokenProvider') as mock_token_provider:
+        with patch('clients.project_management_client.get_app_settings', return_value=mock_settings):
+            with patch('clients.project_management_client.AzureTokenProvider') as mock_token_provider:
                 mock_provider_instance = AsyncMock()
                 mock_provider_instance.get_authorization_header.return_value = {
                     "Authorization": "Bearer test_token"

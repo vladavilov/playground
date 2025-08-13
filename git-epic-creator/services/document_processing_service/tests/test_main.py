@@ -130,7 +130,7 @@ class TestMain:
              patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
              patch('configuration.common_config.get_app_settings') as mock_get_settings, \
              patch('utils.celery_factory.CeleryHealthChecker') as mock_health_checker_class, \
-             patch('services.project_management_client.ProjectManagementClient'), \
+             patch('clients.project_management_client.ProjectManagementClient'), \
              patch.dict('sys.modules', {'tasks.document_tasks': mock_task_module}):
             
             # Arrange

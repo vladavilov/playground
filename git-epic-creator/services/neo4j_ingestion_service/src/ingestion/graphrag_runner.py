@@ -10,24 +10,36 @@ import os
 import subprocess
 from pathlib import Path
 
+from configuration.common_config import get_app_settings
 
 class GraphRAGIndexError(RuntimeError):
     """Raised when GraphRAG indexing fails with a non-zero exit code."""
 
 def _get_workspace_root() -> Path:
-    root = os.getenv("RAG_WORKSPACE_ROOT", "./graphrag")
-    return Path(root)
+    # Allow test-time env overrides to take precedence without requiring
+    # global settings cache invalidation between tests.
+    env_root = os.getenv("RAG_WORKSPACE_ROOT")
+    if env_root:
+        return Path(env_root)
+    settings = get_app_settings()
+    return Path(settings.graphrag.RAG_WORKSPACE_ROOT)
 
 
 def _ensure_workspace_initialized(workdir: Path) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
     # Idempotent: running init repeatedly should be safe according to CLI
+    env_vars = {
+        **os.environ,
+        # Pass through concurrency hints if configured
+        "GRAPHRAG_LLM_THREAD_COUNT": str(get_app_settings().graphrag.GRAPHRAG_LLM_THREAD_COUNT),
+        "GRAPHRAG_EMBEDDING_THREAD_COUNT": str(get_app_settings().graphrag.GRAPHRAG_EMBEDDING_THREAD_COUNT),
+    }
     completed = subprocess.run(
         ["graphrag", "init", "--root", str(workdir)],
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ},
+        env=env_vars,
     )
     # Some versions of the CLI return success even if already initialized.
     # If it fails, we surface the error early for visibility.
@@ -71,12 +83,18 @@ def run_index(project_id: str) -> Path:
         # Non-fatal; CLI defaults may already be relative
         pass
 
+    env_vars = {
+        **os.environ,
+        "GRAPHRAG_LLM_THREAD_COUNT": str(get_app_settings().graphrag.GRAPHRAG_LLM_THREAD_COUNT),
+        "GRAPHRAG_EMBEDDING_THREAD_COUNT": str(get_app_settings().graphrag.GRAPHRAG_EMBEDDING_THREAD_COUNT),
+    }
+
     completed = subprocess.run(
         ["graphrag", "index", "--root", str(workdir)],
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ},
+        env=env_vars,
     )
     if completed.returncode != 0:
         raise GraphRAGIndexError(
