@@ -8,6 +8,7 @@ from utils.neo4j_client import Neo4jClient
 from utils.blob_storage import get_blob_storage_client
 from ingestion.graphrag_runner import run_index
 from ingestion.importer import import_graphrag_outputs
+from configuration.common_config import get_app_settings
 
 class Neo4jIngestionService:
     
@@ -30,7 +31,7 @@ class Neo4jIngestionService:
 
         # 1) Sync inputs from Blob → WORKDIR/input
         try:
-            workspace_root = Path(os.getenv("RAG_WORKSPACE_ROOT", "./graphrag"))
+            workspace_root = Path(get_app_settings().graphrag.RAG_WORKSPACE_ROOT)
             input_dir = workspace_root / project_id / "input"
             input_dir.mkdir(parents=True, exist_ok=True)
 

@@ -101,7 +101,7 @@ Each task is small, TDD-friendly, and references the exact parts of `../README.m
     - After max attempts, write to `ingestion.trigger.deadletter` and `XACK` original
     - Replay tool re-publishes DLQ entries successfully
 
-- [ ] Task 11 — Project Management Service client and integration
+- [x] Task 11 — Project Management Service client and integration
   - Description: Add shared `project_mgmt_client.update_status(project_id, status, processed_count, total_count, error_message=None)`; invoke in task.
   - Doc refs: README L98–103, L386–389
   - Example: On success: `rag_ready`; on failure: `rag_failed` with message.
@@ -109,7 +109,7 @@ Each task is small, TDD-friendly, and references the exact parts of `../README.m
     - Calls made with base URL from `PROJECT_MGMT_BASE_URL`
     - Status updates verified in tests
 
-- [ ] Task 12 — Configuration keys and defaults in shared config
+- [x] Task 12 — Configuration keys and defaults in shared config
   - Description: Centralize env keys and defaults for GraphRAG CLI, Blob, Redis Streams, Neo4j batching, and backoff.
   - Doc refs: README L76–95 (environment), L96–121 (settings), L88–95 (paths/messaging)
   - Example keys and defaults:

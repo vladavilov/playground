@@ -17,6 +17,8 @@ from worker.celery_app import celery_app
 from tasks.retry import schedule_ingestion_retry_task
 from services.ingestion_service import Neo4jIngestionService
 from utils.neo4j_client import get_neo4j_client
+from clients.project_management_client import ProjectManagementClient
+import asyncio
 
 @celery_app.task(
     bind=True,
@@ -45,6 +47,18 @@ def run_graphrag_job(
         raise ValueError("project_id must be a non-empty string")
 
     try:
+        # Mark project as processing (best-effort)
+        try:
+            asyncio.run(
+                ProjectManagementClient().update_project_status(
+                    project_id=project_id,
+                    status="processing",
+                )
+            )
+        except Exception:
+            logger.error("Failed to mark project as processing", project_id=project_id)
+            pass
+
         service = Neo4jIngestionService(client=get_neo4j_client())
         service_result = service.run_graphrag_pipeline(project_id=project_id)
 
@@ -57,8 +71,34 @@ def run_graphrag_job(
                 "duration_ms", round((time.time() - start) * 1000, 2)
             ),
         }
+        # On success, publish status with counts (best-effort)
+        try:
+            counts = result.get("counts", {})
+            processed_count = int(counts.get("documents", 0))
+            total_count = max(processed_count, 1)
+            asyncio.run(
+                ProjectManagementClient().update_project_status(
+                    project_id=project_id,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    status="rag_ready",
+                )
+            )
+        except Exception:
+            pass
         return result
     except Exception as exc:  # noqa: BLE001
+        # On failure, publish error status (best-effort)
+        try:
+            asyncio.run(
+                ProjectManagementClient().update_project_status(
+                    project_id=project_id,
+                    status="rag_failed",
+                    error_message=str(exc),
+                )
+            )
+        except Exception:
+            pass
         # Compute next attempts and schedule retry or DLQ based on configured policy (shared)
         from utils.retry_policy import compute_retry_decision  # type: ignore
 

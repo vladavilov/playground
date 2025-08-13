@@ -9,7 +9,7 @@ import structlog
 from services.tika_processor import TikaProcessor
 from utils.blob_storage import BlobStorageClient
 from utils.redis_client import get_redis_client
-from services.project_management_client import ProjectManagementClient
+from clients.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
 from services.ingestion_job_publisher import IngestionJobPublisher
 

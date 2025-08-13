@@ -108,8 +108,11 @@ class FastAPIFactory:
 
             # Shutdown logic
             if hasattr(app.state, 'neo4j_client'):
-                app.state.neo4j_client.close()
-                logger.info("Neo4j client closed on shutdown")
+                try:
+                    app.state.neo4j_client.close()
+                    logger.info("Neo4j client closed on shutdown")
+                except Exception as e:
+                    logger.warning("Failed to close Neo4j client on shutdown", error=str(e))
             if hasattr(app.state, 'redis_client'):
                 await app.state.redis_client.close()
                 logger.info("Redis client closed on shutdown")

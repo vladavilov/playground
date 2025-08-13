@@ -3,6 +3,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from constants import INGESTION_TRIGGER_STREAM, INGESTION_DLQ_STREAM
 
+@pytest.fixture(autouse=True)
+def mute_pm_updates(monkeypatch):
+    from clients.project_management_client import UpdateProjectStatusResult
+    def _noop(*args, **kwargs):
+        return UpdateProjectStatusResult(success=True)
+    monkeypatch.setattr(
+        "clients.project_management_client.ProjectManagementClient.update_project_status",
+        _noop,
+        raising=True,
+    )
+
+
 @pytest.mark.asyncio
 async def test_run_graphrag_job_schedules_retry_with_backoff(monkeypatch):
     # Configure deterministic backoff env
