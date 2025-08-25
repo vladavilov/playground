@@ -9,17 +9,17 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 from utils.celery_factory import get_celery_app
+from constants import APP_NAME_NEO4J_INGESTION, EXPECTED_TASKS_INGESTION
 
-celery_app = get_celery_app("neo4j_ingestion_service")
+celery_app = get_celery_app(APP_NAME_NEO4J_INGESTION)
 
-celery_app.conf.update(
-    task_acks_late=True,
-    worker_prefetch_multiplier=1,
-    task_routes={
-        **(celery_app.conf.task_routes or {}),
-        "tasks.neo4j_ingestion.*": {"queue": "neo4j_ingestion"},
-    },
-)
+# Ensure tasks are registered by importing task modules
+try:
+    from tasks import graphrag as _graphrag_tasks  # noqa: F401
+    from tasks import retry as _retry_tasks  # noqa: F401
+    logger.info("Neo4j ingestion tasks modules imported for registration")
+except Exception as e:
+    logger.error("Failed to import neo4j ingestion tasks modules", extra={"error": str(e)})
 
 
 def get_task_validation_status():
@@ -32,9 +32,7 @@ def get_task_validation_status():
             for task_name in celery_app.tasks.keys()
             if not task_name.startswith("celery.")
         ]
-        expected_tasks = [
-            "tasks.neo4j_ingestion.run_graphrag_job",
-        ]
+        expected_tasks = EXPECTED_TASKS_INGESTION
 
         missing_tasks = [t for t in expected_tasks if t not in discovered_tasks]
 
@@ -59,21 +57,11 @@ def get_task_validation_status():
         logger.error("Failed to get task validation status", extra={"error": str(e)})
         return {
             "discovered_tasks": [],
-            "expected_tasks": [
-                "tasks.neo4j_ingestion.run_graphrag_job",
-            ],
-            "missing_tasks": [
-                "tasks.neo4j_ingestion.run_graphrag_job",
-            ],
+            "expected_tasks": EXPECTED_TASKS_INGESTION,
+            "missing_tasks": EXPECTED_TASKS_INGESTION,
             "all_tasks_registered": False,
             "error": str(e),
         }
 
 
 __all__ = ["celery_app", "get_task_validation_status"]
-
-# Import tasks to ensure registration after celery_app is defined
-try:
-    from tasks import graphrag as _tasks_graphrag  # noqa: F401
-except Exception as _e:
-    logger.warning("Tasks import failed during worker init", extra={"error": str(_e)})

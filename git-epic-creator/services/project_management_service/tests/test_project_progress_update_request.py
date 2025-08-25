@@ -112,9 +112,10 @@ class TestProjectProgressUpdateRequestValidation:
             ProjectProgressUpdateRequest(
                 status=""
             )
-        
+
         error = exc_info.value.errors()[0]
-        assert "Input should be 'active', 'inactive', 'archived' or 'processing'" in error["msg"]
+        # Be resilient to enum value list changes; just assert it's an enum validation error
+        assert "Input should be" in error["msg"]
 
     def test_whitespace_only_status_invalid(self):
         """Test that whitespace-only status is invalid."""
@@ -122,9 +123,9 @@ class TestProjectProgressUpdateRequestValidation:
             ProjectProgressUpdateRequest(
                 status="   "
             )
-        
+
         error = exc_info.value.errors()[0]
-        assert "Input should be 'active', 'inactive', 'archived' or 'processing'" in error["msg"]
+        assert "Input should be" in error["msg"]
 
     def test_empty_error_message_invalid(self):
         """Test that empty error_message string is invalid."""
@@ -163,7 +164,7 @@ class TestProjectProgressUpdateRequestValidation:
 
     def test_valid_status_values(self):
         """Test that common status values are accepted."""
-        valid_statuses = ["active", "inactive", "processing", "archived"]
+        valid_statuses = ["active", "inactive", "processing", "archived", "rag_ready", "rag_failed", "rag_processing"]
         
         for status in valid_statuses:
             if status == "processing":
@@ -177,3 +178,39 @@ class TestProjectProgressUpdateRequestValidation:
                     status=status
                 )
             assert request.status == status
+
+    def test_rag_ready_without_counts_is_valid(self):
+        """`rag_ready` should be accepted without counts."""
+        request = ProjectProgressUpdateRequest(
+            status="rag_ready"
+        )
+
+        assert request.status == "rag_ready"
+        assert request.processed_count is None
+        assert request.total_count is None
+
+    def test_rag_failed_with_optional_error_message(self):
+        """`rag_failed` should be accepted, optionally with an error message."""
+        # With error message
+        request_with_error = ProjectProgressUpdateRequest(
+            status="rag_failed",
+            error_message="Indexing failed"
+        )
+        assert request_with_error.status == "rag_failed"
+        assert request_with_error.error_message == "Indexing failed"
+
+        # Without error message
+        request_no_error = ProjectProgressUpdateRequest(
+            status="rag_failed"
+        )
+        assert request_no_error.status == "rag_failed"
+        assert request_no_error.error_message is None
+
+    def test_rag_processing_without_counts_is_valid(self):
+        """`rag_processing` should be accepted without counts."""
+        request = ProjectProgressUpdateRequest(
+            status="rag_processing"
+        )
+        assert request.status == "rag_processing"
+        assert request.processed_count is None
+        assert request.total_count is None

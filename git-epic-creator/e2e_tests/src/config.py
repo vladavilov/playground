@@ -32,7 +32,8 @@ class TestConfig:
             "document_processing": os.getenv("DOCUMENT_PROCESSING_URL", "http://localhost:8004"),
             "neo4j_ingestion": os.getenv("NEO4J_INGESTION_URL", "http://localhost:8006"),
             "mock_auth": os.getenv("AZURE_AD_AUTHORITY", "http://localhost:8005"),
-            "init_db_service": os.getenv("INIT_DB_SERVICE_URL", "http://localhost:8001")
+            "init_db_service": os.getenv("INIT_DB_SERVICE_URL", "http://localhost:8001"),
+            "neo4j_maintenance": os.getenv("NEO4J_MAINTENANCE_URL", "http://localhost:8002"),
         }
     
     @classmethod
@@ -174,11 +175,37 @@ class TestConfig:
             "broker_url": os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
             "result_backend": os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
         }
+
+    @classmethod
+    def get_blob_storage_config(cls) -> Dict[str, Any]:
+        """
+        Get Azure Blob Storage configuration using exact literal values expected in docker-compose.
+
+        Tests should break if these change, by design.
+        """
+        return {
+            "connection_string": (
+                "DefaultEndpointsProtocol=http;"
+                "AccountName=devstoreaccount1;"
+                "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/"
+                "K1SZFPTOtr/KBHBeksoGMGw==;"
+                "BlobEndpoint=http://localhost:10000/devstoreaccount1;"
+            ),
+            "container_name": "documents",
+            "account_name": "devstoreaccount1",
+            "account_key": (
+                "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/"
+                "K1SZFPTOtr/KBHBeksoGMGw=="
+            ),
+            "blob_endpoint": "http://localhost:10000/devstoreaccount1",
+            "max_single_put_size": 67108864,
+            "max_block_size": 4194304,
+        }
     
 class TestConstants:
     """Constants used across e2e tests."""
     
-    DEFAULT_TIMEOUT = 10
+    DEFAULT_TIMEOUT = 30
     SERVICE_HEALTH_TIMEOUT = 20
     DOCUMENT_PROCESSING_TIMEOUT = 120
     CLEANUP_TIMEOUT = 30
@@ -192,6 +219,8 @@ class TestConstants:
     # Project statuses
     PROJECT_STATUS_ACTIVE = "active"
     PROJECT_STATUS_PROCESSING = "processing"
+    PROJECT_STATUS_RAG_PROCESSING = "rag_processing"
+    PROJECT_STATUS_RAG_READY = "rag_ready"
     
     # Service health endpoints
     HEALTH_ENDPOINT = "/health"

@@ -5,7 +5,7 @@ This module contains tests to verify that all required services are running,
 accessible, and can be connected to properly.
 """
 
-from typing import Dict, Any
+from typing import Dict
 
 import pytest
 import requests

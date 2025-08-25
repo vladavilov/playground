@@ -146,8 +146,8 @@ class TestDocumentUploadService:
 
     @patch('services.document_upload_service.TaskRequestPublisher')
     @patch('services.document_upload_service.BlobStorageClient')
-    async def test_blob_name_generation_uses_simple_filename(self, mock_blob_client_class, mock_task_publisher_class):
-        """Test that DocumentUploadService passes simple filenames to BlobStorageClient, not full project paths."""
+    async def test_blob_name_generation_uses_input_prefix(self, mock_blob_client_class, mock_task_publisher_class):
+        """Uploads must go under the input/ folder within the per-project container."""
         # Import here to avoid initialization issues
         from services.document_upload_service import DocumentUploadService
         
@@ -176,8 +176,7 @@ class TestDocumentUploadService:
         # Act
         result = await service.bulk_upload_documents(self.project_id, test_files)
         
-        # Assert that upload_file was called with simple filename (UUID + original name)
-        # NOT with full "projects/{project_id}/documents/{filename}" path
+        # Assert that upload_file was called with blob_name prefixed by "input/"
         mock_blob_instance.upload_file.assert_called_once()
         call_args = mock_blob_instance.upload_file.call_args
         
@@ -185,8 +184,8 @@ class TestDocumentUploadService:
         blob_name = call_args[0][1]  # (file_path, blob_name, project_id=...)
         project_id_kwarg = call_args[1]['project_id']
         
-        # The blob_name should be a simple filename with UUID prefix, NOT a full path
-        assert not blob_name.startswith("projects/")
+        # The blob_name should be under input/ and include UUID prefix + filename
+        assert blob_name.startswith("input/")
         assert blob_name.endswith("_test_document.pdf")
         assert str(self.project_id) not in blob_name  # Project ID should be in kwarg, not blob_name
         assert project_id_kwarg == self.project_id

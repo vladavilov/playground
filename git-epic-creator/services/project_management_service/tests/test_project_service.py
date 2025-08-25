@@ -425,6 +425,33 @@ def test_update_project_progress_complete(project_service, mock_session, sample_
     assert result.processed_pct == 100.0
 
 
+def test_update_project_status_rag_ready_without_counts_sets_100pct(project_service, mock_session, sample_project):
+    """When status is RAG_READY and counts are omitted, processed_pct should become 100.0."""
+    project_id = sample_project.id
+
+    mock_session.query.return_value.filter.return_value.first.return_value = sample_project
+
+    result = project_service.update_project_progress(project_id, None, None, ProjectStatus("rag_ready"))
+
+    assert result is not None
+    assert result.status == "rag_ready"
+    assert result.processed_pct == 100.0
+
+
+def test_update_project_status_rag_failed_without_counts_keeps_pct(project_service, mock_session, sample_project):
+    """When status is RAG_FAILED and counts are omitted, processed_pct should remain unchanged."""
+    project_id = sample_project.id
+    sample_project.processed_pct = 42.0
+
+    mock_session.query.return_value.filter.return_value.first.return_value = sample_project
+
+    result = project_service.update_project_progress(project_id, None, None, ProjectStatus("rag_failed"))
+
+    assert result is not None
+    assert result.status == "rag_failed"
+    assert result.processed_pct == 42.0
+
+
 def test_update_project_progress_project_not_found(project_service, mock_session):
     """Test project progress update when project doesn't exist."""
     project_id = uuid4()

@@ -578,7 +578,8 @@ class TestBlobStorageClientContainerCreation:
             
             # Mock _ensure_container_exists method
             with patch.object(blob_client, '_ensure_container_exists', return_value=True) as mock_ensure:
-                result = blob_client.list_files()
+                # Provide required project_id argument
+                result = blob_client.list_files(project_id=uuid4())
                 
                 # Verify container existence was checked
                 mock_ensure.assert_called_once()

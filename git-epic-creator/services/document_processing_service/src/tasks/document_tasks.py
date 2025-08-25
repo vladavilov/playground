@@ -8,16 +8,23 @@ import structlog
 
 from services.tika_processor import TikaProcessor
 from utils.blob_storage import BlobStorageClient
-from utils.redis_client import get_redis_client
 from clients.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
-from services.ingestion_job_publisher import IngestionJobPublisher
+from celery_worker_app import celery_app
+from utils.redis_client import get_redis_client, get_sync_redis_client
+from utils.ingestion_gating import should_enqueue, post_run_cleanup
 
 logger = structlog.get_logger(__name__)
 
-from utils.celery_factory import get_celery_app
-
-celery_app = get_celery_app("document_processing_service")
+from constants import (
+    TASK_PROCESS_PROJECT_DOCS,
+    TASK_RUN_GRAPHRAG_JOB,
+    QUEUE_NEO4J_INGESTION,
+    QUEUE_DOCUMENT_PROCESSING,
+    GATE_NS_DOCS,
+    GATE_NS_INGESTION,
+    GATE_DEFAULT_RUNNING_TTL,
+)
 
 async def _update_project_progress_via_http(
     project_id: str, 
@@ -84,7 +91,7 @@ async def _update_project_progress_via_http(
         }
 
 
-@celery_app.task(bind=True, name='tasks.document_tasks.process_project_documents_task')
+@celery_app.task(bind=True, name=TASK_PROCESS_PROJECT_DOCS)
 def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
     """
     Process all documents for a project from blob storage.
@@ -103,6 +110,18 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                 worker_pid=os.getpid())
 
     try:
+        # Acquire a per-project distributed lock to avoid concurrent processing (sync lock)
+        redis_client = get_redis_client()
+        sync_client = get_sync_redis_client()
+        lock_key = f"{GATE_NS_DOCS}:lock:{project_id}"
+        sync_lock = sync_client.lock(lock_key, timeout=GATE_DEFAULT_RUNNING_TTL, blocking=False)
+        if not sync_lock.acquire(blocking=False):
+            logger.info("Document processing busy; skipping", project_id=project_id)
+            return {
+                'success': True,
+                'project_id': project_id,
+                'skipped': True
+            }
         blob_client = BlobStorageClient()
         tika_processor = TikaProcessor()
 
@@ -119,10 +138,16 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
 
         if isinstance(result, dict):
             try:
-                publisher = IngestionJobPublisher(get_redis_client())
-                asyncio.run(publisher.publish(job_id=self.request.id, project_id=project_id, attempts=0))
+                if should_enqueue(GATE_NS_INGESTION, project_id, client=redis_client):
+                    celery_app.send_task(
+                        TASK_RUN_GRAPHRAG_JOB,
+                        args=[self.request.id, project_id, 0],
+                        queue=QUEUE_NEO4J_INGESTION,
+                    )
+                else:
+                    logger.info('Ingestion enqueue suppressed by gating', project_id=project_id)
             except Exception as pub_error:
-                logger.error('Failed to publish ingestion trigger', error=str(pub_error))
+                logger.error('Failed to enqueue ingestion task', error=str(pub_error))
         return result
 
     except Exception as e:
@@ -137,3 +162,32 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
             'task_id': self.request.id,
             'error_message': error_msg
         }
+    finally:
+        try:
+            if 'sync_lock' in locals():
+                try:
+                    sync_lock.release()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Post-run cleanup for document processing namespace: clear running and
+        # enqueue a single follow-up if a pending marker exists
+        try:
+            def _enqueue(_job_id: str, _project_id: str, _attempts: int) -> None:
+                celery_app.send_task(
+                    TASK_PROCESS_PROJECT_DOCS,
+                    args=[_project_id],
+                    queue=QUEUE_DOCUMENT_PROCESSING,
+                )
+
+            post_run_cleanup(
+                GATE_NS_DOCS,
+                str(self.request.id),
+                project_id,
+                0,
+                client=redis_client,
+                enqueue_callable=_enqueue,
+            )
+        except Exception:
+            pass

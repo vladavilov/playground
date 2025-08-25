@@ -9,21 +9,39 @@ from configuration.azure_auth_config import get_azure_auth_settings
 from utils.postgres_client import get_postgres_client, PostgresHealthChecker, PostgresClient
 from utils.neo4j_client import get_neo4j_client, Neo4jHealthChecker, Neo4jClient
 from utils.redis_client import get_redis_client
-from utils.redis_abstractions import RedisHealthMixin
 from utils.blob_storage import get_blob_storage_client, BlobStorageClient
 from utils.error_handler import ErrorHandler
 import redis.asyncio as redis
 
 logger = structlog.get_logger(__name__)
 
-# region Dependencies for dependency injection
-
-
-class RedisHealthService(RedisHealthMixin):
+class RedisHealthService:
     """Helper for Redis health checking."""
-    
+
     def __init__(self, redis_client):
         self.redis_client = redis_client
+
+    async def check_health_with_details(self) -> dict:
+        """Check Redis health and return detailed information."""
+        try:
+            ping_ok = await self.redis_client.ping()
+            if not ping_ok:
+                return {"healthy": False, "error": "Redis ping failed"}
+
+            info = await self.redis_client.info()
+            result = {
+                "healthy": True,
+                "version": info.get("redis_version"),
+            }
+
+            # Optional useful diagnostics
+            for key in ("connected_clients", "used_memory", "uptime_in_seconds"):
+                if key in info:
+                    result[key] = info[key]
+
+            return result
+        except Exception as e:
+            return {"healthy": False, "error": str(e)}
 
 
 def get_postgres_client_from_state(request: Request) -> PostgresClient:

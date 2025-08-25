@@ -24,7 +24,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Install Java Runtime Environment, wget for Tika download, and curl for healthchecks
 RUN apt-get update && apt-get install -y \
-    openjdk-17-jre-headless \
+    openjdk-21-jre-headless \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/* && \

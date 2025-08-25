@@ -2,49 +2,13 @@
 
 from functools import lru_cache
 from typing import Dict, Any
+import os
 import structlog
 from celery import Celery
 from celery.signals import worker_ready
-from configuration.celery_config import CelerySettings, get_celery_settings
-from configuration.logging_config import configure_logging
+from configuration.celery_config import get_celery_settings
 
 logger = structlog.get_logger(__name__)
-
-class CeleryFactory:
-    """Create Celery applications with standard configuration."""
-
-    @staticmethod
-    def create_celery_app(name: str, settings: CelerySettings = None) -> Celery:
-        """Create a Celery application with standard configuration."""
-        settings = settings or get_celery_settings()
-
-        app = Celery(name)
-
-        app.conf.update(
-            broker_url=settings.CELERY_BROKER_URL,
-            result_backend=settings.CELERY_RESULT_BACKEND,
-            task_serializer=settings.CELERY_TASK_SERIALIZER,
-            result_serializer=settings.CELERY_RESULT_SERIALIZER,
-            accept_content=settings.CELERY_ACCEPT_CONTENT,
-            timezone=settings.CELERY_TIMEZONE,
-            enable_utc=settings.CELERY_ENABLE_UTC,
-            task_track_started=settings.CELERY_TASK_TRACK_STARTED,
-            task_time_limit=settings.CELERY_TASK_TIME_LIMIT,
-            task_soft_time_limit=settings.CELERY_TASK_SOFT_TIME_LIMIT,
-            worker_prefetch_multiplier=settings.CELERY_WORKER_PREFETCH_MULTIPLIER,
-            worker_max_tasks_per_child=settings.CELERY_WORKER_MAX_TASKS_PER_CHILD,
-            worker_concurrency=settings.CELERY_WORKER_CONCURRENCY,
-            task_routes=settings.CELERY_TASK_ROUTES
-        )
-
-        logger.info(
-            "Celery application created",
-            name=name,
-            broker_url=settings.CELERY_BROKER_URL,
-            result_backend=settings.CELERY_RESULT_BACKEND
-        )
-
-        return app
 
 @worker_ready.connect
 def _log_worker_ready(sender=None, **kwds):
@@ -56,7 +20,47 @@ def _log_worker_ready(sender=None, **kwds):
 def get_celery_app(name: str) -> Celery:
     """Get a Celery application, creating it if necessary."""
     settings = get_celery_settings()
-    return CeleryFactory.create_celery_app(name, settings)
+
+    app = Celery(name)
+
+    conf: Dict[str, Any] = {
+        "broker_url": settings.CELERY_BROKER_URL,
+        "result_backend": settings.CELERY_RESULT_BACKEND,
+        "task_serializer": settings.CELERY_TASK_SERIALIZER,
+        "result_serializer": settings.CELERY_RESULT_SERIALIZER,
+        "accept_content": settings.CELERY_ACCEPT_CONTENT,
+        "timezone": settings.CELERY_TIMEZONE,
+        "enable_utc": settings.CELERY_ENABLE_UTC,
+        "task_track_started": settings.CELERY_TASK_TRACK_STARTED,
+        "task_time_limit": settings.CELERY_TASK_TIME_LIMIT,
+        "task_acks_late": True,
+        "worker_prefetch_multiplier": settings.CELERY_WORKER_PREFETCH_MULTIPLIER,
+        "worker_max_tasks_per_child": settings.CELERY_WORKER_MAX_TASKS_PER_CHILD,
+        "worker_concurrency": settings.CELERY_WORKER_CONCURRENCY,
+        "task_routes": settings.CELERY_TASK_ROUTES,
+        # Reliability flags
+        "task_reject_on_worker_lost": True,
+        "task_acks_on_failure_or_timeout": True,
+        "broker_transport_options": {
+            "visibility_timeout": getattr(settings, "CELERY_BROKER_VISIBILITY_TIMEOUT", 420),
+        },
+    }
+
+    if os.name != "nt":
+        conf["task_soft_time_limit"] = settings.CELERY_TASK_SOFT_TIME_LIMIT
+    else:
+        logger.info("Disabling Celery soft timeouts on Windows (SIGUSR1 unsupported)")
+
+    app.conf.update(**conf)
+
+    logger.info(
+        "Celery application created",
+        name=name,
+        broker_url=settings.CELERY_BROKER_URL,
+        result_backend=settings.CELERY_RESULT_BACKEND
+    )
+
+    return app
 
 class CeleryHealthChecker:
     """

@@ -9,7 +9,6 @@ import structlog
 from fastapi import UploadFile
 
 from utils.blob_storage import BlobStorageClient
-from utils.redis_client import get_redis_client
 from services.task_publisher import TaskRequestPublisher
 from models.document_schemas import BulkUploadResponse
 
@@ -46,7 +45,7 @@ class DocumentUploadService:
                     temp_file.write(content)
                     temp_file.flush()
 
-                    blob_name = f"{uuid4()}_{filename}"
+                    blob_name = f"input/{uuid4()}_{filename}"
                     upload_result = self.blob_storage_client.upload_file(
                         temp_file.name,
                         blob_name,
@@ -90,8 +89,7 @@ class DocumentUploadService:
 
         if successful_uploads > 0:
             try:
-                redis_client = get_redis_client()
-                task_publisher = TaskRequestPublisher(redis_client)
+                task_publisher = TaskRequestPublisher()
                 task_request_success = await task_publisher.request_document_processing(project_id)
                 
                 if task_request_success:

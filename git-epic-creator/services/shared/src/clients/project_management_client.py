@@ -83,6 +83,8 @@ class ProjectManagementClient:
 
     async def _make_request_with_retry(self, method: str, endpoint: str, **kwargs) -> httpx.Response:
         await self._ensure_client()
+        # Ensure token provider is available even when not using context manager
+        await self._ensure_token_provider()
 
         @retry(
             stop=stop_after_attempt(self.config.MAX_RETRIES + 1),
@@ -174,6 +176,11 @@ class ProjectManagementClient:
                     success=True, status_code=response.status_code,
                     response_data=response.json() if response.content else None,
                 )
+
+            # Treat 404 as non-fatal during best-effort status updates
+            if response.status_code == 404:
+                logger.warning("Project status update target not found; continuing", endpoint=endpoint)
+                return UpdateProjectStatusResult(success=False, status_code=response.status_code)
 
             error_msg = f"HTTP {response.status_code}"
             try:

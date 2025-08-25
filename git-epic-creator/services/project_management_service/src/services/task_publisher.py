@@ -1,21 +1,56 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from utils.redis_abstractions import RedisMode
-from utils.unified_redis_messages import TaskRequestMessage
-from services.redis_publisher import SimpleRedisPublisher
+import structlog
+from utils.celery_factory import get_celery_app
+from utils.ingestion_gating import should_enqueue
+from utils.redis_client import get_redis_client
+from constants import (
+    APP_NAME_PROJECT_MANAGEMENT,
+    GATE_NS_DOCS,
+    TASK_PROCESS_PROJECT_DOCS,
+    QUEUE_DOCUMENT_PROCESSING,
+)
 
-class TaskRequestPublisher(SimpleRedisPublisher):
-    """Thin wrapper over SimpleRedisPublisher for task requests."""
 
-    def __init__(self, redis_client):
-        # Keep using the same naming scheme via RedisChannelConfig; ensure default matches constant
-        super().__init__(redis_client, prefix="task_streams", default_name="document_processing", mode=RedisMode.STREAMS)
+logger = structlog.get_logger(__name__)
+
+
+class TaskRequestPublisher:
+    """
+    Publisher that triggers document processing by enqueuing a Celery task directly.
+    """
+
+    def __init__(self) -> None:
+        # Create a lightweight Celery client using shared configuration
+        self.celery_app = get_celery_app(APP_NAME_PROJECT_MANAGEMENT)
 
     async def request_document_processing(self, project_id: UUID) -> bool:
-        message = TaskRequestMessage(
-            task_type="process_project_documents",
-            project_id=project_id,
-            correlation_id=uuid4(),
-            parameters={},
-        )
-        return await self.publish_message(message)
+        try:
+            # Gate per project to prevent bursts and duplicates
+            redis_client = get_redis_client()
+            if not should_enqueue(GATE_NS_DOCS, str(project_id), client=redis_client):
+                logger.info(
+                    "Document processing enqueue suppressed by gating",
+                    project_id=str(project_id),
+                )
+                return True
+
+            async_result = self.celery_app.send_task(
+                TASK_PROCESS_PROJECT_DOCS,
+                args=[str(project_id)],
+                queue=QUEUE_DOCUMENT_PROCESSING,
+            )
+            logger.info(
+                "Enqueued document processing task via Celery",
+                project_id=str(project_id),
+                task_id=getattr(async_result, "id", None),
+                queue=QUEUE_DOCUMENT_PROCESSING,
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to enqueue document processing task",
+                project_id=str(project_id),
+                error=str(e),
+            )
+            return False

@@ -25,21 +25,12 @@ class SchemaQueryBuilder:
             List[str]: List of Cypher constraint queries
         """
         constraints = [
-            # Entity node constraints
-            ("CREATE CONSTRAINT entity_id_unique IF NOT EXISTS FOR (e:Entity) "
+            ("CREATE CONSTRAINT entity_id_unique_underscored IF NOT EXISTS FOR (e:__Entity__) "
              "REQUIRE e.id IS UNIQUE"),
-
-            # Requirement node constraints
-            ("CREATE CONSTRAINT requirement_id_unique IF NOT EXISTS FOR (r:Requirement) "
-             "REQUIRE r.id IS UNIQUE"),
-
-            # Document node constraints
-            ("CREATE CONSTRAINT document_id_unique IF NOT EXISTS FOR (d:Document) "
+            ("CREATE CONSTRAINT document_id_unique_underscored IF NOT EXISTS FOR (d:__Document__) "
              "REQUIRE d.id IS UNIQUE"),
-
-            # JiraTicket node constraints
-            ("CREATE CONSTRAINT jira_ticket_id_unique IF NOT EXISTS FOR (j:JiraTicket) "
-             "REQUIRE j.id IS UNIQUE")
+            ("CREATE CONSTRAINT community_id_unique_underscored IF NOT EXISTS FOR (c:__Community__) "
+             "REQUIRE c.id IS UNIQUE"),
         ]
 
         logger.debug("Generated constraint queries", count=len(constraints))
@@ -52,34 +43,17 @@ class SchemaQueryBuilder:
         Returns:
             List[str]: List of Cypher index queries
         """
-        # Vector indexes for semantic search with HNSW optimization
-        # Optimized for high-performance semantic search with:
-        # - vector.hnsw.m: 32 (higher than default 16 for better accuracy)
-        # - vector.hnsw.ef_construction: 200 (higher than default 100 for better index quality)
-        # - vector.quantization.enabled: true (for memory efficiency)
+        # Keep options minimal to satisfy 5.x requirements and avoid invalid argument issues
         vector_index_options = (
             "OPTIONS {indexConfig: {"
             "`vector.dimensions`: 1536, "
-            "`vector.similarity_function`: 'cosine', "
-            "`vector.hnsw.m`: 32, "
-            "`vector.hnsw.ef_construction`: 200, "
-            "`vector.quantization.enabled`: true}}"
+            "`vector.similarity_function`: 'cosine'"  
+            "}}"
         )
 
         indexes = [
-            # Vector indexes
-            (f"CREATE VECTOR INDEX requirement_embeddings IF NOT EXISTS FOR (r:Requirement) "
-             f"ON (r.embedding) {vector_index_options}"),
-
-            (f"CREATE VECTOR INDEX entity_embeddings IF NOT EXISTS FOR (e:Entity) "
-             f"ON (e.embedding) {vector_index_options}"),
-
-            # Text indexes for full-text search
-            ("CREATE TEXT INDEX requirement_text_index IF NOT EXISTS FOR (r:Requirement) "
-             "ON (r.text)"),
-            "CREATE TEXT INDEX entity_name_index IF NOT EXISTS FOR (e:Entity) ON (e.name)",
-            ("CREATE TEXT INDEX document_title_index IF NOT EXISTS FOR (d:Document) "
-             "ON (d.title)")
+            (f"CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS FOR (c:Chunk) "
+             f"ON (c.embedding) {vector_index_options}"),
         ]
 
         logger.debug("Generated index queries", count=len(indexes))
@@ -113,7 +87,7 @@ class SchemaQueryBuilder:
         Returns:
             List[str]: List of node type names
         """
-        node_types = ["Entity", "Requirement", "Document", "JiraTicket"]
+        node_types = ["__Entity__", "__Document__", "__Community__"]
         logger.debug("Retrieved node types", count=len(node_types))
         return node_types
 

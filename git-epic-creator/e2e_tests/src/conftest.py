@@ -18,6 +18,7 @@ from neo4j import GraphDatabase
 from config import TestConfig, TestConstants
 from services.redis_test_monitor import RedisTestMonitor
 from shared_utils import ServiceHealthChecker
+from services.workflow_assertions import WorkflowAssertions
 
 
 @pytest.fixture(scope="session")
@@ -274,7 +275,7 @@ class ProjectManager:
             conn = psycopg2.connect(**self.postgres_config)
             cursor = conn.cursor()
             # Delete only the project created by this test to avoid interfering with other tests
-            cursor.execute("DELETE FROM projects WHERE id = %s", (self.project_id,))
+            #cursor.execute("DELETE FROM projects WHERE id = %s", (self.project_id,))
             conn.commit()
             cursor.close()
             conn.close()
@@ -357,3 +358,18 @@ def redis_monitor(redis_config: Dict[str, any]) -> RedisTestMonitor:
         RedisTestMonitor instance configured for document_processing queue
     """
     return RedisTestMonitor(redis_config, queue_name='document_processing')
+
+
+@pytest.fixture(scope="session")
+def blob_storage_config(test_config: TestConfig) -> Dict[str, Any]:
+    """
+    Provide Azure Blob Storage configuration for tests that need to verify
+    ingestion outputs in storage.
+    """
+    return test_config.get_blob_storage_config()
+
+
+@pytest.fixture(scope="function")
+def wa() -> WorkflowAssertions:
+    """Provide a reusable WorkflowAssertions helper instance per test."""
+    return WorkflowAssertions()

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,22 +13,26 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
- dependencies = [
-     "fastapi",
-     "uvicorn[standard]",
-     "neo4j",
-     "structlog",
-     "python-dotenv",
-     "pydantic-settings",
-     "pandas",
-     "fastparquet",
-     "shared @ file:../shared"
- ]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "neo4j",
+    "neo4j-graphrag[openai]",
+    "openai",
+    "structlog",
+    "python-dotenv",
+    "pydantic-settings",
+    "azure-storage-blob",
+    "celery",
+    "redis",
+    "shared @ file:../shared"
+]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-mock",
     "httpx"
 ]
 
@@ -40,3 +44,13 @@ exclude = ["tests*"]
 pythonpath = ["src"] 
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "neo4j_ingestion_service.__version__"}
+
+[project.scripts]
+neo4j-ingestion-service = "neo4j_ingestion_service.main:main"
