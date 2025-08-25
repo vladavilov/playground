@@ -15,6 +15,9 @@ class ProjectStatus(str, Enum):
     INACTIVE = "inactive"
     ARCHIVED = "archived"
     PROCESSING = "processing"
+    RAG_PROCESSING = "rag_processing"
+    RAG_READY = "rag_ready"
+    RAG_FAILED = "rag_failed"
 
 
 class ProjectSet(BaseModel):
@@ -156,7 +159,7 @@ class ProjectProgressUpdateRequest(BaseModel):
         """Validate requirements for PROCESSING status and count relationships."""
         errors = []
 
-        # Check PROCESSING status requirements
+        # Check PROCESSING status requirements (but allow RAG_PROCESSING without counts)
         if self.status == ProjectStatus.PROCESSING:
             if self.processed_count is None:
                 errors.append("processed_count is required when status is PROCESSING")

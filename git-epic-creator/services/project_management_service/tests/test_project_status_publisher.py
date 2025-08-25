@@ -21,23 +21,25 @@ class TestProjectStatusPublisher:
         
         assert publisher is not None
         assert hasattr(publisher, 'publish_project_update')
-        assert hasattr(publisher, 'get_default_channel')
-        assert hasattr(publisher, 'get_default_stream')
+        # Production API exposes prefix/default_name and _channel(); no getters
+        assert hasattr(publisher, 'prefix')
+        assert hasattr(publisher, 'default_name')
+        assert hasattr(publisher, '_channel')
 
     def test_get_default_channel(self):
-        """Test getting default channel name."""
+        """Test getting default channel name (computed)."""
         mock_redis_client = AsyncMock()
         publisher = ProjectStatusPublisher(mock_redis_client)
         
-        channel = publisher.get_default_channel()
+        channel = publisher._channel(publisher.default_name)
         assert channel == "ui:project_progress"
 
     def test_get_default_stream(self):
-        """Test getting default stream name."""
+        """Test getting default stream name (same as channel for UI progress)."""
         mock_redis_client = AsyncMock()
         publisher = ProjectStatusPublisher(mock_redis_client)
         
-        stream = publisher.get_default_stream()
+        stream = publisher._channel(publisher.default_name)
         assert stream == "ui:project_progress"
 
     async def test_publish_project_update_success(self):

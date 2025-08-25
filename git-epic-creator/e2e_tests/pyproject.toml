@@ -20,6 +20,7 @@ dependencies = [
     "redis>=4.5.0",
     "python-jose[cryptography]>=3.3.0",
     "pytest>=7.0.0",
+    "azure-storage-blob"
 ]
 
 [tool.setuptools.packages.find]

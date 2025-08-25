@@ -8,6 +8,8 @@ so it can be tested with lightweight fakes without patching Celery or asyncio.
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List
+from pathlib import Path
+import json
 from uuid import UUID
 import os
 import tempfile
@@ -15,6 +17,69 @@ import structlog
 
 
 Logger = structlog.stdlib.BoundLogger
+
+
+def _extract_filtered_metadata(raw_metadata: Dict[str, Any], filename: str) -> Dict[str, Any]:
+    """
+    Extract and filter relevant metadata for GraphRAG ingestion.
+    
+    Args:
+        raw_metadata: Raw metadata from Tika processor
+        filename: Original filename for file type detection
+        
+    Returns:
+        Filtered metadata with only relevant fields
+    """
+    if not isinstance(raw_metadata, dict):
+        return {}
+    
+    # Extract content type and determine file type
+    content_type = raw_metadata.get("Content-Type", "application/octet-stream")
+    file_extension = Path(filename).suffix.lower().lstrip(".")
+    
+    # Map common content types to file types if extension is not reliable
+    if file_extension in ["pdf", "docx", "xlsx", "pptx", "txt", "md"]:
+        file_type = file_extension
+    elif "pdf" in content_type.lower():
+        file_type = "pdf"
+    elif "wordprocessingml" in content_type.lower():
+        file_type = "docx"
+    elif "spreadsheetml" in content_type.lower():
+        file_type = "xlsx"
+    elif "presentationml" in content_type.lower():
+        file_type = "pptx"
+    elif "text" in content_type.lower():
+        file_type = "txt"
+    else:
+        file_type = file_extension or "unknown"
+    
+    # Extract dates from various possible metadata fields
+    creation_date = None
+    modification_date = None
+    
+    # Try multiple possible date fields
+    date_fields = [
+        "xmp:CreateDate", "dcterms:created", "pdf:docinfo:created",
+        "xmp:ModifyDate", "dcterms:modified", "pdf:docinfo:modified"
+    ]
+    
+    for field in date_fields[:3]:  # Creation date fields
+        if field in raw_metadata and raw_metadata[field]:
+            creation_date = raw_metadata[field]
+            break
+    
+    for field in date_fields[3:]:  # Modification date fields
+        if field in raw_metadata and raw_metadata[field]:
+            modification_date = raw_metadata[field]
+            break
+    
+    return {
+        "file_name": filename,
+        "file_type": file_type,
+        "content_type": content_type,
+        "creation_date": creation_date,
+        "modification_date": modification_date
+    }
 
 
 def process_project_documents_core(
@@ -51,7 +116,7 @@ def process_project_documents_core(
             "error_message": f"Invalid project_id: {exc}",
         }
 
-    list_result = blob_client.list_files(project_id=project_uuid)
+    list_result = blob_client.list_files(project_id=project_uuid, prefix="input/")
     if not getattr(list_result, "success", False):
         error_msg = f"Failed to list files for project: {getattr(list_result, 'error_message', 'unknown error')}"
         log.error("Failed to list project files", project_id=project_id, error=error_msg)
@@ -82,6 +147,26 @@ def process_project_documents_core(
             "note": "No files found - possibly already processed by another task",
         }
 
+    # Publish an initial progress update so UI observes 'processing' before first file completes
+    try:
+        init_progress_result = send_progress_update(
+            project_id,
+            0,
+            total_documents,
+        )
+        if not init_progress_result.get("success"):
+            log.warning(
+                "Initial progress update failed, continuing processing",
+                project_id=project_id,
+                error=init_progress_result.get("error_message"),
+            )
+    except Exception as init_progress_error:  # pragma: no cover - side-effect logging only
+        log.error(
+            "Initial progress update failed with exception, continuing processing",
+            project_id=project_id,
+            error=str(init_progress_error),
+        )
+
     # Process each file
     for blob_name in file_list:
         temp_file_path = None
@@ -106,6 +191,29 @@ def process_project_documents_core(
                     "metadata": getattr(processing_result, "metadata", None),
                 })
                 processed_documents += 1
+
+                # Write structured JSON and upload to output/
+                try:
+                    raw_metadata = getattr(processing_result, "metadata", None) or {}
+                    
+                    # Extract and filter relevant metadata for GraphRAG
+                    filtered_metadata = _extract_filtered_metadata(raw_metadata, os.path.basename(blob_name))
+
+                    output_payload = {
+                        "title": os.path.basename(blob_name),
+                        "text": getattr(processing_result, "extracted_text", None) or "",
+                        "metadata": filtered_metadata
+                    }
+                    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as json_tmp:
+                        json.dump(output_payload, json_tmp)
+                        json_tmp.flush()
+                        json_tmp_path = json_tmp.name
+                    output_name = f"output/{Path(os.path.basename(blob_name)).stem}.json"
+                    upload_result = blob_client.upload_file(json_tmp_path, output_name, project_id=project_uuid)
+                    if not getattr(upload_result, "success", False):
+                        log.warning("Failed to upload output JSON", blob_name=output_name, error=getattr(upload_result, "error_message", None))
+                except Exception as upload_exc:  # pragma: no cover - side-effect logging only
+                    log.error("Exception while uploading output JSON", error=str(upload_exc))
             else:
                 failed_documents += 1
                 log.error("Document processing failed", blob_name=blob_name, error=getattr(processing_result, "error_message", None))
@@ -166,14 +274,6 @@ def process_project_documents_core(
         already_deleted_count=already_deleted_count,
         total_files=len(file_list),
     )
-
-    # Final progress update (completion)
-    try:
-        final_progress_result = send_progress_update(project_id, total_documents, total_documents)
-        if not final_progress_result.get("success"):
-            log.warning("Final progress update failed", project_id=project_id, error=final_progress_result.get("error_message"))
-    except Exception as final_progress_error:  # pragma: no cover - side-effect logging only
-        log.error("Final progress update failed with exception", project_id=project_id, error=str(final_progress_error))
 
     log.info(
         "PROJECT PROCESSING COMPLETED",

@@ -6,6 +6,12 @@ import os
 from functools import lru_cache
 from typing import Dict, List
 from pydantic_settings import BaseSettings
+from constants import (
+    ROUTE_DOCUMENT_TASKS_PATTERN,
+    ROUTE_NEO4J_TASKS_PATTERN,
+    QUEUE_DOCUMENT_PROCESSING,
+    QUEUE_NEO4J_INGESTION,
+)
 
 
 class CelerySettings(BaseSettings):
@@ -34,10 +40,14 @@ class CelerySettings(BaseSettings):
     CELERY_WORKER_MAX_TASKS_PER_CHILD: int = 1000
     CELERY_WORKER_CONCURRENCY: int = 4
 
-    # Task Routing
+    # Broker transport options
+    # Visibility timeout for in-flight tasks (seconds). Keep modest to enable timely redelivery on worker loss.
+    CELERY_BROKER_VISIBILITY_TIMEOUT: int = 60
+
+    # Task Routing (centralized)
     CELERY_TASK_ROUTES: Dict[str, Dict[str, str]] = {
-        'tasks.document_tasks.*': {'queue': 'document_processing'},
-        'tasks.project_tasks.*': {'queue': 'project_management'},
+        ROUTE_DOCUMENT_TASKS_PATTERN: {'queue': QUEUE_DOCUMENT_PROCESSING},
+        ROUTE_NEO4J_TASKS_PATTERN: {'queue': QUEUE_NEO4J_INGESTION},
     }
 
     model_config = {

@@ -15,9 +15,7 @@ configure_logging()
 from configuration.common_config import get_app_settings
 from utils.celery_factory import CeleryHealthChecker
 from utils.app_factory import FastAPIFactory
-from utils.redis_client import get_redis_client
 from services.tika_processor import TikaProcessor
-from task_subscriber import create_task_subscriber
 
 logger = structlog.get_logger(__name__)
 settings = get_app_settings()
@@ -151,6 +149,7 @@ def start_worker():
             'worker',
             '--loglevel=info',
             '--concurrency=2',
+            '--pool=solo',
             '--hostname=document-processor@%h',
             '--queues=document_processing',
             '--prefetch-multiplier=1'
@@ -184,34 +183,7 @@ def start_fastapi_server():
         logger.error("Failed to start FastAPI server", error=error_msg)
         raise
 
-def start_task_subscriber():
-    """
-    Start TaskRequestSubscriber to listen for Redis task requests.
-    Runs in a separate thread and handles Redis pub/sub messages.
-    """
-    try:
-        logger.debug("Starting TaskRequestSubscriber")
-
-        # Import the Celery task function from the registered tasks
-        from tasks.document_tasks import process_project_documents_task
-
-        redis_client = get_redis_client()
-        subscriber = create_task_subscriber(redis_client, process_project_documents_task)
-
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            loop.run_until_complete(subscriber.start_listening())
-        finally:
-            loop.close()
-
-    except Exception as e:
-        logger.error("TaskRequestSubscriber failed", error=str(e), exc_info=True)
-
-
-def start_service_with_subscriber():
+def start_service():
     """
     Start FastAPI server, Celery worker, and TaskRequestSubscriber concurrently using threading.
     
@@ -226,28 +198,25 @@ def start_service_with_subscriber():
         Exception: If any service startup fails
     """
     try:
-        logger.info("Starting Document Processing Service with FastAPI, Celery, and TaskRequestSubscriber")
+        logger.info("Starting Document Processing Service with FastAPI and Celery")
 
         fastapi_thread = threading.Thread(target=start_fastapi_server, name="FastAPI-Server")
         celery_thread = threading.Thread(target=start_worker, name="Celery-Worker")
-        subscriber_thread = threading.Thread(target=start_task_subscriber, name="TaskSubscriber")
 
         # Set as daemon threads so they terminate when main process exits
         fastapi_thread.daemon = True
         celery_thread.daemon = True
-        subscriber_thread.daemon = True
 
         # Start all threads
         fastapi_thread.start()
         celery_thread.start()
-        subscriber_thread.start()
 
         logger.info("All service threads started (FastAPI, Celery, TaskSubscriber)")
 
         # Wait for all threads to complete
         fastapi_thread.join()
         celery_thread.join()
-        subscriber_thread.join()
+        # no Redis Streams subscriber; tasks are triggered directly via Celery broker
 
         logger.info("Document Processing Service shutdown completed")
 
@@ -258,4 +227,4 @@ def start_service_with_subscriber():
 
 
 if __name__ == "__main__":
-    start_service_with_subscriber()
+    start_service()

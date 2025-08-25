@@ -16,12 +16,11 @@ def test_get_constraint_queries_content_and_structure():
     builder = SchemaQueryBuilder()
     constraints = builder.get_constraint_queries()
     constraint_text = " ".join(constraints)
-    expected_node_types = ["Entity", "Requirement", "Document", "JiraTicket"]
+    expected_node_types = ["__Entity__", "__Document__", "__Community__"]
     for node_type in expected_node_types:
         assert f"FOR (e:{node_type})" in constraint_text or \
-               f"FOR (r:{node_type})" in constraint_text or \
                f"FOR (d:{node_type})" in constraint_text or \
-               f"FOR (j:{node_type})" in constraint_text
+               f"FOR (c:{node_type})" in constraint_text
     for constraint in constraints:
         assert constraint.startswith("CREATE CONSTRAINT")
         assert "IF NOT EXISTS" in constraint
@@ -39,11 +38,7 @@ def test_get_index_queries_content_and_structure():
     builder = SchemaQueryBuilder()
     indexes = builder.get_index_queries()
     index_text = " ".join(indexes)
-    assert "requirement_embeddings" in index_text
-    assert "entity_embeddings" in index_text
-    assert "requirement_text_index" in index_text
-    assert "entity_name_index" in index_text
-    assert "document_title_index" in index_text
+    assert "chunk_embeddings" in index_text
     for index in indexes:
         assert index.startswith("CREATE")
         assert "INDEX" in index
@@ -55,16 +50,13 @@ def test_get_vector_and_text_index_queries():
     indexes = builder.get_index_queries()
     vector_indexes = [idx for idx in indexes if "VECTOR INDEX" in idx]
     text_indexes = [idx for idx in indexes if "TEXT INDEX" in idx]
-    assert len(vector_indexes) >= 2
+    assert len(vector_indexes) >= 1
     for vector_index in vector_indexes:
         assert "vector.dimensions" in vector_index
         assert "1536" in vector_index
         assert "vector.similarity_function" in vector_index
         assert "cosine" in vector_index
-    assert len(text_indexes) >= 3
-    for text_index in text_indexes:
-        assert "ON (" in text_index
-        assert ")" in text_index
+    assert len(text_indexes) == 0
 
 # --- All Queries ---
 def test_get_all_queries_combines_constraints_and_indexes():
@@ -85,7 +77,7 @@ def test_get_all_queries_combines_constraints_and_indexes():
 def test_get_node_and_relationship_types():
     builder = SchemaQueryBuilder()
     node_types = builder.get_node_types()
-    expected_types = ["Entity", "Requirement", "Document", "JiraTicket"]
+    expected_types = ["__Entity__", "__Document__", "__Community__"]
     assert set(node_types) == set(expected_types)
     relationships = builder.get_relationship_types()
     expected_relationships = ["REFERENCED_BY", "EVIDENCED_BY", "MERGED_FROM", "RELATED_TO", "DESCRIBED_IN"]

@@ -1,4 +1,4 @@
-FROM python:3.13-slim AS builder
+FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir .
 WORKDIR /app/neo4j_ingestion_service
 RUN pip install --no-cache-dir .
 
-FROM python:3.13-slim AS final
+FROM python:3.12-slim AS final
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -31,6 +31,10 @@ ENV PYTHONPATH=/app/src
 WORKDIR /app
 
 COPY --from=builder /app/neo4j_ingestion_service/src/ ./src/
+
+# Pre-create the GraphRAG workspace root so CLI has a place to initialize
+ENV RAG_WORKSPACE_ROOT=/app/graphrag
+RUN mkdir -p ${RAG_WORKSPACE_ROOT}
 
 ENV API_PORT=8000
 EXPOSE $API_PORT

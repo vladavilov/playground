@@ -28,11 +28,11 @@ services:
       NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-512m}
       NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
       NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-512m}
-      NEO4J_dbms_security_procedures_unrestricted: gds.*,apoc.*
-      NEO4J_dbms_security_procedures_allowlist: gds.*,apoc.*
+      NEO4J_dbms_security_procedures_unrestricted: "gds.*,apoc.*"
+      NEO4J_dbms_security_procedures_allowlist: "gds.*,apoc.*"
       # Connector configuration
-      NEO4J_server_bolt_listen__address: 0.0.0.0:7687
-      NEO4J_server_http_listen__address: 0.0.0.0:7474
+      NEO4J_server_bolt_listen__address: "0.0.0.0:7687"
+      NEO4J_server_http_listen__address: "0.0.0.0:7474"
       NEO4J_db_transaction_timeout: 60s
       NEO4J_PLUGINS: '["apoc"]'
       OAI_KEY: ${OAI_KEY:-key}
@@ -102,6 +102,18 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  neo4j-schema-init:
+    image: curlimages/curl:8.7.1
+    container_name: neo4j_schema_init
+    depends_on:
+      neo4j-maintenance-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    # Run once: initialize Neo4j schema via maintenance service endpoint
+    command: ["-X", "POST", "-f", "http://neo4j-maintenance-service:8000/init-neo4j"]
+    restart: "no"
+
   neo4j-ingestion-service:
     build:
       context: ./services
@@ -116,6 +128,8 @@ services:
     depends_on:
       neo4j-maintenance-service:
         condition: service_healthy
+      neo4j-schema-init:
+        condition: service_completed_successfully
     networks:
       - microservices_network
     healthcheck:
@@ -164,8 +178,6 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
-      project-management-service:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -250,13 +262,32 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  openai-mock-service:
+    build:
+      context: ./services
+      dockerfile: ./openai_mock_service/Dockerfile
+    container_name: openai_mock_service
+    ports:
+      - "8010:8000"
+    env_file:
+      - docker-compose.env
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 2
+      start_period: 10s
+    restart: unless-stopped
+
   gpt-oss-service:
     build:
       context: ./services
       dockerfile: ./gpt_oss/Dockerfile
     container_name: gpt_oss_service
     ports:
-      - "8010:11434"
+      - "8011:11434"
     env_file:
       - docker-compose.env
     networks:
@@ -295,6 +326,8 @@ services:
         condition: service_healthy
       neo4j-maintenance-service:
         condition: service_healthy
+      neo4j-schema-init:
+        condition: service_completed_successfully
       neo4j-ingestion-service:
         condition: service_healthy
       project-management-service:

@@ -8,24 +8,18 @@ to avoid circular imports.
 
 import structlog
 from utils.celery_factory import get_celery_app
+from constants import APP_NAME_DOCUMENT_PROCESSING, EXPECTED_TASKS_DOCUMENT
 
 logger = structlog.get_logger(__name__)
 
-celery_app = get_celery_app("document_processing_service")
+celery_app = get_celery_app(APP_NAME_DOCUMENT_PROCESSING)
 
+# Explicitly import task modules to ensure Celery registers them at worker startup
 try:
-    from tasks import document_tasks
-    logger.info(
-        "Task modules imported successfully",
-        app_name="document_processing_service"
-    )
+    from tasks import document_tasks as _document_tasks  # noqa: F401
+    logger.info("Document tasks module imported for registration")
 except Exception as e:
-    logger.error(
-        "Failed to import task modules",
-        app_name="document_processing_service",
-        error=str(e)
-    )
-    raise
+    logger.error("Failed to import document tasks module", error=str(e))
 
 def get_task_validation_status():
     """
@@ -36,7 +30,7 @@ def get_task_validation_status():
     """
     try:
         discovered_tasks = [task for task in celery_app.tasks.keys() if not task.startswith('celery.')]
-        expected_tasks = ['tasks.document_tasks.process_project_documents_task']
+        expected_tasks = EXPECTED_TASKS_DOCUMENT
         
         missing_tasks = []
         for expected_task in expected_tasks:
@@ -62,8 +56,8 @@ def get_task_validation_status():
         logger.error("Failed to get task validation status", error=str(e))
         return {
             'discovered_tasks': [],
-            'expected_tasks': ['tasks.document_tasks.process_project_documents_task'],
-            'missing_tasks': ['tasks.document_tasks.process_project_documents_task'],
+            'expected_tasks': EXPECTED_TASKS_DOCUMENT,
+            'missing_tasks': EXPECTED_TASKS_DOCUMENT,
             'all_tasks_registered': False,
             'error': str(e)
         }

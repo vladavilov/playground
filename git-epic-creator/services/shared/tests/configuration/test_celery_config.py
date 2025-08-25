@@ -57,7 +57,7 @@ class TestCelerySettings:
         assert settings.CELERY_WORKER_CONCURRENCY == 4
         assert settings.CELERY_TASK_ROUTES == {
             'tasks.document_tasks.*': {'queue': 'document_processing'},
-            'tasks.project_tasks.*': {'queue': 'project_management'},
+            'tasks.neo4j_ingestion.*': {'queue': 'neo4j_ingestion'},
         }
     
     def test_celery_settings_from_environment_variables(self):
@@ -192,6 +192,6 @@ class TestCelerySettings:
         # Assert
         assert isinstance(settings.CELERY_TASK_ROUTES, dict)
         assert 'tasks.document_tasks.*' in settings.CELERY_TASK_ROUTES
-        assert 'tasks.project_tasks.*' in settings.CELERY_TASK_ROUTES
+        assert 'tasks.neo4j_ingestion.*' in settings.CELERY_TASK_ROUTES
         assert settings.CELERY_TASK_ROUTES['tasks.document_tasks.*']['queue'] == 'document_processing'
-        assert settings.CELERY_TASK_ROUTES['tasks.project_tasks.*']['queue'] == 'project_management'
+        assert settings.CELERY_TASK_ROUTES['tasks.neo4j_ingestion.*']['queue'] == 'neo4j_ingestion'

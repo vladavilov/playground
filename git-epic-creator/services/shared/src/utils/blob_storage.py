@@ -271,12 +271,12 @@ class BlobStorageClient:
                 error_message=error_msg
             )
 
-    def list_files(self, project_id: Optional[UUID] = None, prefix: Optional[str] = None) -> BlobStorageResult:
+    def list_files(self, project_id: UUID, prefix: Optional[str] = None) -> BlobStorageResult:
         """
         List files in Azure Blob Storage.
         
         Args:
-            project_id: Optional project ID to filter files
+            project_id: Project ID to filter files
             prefix: Optional prefix to filter files
             
         Returns:
