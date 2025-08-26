@@ -18,7 +18,7 @@
           <input id="projectName" type="text" class="w-full border rounded px-3 py-2" placeholder="Project name" />
           <button id="createProject" class="px-3 py-2 bg-indigo-600 text-white rounded">Create</button>
         </div>
-        <ul id="projectsList" class="space-y-2"></ul>
+        <ul id="projectsList" class="space-y-2 overflow-y-auto max-h-[calc(100vh-240px)] pr-1"></ul>
       </div>
     </aside>
 
@@ -42,7 +42,10 @@
             <div class="h-2 bg-slate-200 rounded overflow-hidden">
               <div id="progressBar" class="h-2 bg-emerald-500 w-0"></div>
             </div>
-            <div id="progressText" class="text-sm text-slate-600 mt-1">No processing yet</div>
+            <div class="flex items-center gap-2 mt-2">
+              <span id="statusBadge"></span>
+              <div id="progressText" class="text-sm text-slate-600">No processing yet</div>
+            </div>
           </div>
         </div>
 
@@ -55,6 +58,55 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- Loading overlay -->
+  <div id="loadingOverlay" class="fixed inset-0 bg-white/60 backdrop-blur-sm hidden items-center justify-center z-50">
+    <div class="animate-spin h-10 w-10 border-4 border-slate-300 border-t-indigo-600 rounded-full"></div>
+  </div>
+
+  <!-- Project form modal -->
+  <div id="projectModal" class="fixed inset-0 bg-slate-900/40 hidden items-center justify-center z-50">
+    <div class="bg-white rounded shadow w-full max-w-xl">
+      <div class="px-4 py-3 border-b flex items-center justify-between">
+        <h3 id="projectModalTitle" class="font-semibold">Project</h3>
+        <button id="projectModalClose" class="px-2 py-1 text-sm">✕</button>
+      </div>
+      <form id="projectForm" class="p-4 space-y-3">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">Name</label>
+          <input id="f_name" class="w-full border rounded px-3 py-2" required />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">Description</label>
+          <textarea id="f_description" class="w-full border rounded px-3 py-2" rows="3"></textarea>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">GitLab URL</label>
+          <input id="f_gitlab_url" class="w-full border rounded px-3 py-2" placeholder="https://gitlab.com/group/project" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">Repository URL</label>
+          <input id="f_gitlab_repository_url" class="w-full border rounded px-3 py-2" placeholder="https://gitlab.com/group/project.git" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">Status</label>
+          <select id="f_status" class="w-full border rounded px-3 py-2">
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="archived">Archived</option>
+            <option value="processing">Processing</option>
+            <option value="rag_processing">RAG Processing</option>
+            <option value="rag_ready">RAG Ready</option>
+            <option value="rag_failed">RAG Failed</option>
+          </select>
+        </div>
+        <div class="pt-2 flex gap-2 justify-end border-t">
+          <button type="button" id="projectFormCancel" class="px-3 py-2 border rounded">Cancel</button>
+          <button type="submit" id="projectFormSubmit" class="px-3 py-2 bg-indigo-600 text-white rounded">Save</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script type="module" src="/ui.js"></script>
