@@ -6,6 +6,8 @@ const state = {
   selected: null,
   evtSource: null,
   token: null,
+  loadingCount: 0,
+  editTargetId: null,
 };
 
 async function loadConfig() {
@@ -38,7 +40,13 @@ class ApiClient {
     const init = { method, headers: this._buildHeaders(headers || {}, Boolean(json)) };
     if (json !== undefined) init.body = JSON.stringify(json);
     if (formData !== undefined) init.body = formData;
-    const res = await fetch(url, init);
+    showLoading();
+    let res;
+    try {
+      res = await fetch(url, init);
+    } finally {
+      hideLoading();
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       throw new Error(`${method} ${path} failed: ${res.status} ${detail}`);
@@ -83,14 +91,14 @@ function renderProjects() {
       el('div', { class: 'flex items-start justify-between gap-2' }, [
         el('div', {}, [
           el('div', { class: 'font-semibold' }, p.name || '(untitled)'),
-          el('div', { class: 'text-sm text-slate-600 mt-1' }, `Status: ${p.status}`),
+          el('div', { class: 'mt-1' }, [getStatusBadge(p.status)]),
           el('div', { class: 'text-xs text-slate-500' }, `ID: ${p.id}`),
           p.description ? el('div', { class: 'text-sm text-slate-600' }, p.description) : null,
-          p.gitlab_url ? el('a', { class: 'text-sm text-sky-600 underline', href: p.gitlab_url, target: '_blank' }, 'GitLab Project') : null,
-          p.gitlab_repository_url ? el('a', { class: 'text-sm text-sky-600 underline block', href: p.gitlab_repository_url, target: '_blank' }, 'Repository') : null,
+          renderGitInfoLine(p.gitlab_url, 'project'),
+          renderGitInfoLine(p.gitlab_repository_url, 'repository'),
         ]),
         el('div', { class: 'flex flex-col gap-2' }, [
-          el('button', { class: 'px-2 py-1 text-sm border rounded', onclick: () => selectProject(p) }, 'Open'),
+          el('button', { class: 'px-2 py-1 text-sm border rounded', onclick: () => selectProject(p) }, 'Select'),
           el('button', { class: 'px-2 py-1 text-sm border rounded', onclick: () => openEdit(p) }, 'Edit'),
           el('button', { class: 'px-2 py-1 text-sm border rounded text-rose-600', onclick: () => removeProject(p) }, 'Delete'),
         ])
@@ -118,11 +126,11 @@ function renderDetails() {
   box.append(
     el('div', { class: 'text-lg font-semibold' }, p.name || '(untitled)'),
     p.description ? el('div', { class: 'mt-1 text-slate-700' }, p.description) : null,
-    el('div', { class: 'text-sm text-slate-600 mt-2' }, `Status: ${p.status}`),
+    el('div', { class: 'mt-2' }, [getStatusBadge(p.status)]),
     el('div', { class: 'text-sm text-slate-600' }, `Created: ${p.created_at}`),
     el('div', { class: 'text-sm text-slate-600' }, `Updated: ${p.updated_at}`),
-    p.gitlab_url ? el('a', { class: 'text-sm text-sky-600 underline block mt-2', href: p.gitlab_url, target: '_blank' }, 'GitLab Project') : null,
-    p.gitlab_repository_url ? el('a', { class: 'text-sm text-sky-600 underline block', href: p.gitlab_repository_url, target: '_blank' }, 'Repository') : null,
+    el('div', { class: 'text-sm mt-2' }, [renderGitInfoLine(p.gitlab_url, 'project')]),
+    el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_repository_url, 'repository')]),
   );
 }
 
@@ -132,27 +140,31 @@ async function fetchProjects() {
   renderProjects();
 }
 
-async function createProject() {
-  const name = document.getElementById('projectName').value.trim();
-  if (!name) return;
-  try {
-    await api.postJson('/projects', { name });
-  } catch (e) {
-    alert('Create failed');
-    return;
+// UI helpers
+function renderGitInfoLine(value, type) {
+  const has = value && String(value).trim() !== '';
+  if (has) {
+    return el('a', { class: 'text-sm text-sky-600 underline block', href: value, target: '_blank' }, type === 'project' ? 'GitLab Project' : 'Repository');
   }
-  document.getElementById('projectName').value = '';
-  await fetchProjects();
+  return el('div', { class: 'text-sm text-slate-500' }, type === 'project' ? 'N/A project' : 'N/A repository');
 }
 
-async function openEdit(p) {
-  const name = prompt('Project name', p.name || '');
-  if (name == null) return;
-  try {
-    await api.putJson(`/projects/${p.id}`, { name });
-  } catch (e) { alert('Update failed'); return; }
-  await fetchProjects();
+function getStatusBadge(status) {
+  const s = (status || '').toLowerCase();
+  const base = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ';
+  // Use a consistent ramp: processing (blue) -> active (emerald) -> rag_processing (teal) -> rag_ready (green)
+  let cls = 'bg-slate-100 text-slate-700';
+  if (s === 'processing') cls = 'bg-blue-100 text-blue-700';
+  else if (s === 'active') cls = 'bg-emerald-100 text-emerald-700';
+  else if (s === 'rag_processing') cls = 'bg-teal-100 text-teal-700';
+  else if (s === 'rag_ready') cls = 'bg-green-100 text-green-700';
+  else if (s.includes('failed') || s === 'rag_failed') cls = 'bg-rose-100 text-rose-700';
+  return el('span', { class: base + cls }, s || 'unknown');
 }
+
+async function createProject() { openProjectModal(null); }
+
+async function openEdit(p) { openProjectModal(p); }
 
 async function removeProject(p) {
   const ok = confirm('Delete project?');
@@ -168,6 +180,17 @@ async function removeProject(p) {
 function selectProject(p) {
   state.selected = p;
   renderDetails();
+  // Reset upload pane progress visuals on project switch
+  try {
+    const text = document.getElementById('progressText');
+    const bar = document.getElementById('progressBar');
+    const input = document.getElementById('fileInput');
+    const badgeHost = document.getElementById('statusBadge');
+    if (text) text.textContent = 'No processing yet';
+    if (bar) bar.style.width = '0%';
+    if (input) input.value = '';
+    if (badgeHost) { badgeHost.innerHTML = ''; }
+  } catch {}
 }
 
 async function uploadFiles() {
@@ -178,6 +201,9 @@ async function uploadFiles() {
   for (const f of files) form.append('files', f);
   try {
     await api.postForm(`/projects/${state.selected.id}/documents/upload`, form);
+    // Reset input after successful upload
+    const input = document.getElementById('fileInput');
+    if (input) input.value = '';
   } catch (e) { alert('Upload failed'); return; }
 }
 
@@ -194,11 +220,20 @@ function connectSSE() {
       if (!state.selected || String(state.selected.id) !== String(msg.project_id)) return;
       const text = document.getElementById('progressText');
       const bar = document.getElementById('progressBar');
-      const total = msg.total_count || 0;
-      const processed = msg.processed_count || 0;
-      const pct = msg.processed_pct != null ? msg.processed_pct : (total > 0 ? processed / total : 0);
-      text.textContent = `Status: ${msg.status} — ${Math.round(pct * 100)}% (${processed}/${total})`;
-      bar.style.width = `${Math.round(pct * 100)}%`;
+      const badgeHost = document.getElementById('statusBadge');
+      if (badgeHost) { badgeHost.innerHTML = ''; badgeHost.appendChild(getStatusBadge(msg.status)); }
+      const status = String(msg.status || '').toLowerCase();
+      if (status === 'rag_processing' || status === 'rag_ready') {
+        text.textContent = `Status: ${msg.status}`;
+        bar.style.width = '0%';
+      } else {
+        const total = Number.isFinite(msg.total_count) ? msg.total_count : 0;
+        const processed = Number.isFinite(msg.processed_count) ? msg.processed_count : 0;
+        const pct = (Number.isFinite(msg.processed_pct) ? msg.processed_pct : (total > 0 ? (processed / total) * 100 : 0));
+        const safePct = Math.max(0, Math.min(100, Math.round(pct)));
+        text.textContent = `Status: ${msg.status} — ${safePct}% (${processed}/${total})`;
+        bar.style.width = `${safePct}%`;
+      }
     } catch {}
   });
 }
@@ -217,6 +252,14 @@ function setupActions() {
     if (!state.selected) return;
     window.location.href = `/chat.html#${state.selected.id}`;
   });
+  // Modal wiring
+  const close = () => toggleProjectModal(false);
+  const btnClose = document.getElementById('projectModalClose');
+  const btnCancel = document.getElementById('projectFormCancel');
+  if (btnClose) btnClose.addEventListener('click', close);
+  if (btnCancel) btnCancel.addEventListener('click', close);
+  const form = document.getElementById('projectForm');
+  if (form) form.addEventListener('submit', submitProjectForm);
 }
 
 async function init() {
@@ -232,6 +275,69 @@ async function init() {
   connectSSE();
   await fetchProjects();
 }
+
+// Loading overlay helpers
+function showLoading() {
+  state.loadingCount += 1;
+  const overlay = document.getElementById('loadingOverlay');
+  if (overlay && state.loadingCount > 0) overlay.classList.remove('hidden');
+}
+
+function hideLoading() {
+  state.loadingCount = Math.max(0, state.loadingCount - 1);
+  const overlay = document.getElementById('loadingOverlay');
+  if (overlay && state.loadingCount === 0) overlay.classList.add('hidden');
+}
+
+// Project modal helpers
+function toggleProjectModal(show) {
+  const modal = document.getElementById('projectModal');
+  if (!modal) return;
+  if (show) modal.classList.remove('hidden'); else modal.classList.add('hidden');
+}
+
+function openProjectModal(project) {
+  state.editTargetId = project ? project.id : null;
+  const title = document.getElementById('projectModalTitle');
+  if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
+  document.getElementById('f_name').value = project?.name || '';
+  document.getElementById('f_description').value = project?.description || '';
+  document.getElementById('f_gitlab_url').value = project?.gitlab_url || '';
+  document.getElementById('f_gitlab_repository_url').value = project?.gitlab_repository_url || '';
+  document.getElementById('f_status').value = (project?.status || 'active').toLowerCase();
+  toggleProjectModal(true);
+}
+
+async function submitProjectForm(ev) {
+  ev.preventDefault();
+  const payload = {
+    name: document.getElementById('f_name').value.trim(),
+    description: valOrNull(document.getElementById('f_description').value),
+    gitlab_url: emptyToNull(document.getElementById('f_gitlab_url').value),
+    gitlab_repository_url: emptyToNull(document.getElementById('f_gitlab_repository_url').value),
+    status: document.getElementById('f_status').value,
+  };
+  if (!payload.name) { alert('Name is required'); return; }
+  try {
+    if (state.editTargetId) {
+      await api.putJson(`/projects/${state.editTargetId}`, payload);
+    } else {
+      await api.postJson('/projects', payload);
+    }
+    toggleProjectModal(false);
+    await fetchProjects();
+    if (state.editTargetId && state.selected && String(state.selected.id) === String(state.editTargetId)) {
+      state.selected = state.projects.find(x => String(x.id) === String(state.editTargetId)) || null;
+      renderDetails();
+    }
+    state.editTargetId = null;
+  } catch (e) {
+    alert('Save failed');
+  }
+}
+
+function emptyToNull(v) { const s = (v || '').trim(); return s === '' ? null : s; }
+function valOrNull(v) { const s = (v || '').trim(); return s === '' ? null : s; }
 
 init().catch(err => console.error(err));
 

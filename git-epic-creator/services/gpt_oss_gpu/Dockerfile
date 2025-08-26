@@ -35,6 +35,6 @@ HEALTHCHECK --interval=20s --timeout=5s --start-period=30s --retries=5 \
   CMD curl -fsS http://localhost:8000/v1/models || exit 1
 
 # Start vLLM OpenAI-compatible server
-ENTRYPOINT ["tini","-g","--","bash","-lc","python -m vllm.entrypoints.openai.api_server --host 0.0.0.0 --port ${PORT} --model ${MODEL_ID} ${VLLM_ARGS}"]
+ENTRYPOINT ["tini","-g","--","bash","-lc","python3 -m vllm.entrypoints.openai.api_server --host 0.0.0.0 --port ${PORT} --model ${MODEL_ID} ${VLLM_ARGS}"]
 
 

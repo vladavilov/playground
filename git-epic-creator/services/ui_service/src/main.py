@@ -3,6 +3,8 @@
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import Request
+from pydantic import BaseModel, Field
+from uuid import UUID
 from typing import AsyncIterator
 import asyncio
 import json
@@ -90,6 +92,64 @@ async def get_dev_token():
         r = await client.post(url)
         r.raise_for_status()
         return JSONResponse(r.json())
+
+
+class ChatMessageRequest(BaseModel):
+    project_id: UUID = Field(..., description="Project ID for scoping the chat")
+    prompt: str = Field(..., min_length=1, description="User prompt text")
+
+
+class ChatMessageResponse(BaseModel):
+    role: str = "assistant"
+    content: str
+
+
+async def _publish_agentic_updates(project_id: UUID):
+    """Publish mock agentic workflow updates to UI channel via Redis."""
+    try:
+        redis = get_redis_client()
+        async def pub(payload: dict):
+            await redis.publish(UI_PROJECT_PROGRESS_CHANNEL, json.dumps(payload))
+
+        # Start processing
+        await pub({
+            "project_id": str(project_id),
+            "status": "rag_processing",
+            "step": "Analyze prompt",
+            "score": 0.2
+        })
+        await asyncio.sleep(0.6)
+
+        await pub({
+            "project_id": str(project_id),
+            "status": "rag_processing",
+            "step": "Search knowledge graph",
+            "score": 0.5
+        })
+        await asyncio.sleep(0.6)
+
+        await pub({
+            "project_id": str(project_id),
+            "status": "rag_ready",
+            "step": "Synthesize answer",
+            "score": 1.0
+        })
+    except Exception as e:
+        logger.warning("Agentic mock publish failed", error=str(e))
+
+
+@app.post("/chat/message")
+async def chat_message(req: ChatMessageRequest):
+    """
+    Mock chat endpoint. Returns a synthetic markdown answer and publishes
+    mock agentic workflow step/score updates via Redis to the UI SSE channel.
+    """
+    # Kick off background agentic updates (non-blocking)
+    asyncio.create_task(_publish_agentic_updates(req.project_id))
+
+    # Produce a simple markdown response based on the prompt
+    content = f"""## Proposed Approach\n\nYou asked: `{req.prompt}`\n\n- We will analyze existing documents and project context.\n- Then we will derive epics and user stories suitable for GitLab.\n- Finally, we will validate acceptance criteria.\n\n> This is a mocked response until the agentic workflow is available.\n"""
+    return JSONResponse(ChatMessageResponse(content=content).model_dump())
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
