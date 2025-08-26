@@ -7,7 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen w-screen">
-  <div class="flex flex-col h-screen w-screen">
+  <div class="flex flex-col h-screen w-screen min-h-0">
     <!-- Header: project title + status badge -->
     <header class="flex items-center justify-between px-4 py-3 border-b bg-white">
       <div class="flex items-center gap-2">
@@ -19,8 +19,8 @@
     </header>
 
     <!-- Content area: markdown output + agent events -->
-    <main class="flex-1 grid grid-rows-[1fr_auto]">
-      <section class="overflow-y-auto p-4" id="chatOutput">
+    <main class="flex-1 flex flex-col min-h-0">
+      <section class="flex-1 overflow-y-auto p-4" id="chatOutput">
         <!-- Chat/LLM markdown-rendered messages go here -->
       </section>
 
@@ -170,33 +170,3 @@
   </script>
 </body>
 </html>
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Project Chat</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-50 text-slate-900">
-  <main class="max-w-3xl mx-auto p-6">
-    <a href="/" class="text-sky-600 underline">← Back</a>
-    <h1 class="text-2xl font-semibold mt-4">Requirements Chat</h1>
-    <p class="text-sm text-slate-600">Coming soon: Agentic workflow to populate GitLab issues.</p>
-    <div class="mt-6 bg-white border rounded p-4">
-      <label class="block text-sm text-slate-600">Project ID</label>
-      <input id="projectId" class="w-full border rounded px-3 py-2" placeholder="UUID" />
-      <div class="mt-4 flex gap-2">
-        <input id="message" class="flex-1 border rounded px-3 py-2" placeholder="Type a message..." />
-        <button class="px-4 py-2 bg-indigo-600 text-white rounded" onclick="send()">Send</button>
-      </div>
-    </div>
-  </main>
-  <script>
-    function send(){ alert('This is a placeholder for the agentic chat flow.'); }
-  </script>
-</body>
-</html>
-
-
