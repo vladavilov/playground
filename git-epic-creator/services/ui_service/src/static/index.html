@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="min-h-screen grid grid-cols-1 lg:grid-cols-12">
+    <aside id="projectsPanel" class="lg:col-span-4 xl:col-span-3 border-r border-slate-200 bg-white hidden lg:block">
+      <div class="p-4 flex items-center justify-between border-b">
+        <h2 class="text-lg font-semibold">Projects</h2>
+        <button id="togglePanel" class="lg:hidden inline-flex items-center px-3 py-1 rounded border text-sm">Hide</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <div class="flex gap-2">
+          <input id="projectName" type="text" class="w-full border rounded px-3 py-2" placeholder="Project name" />
+          <button id="createProject" class="px-3 py-2 bg-indigo-600 text-white rounded">Create</button>
+        </div>
+        <ul id="projectsList" class="space-y-2"></ul>
+      </div>
+    </aside>
+
+    <main class="lg:col-span-8 xl:col-span-9">
+      <div class="p-4 border-b flex items-center justify-between bg-white">
+        <div class="flex items-center gap-2">
+          <button id="openPanel" class="lg:hidden px-3 py-1 rounded border text-sm">Projects</button>
+          <h1 class="text-xl font-semibold">Project Details</h1>
+        </div>
+        <div class="text-sm text-slate-500" id="statusBar">Disconnected</div>
+      </div>
+
+      <section class="p-6 space-y-6">
+        <div id="projectDetails" class="bg-white border rounded p-4 hidden"></div>
+
+        <div id="uploadSection" class="bg-white border rounded p-4 hidden">
+          <h3 class="font-semibold mb-3">Upload documents</h3>
+          <input id="fileInput" type="file" multiple class="block mb-3" />
+          <button id="uploadBtn" class="px-4 py-2 bg-emerald-600 text-white rounded">Upload</button>
+          <div class="mt-4">
+            <div class="h-2 bg-slate-200 rounded overflow-hidden">
+              <div id="progressBar" class="h-2 bg-emerald-500 w-0"></div>
+            </div>
+            <div id="progressText" class="text-sm text-slate-600 mt-1">No processing yet</div>
+          </div>
+        </div>
+
+        <div id="chatSection" class="bg-white border rounded p-4 hidden">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold">Requirements Chat</h3>
+            <button id="openChatBtn" class="px-3 py-2 bg-sky-600 text-white rounded">Open Chat</button>
+          </div>
+          <p class="text-sm text-slate-600 mt-2">Start AI-assisted requirements capture and push to GitLab.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/ui.js"></script>
+</body>
+  
+</html>
+
+

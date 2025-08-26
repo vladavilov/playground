@@ -166,6 +166,33 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  ui-service:
+    build:
+      context: ./services
+      dockerfile: ./ui_service/Dockerfile
+    container_name: ui_service
+    ports:
+      - "8007:8000"
+    environment:
+      - API_PORT=8000
+      - PM_API_BASE=http://project-management-service:8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      project-management-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   document-processing-service:
     build:
       context: ./services
