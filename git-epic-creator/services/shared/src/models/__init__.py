@@ -19,7 +19,6 @@ from .document_schemas import (
     DocumentMetadata,
     BulkUploadResponse
 )
-from .ingestion_messages import IngestionTriggerMessage
 
 __all__ = [
     # Project database models
@@ -39,6 +38,4 @@ __all__ = [
     "DocumentProcessingStatus",
     "DocumentMetadata",
     "BulkUploadResponse",
-    # Ingestion messages
-    "IngestionTriggerMessage",
 ]
