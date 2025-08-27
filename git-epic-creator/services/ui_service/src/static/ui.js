@@ -8,6 +8,7 @@ const state = {
   token: null,
   loadingCount: 0,
   editTargetId: null,
+  filterText: '',
 };
 
 async function loadConfig() {
@@ -86,26 +87,21 @@ function el(tag, attrs = {}, children = []) {
 function renderProjects() {
   const list = document.getElementById('projectsList');
   list.innerHTML = '';
-  state.projects.forEach(p => {
-    const item = el('li', { class: 'border rounded p-3 hover:bg-slate-50' }, [
-      el('div', { class: 'flex items-start justify-between gap-2' }, [
-        el('div', {}, [
-          el('div', { class: 'font-semibold' }, p.name || '(untitled)'),
-          el('div', { class: 'mt-1' }, [getStatusBadge(p.status)]),
-          el('div', { class: 'text-xs text-slate-500' }, `ID: ${p.id}`),
-          p.description ? el('div', { class: 'text-sm text-slate-600' }, p.description) : null,
-          renderGitInfoLine(p.gitlab_url, 'project'),
-          renderGitInfoLine(p.gitlab_repository_url, 'repository'),
-        ]),
-        el('div', { class: 'flex flex-col gap-2' }, [
-          el('button', { class: 'px-2 py-1 text-sm border rounded', onclick: () => selectProject(p) }, 'Select'),
-          el('button', { class: 'px-2 py-1 text-sm border rounded', onclick: () => openEdit(p) }, 'Edit'),
-          el('button', { class: 'px-2 py-1 text-sm border rounded text-rose-600', onclick: () => removeProject(p) }, 'Delete'),
+  const q = (state.filterText || '').toLowerCase();
+  state.projects
+    .filter(p => (p.name || '').toLowerCase().includes(q))
+    .forEach(p => {
+      const item = el('li', { class: 'border rounded p-3 hover:bg-slate-50 cursor-pointer', onclick: () => selectProject(p), role: 'button', tabindex: '0' }, [
+        el('div', { class: 'flex items-start justify-between gap-2' }, [
+          el('div', {}, [
+            el('div', { class: 'font-semibold' }, p.name || '(untitled)'),
+            p.description ? el('div', { class: 'text-sm text-slate-600 mt-1 truncate' }, p.description) : null,
+          ]),
+          el('div', { class: 'mt-0.5' }, [getStatusBadge(p.status)])
         ])
-      ])
-    ]);
-    list.appendChild(item);
-  });
+      ]);
+      list.appendChild(item);
+    });
 }
 
 function renderDetails() {
@@ -247,6 +243,8 @@ function setupPanelToggle() {
 
 function setupActions() {
   document.getElementById('createProject').addEventListener('click', createProject);
+  const search = document.getElementById('projectName');
+  if (search) search.addEventListener('input', (e) => { state.filterText = e.target.value || ''; renderProjects(); });
   document.getElementById('uploadBtn').addEventListener('click', uploadFiles);
   document.getElementById('openChatBtn').addEventListener('click', () => {
     if (!state.selected) return;
