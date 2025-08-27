@@ -175,13 +175,14 @@ services:
       - "8007:8000"
     environment:
       - API_PORT=8000
-      - PM_API_BASE=http://project-management-service:8000
     env_file:
       - docker-compose.env
     depends_on:
       redis:
         condition: service_healthy
       project-management-service:
+        condition: service_healthy
+      mock-auth-service:
         condition: service_healthy
     networks:
       - microservices_network
@@ -307,6 +308,8 @@ services:
       retries: 2
       start_period: 10s
     restart: unless-stopped
+    profiles:
+      - e2e-tests
 
   gpt-oss-service:
     build:
@@ -314,7 +317,7 @@ services:
       dockerfile: ./gpt_oss/Dockerfile
     container_name: gpt_oss_service
     ports:
-      - "8011:11434"
+      - "8010:11434"
     env_file:
       - docker-compose.env
     networks:

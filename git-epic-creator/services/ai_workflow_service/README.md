@@ -105,7 +105,7 @@ Agentic Pipeline (expanded, requirements‑focused)
      2) Audit (ConsistencyAuditor): detect conflicts, gaps, duplicates, non‑testable ACs, compliance issues.
      3) Revise: apply audit diffs; if blocking issues remain, propose targeted clarifications.
    - Stop when: score ≥ threshold, or max_iters reached, or no material diffs.
-   - Libraries: langgraph for iteration/checkpointing; prompts enforce citation and Given/When/Then ACs. Publish status: drafting_requirements.
+   - Libraries: langgraph for iteration/checkpointing; prompts enforce citation and Given/When/Then ACs. Publish status: drafting_requirements on each iteration, including chain_of_thought output from llm.
 
 4) Consistency, Constraints, and Compliance (ConsistencyAuditor)
    - Checks: contradiction detection, duplicate/overlap clustering, constraint coverage, AC testability (Given/When/Then presence), NFRs mapping, regulatory mapping.

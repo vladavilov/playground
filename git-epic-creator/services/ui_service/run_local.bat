@@ -21,10 +21,10 @@ if defined DO_INSTALL (
 
 REM Ports and endpoints exposed by docker-compose on the host
 set API_PORT=8000
-set PM_API_BASE=http://localhost:8003
+set PROJECT_MANAGEMENT_SERVICE_URL=http://localhost:8003
 set REDIS_URL=redis://localhost:6379
 
-echo Starting UI Service on port %API_PORT% with PM_API_BASE=%PM_API_BASE%
+echo Starting UI Service on port %API_PORT% with PROJECT_MANAGEMENT_SERVICE_URL=%PROJECT_MANAGEMENT_SERVICE_URL%
 python -m src.main
 
 endlocal
