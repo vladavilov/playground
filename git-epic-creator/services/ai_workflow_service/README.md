@@ -27,22 +27,28 @@ Interfaces
 
 - Outbound calls:
   - GraphRAG Retrieval Service (HTTP):
-    - GET /search/entities?q=..., GET /search/docs?q=..., POST /search/composite { strategies: [...] }
-    - Must support multiple strategy queries per request to minimize latency.
-
-- Redis Pub/Sub:
-  - Channel: ui:ai_workflow_progress
-  - Publisher messages follow the WorkflowProgressMessage schema.
+    - POST /v1/retrieve { project_id, plan, strategies[], weights }
+    - Supports multiple retrieval strategies per request with weighting to minimize latency and improve recall/precision.
 
 Message Schemas
 
-- WorkflowProgressMessage:
+- WorkflowProgressMessage (user-visible step updates):
   - message_type: "ai_workflow_progress"
   - project_id: string (UUID)
+  - stage: string (e.g., "prompt_decomposition", "retrieve_context", "draft_requirements", "audit", "traceability", "evaluate")
+  - iteration?: integer (>=1)
   - status: string (e.g., "analyzing_prompt", "retrieving_context", "drafting_requirements", "evaluating", "needs_clarification", "completed", "error")
   - score?: number in [0,1]
-  - chain_of_thought?: string (expanded reasoning text as configured)
-  - timestamp, message_id — provided by unified message base
+  - thought_summary: string (concise summary of progress/insight; no raw chain-of-thought)
+  - citations?: string[] (optional evidence ids/refs; sanitized)
+  - visibility: string ("user" | "internal"), default "user"
+  - message_id: string (UUID)
+  - timestamp: string (ISO8601)
+
+Redis Pub/Sub
+
+- Channel: "ui:ai_workflow_progress"
+- Publisher sends only `WorkflowProgressMessage` for user-visible updates.
 
 Data Models (local Pydantic)
 
@@ -64,13 +70,15 @@ Data Models (local Pydantic)
   - acceptance_criteria: string[]
   - priority: string (e.g., Must/Should/Could/Won’t)
 
-  (StepTrace removed — no step‑level traces are returned in the bundle)
-
 - ClarificationQuestion
   - id: string
   - text: string
   - options?: string[] (optional multiple choice to speed up user response)
   - expected_impact: string (short reason how it will raise the score)
+  - axis?: string ("precision" | "grounding" | "completeness" | "feasibility")
+  - priority?: integer (1 = highest)
+  - expected_score_gain?: number (0..1)
+  - targets?: string[] (ids of affected requirements/intents)
 
 - QuestionAnswer
   - id: string (matches ClarificationQuestion.id)
@@ -86,7 +94,7 @@ Agentic Pipeline (expanded, requirements‑focused)
    - Intent classification: feature, enhancement, bugfix, compliance, reporting, etc.
    - Decompose into atomic requirement intents and constraints (NER + pattern libs).
    - Extract domain entities, KPIs, SLAs, regulatory markers.
-   - Output: DecompositionGraph. Publish status: analyzing_prompt, with chain_of_thought.
+   - Output: DecompositionGraph. Publish WorkflowProgressMessage (status: analyzing_prompt, stage: "prompt_decomposition").
 
 2) GraphRAG Context Retrieval (ContextRetriever)
    - Proxy design: This service does not connect to Neo4j directly; it prepares strategy inputs and calls the external GraphRAG service.
@@ -95,7 +103,7 @@ Agentic Pipeline (expanded, requirements‑focused)
      2) Construct payload with multiple strategies (entity_neighborhood, relation_paths, hybrid_semantic, schema_guided, ranking weights for trust/recency/centrality).
      3) POST /v1/retrieve {project_id, plan, strategies[]} to GraphRAG service.
      4) Apply resilience: httpx AsyncClient, exponential backoff (tenacity), per‑strategy fallbacks, partial aggregation on timeout.
-     5) Normalize response into ContextPack with provenance and citations. Publish status: retrieving_context.
+     5) Normalize response into ContextPack with provenance and citations. Publish WorkflowProgressMessage (status: retrieving_context, stage: "retrieve_context").
 
 3) Requirement Synthesis (RequirementEngineer) — iterative agentic loop
    - Approach: iterative refinement with reflection, guided by prompt + ContextPack + prior iteration output.
@@ -105,31 +113,31 @@ Agentic Pipeline (expanded, requirements‑focused)
      2) Audit (ConsistencyAuditor): detect conflicts, gaps, duplicates, non‑testable ACs, compliance issues.
      3) Revise: apply audit diffs; if blocking issues remain, propose targeted clarifications.
    - Stop when: score ≥ threshold, or max_iters reached, or no material diffs.
-   - Libraries: langgraph for iteration/checkpointing; prompts enforce citation and Given/When/Then ACs. Publish status: drafting_requirements on each iteration, including chain_of_thought output from llm.
+   - Libraries: langgraph for iteration/checkpointing; prompts enforce citation and Given/When/Then ACs. Publish WorkflowProgressMessage on each iteration (status: drafting_requirements, stage: "draft_requirements", iteration).
 
 4) Consistency, Constraints, and Compliance (ConsistencyAuditor)
    - Checks: contradiction detection, duplicate/overlap clustering, constraint coverage, AC testability (Given/When/Then presence), NFRs mapping, regulatory mapping.
    - Methods: rule‑based validators + LLM critique prompts with citations back to ContextPack.
    - Links: requirement ↔ constraints ↔ entities; surface missing links as gaps.
-   - Output: ValidatedRequirements + risks + assumptions. Publish status update to Redis (WorkflowProgressMessage) with {project_id, status: "evaluating", score?}.
+   - Output: ValidatedRequirements + risks + assumptions. Publish WorkflowProgressMessage (status: evaluating, stage: "audit").
 
 5) Traceability Enrichment
    - Build bidirectional trace: requirement ↔ evidence (graph ids, doc ids), requirement ↔ constraint, FR ↔ ACs; capture source spans.
    - Generate citation map for each requirement pointing to ContextPack items.
    - Produce machine‑readable trace tables to support downstream tooling (e.g., Git epics/stories).
-   - Output: EnrichedRequirements. Publish status: evaluating.
+   - Output: EnrichedRequirements. Publish WorkflowProgressMessage (status: evaluating, stage: "traceability").
 
 6) Evaluation and Scoring (Evaluator)
    - Compute metrics: precision/faithfulness, grounding, completeness, feasibility.
-   - Aggregate to s ∈ [0,1] (see rubric below). Publish status: evaluating with score.
+   - Aggregate to s ∈ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, stage: "evaluate", score) summarizing rubric axes.
 
 7a) If s ≥ 0.70 → Finalize
-   - Return RequirementsBundle, publish status: completed with score.
+   - Return RequirementsBundle. Publish WorkflowProgressMessage (status: completed, stage: "evaluate", score).
 
 7b) If s < 0.70 → Clarification Loop (QuestionStrategist)
    - Identify weakest rubric axes and missing evidence/constraints.
    - Generate targeted clarification_questions with expected_impact descriptions.
-   - Publish status: needs_clarification.
+   - Publish WorkflowProgressMessage (status: needs_clarification, stage: "evaluate", score).
    - On POST /workflow/answers: augment DecompositionGraph/ContextPack, repeat steps 2–6 until s ≥ 0.70 or question budget exhausted.
 
 Evaluation Rubric (configurable) and Technical Implementation
@@ -146,45 +154,51 @@ Evaluation Rubric (configurable) and Technical Implementation
   - Completeness: `ragas.metrics.AspectCritic` with definition "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria; return 1 else 0" and/or `RubricsScore` tuned to requirements completeness.
   - Optional: ContextRecall/ContextPrecision for retrieval sanity checks.
 
-Composite scoring API (example):
+Implementation note: Scoring uses Ragas metrics (Faithfulness, ResponseGroundedness, AspectCritic) with configurable weights; feasibility may be heuristic. Example code is omitted here for brevity.
 
-```python
-from ragas.metrics import Faithfulness, ResponseGroundedness, AspectCritic
-from ragas.llms import LangchainLLMWrapper
+ 
 
-class CompletenessScorer:
-    def __init__(self, llm, weights=None):
-        self.evaluator_llm = LangchainLLMWrapper(llm)
-        self.faithfulness = Faithfulness(llm=self.evaluator_llm)
-        self.groundedness = ResponseGroundedness(llm=self.evaluator_llm)
-        self.completeness = AspectCritic(
-            name="Requirements Completeness",
-            llm=self.evaluator_llm,
-            definition=(
-                "Return 1 if the requirements comprehensively cover user intents, "
-                "constraints, and include testable acceptance criteria grounded in context; else 0."
-            ),
-        )
-        self.weights = weights or dict(precision=0.40, grounding=0.30, completeness=0.20, feasibility=0.10)
+Input/Output Contracts
 
-    async def score(self, user_input, response, retrieved_contexts, feasibility_hint=None):
-        sample = SingleTurnSample(user_input=user_input, response=response, retrieved_contexts=retrieved_contexts)
-        p = await self.faithfulness.single_turn_ascore(sample)
-        g = await self.groundedness.single_turn_ascore(sample)
-        c = await self.completeness.single_turn_ascore(sample)
-        f = 1.0 if (feasibility_hint or self._heuristic_feasibility(response)) else 0.5
-        w = self.weights
-        return p*w["precision"] + g*w["grounding"] + c*w["completeness"] + f*w["feasibility"], dict(p=p,g=g,c=c,f=f)
+- Input (POST /workflow/requirements):
+  - project_id: UUID
+  - prompt: string (free-form)
 
-    def _heuristic_feasibility(self, response):
-        # simple heuristic: presence of measurable ACs, constraints, and no contradictions
-        return all(k in response.lower() for k in ["given", "when", "then"]) 
+- Output (score ≥ 0.70):
+  - RequirementsBundle plus markdown_text: string (requirements in markdown with headings/ACs)
+
+- Output (score < 0.70):
+  - RequirementsBundle with clarification_questions populated
+
+Examples
+
+```json
+{
+  "prompt_id": "...",
+  "project_id": "...",
+  "business_requirements": [...],
+  "functional_requirements": [...],
+  "assumptions": [...],
+  "risks": [...],
+  "score": 0.78,
+  "markdown_text": "## Business Requirements\n...\n## Functional Requirements\n..."
+}
 ```
 
-Redis Pub/Sub Integration
-
-- Channel: "ui:ai_workflow_progress" (new channel for AI Workflow updates).
-- Publisher logic mirrors existing publisher but uses `WorkflowProgressMessage` with fields { project_id, status, score? }.
+```json
+{
+  "prompt_id": "...",
+  "project_id": "...",
+  "business_requirements": [...],
+  "functional_requirements": [...],
+  "assumptions": [...],
+  "risks": [...],
+  "score": 0.62,
+  "clarification_questions": [
+    {"id": "Q1", "text": "Which reporting time window is required?", "axis": "completeness", "expected_impact": "Enables ACs for report latency", "priority": 1, "expected_score_gain": 0.08}
+  ]
+}
+```
 
 Service Components
 
@@ -221,35 +235,24 @@ Implementation Notes
 - Log and publish non‑PII status only.
 - Respect existing channel naming and message schema used by ui_service/project_management_service.
 
-Prompt Decomposition Details (NER + pattern libs)
+Prompt Decomposition Details (brief)
 
-- Goals: break the user prompt into minimal, testable requirement intents and explicit constraints to guide retrieval and synthesis.
-- Techniques:
-  - NER stack: spaCy pipelines (en_core_web_trf) with domain adapters, plus custom EntityRuler for product/module names, systems, SLAs, KPIs, regulatory refs (e.g., GDPR articles), actors/roles.
-  - Pattern libraries: curated regex/patterns for dates, amounts, KPI forms, SLO/SLA phrasing, non-functional requirements (performance, security, availability), CRUD verbs, reporting/aggregation patterns.
-  - Intent classifier: lightweight text classifier (e.g., scikit‑learn/SVC or small transformer) to tag intents: feature/enhancement/bugfix/compliance/reporting/migration.
-  - Constraint extractor: dependency phrases (must/shall/should/unless), scope bounds, acceptance hints; normalize to canonical constraint objects.
-- Output structure (DecompositionGraph):
-  - intents: [{id, type, verb, object, modifiers}]
-  - constraints: [{id, type, expression, normalized_value, source_span}]
-  - domain_entities: [{name, type, aliases}]
-  - metrics_and_slas: [{metric, target, unit, window}]
-  - compliance_markers: [{regulation, clause, topic}]
-  - links: edges among intents ↔ constraints ↔ entities
-
-Implementation notes:
-- Use spaCy Pipeline with EntityRuler before the transformer NER to boost domain precision.
-- Maintain pattern packs as versioned YAML with tests; load at startup.
-- All extracted items carry source spans for traceability.
+- Extract minimal, testable requirement intents and explicit constraints to guide retrieval and synthesis.
+- Techniques: spaCy with EntityRuler, curated pattern libraries, lightweight intent classifier, and a constraint extractor.
+- Output: DecompositionGraph with intents, constraints, entities, metrics/SLAs, compliance markers, links among them, and source spans for traceability.
+- For deeper NER/pattern details, see the Design Details document.
 
 Example Progress Messages
 
 {
   "message_type": "ai_workflow_progress",
   "project_id": "<uuid>",
+  "stage": "evaluate",
   "status": "evaluating",
   "score": 0.62,
-  "timestamp": "<iso>"
+  "thought_summary": "Scoring draft against retrieved context; gaps in completeness.",
+  "message_id": "<uuid>",
+  "timestamp": "<iso-8601>"
 }
 
 Acceptance Criteria
