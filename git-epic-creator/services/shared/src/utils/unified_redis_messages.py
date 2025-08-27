@@ -65,9 +65,3 @@ class ProjectProgressMessage():
             return cls(**data)
         except (KeyError, ValueError, TypeError) as e:
             raise ValueError(f"Invalid ProjectProgressMessage format: {e}")
-
-def create_message_registry() -> MessageTypeRegistry:
-    """Create message type registry for unified Redis messages."""
-    registry = MessageTypeRegistry()
-    registry.register_message_type("project_progress", ProjectProgressMessage)
-    return registry

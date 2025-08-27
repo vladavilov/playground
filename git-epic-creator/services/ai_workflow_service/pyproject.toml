@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "document-processing-service"
 version = "1.0.0"
-description = "Document Processing Service for Agentic AI Requirements Engineering System"
+description = "Agentic AI Workflow microservice, handling ai-enhanced respons workflow"
 authors = [
     { name = "Vladyslav Avilov", email = "vladyslav.avilov@email.com" }
 ]
@@ -17,12 +17,6 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "structlog",
-    "asyncpg",
-    "tika>=3.1.0",
-    "azure-storage-blob",
-    "httpx",
-    "requests",
-    "tenacity",
     "shared @ file:../shared"
 ]
 
@@ -30,8 +24,6 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
-    "pytest-mock",
-    "httpx"
 ]
 
 [tool.pytest.ini_options]
