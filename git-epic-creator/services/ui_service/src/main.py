@@ -1,6 +1,6 @@
 """FastAPI app serving static UI and SSE bridge to Redis pubsub."""
 
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi import Request
 from pydantic import BaseModel, Field
@@ -72,9 +72,10 @@ async def sse_events(request: Request):
 
 @app.get("/config")
 async def get_ui_config():
-    pm_api_base = os.getenv("PM_API_BASE", "http://localhost:8080")
+    # Always instruct the browser to call our same-origin proxy.
+    # The server will use PROJECT_MANAGEMENT_SERVICE_URL internally.
     return JSONResponse({
-        "projectManagementApiBase": pm_api_base,
+        "projectManagementApiBase": "/api",
         "progressChannel": UI_PROJECT_PROGRESS_CHANNEL,
     })
 
@@ -83,15 +84,65 @@ async def get_ui_config():
 async def get_dev_token():
     """
     Development helper: fetch a mock access token from mock-auth-service.
-    Requires MOCK_AUTH_BASE and AZURE_TENANT_ID env vars. Defaults to localhost ports.
+    Uses AZURE_AD_AUTHORITY and AZURE_TENANT_ID env vars. Defaults point to mock-auth-service in compose.
     """
-    base = os.getenv("MOCK_AUTH_BASE", "http://localhost:8005")
+    authority = os.getenv("AZURE_AD_AUTHORITY", "http://mock-auth-service:8000")
     tenant = os.getenv("AZURE_TENANT_ID", "e7963c3a-3b3a-43b6-9426-89e433d07e69")
-    url = f"{base.rstrip('/')}/{tenant}/oauth2/v2.0/token"
+    url = f"{authority.rstrip('/')}/{tenant}/oauth2/v2.0/token"
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(url)
         r.raise_for_status()
         return JSONResponse(r.json())
+
+
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_to_project_management(path: str, request: Request):
+    """
+    Reverse proxy endpoint that forwards browser requests to the
+    Project Management Service using Docker-internal networking.
+    Only the bearer token (Authorization header) is forwarded from the
+    incoming request; all other incoming headers are dropped.
+    """
+    upstream_base = os.getenv("PROJECT_MANAGEMENT_SERVICE_URL", "http://project-management-service:8000").rstrip("/")
+    # Preserve original query string
+    target_url = f"{upstream_base}/{path}"
+    if request.url.query:
+        target_url = f"{target_url}?{request.url.query}"
+
+    # Forward only Authorization header (bearer token). All other incoming
+    # headers are intentionally not forwarded.
+    forward_headers = {}
+    auth_header = request.headers.get("authorization")
+    if auth_header:
+        forward_headers["Authorization"] = auth_header
+    # Ensure upstream can parse payloads (JSON, multipart, etc.) by
+    # explicitly setting Content-Type to match the incoming request.
+    ct = request.headers.get("content-type")
+    if ct:
+        forward_headers["Content-Type"] = ct
+
+    body = await request.body()
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                content=body if body else None,
+                headers=forward_headers,
+            )
+    except httpx.RequestError as exc:
+        return JSONResponse({"detail": f"Upstream request failed: {str(exc)}"}, status_code=502)
+
+    # Build response without passing through upstream headers.
+    content_type = resp.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            return JSONResponse(resp.json(), status_code=resp.status_code)
+        except Exception:
+            # Fallback if body isn't valid JSON
+            return Response(content=resp.content, status_code=resp.status_code)
+    return Response(content=resp.content, status_code=resp.status_code)
 
 
 class ChatMessageRequest(BaseModel):
