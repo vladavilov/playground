@@ -76,7 +76,7 @@
     const projectTitleEl = document.getElementById('chatProjectTitle');
     const projectStatusEl = document.getElementById('chatProjectStatus');
 
-    const state = { config: null, token: null, projectId: null, project: null };
+    const state = { config: null, token: null, projectId: null, project: null, boxesByPromptId: {}, thinkingBoxes: [], activeBox: null, pendingBox: null };
 
     function scrollToBottom() { chatOutput.scrollTop = chatOutput.scrollHeight; }
 
@@ -93,6 +93,81 @@
       const header = meta ? `<div class="text-xs text-slate-500 mb-1">${meta}</div>` : '';
       wrap.innerHTML = `${header}<div class="bg-slate-50 border rounded p-3">${renderMarkdown(md)}</div>`;
       chatOutput.appendChild(wrap); scrollToBottom();
+    }
+
+    function appendAssistantHtml(html, meta) {
+      const wrap = document.createElement('div');
+      wrap.className = 'mb-3';
+      const header = meta ? `<div class="text-xs text-slate-500 mb-1">${meta}</div>` : '';
+      wrap.innerHTML = `${header}<div class="bg-slate-50 border rounded p-3">${html}</div>`;
+      chatOutput.appendChild(wrap); scrollToBottom();
+    }
+
+    // Thinking box UI helpers
+    function createThinkingBox(promptId = null) {
+      const wrap = document.createElement('details');
+      wrap.className = 'thinking-box bg-white border rounded p-3 relative my-3';
+      wrap.open = true;
+
+      const summary = document.createElement('summary');
+      summary.className = 'cursor-pointer select-none text-xs text-slate-500 pr-8';
+      summary.innerText = 'Agent thought stream';
+
+      const pill = document.createElement('span');
+      pill.className = 'pill absolute -top-2 left-2 text-[10px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200 animate-pulse';
+      pill.textContent = 'Thinking…';
+      summary.appendChild(pill);
+
+      const messages = document.createElement('div');
+      messages.className = 'mt-2 space-y-1 messages text-sm text-slate-500';
+
+      wrap.appendChild(summary);
+      wrap.appendChild(messages);
+      chatOutput.appendChild(wrap);
+      scrollToBottom();
+
+      const startedAt = Date.now();
+      const box = {
+        promptId: promptId,
+        element: wrap,
+        setPromptId(newId) {
+          if (!newId) return;
+          this.promptId = newId;
+          state.boxesByPromptId[newId] = this;
+        },
+        appendStream(text) {
+          if (!text) return;
+          const line = document.createElement('div');
+          line.textContent = String(text);
+          messages.appendChild(line);
+          scrollToBottom();
+        },
+        finish(status = 'ok') {
+          const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+          pill.textContent = `Thinked ${seconds}s`;
+          pill.className = 'pill absolute -top-2 left-2 text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600';
+          if (status !== 'ok') {
+            pill.className += ' ring-2 ring-rose-200 text-rose-700 bg-rose-50';
+          }
+          wrap.open = false;
+        }
+      };
+
+      state.thinkingBoxes.push(box);
+      if (promptId) state.boxesByPromptId[promptId] = box;
+      state.activeBox = box;
+      return box;
+    }
+
+    function getOrCreateBoxForPromptId(promptId) {
+      if (!promptId) return state.activeBox || state.pendingBox || createThinkingBox(null);
+      if (state.boxesByPromptId[promptId]) return state.boxesByPromptId[promptId];
+      // If there is a pending box without id, bind it
+      if (state.pendingBox && !state.pendingBox.promptId) {
+        state.pendingBox.setPromptId(promptId);
+        const b = state.pendingBox; state.pendingBox = null; state.activeBox = b; return b;
+      }
+      return createThinkingBox(promptId);
     }
 
     async function loadConfig() {
@@ -125,38 +200,177 @@
         if (!text) return;
         appendUserMessage(text);
         chatInput.value = '';
-        // Send to backend mock chat endpoint
+        state.currentPrompt = text;
+        // start a pending thinking box immediately
+        const pending = createThinkingBox(null);
+        state.pendingBox = pending;
+        // Send to AI Workflow requirements endpoint
         try {
-          const res = await fetch('/chat/message', {
+          const base = state.config.aiWorkflowApiBase.replace(/\/$/, '');
+          const headers = { 'Content-Type': 'application/json' };
+          if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+          const res = await fetch(`${base}/requirements`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ project_id: state.projectId, prompt: text })
           });
           if (res.ok) {
-            const data = await res.json();
-            appendModelMessage(data.content || '');
+            const bundle = await res.json();
+            state.currentBundle = bundle;
+            appendAssistantHtml(renderBundleHtml(bundle), 'Assistant • Requirements');
+            if (Array.isArray(bundle.clarification_questions) && bundle.clarification_questions.length) {
+              wireClarificationsHandlers(bundle);
+            }
+            // finalize the thinking box linked to this prompt
+            const pid = bundle.prompt_id;
+            if (pending && !pending.promptId && pid) pending.setPromptId(pid);
+            const box = (pid && state.boxesByPromptId[pid]) ? state.boxesByPromptId[pid] : pending;
+            if (box) box.finish('ok');
           } else {
-            appendModelMessage('Error: failed to get response', 'System');
+            appendModelMessage('Error: failed to generate requirements', 'System');
+            if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
           }
         } catch (err) {
-          appendModelMessage('Network error while sending message', 'System');
+          appendModelMessage('Network error while contacting AI workflow', 'System');
+          if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
         }
       });
     }
 
     function subscribeSSE() {
       const es = new EventSource('/events');
-      es.addEventListener('project_progress', (evt) => {
+      // Listen for orchestrator AI workflow progress messages
+      es.addEventListener('ai_workflow_progress', (evt) => {
         try {
           const msg = JSON.parse(evt.data);
           if (!state.projectId || String(state.projectId) !== String(msg.project_id)) return;
-          projectStatusEl.innerHTML = ''; projectStatusEl.appendChild(getStatusBadge(msg.status));
-          // Optional: show agentic step updates if provided
-          if (msg.step || msg.score != null) {
-            const meta = `Step: ${msg.step ?? '-'}  Score: ${msg.score ?? '-'}`;
-            appendModelMessage(`Workflow update — ${meta}`, 'Agent');
-          }
+          // Update status badge from orchestrator status
+          projectStatusEl.innerHTML = '';
+          projectStatusEl.appendChild(getStatusBadge(msg.status));
+          // Route thought summary into a thinking box correlated by prompt_id
+          const summary = msg.thought_summary || '...';
+          const pid = msg.prompt_id || null;
+          const box = getOrCreateBoxForPromptId(pid);
+          if (box) box.appendStream(summary);
         } catch {}
+      });
+    }
+
+    function renderBundleHtml(bundle) {
+      const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const list = (arr) => (Array.isArray(arr) && arr.length) ? arr.map(i=>`<li class="list-disc ml-6">${esc(i)}</li>`).join('') : '<div class="text-slate-500">None</div>';
+      const reqs = (items) => (Array.isArray(items) && items.length) ? items.map(r => `
+        <div class="border rounded p-3 mb-2 bg-white">
+          <div class="font-medium">${esc(r.title)}</div>
+          <div class="text-sm text-slate-600 mb-1">${esc(r.description)}</div>
+          <div class="text-xs"><span class="font-medium">Priority:</span> ${esc(r.priority)}</div>
+          <div class="mt-1">
+            <div class="text-xs font-medium">Acceptance Criteria</div>
+            <ul>${list(r.acceptance_criteria)}</ul>
+          </div>
+        </div>
+      `).join('') : '<div class="text-slate-500">None</div>';
+
+      let html = `
+        <div class="flex items-center justify-between">
+          <div class="text-sm text-slate-600">Prompt ID: <span class="font-mono">${esc(bundle.prompt_id)}</span></div>
+          <div class="text-sm">Score: <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">${esc(bundle.score)}</span></div>
+        </div>
+        <h3 class="text-base font-semibold mt-3">Business Requirements</h3>
+        <div>${reqs(bundle.business_requirements)}</div>
+        <h3 class="text-base font-semibold mt-3">Functional Requirements</h3>
+        <div>${reqs(bundle.functional_requirements)}</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+          <div>
+            <h3 class="text-base font-semibold">Assumptions</h3>
+            <ul>${list(bundle.assumptions)}</ul>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold">Risks</h3>
+            <ul>${list(bundle.risks)}</ul>
+          </div>
+        </div>
+      `;
+
+      if (Array.isArray(bundle.clarification_questions) && bundle.clarification_questions.length) {
+        const qHtml = bundle.clarification_questions.map(q => {
+          const input = Array.isArray(q.options) && q.options.length
+            ? `<select name="q_${esc(q.id)}" class="border rounded px-2 py-1 w-full">${q.options.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>`
+            : `<input type="text" name="q_${esc(q.id)}" class="border rounded px-2 py-1 w-full" placeholder="Your answer" />`;
+          return `
+            <div class="border rounded p-3 bg-white">
+              <div class="text-sm font-medium mb-1">${esc(q.text)}</div>
+              <div class="text-xs text-slate-600 mb-2">${esc(q.expected_impact)}</div>
+              ${input}
+            </div>
+          `;
+        }).join('');
+
+        html += `
+          <div id="clarify_${esc(bundle.prompt_id)}" class="mt-4 border-t pt-3">
+            <div class="mb-2 text-sm text-slate-600">Additional clarifications needed to reach target quality.</div>
+            <div class="space-y-2">${qHtml}</div>
+            <div class="mt-3">
+              <button data-prompt-id="${esc(bundle.prompt_id)}" class="clarify-submit px-3 py-1.5 bg-indigo-600 text-white rounded">Submit answers</button>
+            </div>
+          </div>
+        `;
+      }
+
+      return html;
+    }
+
+    function wireClarificationsHandlers(bundle) {
+      const container = document.getElementById(`clarify_${bundle.prompt_id}`);
+      if (!container) return;
+      const btn = container.querySelector('button.clarify-submit');
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        btn.disabled = true; btn.classList.add('opacity-50');
+        // collect answers
+        const answers = [];
+        (bundle.clarification_questions || []).forEach(q => {
+          const el = container.querySelector(`[name="q_${q.id}"]`);
+          if (el && el.value) answers.push({ id: q.id, answer: String(el.value) });
+        });
+        try {
+          const base = state.config.aiWorkflowApiBase.replace(/\/$/, '');
+          const headers = { 'Content-Type': 'application/json' };
+          if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+          // start a pending thinking box for answers flow
+          const pending = createThinkingBox(null);
+          state.pendingBox = pending;
+          const res = await fetch(`${base}/answers`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              project_id: state.projectId,
+              prompt_id: bundle.prompt_id,
+              prompt: state.currentPrompt || '',
+              answers
+            })
+          });
+          if (res.ok) {
+            const nextBundle = await res.json();
+            state.currentBundle = nextBundle;
+            appendAssistantHtml(renderBundleHtml(nextBundle), 'Assistant • Updated Requirements');
+            if (Array.isArray(nextBundle.clarification_questions) && nextBundle.clarification_questions.length) {
+              wireClarificationsHandlers(nextBundle);
+            }
+            const pid = nextBundle.prompt_id;
+            if (pending && !pending.promptId && pid) pending.setPromptId(pid);
+            const box = (pid && state.boxesByPromptId[pid]) ? state.boxesByPromptId[pid] : pending;
+            if (box) box.finish('ok');
+          } else {
+            appendModelMessage('Error: failed to submit answers', 'System');
+            if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
+          }
+        } catch (err) {
+          appendModelMessage('Network error while submitting answers', 'System');
+          if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
+        } finally {
+          btn.disabled = false; btn.classList.remove('opacity-50');
+        }
       });
     }
 

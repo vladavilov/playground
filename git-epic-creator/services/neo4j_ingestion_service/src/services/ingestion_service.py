@@ -1,4 +1,5 @@
 import logging
+import inspect
 import os
 import time
 from pathlib import Path
@@ -7,8 +8,8 @@ from typing import Any, Dict
 
 from utils.neo4j_client import Neo4jClient
 from utils.blob_storage import get_blob_storage_client
-from configuration.common_config import get_app_settings
 from ingestion.graphrag_pipeline import prepare_document_from_json, run_documents
+from config import get_graphrag_settings
 
 class Neo4jIngestionService:
     
@@ -26,7 +27,7 @@ class Neo4jIngestionService:
 
         # 1) Sync inputs from Blob → WORKDIR/{project_id}/input (JSON files only)
         try:
-            workspace_root = Path(get_app_settings().graphrag.RAG_WORKSPACE_ROOT)
+            workspace_root = Path(get_graphrag_settings().RAG_WORKSPACE_ROOT)
             input_dir = workspace_root / project_id / "input"
             input_dir.mkdir(parents=True, exist_ok=True)
 
@@ -68,7 +69,10 @@ class Neo4jIngestionService:
                 # Run the GraphRAG pipeline with all prepared documents
                 if documents_to_ingest:
                     try:
-                        await run_documents(self.client.driver, documents_to_ingest)
+                        result = run_documents(self.client.driver, documents_to_ingest)
+                        # Support both async (real) and sync (test mock) callables
+                        if inspect.isawaitable(result):
+                            await result
                         self.logger.info("Successfully processed %d documents through GraphRAG pipeline", len(documents_to_ingest))
                         # Cleanup source JSONs only after successful ingestion
                         for blob_name in blobs_to_delete:

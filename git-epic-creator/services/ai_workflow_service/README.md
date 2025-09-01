@@ -75,7 +75,7 @@ Data Models (local Pydantic)
   - text: string
   - options?: string[] (optional multiple choice to speed up user response)
   - expected_impact: string (short reason how it will raise the score)
-  - axis?: string ("precision" | "grounding" | "completeness" | "feasibility")
+  - axis?: string ("precision" | "grounding" | "response_relevancy" | "completeness")
   - priority?: integer (1 = highest)
   - expected_score_gain?: number (0..1)
   - targets?: string[] (ids of affected requirements/intents)
@@ -128,7 +128,7 @@ Agentic Pipeline (expanded, requirements‑focused)
    - Output: EnrichedRequirements. Publish WorkflowProgressMessage (status: evaluating, stage: "traceability").
 
 6) Evaluation and Scoring (Evaluator)
-   - Compute metrics: precision/faithfulness, grounding, completeness, feasibility.
+   - Compute metrics: precision/faithfulness, grounding, response_relevancy, completeness.
    - Aggregate to s ∈ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, stage: "evaluate", score) summarizing rubric axes.
 
 7a) If s ≥ 0.70 → Finalize
@@ -143,20 +143,20 @@ Agentic Pipeline (expanded, requirements‑focused)
 Evaluation Rubric (configurable) and Technical Implementation
 
 - Weights (defaults):
-  - precision_weight: 0.40 — faithfulness vs. retrieved evidence
+  - precision_weight: 0.30 — faithfulness vs. retrieved evidence
   - grounding_weight: 0.30 — explicit citations and support
+  - response_relevancy_weight: 0.20 — topical relevance to the prompt/project
   - completeness_weight: 0.20 — covers intents, constraints, ACs, and traceability
-  - feasibility_weight: 0.10 — realistic, testable, implementable
 
-- Implementation (Ragas‑based evaluators):
-  - Faithfulness: `ragas.metrics.Faithfulness`
-  - Grounding: `ragas.metrics.ResponseGroundedness`
-  - Completeness: `ragas.metrics.AspectCritic` with definition "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria; return 1 else 0" and/or `RubricsScore` tuned to requirements completeness.
-  - Optional: ContextRecall/ContextPrecision for retrieval sanity checks.
+- Implementation (DeepEval‑based evaluators):
+  - Faithfulness: `deepeval.metrics.FaithfulnessMetric`
+  - Grounding: `deepeval.metrics.GEval` (criteria enforces citation/derivation from provided context; params: ACTUAL_OUTPUT + CONTEXT)
+  - ResponseRelevancy: `deepeval.metrics.AnswerRelevancyMetric`
+  - Completeness: `deepeval.metrics.GEval` (criteria ensures intents/constraints addressed with testable ACs; params: INPUT + ACTUAL_OUTPUT)
+  - Optional: Retrieval sanity checks via `deepeval.metrics.ContextualRelevancyMetric` or `ContextualPrecisionMetric`.
 
-Implementation note: Scoring uses Ragas metrics (Faithfulness, ResponseGroundedness, AspectCritic) with configurable weights; feasibility may be heuristic. Example code is omitted here for brevity.
+Implementation note: Scoring uses DeepEval metrics with configurable weights via `EVAL_WEIGHTS`. Only axes present in weights contribute to the final score.
 
- 
 
 Input/Output Contracts
 
