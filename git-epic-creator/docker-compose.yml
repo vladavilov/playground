@@ -218,6 +218,53 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  neo4j-retrieval-service:
+    build:
+      context: ./services
+      dockerfile: ./neo4j_retrieval_service/Dockerfile
+    container_name: neo4j_retrieval_service
+    ports:
+      - "8008:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  ai-workflow-service:
+    build:
+      context: ./services
+      dockerfile: ./ai_workflow_service/Dockerfile
+    container_name: ai_workflow_service
+    ports:
+      - "8009:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      neo4j-retrieval-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   # Redis for Celery background tasks
   redis:
     image: redis:7-alpine

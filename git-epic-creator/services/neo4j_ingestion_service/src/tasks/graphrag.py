@@ -21,7 +21,7 @@ from services.ingestion_service import Neo4jIngestionService
 from utils.retry_policy import compute_retry_decision
 from utils.neo4j_client import get_neo4j_client
 from clients.project_management_client import ProjectManagementClient
-from configuration.common_config import get_app_settings
+from config import get_graphrag_settings
 import asyncio
 from utils.redis_client import get_redis_client, get_sync_redis_client
 from utils.ingestion_gating import post_run_cleanup
@@ -94,7 +94,7 @@ def run_graphrag_job(
             pass
         if ran_successfully:
             try:
-                root = Path(get_app_settings().graphrag.RAG_WORKSPACE_ROOT)
+                root = Path(get_graphrag_settings().RAG_WORKSPACE_ROOT)
                 workdir: Path = root / project_id
                 shutil.rmtree(workdir, ignore_errors=True)
             except Exception:

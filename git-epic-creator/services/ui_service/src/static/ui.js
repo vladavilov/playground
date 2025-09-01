@@ -127,6 +127,9 @@ function renderDetails() {
     el('div', { class: 'text-sm text-slate-600' }, `Updated: ${p.updated_at}`),
     el('div', { class: 'text-sm mt-2' }, [renderGitInfoLine(p.gitlab_url, 'project')]),
     el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_repository_url, 'repository')]),
+    el('div', { class: 'mt-4 flex items-center justify-end' }, [
+      el('button', { class: 'px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete project')
+    ])
   );
 }
 
@@ -162,9 +165,11 @@ async function createProject() { openProjectModal(null); }
 
 async function openEdit(p) { openProjectModal(p); }
 
-async function removeProject(p) {
-  const ok = confirm('Delete project?');
-  if (!ok) return;
+async function removeProject(p, options = { skipConfirm: false }) {
+  if (!options || options.skipConfirm !== true) {
+    const ok = confirm('Delete project?');
+    if (!ok) return;
+  }
   try {
     await api.delete(`/projects/${p.id}`);
   } catch (e) { alert('Delete failed'); return; }
@@ -258,6 +263,21 @@ function setupActions() {
   if (btnCancel) btnCancel.addEventListener('click', close);
   const form = document.getElementById('projectForm');
   if (form) form.addEventListener('submit', submitProjectForm);
+
+  // Delete modal wiring
+  const deleteClose = () => toggleDeleteModal(false);
+  const dm = document.getElementById('deleteModal');
+  const dmClose = document.getElementById('deleteModalClose');
+  const dmCancel = document.getElementById('deleteCancelBtn');
+  const dmConfirm = document.getElementById('deleteConfirmBtn');
+  if (dmClose) dmClose.addEventListener('click', deleteClose);
+  if (dmCancel) dmCancel.addEventListener('click', deleteClose);
+  if (dm) dm.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') deleteClose(); });
+  if (dmConfirm) dmConfirm.addEventListener('click', async () => {
+    if (!state.selected) { deleteClose(); return; }
+    await removeProject(state.selected, { skipConfirm: true });
+    deleteClose();
+  });
 }
 
 async function init() {
@@ -304,6 +324,19 @@ function openProjectModal(project) {
   document.getElementById('f_gitlab_repository_url').value = project?.gitlab_repository_url || '';
   document.getElementById('f_status').value = (project?.status || 'active').toLowerCase();
   toggleProjectModal(true);
+}
+
+// Delete modal helpers
+function toggleDeleteModal(show) {
+  const modal = document.getElementById('deleteModal');
+  if (!modal) return;
+  if (show) modal.classList.remove('hidden'); else modal.classList.add('hidden');
+}
+
+function openDeleteModal(project) {
+  const nameEl = document.getElementById('deleteProjectName');
+  if (nameEl) nameEl.textContent = project?.name || '(untitled)';
+  toggleDeleteModal(true);
 }
 
 async function submitProjectForm(ev) {

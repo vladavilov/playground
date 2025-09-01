@@ -10,14 +10,14 @@ from neo4j_graphrag.llm import OpenAILLM, AzureOpenAILLM
 from neo4j_graphrag.experimental.pipeline.kg_builder import SimpleKGPipeline
 from neo4j_graphrag.indexes import create_vector_index
 
-from configuration.graphrag_config import get_graphrag_settings
+from config import get_graphrag_settings
 
 _settings = get_graphrag_settings()
-DEFAULT_EMBEDDING_MODEL = _settings.OAI_EMBED_MODEL
-DEFAULT_CHAT_MODEL = _settings.OAI_MODEL
-OPENAI_API_KEY = _settings.OAI_KEY
-OPENAI_BASE_URL = _settings.OAI_BASE_URL
-AZURE_API_VERSION = _settings.OAI_API_VERSION
+DEFAULT_EMBEDDING_MODEL = _settings.llm.OAI_EMBED_MODEL
+DEFAULT_CHAT_MODEL = _settings.llm.OAI_MODEL
+OPENAI_API_KEY = _settings.llm.OAI_KEY
+OPENAI_BASE_URL = _settings.llm.OAI_BASE_URL
+AZURE_API_VERSION = _settings.llm.OAI_API_VERSION
 
 VECTOR_INDEX_NAME = "graphrag_index"
 VECTOR_LABEL = "Chunk"
