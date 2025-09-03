@@ -1,3 +1,6 @@
+import asyncio
+import logging
+import os
 import json
 from pathlib import Path
 
@@ -5,6 +8,8 @@ from neo4j import Driver
 
 from neo4j_graphrag.experimental.pipeline.config.runner import PipelineRunner
 from neo4j_graphrag.indexes import create_vector_index
+from .community_detection import CommunityDetectionService
+from .community_summarizer import CommunitySummarizerService
 import yaml
 
 def _load_yaml_config(config_path: str) -> dict | None:
@@ -142,10 +147,71 @@ async def run_documents(
 
 	ensure_vector_index(driver, index_cfg)
 	documents_json = json.dumps(documents, ensure_ascii=False, indent=2)
+	await kg_builder.run_async(text=documents_json)
 
-	pipeline = PipelineRunner.from_config_file(config_path)
-	for _ in range(passes):
-		await pipeline.run({"text": documents_json})
+
+async def run_community_analysis(driver: Driver) -> dict[str, object]:
+	"""
+	Run community detection and summarization pipeline.
+	
+	Args:
+		driver: Neo4j driver instance
+		
+	Returns:
+		Dictionary containing community analysis results and metrics
+	"""
+	logger = logging.getLogger(__name__)
+	logger.info("Starting community analysis pipeline")
+	
+	try:
+		# Step 1: Community Detection
+		community_detector = CommunityDetectionService(driver)
+		detection_result = await community_detector.run_community_detection()
+		
+		if not detection_result.get("success"):
+			logger.error("Community detection failed")
+			return detection_result
+		
+		logger.info(f"Community detection completed. Found {detection_result.get('communities_created', 0)} communities.")
+		
+		# Step 2: Community Summarization
+		ran_levels = detection_result.get("ran_levels", 0)
+		communities = community_detector.get_communities_for_summarization(max_levels=ran_levels)
+		
+		if not communities:
+			logger.warning("No communities found for summarization")
+			return {
+				"success": True,
+				"communities_detected": 0,
+				"communities_summarized": 0,
+				"ran_levels": ran_levels,
+				"message": "No communities found to summarize"
+			}
+		
+		community_summarizer = CommunitySummarizerService(driver)
+		summarization_result = await community_summarizer.summarize_communities(communities)
+		
+		if not summarization_result.get("success"):
+			logger.error("Community summarization failed")
+			return summarization_result
+		
+		logger.info(f"Community analysis completed successfully. {summarization_result.get('successful_summaries', 0)} communities summarized.")
+		
+		return {
+			"success": True,
+			"communities_detected": detection_result.get("communities_created", 0),
+			"communities_summarized": summarization_result.get("successful_summaries", 0),
+			"ran_levels": detection_result.get("ran_levels", 0),
+			"detection_result": detection_result,
+			"summarization_result": summarization_result
+		}
+		
+	except Exception as e:
+		logger.error(f"Community analysis pipeline failed: {e}")
+		return {
+			"success": False,
+			"error": str(e)
+		}
 
 
 def prepare_document_from_json(file_path: str, project_id: str) -> dict:

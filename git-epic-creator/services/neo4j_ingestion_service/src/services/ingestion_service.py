@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 from utils.neo4j_client import Neo4jClient
 from utils.blob_storage import get_blob_storage_client
-from ingestion.graphrag_pipeline import prepare_document_from_json, run_documents
+from ingestion.graphrag_pipeline import prepare_document_from_json, run_documents, run_community_analysis
 from config import get_graphrag_settings
 
 class Neo4jIngestionService:
@@ -86,6 +86,29 @@ class Neo4jIngestionService:
                         if inspect.isawaitable(result):
                             await result
                         self.logger.info("Successfully processed %d documents through GraphRAG pipeline", len(documents_to_ingest))
+                        
+                        # Run community analysis after successful GraphRAG ingestion
+                        try:
+                            self.logger.info("Starting community analysis pipeline")
+                            community_result = await run_community_analysis(self.client.driver)
+
+                            if community_result.get("success"):
+                                self.logger.info(
+                                    "Community analysis completed: %d communities detected, %d summarized",
+                                    community_result.get("communities_detected", 0),
+                                    community_result.get("communities_summarized", 0),
+                                )
+                            else:
+                                self.logger.warning(
+                                    "Community analysis failed: %s",
+                                    community_result.get("error", "Unknown error"),
+                                )
+                        except Exception as e:
+                            self.logger.warning(
+                                "Community analysis failed, continuing with cleanup: %s",
+                                str(e),
+                            )
+                        
                         # Cleanup source JSONs only after successful ingestion
                         for blob_name in blobs_to_delete:
                             try:
