@@ -86,15 +86,13 @@ def test_workflow_progress_message_defaults_and_validation():
     project_id = uuid4()
     msg = WorkflowProgressMessage(
         project_id=project_id,
-        stage="evaluate",
         status="evaluating",
         thought_summary="Scoring draft against retrieved context; gaps in completeness.",
         score=0.62,
-        citations=["doc:123"],
     )
 
     assert msg.message_type == "ai_workflow_progress"
-    assert msg.visibility == "user"
+    # visibility removed; all messages are user-visible by default
     assert msg.message_id is not None
     assert isinstance(msg.timestamp, datetime)
 
@@ -103,14 +101,12 @@ def test_workflow_progress_message_defaults_and_validation():
     assert isinstance(dumped["project_id"], str)
     assert isinstance(dumped["message_id"], str)
     assert isinstance(dumped["timestamp"], str)
-    assert dumped["stage"] == "evaluate"
     assert dumped["status"] == "evaluating"
 
     # iteration must be >= 1 if provided
     with pytest.raises(Exception):
         WorkflowProgressMessage(
             project_id=project_id,
-            stage="evaluate",
             status="evaluating",
             thought_summary="",
             iteration=0,
@@ -120,7 +116,6 @@ def test_workflow_progress_message_defaults_and_validation():
     with pytest.raises(Exception):
         WorkflowProgressMessage(
             project_id=project_id,
-            stage="evaluate",
             status="evaluating",
             thought_summary="",
             score=-0.1,

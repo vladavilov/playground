@@ -49,7 +49,6 @@ class TestAiWorkflowStatusPublisher:
         ok = await publisher.publish_workflow_update(
             project_id=project_id,
             prompt_id=prompt_id,
-            stage="evaluate",
             status="evaluating",
             thought_summary="Scoring draft against retrieved context; gaps in completeness.",
             score=0.62,
@@ -82,7 +81,6 @@ class TestAiWorkflowStatusPublisher:
         ok = await publisher.publish_workflow_update(
             project_id=project_id,
             prompt_id=prompt_id,
-            stage="evaluate",
             status="evaluating",
             thought_summary="Testing failure path",
         )

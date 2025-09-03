@@ -142,6 +142,14 @@
           messages.appendChild(line);
           scrollToBottom();
         },
+        appendMarkdown(md) {
+          if (!md) return;
+          const line = document.createElement('div');
+          line.className = 'text-slate-700';
+          line.innerHTML = renderMarkdown(String(md));
+          messages.appendChild(line);
+          scrollToBottom();
+        },
         finish(status = 'ok') {
           const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
           pill.textContent = `Thinked ${seconds}s`;
@@ -248,46 +256,68 @@
           projectStatusEl.innerHTML = '';
           projectStatusEl.appendChild(getStatusBadge(msg.status));
           // Route thought summary into a thinking box correlated by prompt_id
-          const summary = msg.thought_summary || '...';
+          const md = msg.details_md || msg.thought_summary || '...';
           const pid = msg.prompt_id || null;
           const box = getOrCreateBoxForPromptId(pid);
-          if (box) box.appendStream(summary);
+          if (box) box.appendMarkdown(md);
         } catch {}
       });
     }
 
     function renderBundleHtml(bundle) {
       const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-      const list = (arr) => (Array.isArray(arr) && arr.length) ? arr.map(i=>`<li class="list-disc ml-6">${esc(i)}</li>`).join('') : '<div class="text-slate-500">None</div>';
-      const reqs = (items) => (Array.isArray(items) && items.length) ? items.map(r => `
-        <div class="border rounded p-3 mb-2 bg-white">
-          <div class="font-medium">${esc(r.title)}</div>
-          <div class="text-sm text-slate-600 mb-1">${esc(r.description)}</div>
-          <div class="text-xs"><span class="font-medium">Priority:</span> ${esc(r.priority)}</div>
-          <div class="mt-1">
-            <div class="text-xs font-medium">Acceptance Criteria</div>
-            <ul>${list(r.acceptance_criteria)}</ul>
+      const list = (arr) => (Array.isArray(arr) && arr.length)
+        ? `<ul class="list-disc ml-5 space-y-1 text-sm text-slate-700">${arr.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`
+        : '<div class="text-slate-500 text-sm">None</div>';
+
+      const priorityPill = (p) => {
+        const val = String(p || '').toLowerCase();
+        let cls = 'bg-slate-100 text-slate-700 border-slate-200';
+        if (val === 'must') cls = 'bg-amber-50 text-amber-700 border-amber-200';
+        else if (val === 'should') cls = 'bg-sky-50 text-sky-700 border-sky-200';
+        else if (val === 'could') cls = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        return `<span class="inline-flex items-center px-2 py-0.5 rounded border ${cls} text-xs">${esc(p)}</span>`;
+      };
+
+      const reqs = (items) => (Array.isArray(items) && items.length) ? items.map((r, idx) => `
+        <div class="border rounded-md p-3 bg-white">
+          <div class="flex items-start justify-between gap-3">
+            <div class="text-base font-semibold leading-snug">${esc(r.title || `Requirement ${idx+1}`)}</div>
+            <div class="shrink-0 hidden sm:block">${priorityPill(r.priority)}</div>
+          </div>
+          <div class="mt-1 text-sm text-slate-700">${esc(r.description || '')}</div>
+          <div class="mt-2 text-sm">
+            <span class="font-semibold">Priority:</span>
+            <span class="align-middle ml-1">${priorityPill(r.priority)}</span>
+          </div>
+          <div class="mt-2">
+            <div class="text-sm font-semibold mb-1">Acceptance Criteria</div>
+            ${list(r.acceptance_criteria)}
           </div>
         </div>
-      `).join('') : '<div class="text-slate-500">None</div>';
+      `).join('') : '<div class="text-slate-500 text-sm">None</div>';
 
       let html = `
         <div class="flex items-center justify-between">
-          <div class="text-sm text-slate-600">Prompt ID: <span class="font-mono">${esc(bundle.prompt_id)}</span></div>
-          <div class="text-sm">Score: <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">${esc(bundle.score)}</span></div>
+          <h3 class="text-base font-semibold">Requirements</h3>
+          <div class="text-sm">Score <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">${esc(bundle.score)}</span></div>
         </div>
-        <h3 class="text-base font-semibold mt-3">Business Requirements</h3>
-        <div>${reqs(bundle.business_requirements)}</div>
-        <h3 class="text-base font-semibold mt-3">Functional Requirements</h3>
-        <div>${reqs(bundle.functional_requirements)}</div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+        <div class="mt-2">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Business Requirements</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${reqs(bundle.business_requirements)}</div>
+        </div>
+        <div class="mt-4">
+          <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Functional Requirements</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${reqs(bundle.functional_requirements)}</div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
           <div>
-            <h3 class="text-base font-semibold">Assumptions</h3>
-            <ul>${list(bundle.assumptions)}</ul>
+            <div class="text-sm font-semibold mb-1">Assumptions</div>
+            ${list(bundle.assumptions)}
           </div>
           <div>
-            <h3 class="text-base font-semibold">Risks</h3>
-            <ul>${list(bundle.risks)}</ul>
+            <div class="text-sm font-semibold mb-1">Risks</div>
+            ${list(bundle.risks)}
           </div>
         </div>
       `;

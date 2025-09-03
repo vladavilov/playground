@@ -36,6 +36,7 @@ class RedisTestMonitor:
         self.redis_client = redis.Redis(**redis_config)
         self.queue_name = queue_name
         self.ui_progress_channel = "ui:project_progress"  # Unified UI progress channel
+        self.ai_progress_channel = "ui:ai_workflow_progress"
         self.tracked_task_ids = set()  # Track Celery task IDs for verification
         
         # UI Progress monitoring state (consolidated from UIProgressMonitor)
@@ -47,6 +48,15 @@ class RedisTestMonitor:
         self._listener_running: bool = False
         self._msg_cond: threading.Condition = threading.Condition()
         self._test_start_time: float | None = None
+
+        # AI workflow progress monitoring state
+        self.ai_pubsub = None
+        self.ai_messages_received = []
+        self.ai_monitoring_active = False
+        self.ai_project_id = None
+        self._ai_listener_thread: threading.Thread | None = None
+        self._ai_listener_running: bool = False
+        self._ai_msg_cond: threading.Condition = threading.Condition()
     
     def get_current_task_count(self) -> int:
         """
@@ -235,6 +245,119 @@ class RedisTestMonitor:
         self.ui_project_id = None
         self.ui_messages_received = []
         self._test_start_time = None
+
+    # ---- AI Workflow progress monitoring ----
+    def start_ai_workflow_monitoring(self, project_id: str) -> None:
+        """
+        Start monitoring the AI workflow progress channel for a project.
+        """
+        if self.ai_monitoring_active and self.ai_project_id == project_id:
+            return
+        self.stop_ai_workflow_monitoring()
+        self.ai_project_id = project_id
+        self.ai_messages_received = []
+        self.ai_pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
+        self.ai_pubsub.subscribe(self.ai_progress_channel)
+
+        self._ai_listener_running = True
+
+        def _ai_listen_loop() -> None:
+            try:
+                for message in self.ai_pubsub.listen():
+                    if not self._ai_listener_running:
+                        break
+                    try:
+                        if not isinstance(message, dict):
+                            continue
+                        if message.get('type') != 'message':
+                            continue
+                        raw = message.get('data')
+                        if isinstance(raw, bytes):
+                            try:
+                                raw = raw.decode('utf-8')
+                            except Exception:
+                                continue
+                        data = None
+                        try:
+                            data = json.loads(raw)
+                        except Exception:
+                            continue
+                        if data and self._is_ai_message_for_current_test(data):
+                            with self._ai_msg_cond:
+                                self.ai_messages_received.append(data)
+                                self._ai_msg_cond.notify_all()
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        self._ai_listener_thread = threading.Thread(target=_ai_listen_loop, daemon=True)
+        self._ai_listener_thread.start()
+        self.ai_monitoring_active = True
+
+    def stop_ai_workflow_monitoring(self) -> None:
+        """Stop AI workflow monitoring and clean up resources."""
+        self._ai_listener_running = False
+        if self.ai_pubsub:
+            try:
+                self.ai_pubsub.close()
+            except Exception:
+                pass
+        if self._ai_listener_thread and self._ai_listener_thread.is_alive():
+            try:
+                self._ai_listener_thread.join(timeout=1.0)
+            except Exception:
+                pass
+        self._ai_listener_thread = None
+        self.ai_pubsub = None
+        self.ai_monitoring_active = False
+        self.ai_project_id = None
+        self.ai_messages_received = []
+
+    def iter_ai_sequence(
+        self,
+        project_id: str,
+        expected_statuses: list[str],
+        *,
+        timeout_per_step: int = TestConstants.DEFAULT_TIMEOUT,
+    ):
+        """Generator yielding AI workflow messages matching expected statuses in order."""
+        if not self.ai_monitoring_active or self.ai_project_id != project_id:
+            raise AssertionError("AI monitoring must be active for the target project before iterating a sequence")
+
+        consumed_index = 0
+        for expected in expected_statuses:
+            deadline = time.time() + timeout_per_step
+            found_msg: Dict[str, Any] | None = None
+            while time.time() < deadline and found_msg is None:
+                remaining = max(0.0, deadline - time.time())
+                with self._ai_msg_cond:
+                    if len(self.ai_messages_received) <= consumed_index:
+                        self._ai_msg_cond.wait(timeout=min(remaining, 1.0))
+                    current_len = len(self.ai_messages_received)
+                    for idx in range(consumed_index, current_len):
+                        msg = self.ai_messages_received[idx]
+                        if self._is_ai_message_for_current_test(msg):
+                            status = msg.get('status')
+                            if status == expected:
+                                consumed_index = idx + 1
+                                found_msg = msg
+                                break
+            if found_msg is None:
+                last_status = None
+                if self.ai_messages_received:
+                    last_status = self.ai_messages_received[-1].get('status')
+                raise AssertionError(
+                    f"Did not observe expected AI status '{expected}' within {timeout_per_step}s; last='{last_status}'"
+                )
+            yield found_msg
+
+    def _is_ai_message_for_current_test(self, data: Dict[str, Any]) -> bool:
+        if data.get('message_type') != 'ai_workflow_progress':
+            return False
+        if data.get('project_id') != self.ai_project_id:
+            return False
+        return True
 
     def iter_ui_sequence(
         self,
