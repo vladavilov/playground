@@ -11,7 +11,7 @@ from .redis_config import RedisSettings
 from .celery_config import CelerySettings
 from .http_client_config import HTTPClientSettings
 from .blob_storage_config import BlobStorageSettings
-from .graphrag_config import GraphRAGSettings
+from .llm_config import LlmConfig
 
 # Explicitly load .env file at the module level.
 load_dotenv()
@@ -32,7 +32,7 @@ class AppSettings(BaseConfig):
     celery: CelerySettings = Field(default_factory=CelerySettings)
     http_client: HTTPClientSettings = Field(default_factory=HTTPClientSettings)
     blob_storage: BlobStorageSettings = Field(default_factory=BlobStorageSettings)
-    graphrag: GraphRAGSettings = Field(default_factory=GraphRAGSettings)
+    llm: LlmConfig = Field(default_factory=LlmConfig)
 
 @lru_cache()
 def get_app_settings() -> AppSettings:

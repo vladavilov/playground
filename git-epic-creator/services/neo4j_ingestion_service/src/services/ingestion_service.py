@@ -1,4 +1,5 @@
 import logging
+import inspect
 import os
 import time
 from pathlib import Path
@@ -7,14 +8,23 @@ from typing import Any, Dict
 
 from utils.neo4j_client import Neo4jClient
 from utils.blob_storage import get_blob_storage_client
-from configuration.common_config import get_app_settings
 from ingestion.graphrag_pipeline import prepare_document_from_json, run_documents, run_community_analysis
+from config import get_graphrag_settings
 
 class Neo4jIngestionService:
     
     def __init__(self, client: Neo4jClient):
         self.client = client
         self.logger = logging.getLogger(__name__)
+
+    def _resolve_config_path(self, filename: str) -> str:
+        """
+        Resolve path to a config file located under this service's source tree.
+        Order:
+        - Default: <package_root>/config/<filename>
+        """
+        package_root = Path(__file__).resolve().parent.parent
+        return str(package_root / "config" / filename)
 
     async def run_graphrag_pipeline(self, project_id: str) -> Dict[str, Any]:
         if not isinstance(project_id, str) or not project_id.strip():
@@ -26,7 +36,7 @@ class Neo4jIngestionService:
 
         # 1) Sync inputs from Blob → WORKDIR/{project_id}/input (JSON files only)
         try:
-            workspace_root = Path(get_app_settings().graphrag.RAG_WORKSPACE_ROOT)
+            workspace_root = Path(get_graphrag_settings().RAG_WORKSPACE_ROOT)
             input_dir = workspace_root / project_id / "input"
             input_dir.mkdir(parents=True, exist_ok=True)
 
@@ -44,6 +54,8 @@ class Neo4jIngestionService:
                 )
 
             list_result = blob_client.list_files(parsed_project_id, prefix)
+            if not getattr(list_result, "success", False):
+                raise RuntimeError("Blob listing failed: success flag is False")
             if getattr(list_result, "success", False):
                 documents_to_ingest = []
                 blobs_to_delete: list[str] = []
@@ -68,7 +80,11 @@ class Neo4jIngestionService:
                 # Run the GraphRAG pipeline with all prepared documents
                 if documents_to_ingest:
                     try:
-                        await run_documents(self.client.driver, documents_to_ingest)
+                        config_path = self._resolve_config_path("kg_builder_config.yaml")
+                        result = run_documents(self.client.driver, documents_to_ingest, passes=3, config_path=config_path)
+                        # Support both async (real) and sync (test mock) callables
+                        if inspect.isawaitable(result):
+                            await result
                         self.logger.info("Successfully processed %d documents through GraphRAG pipeline", len(documents_to_ingest))
                         
                         # Run community analysis after successful GraphRAG ingestion
@@ -101,8 +117,10 @@ class Neo4jIngestionService:
                                 pass
                     except Exception as e:
                         self.logger.error("Failed to run GraphRAG pipeline: %s", str(e))
+                        raise
         except Exception as e:
-            self.logger.warning("Blob sync skipped due to error: %s", str(e))
+            self.logger.error("Blob ingestion failed: %s", str(e))
+            raise
 
         return {
             "success": True,

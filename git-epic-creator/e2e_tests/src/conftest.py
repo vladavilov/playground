@@ -5,7 +5,6 @@ This module provides reusable fixtures for authentication, database connections,
 service health checks, and test data management.
 """
 
-import time
 import uuid
 from typing import Dict, Any, Generator, Optional
 
@@ -71,7 +70,7 @@ def services_ready(service_urls: Dict[str, str]) -> None:
 
 
 @pytest.fixture(scope="session")
-def postgres_initialized(service_urls: Dict[str, str], services_ready) -> bool:
+def postgres_initialized(service_urls: Dict[str, str]) -> bool:
     """
     Initialize PostgreSQL database once before all tests.
     
@@ -303,8 +302,7 @@ def project_manager(
     service_urls: Dict[str, str], 
     auth_headers: Dict[str, str],
     postgres_config: Dict[str, any],
-    neo4j_config: Dict[str, any],
-    postgres_initialized: bool
+    neo4j_config: Dict[str, any]
 ) -> Generator[ProjectManager, None, None]:
     """
     Provide a project manager for creating and cleaning up test projects.
