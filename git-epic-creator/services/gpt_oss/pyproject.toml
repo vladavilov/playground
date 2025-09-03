@@ -16,6 +16,11 @@ dependencies = [
   "huggingface_hub[hf_transfer]",
   "gpt-oss",
   "openai-harmony",
+  "sentence-transformers",
+  "fastapi",
+  "uvicorn",
+  "structlog",
+  "httpx",
 ]
 
 [project.scripts]
