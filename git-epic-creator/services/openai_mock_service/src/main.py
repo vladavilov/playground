@@ -225,6 +225,11 @@ def _generate_text_locally(
     # Return a deterministic JSON graph with placeholders filled
     del max_new_tokens  # unused in mock
 
+    # Check if this is a community analysis prompt
+    if prompt and prompt.strip().startswith("You are an expert analyst tasked with summarizing communities in a knowledge graph."):
+        logger.info("community_analysis_prompt_detected")
+        return "some community summary"
+
     # Try to extract a UUID from the prompt; fall back to a new UUID
     project_id: str
     try:
