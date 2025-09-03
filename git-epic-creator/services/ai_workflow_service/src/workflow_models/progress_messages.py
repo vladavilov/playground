@@ -6,19 +6,10 @@ with enums, Pydantic validators, and serializers for UUID/datetime.
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, field_serializer
-
-
-class WorkflowStage(str, Enum):
-    PROMPT_DECOMPOSITION = "prompt_decomposition"
-    RETRIEVE_CONTEXT = "retrieve_context"
-    DRAFT_REQUIREMENTS = "draft_requirements"
-    AUDIT = "audit"
-    TRACEABILITY = "traceability"
-    EVALUATE = "evaluate"
 
 
 class WorkflowStatus(str, Enum):
@@ -44,7 +35,6 @@ class WorkflowProgressMessage(BaseModel):
         description="Prompt identifier",
         json_schema_extra={"format": "uuid"}
     )
-    stage: WorkflowStage = Field(..., description="Workflow stage")
     iteration: Optional[int] = Field(
         None, ge=1, description="Iteration number (>=1) for iterative loops"
     )
@@ -55,11 +45,8 @@ class WorkflowProgressMessage(BaseModel):
     thought_summary: str = Field(
         ..., description="Concise progress summary; do not include raw chain-of-thought"
     )
-    citations: Optional[List[str]] = Field(
-        None, description="Optional evidence ids/refs; sanitized"
-    )
-    visibility: Literal["user", "internal"] = Field(
-        default="user", description='Visibility scope ("user" | "internal")'
+    details_md: Optional[str] = Field(
+        None, description="Markdown-formatted step outcomes; do not include raw chain-of-thought"
     )
     message_id: UUID = Field(
         default_factory=uuid4, description="Unique message id", json_schema_extra={"format": "uuid"}

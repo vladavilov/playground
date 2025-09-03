@@ -60,7 +60,6 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
             prompt_id=state.get("prompt_id"),
-            stage="prompt_decomposition",
             status="analyzing_prompt",
             thought_summary="Analyzing prompt and outlining initial intents.",
         )
@@ -83,7 +82,6 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
             prompt_id=state.get("prompt_id"),
-            stage="retrieve_context",
             status="retrieving_context",
             thought_summary=f"Preparing retrieval plan and fetching project context. Intents found: {analysis.intents}.",
         )
@@ -91,14 +89,93 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
 
     async def retrieve_node(state: Dict[str, Any]) -> Dict[str, Any]:
         context = await retriever.retrieve(state["analysis"])
-        return {"context": context, "citations": list(context.citations or [])}
+        citations = list(context.citations or [])
+        # Publish interim retrieval results
+        try:
+            total = len(citations)
+            top = citations[:5]
+            md_lines: list[str] = [
+                "### Retrieved context",
+                f"- Items: **{total}**",
+            ]
+            if top:
+                md_lines.append("- Top refs:")
+                md_lines.extend([f"  - {str(ref)}" for ref in top])
+            details_md = "\n".join(md_lines)
+            await publisher.publish_workflow_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="retrieving_context",
+                thought_summary=f"Retrieved {total} context items.",
+                details_md=details_md,
+            )
+        except Exception:
+            # Best-effort progress update; do not fail node on publish error
+            pass
+        return {"context": context, "citations": citations}
 
     async def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         draft = await engineer.synthesize(state["analysis"], state["context"], state.get("findings") or AuditFindings())
+        # Publish interim synthesis results
+        try:
+            br = list(draft.business_requirements or [])
+            fr = list(draft.functional_requirements or [])
+            br_count = len(br)
+            fr_count = len(fr)
+            def _titles(items):
+                out = []
+                for r in items[:3]:
+                    try:
+                        out.append(f"- {r.id}: {r.title}")
+                    except Exception:
+                        continue
+                return out
+            md_lines: list[str] = [
+                "### Draft synthesis",
+                f"- Business requirements: **{br_count}**",
+                f"- Functional requirements: **{fr_count}**",
+            ]
+            titles = _titles(br) + _titles(fr)
+            if titles:
+                md_lines.append("- Examples:")
+                md_lines.extend([f"  {t}" for t in titles])
+            details_md = "\n".join(md_lines)
+            await publisher.publish_workflow_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="drafting_requirements",
+                thought_summary=f"Drafted {br_count} business and {fr_count} functional requirements.",
+                details_md=details_md,
+            )
+        except Exception:
+            pass
         return {"draft": draft}
 
     async def audit_node(state: Dict[str, Any]) -> Dict[str, Any]:
         findings = await auditor.audit(state["draft"], state["context"], state["prompt"])
+        # Publish interim audit results
+        try:
+            issues = list(findings.issues or [])
+            suggestions = list(findings.suggestions or [])
+            md_lines: list[str] = [
+                "### Audit findings",
+                f"- Issues: **{len(issues)}**",
+                f"- Suggestions: **{len(suggestions)}**",
+            ]
+            for label, items in (("Top issues", issues[:3]), ("Top suggestions", suggestions[:3])):
+                if items:
+                    md_lines.append(f"- {label}:")
+                    md_lines.extend([f"  - {str(it)}" for it in items])
+            details_md = "\n".join(md_lines)
+            await publisher.publish_workflow_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="evaluating",
+                thought_summary=f"Audited draft; identified {len(issues)} issues.",
+                details_md=details_md,
+            )
+        except Exception:
+            pass
         return {"findings": findings}
 
     async def supervisor_node(state: Dict[str, Any]) -> Command[Literal["finalize", "clarify", "synthesize"]]:
@@ -109,12 +186,15 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
             prompt_id=state.get("prompt_id"),
-            stage="draft_requirements",
             status="drafting_requirements",
             thought_summary="Drafted requirements, audited for issues, and evaluated against rubric.",
+            details_md=(
+                "### Evaluation results\n"
+                f"- Score: **{score:.2f}** (target **{float(state.get('target', 1.0)):.2f}**)\n"
+                + ("- Components:" + "\n" + "\n".join([f"  - {k}: {v:.3f}" for k, v in (getattr(report, 'component_scores', {}) or {}).items()]) if getattr(report, 'component_scores', None) else "")
+            ),
             iteration=current_iter,
             score=score,
-            citations=state.get("citations") or None,
         )
         if score >= state.get("target", 1.0):
             return Command(goto="finalize", update={"report": report, "iteration": [current_iter]})

@@ -164,13 +164,13 @@ class WorkflowAssertions:
             ).single()
             assert project_record is not None, f"No project node found for project {project_id}"
 
-            # Verify HAS_DOCUMENT relationships from the anchor
+            # Verify PROJECT_HAS_DOCUMENT relationships from the anchor
             rel_record = session.run(
                 """
                 MATCH (p)
                 WHERE (p.project_id IS NOT NULL AND p.project_id = $project_id)
                    OR (p.id IS NOT NULL AND toString(p.id) = $project_id)
-                OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d)
+                OPTIONAL MATCH (p)-[:PROJECT_HAS_DOCUMENT]->(d)
                 RETURN collect(d) AS documents
                 """,
                 project_id=project_id,
@@ -179,7 +179,7 @@ class WorkflowAssertions:
             documents = rel_record["documents"]
             valid_docs = [d for d in (documents or []) if d is not None]
             assert len(valid_docs) >= min_docs, (
-                f"Expected at least {min_docs} HAS_DOCUMENT relation(s), found {len(valid_docs)}"
+                f"Expected at least {min_docs} PROJECT_HAS_DOCUMENT relation(s), found {len(valid_docs)}"
             )
 
             # Verify stored document records exist for this project (as produced by GraphRAG pipeline)

@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional
 from uuid import UUID
 
 import json
@@ -31,24 +31,20 @@ class AiWorkflowStatusPublisher:
         self,
         project_id: UUID,
         prompt_id: UUID,
-        stage: str,
         status: str,
         thought_summary: str,
+        details_md: Optional[str] = None,
         iteration: Optional[int] = None,
         score: Optional[float] = None,
-        citations: Optional[List[str]] = None,
-        visibility: str = "user",
     ) -> bool:
         message = WorkflowProgressMessage(
             project_id=project_id,
             prompt_id=prompt_id,
-            stage=stage,
             status=status,
             thought_summary=thought_summary,
+            details_md=details_md,
             iteration=iteration,
             score=score,
-            citations=citations,
-            visibility=visibility,
         )
         return await self._publish_message(message)
 

@@ -7,7 +7,6 @@ from .workflow_models import (
     RequirementsBundle,
 )
 from .progress_messages import (
-    WorkflowStage,
     WorkflowStatus,
     WorkflowProgressMessage,
 )
@@ -19,7 +18,6 @@ __all__ = [
     "QuestionAnswer",
     "RequirementsBundle",
     # Progress messages
-    "WorkflowStage",
     "WorkflowStatus",
     "WorkflowProgressMessage",
 ]
