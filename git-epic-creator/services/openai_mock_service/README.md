@@ -38,7 +38,7 @@ References:
   - Response (fixed): `{ object: "list", data: [{ object: "embedding", index: i, embedding: [0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008] } ...repeated per input item...], model: <OAI_EMBED_MODEL>, usage: { prompt_tokens: 0, total_tokens: 0 } }`.
 
 ### Authentication
-- If `OAI_KEY` is set, require header `Authorization: Bearer ${OAI_KEY}` for all `/v1/*` endpoints.
+- If `OAI_COMPLETION/EMBEDDINGS_KEY` is set, require header `Authorization: Bearer ${OAI_*_KEY}` for all `/v1/*` endpoints.
 - Otherwise, skip auth. Health endpoint is always public.
 
 ### Health
@@ -46,9 +46,12 @@ References:
 
 ### Configuration (env)
 - `API_PORT` (default `8000`): HTTP port.
-- `OAI_KEY`: Optional bearer token to require.
+- `OAI_COMPLETION_KEY`: Optional bearer token to require.
+- `OAI_EMBEDDINGS_KEY`: Optional bearer token to require.
 - `OAI_MODEL` (default `gpt-4.1` from `docker-compose.env`): Used in responses.
 - `OAI_EMBED_MODEL` (default `text-embedding-3-large`): Used in responses.
+- `OAI_COMPLETION_URL`: Optional completion endpoint URL (for reference only).
+- `OAI_EMBEDDINGS_URL`: Optional embeddings endpoint URL (for reference only).
 
 Note: Use the shared env file `docker-compose.env` so values align with the test environment.
 
