@@ -82,7 +82,7 @@ Upstream produces JSON documents; the service injects `project_id` and enriches 
 - `structlog`, `fastapi`, `celery`, `redis`
 
 ### Environment configuration
-- GraphRAG / LLM (from `configuration.graphrag_config`)
+- GraphRAG / LLM (from `config` in this service; shared LLM config at `shared/configuration/llm_config.py`)
   - `OAI_KEY` (API key)
   - `OAI_BASE_URL` (for Azure or custom gateway). When paired with `OAI_API_VERSION`, Azure mode is used.
   - `OAI_API_VERSION` (e.g., `2024-06-01`)

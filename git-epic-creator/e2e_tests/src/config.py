@@ -34,6 +34,10 @@ class TestConfig:
             "mock_auth": os.getenv("AZURE_AD_AUTHORITY", "http://localhost:8005"),
             "init_db_service": os.getenv("INIT_DB_SERVICE_URL", "http://localhost:8001"),
             "neo4j_maintenance": os.getenv("NEO4J_MAINTENANCE_URL", "http://localhost:8002"),
+            "ui_service": os.getenv("UI_SERVICE_URL", "http://localhost:8007"),
+            "ai_workflow": os.getenv("AI_WORKFLOW_SERVICE_URL", "http://localhost:8009"),
+            "neo4j_retrieval": os.getenv("NEO4J_RETRIEVAL_URL", "http://localhost:8008"),
+            "openai_mock": os.getenv("OPENAI_MOCK_URL", "http://localhost:8010"),
         }
     
     @classmethod

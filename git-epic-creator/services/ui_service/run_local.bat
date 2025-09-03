@@ -23,6 +23,12 @@ REM Ports and endpoints exposed by docker-compose on the host
 set API_PORT=8000
 set PROJECT_MANAGEMENT_SERVICE_URL=http://localhost:8003
 set REDIS_URL=redis://localhost:6379
+set AI_WORKFLOW_SERVICE_URL=http://localhost:8009
+
+REM Auth: use host.docker.internal so issuer matches containers
+set AZURE_AD_AUTHORITY=http://host.docker.internal:8005
+set AZURE_TENANT_ID=e7963c3a-3b3a-43b6-9426-89e433d07e69
+set AZURE_CLIENT_ID=a9e304a9-5b6c-4ef7-9b37-23a579a6d7be
 
 echo Starting UI Service on port %API_PORT% with PROJECT_MANAGEMENT_SERVICE_URL=%PROJECT_MANAGEMENT_SERVICE_URL%
 python -m src.main

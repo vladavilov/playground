@@ -218,6 +218,53 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  neo4j-retrieval-service:
+    build:
+      context: ./services
+      dockerfile: ./neo4j_retrieval_service/Dockerfile
+    container_name: neo4j_retrieval_service
+    ports:
+      - "8008:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  ai-workflow-service:
+    build:
+      context: ./services
+      dockerfile: ./ai_workflow_service/Dockerfile
+    container_name: ai_workflow_service
+    ports:
+      - "8009:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      neo4j-retrieval-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   # Redis for Celery background tasks
   redis:
     image: redis:7-alpine
@@ -343,6 +390,13 @@ services:
       - PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
       - DOCUMENT_PROCESSING_URL=http://document-processing-service:8000
       - NEO4J_INGESTION_URL=http://neo4j-ingestion-service:8000
+      - AZURE_AD_AUTHORITY=http://mock-auth-service:8000
+      - INIT_DB_SERVICE_URL=http://db-init-service:8000
+      - NEO4J_MAINTENANCE_URL=http://neo4j-maintenance-service:8000
+      - UI_SERVICE_URL=http://ui-service:8000
+      - AI_WORKFLOW_SERVICE_URL=http://ai-workflow-service:8000
+      - NEO4J_RETRIEVAL_URL=http://neo4j-retrieval-service:8000
+      - OPENAI_MOCK_URL=http://openai-mock-service:8000
     env_file:
       - docker-compose.env
     depends_on:
@@ -366,6 +420,8 @@ services:
         condition: service_healthy
       mock-auth-service:
         condition: service_healthy
+      openai-mock-service:
+        condition: service_healthy
     networks:
       - microservices_network
     volumes:
@@ -374,13 +430,6 @@ services:
     restart: "no"  # Don't restart - tests should run once
     profiles:
       - e2e-tests  # Optional profile to run tests on demand
-    command: >
-      sh -c "
-        echo 'Waiting for all services to be fully ready...' &&
-        sleep 10 &&
-        echo 'Starting end-to-end tests...' &&
-        pytest -v --tb=short --junitxml=/e2e-tests/test-results/results.xml
-      "
 
 networks:
   microservices_network:

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "document-processing-service"
+name = "ai-workflow-service"
 version = "1.0.0"
 description = "Agentic AI Workflow microservice, handling ai-enhanced respons workflow"
 authors = [
@@ -17,6 +17,13 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "structlog",
+    "httpx",
+    "tenacity",
+    "openai",
+    "deepeval",
+    "langgraph",
+    "langchain-core",
+    "langchain-openai",
     "shared @ file:../shared"
 ]
 

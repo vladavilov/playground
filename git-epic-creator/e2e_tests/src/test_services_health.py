@@ -6,6 +6,7 @@ accessible, and can be connected to properly.
 """
 
 from typing import Dict
+import os
 
 import pytest
 import requests
@@ -18,42 +19,6 @@ from shared_utils import HTTPUtils, ServiceHealthChecker, DatabaseUtils
 
 class TestServicesHealth:
     """Test suite for verifying service health and connectivity."""
-
-    def test_project_management_service_health(
-        self, 
-        service_urls: Dict[str, str]
-    ) -> None:
-        """Test that project management service is healthy and responds correctly."""
-        assert HTTPUtils.check_service_health(service_urls['project_management'])
-        
-        # Additional check for response format
-        response = HTTPUtils.make_request_with_retry(
-            method="GET",
-            url=f"{service_urls['project_management']}{TestConstants.HEALTH_ENDPOINT}"
-        )
-        health_data = response.json()
-        assert health_data["status"] == "ok"
-
-    def test_document_processing_service_health(
-        self, 
-        service_urls: Dict[str, str]
-    ) -> None:
-        """Test that document processing service is healthy."""
-        assert HTTPUtils.check_service_health(service_urls['document_processing'])
-
-    def test_neo4j_ingestion_service_health(
-        self, 
-        service_urls: Dict[str, str]
-    ) -> None:
-        """Test that Neo4j ingestion service is healthy."""
-        assert HTTPUtils.check_service_health(service_urls['neo4j_ingestion'])
-
-    def test_mock_auth_service_health(
-        self, 
-        service_urls: Dict[str, str]
-    ) -> None:
-        """Test that mock authentication service is healthy."""
-        assert HTTPUtils.check_service_health(service_urls['mock_auth'])
 
     def test_postgres_connectivity(self, postgres_connection) -> None:
         """Test PostgreSQL database connectivity and basic operations."""

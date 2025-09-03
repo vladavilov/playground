@@ -14,7 +14,7 @@ import httpx
 from configuration.common_config import get_app_settings
 from utils.app_factory import FastAPIFactory
 from utils.redis_client import get_redis_client
-from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
+from constants.streams import UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL
 
 logger = structlog.get_logger(__name__)
 
@@ -39,8 +39,12 @@ def format_sse(data: dict, event: str | None = None) -> str:
 async def redis_event_stream(request: Request) -> AsyncIterator[str]:
     redis = get_redis_client()
     pubsub = redis.pubsub()
-    await pubsub.subscribe(UI_PROJECT_PROGRESS_CHANNEL)
-    logger.info("SSE subscriber connected", channel=UI_PROJECT_PROGRESS_CHANNEL)
+    await pubsub.subscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
+    logger.info(
+        "SSE subscriber connected",
+        project_channel=UI_PROJECT_PROGRESS_CHANNEL,
+        ai_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+    )
 
     try:
         # Send a hello event
@@ -54,15 +58,31 @@ async def redis_event_stream(request: Request) -> AsyncIterator[str]:
                     data = json.loads(message["data"].decode("utf-8") if isinstance(message["data"], (bytes, bytearray)) else message["data"]) 
                 except Exception:
                     data = {"raw": str(message.get("data"))}
-                yield format_sse(data, event="project_progress")
+                # Determine which channel this message came from to set SSE event name
+                channel = message.get("channel")
+                if isinstance(channel, (bytes, bytearray)):
+                    try:
+                        channel = channel.decode("utf-8")
+                    except Exception:
+                        channel = str(channel)
+                event_name = (
+                    "ai_workflow_progress"
+                    if channel == UI_AI_WORKFLOW_PROGRESS_CHANNEL
+                    else "project_progress"
+                )
+                yield format_sse(data, event=event_name)
             await asyncio.sleep(0.05)
     finally:
         try:
-            await pubsub.unsubscribe(UI_PROJECT_PROGRESS_CHANNEL)
+            await pubsub.unsubscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
         except Exception:
             pass
         await pubsub.close()
-        logger.info("SSE subscriber disconnected", channel=UI_PROJECT_PROGRESS_CHANNEL)
+        logger.info(
+            "SSE subscriber disconnected",
+            project_channel=UI_PROJECT_PROGRESS_CHANNEL,
+            ai_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+        )
 
 
 @app.get("/events")
@@ -72,10 +92,11 @@ async def sse_events(request: Request):
 
 @app.get("/config")
 async def get_ui_config():
-    # Always instruct the browser to call our same-origin proxy.
-    # The server will use PROJECT_MANAGEMENT_SERVICE_URL internally.
+    # Always instruct the browser to call our same-origin proxies.
+    # The server will use service URLs internally.
     return JSONResponse({
-        "projectManagementApiBase": "/api",
+        "projectManagementApiBase": "/project",
+        "aiWorkflowApiBase": "/workflow",
         "progressChannel": UI_PROJECT_PROGRESS_CHANNEL,
     })
 
@@ -95,7 +116,7 @@ async def get_dev_token():
         return JSONResponse(r.json())
 
 
-@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@app.api_route("/project/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def proxy_to_project_management(path: str, request: Request):
     """
     Reverse proxy endpoint that forwards browser requests to the
@@ -145,62 +166,52 @@ async def proxy_to_project_management(path: str, request: Request):
     return Response(content=resp.content, status_code=resp.status_code)
 
 
+@app.api_route("/workflow/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_to_ai_workflow(path: str, request: Request):
+    """
+    Reverse proxy endpoint that forwards browser requests to the
+    AI Workflow Service using Docker-internal networking.
+    Only the bearer token (Authorization header) is forwarded from the
+    incoming request; all other incoming headers are dropped.
+    """
+    upstream_base = os.getenv("AI_WORKFLOW_SERVICE_URL", "http://ai-workflow-service:8000").rstrip("/")
+    target_url = f"{upstream_base}/workflow/{path}"
+    if request.url.query:
+        target_url = f"{target_url}?{request.url.query}"
+
+    forward_headers = {}
+    auth_header = request.headers.get("authorization")
+    if auth_header:
+        forward_headers["Authorization"] = auth_header
+    ct = request.headers.get("content-type")
+    if ct:
+        forward_headers["Content-Type"] = ct
+
+    body = await request.body()
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                content=body if body else None,
+                headers=forward_headers,
+            )
+    except httpx.RequestError as exc:
+        return JSONResponse({"detail": f"Upstream request failed: {str(exc)}"}, status_code=502)
+
+    content_type = resp.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            return JSONResponse(resp.json(), status_code=resp.status_code)
+        except Exception:
+            return Response(content=resp.content, status_code=resp.status_code)
+    return Response(content=resp.content, status_code=resp.status_code)
+
+
 class ChatMessageRequest(BaseModel):
     project_id: UUID = Field(..., description="Project ID for scoping the chat")
     prompt: str = Field(..., min_length=1, description="User prompt text")
-
-
-class ChatMessageResponse(BaseModel):
-    role: str = "assistant"
-    content: str
-
-
-async def _publish_agentic_updates(project_id: UUID):
-    """Publish mock agentic workflow updates to UI channel via Redis."""
-    try:
-        redis = get_redis_client()
-        async def pub(payload: dict):
-            await redis.publish(UI_PROJECT_PROGRESS_CHANNEL, json.dumps(payload))
-
-        # Start processing
-        await pub({
-            "project_id": str(project_id),
-            "status": "rag_processing",
-            "step": "Analyze prompt",
-            "score": 0.2
-        })
-        await asyncio.sleep(0.6)
-
-        await pub({
-            "project_id": str(project_id),
-            "status": "rag_processing",
-            "step": "Search knowledge graph",
-            "score": 0.5
-        })
-        await asyncio.sleep(0.6)
-
-        await pub({
-            "project_id": str(project_id),
-            "status": "rag_ready",
-            "step": "Synthesize answer",
-            "score": 1.0
-        })
-    except Exception as e:
-        logger.warning("Agentic mock publish failed", error=str(e))
-
-
-@app.post("/chat/message")
-async def chat_message(req: ChatMessageRequest):
-    """
-    Mock chat endpoint. Returns a synthetic markdown answer and publishes
-    mock agentic workflow step/score updates via Redis to the UI SSE channel.
-    """
-    # Kick off background agentic updates (non-blocking)
-    asyncio.create_task(_publish_agentic_updates(req.project_id))
-
-    # Produce a simple markdown response based on the prompt
-    content = f"""## Proposed Approach\n\nYou asked: `{req.prompt}`\n\n- We will analyze existing documents and project context.\n- Then we will derive epics and user stories suitable for GitLab.\n- Finally, we will validate acceptance criteria.\n\n> This is a mocked response until the agentic workflow is available.\n"""
-    return JSONResponse(ChatMessageResponse(content=content).model_dump())
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
