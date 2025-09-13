@@ -15,6 +15,7 @@ class ProjectProgressMessage():
     """Project progress message for real-time updates."""
     project_id: UUID
     status: str
+    process_step: Optional[str] = None
     processed_count: Optional[int] = None
     total_count: Optional[int] = None
     processed_pct: Optional[float] = None
@@ -26,6 +27,7 @@ class ProjectProgressMessage():
         self,
         project_id: UUID,
         status: str,
+        process_step: Optional[str] = None,
         processed_count: Optional[int] = None,
         total_count: Optional[int] = None,
         processed_pct: Optional[float] = None,
@@ -38,6 +40,7 @@ class ProjectProgressMessage():
         self.timestamp = timestamp or datetime.now()
         self.project_id = project_id
         self.status = status
+        self.process_step = process_step
         self.processed_count = processed_count
         self.total_count = total_count
         self.processed_pct = processed_pct
@@ -50,6 +53,7 @@ class ProjectProgressMessage():
             "message_type": self.message_type,
             "project_id": str(self.project_id),
             "status": self.status,
+            "process_step": self.process_step,
             "processed_count": self.processed_count,
             "total_count": self.total_count,
             "processed_pct": self.processed_pct,

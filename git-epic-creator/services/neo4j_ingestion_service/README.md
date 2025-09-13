@@ -106,7 +106,7 @@ Upstream produces JSON documents; the service injects `project_id` and enriches 
 - Uses `SimpleKGPipeline` to build a KG directly in Neo4j; no CLI, `settings.yaml`, or parquet artifacts are used.
 - A default finance-oriented schema is provided with permissive extensions.
 - Vector index is ensured via `neo4j_graphrag.indexes.create_vector_index`:
-  - name: `graphrag_index`, label: `Chunk`, property: `embedding`, dimensions: `1536`, similarity: `cosine`.
+  - name: `graphrag_chunk_index`, label: `Chunk`, property: `embedding`, dimensions: `1536`, similarity: `cosine`.
 
 ### Subscriber and retry/DLQ
 - Subscriber (`subscribers/task_subscriber.py`) consumes stream `ingestion.trigger` and enqueues the Celery task on queue `neo4j_ingestion` with args `[job_id, project_id, attempts]`.

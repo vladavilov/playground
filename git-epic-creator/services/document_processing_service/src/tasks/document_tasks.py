@@ -12,7 +12,7 @@ from clients.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
 from celery_worker_app import celery_app
 from utils.redis_client import get_redis_client, get_sync_redis_client
-from utils.ingestion_gating import should_enqueue, post_run_cleanup
+from utils.ingestion_gating import should_enqueue_sync, post_run_cleanup
 
 logger = structlog.get_logger(__name__)
 
@@ -138,7 +138,7 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
 
         if isinstance(result, dict):
             try:
-                if should_enqueue(GATE_NS_INGESTION, project_id, client=redis_client):
+                if should_enqueue_sync(GATE_NS_INGESTION, project_id, client=sync_client):
                     celery_app.send_task(
                         TASK_RUN_GRAPHRAG_JOB,
                         args=[self.request.id, project_id, 0],

@@ -187,10 +187,12 @@ function selectProject(p) {
     const bar = document.getElementById('progressBar');
     const input = document.getElementById('fileInput');
     const badgeHost = document.getElementById('statusBadge');
+    const log = document.getElementById('progressLog');
     if (text) text.textContent = 'No processing yet';
     if (bar) bar.style.width = '0%';
     if (input) input.value = '';
     if (badgeHost) { badgeHost.innerHTML = ''; }
+    if (log) log.innerHTML = '';
   } catch {}
 }
 
@@ -222,18 +224,34 @@ function connectSSE() {
       const text = document.getElementById('progressText');
       const bar = document.getElementById('progressBar');
       const badgeHost = document.getElementById('statusBadge');
+      const logHost = document.getElementById('progressLog');
       if (badgeHost) { badgeHost.innerHTML = ''; badgeHost.appendChild(getStatusBadge(msg.status)); }
       const status = String(msg.status || '').toLowerCase();
+      const step = (msg.process_step ? ` [${msg.process_step}]` : '');
       if (status === 'rag_processing' || status === 'rag_ready') {
-        text.textContent = `Status: ${msg.status}`;
+        text.textContent = `Status: ${msg.status}${step}`;
         bar.style.width = '0%';
       } else {
         const total = Number.isFinite(msg.total_count) ? msg.total_count : 0;
         const processed = Number.isFinite(msg.processed_count) ? msg.processed_count : 0;
         const pct = (Number.isFinite(msg.processed_pct) ? msg.processed_pct : (total > 0 ? (processed / total) * 100 : 0));
         const safePct = Math.max(0, Math.min(100, Math.round(pct)));
-        text.textContent = `Status: ${msg.status} — ${safePct}% (${processed}/${total})`;
+        text.textContent = `Status: ${msg.status}${step} — ${safePct}% (${processed}/${total})`;
         bar.style.width = `${safePct}%`;
+      }
+      // Append to processing log
+      if (logHost) {
+        const ts = new Date().toLocaleTimeString();
+        const line = document.createElement('div');
+        line.textContent = `${ts} | ${msg.status}${step}` + (Number.isFinite(msg.processed_pct) || Number.isFinite(msg.total_count)
+          ? ` | ${msg.processed_count ?? 0}/${msg.total_count ?? 0} (${Math.max(0, Math.min(100, Math.round((Number.isFinite(msg.processed_pct) ? msg.processed_pct : ((Number.isFinite(msg.total_count) && msg.total_count > 0) ? ((msg.processed_count ?? 0) / msg.total_count) * 100 : 0)))))}%)`
+          : '');
+        logHost.appendChild(line);
+        // Cap to last 200 entries for performance
+        while (logHost.children.length > 200) {
+          logHost.removeChild(logHost.firstChild);
+        }
+        logHost.scrollTop = logHost.scrollHeight;
       }
     } catch {}
   });
@@ -251,6 +269,11 @@ function setupActions() {
   const search = document.getElementById('projectName');
   if (search) search.addEventListener('input', (e) => { state.filterText = e.target.value || ''; renderProjects(); });
   document.getElementById('uploadBtn').addEventListener('click', uploadFiles);
+  const clearBtn = document.getElementById('clearLogBtn');
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    const log = document.getElementById('progressLog');
+    if (log) log.innerHTML = '';
+  });
   document.getElementById('openChatBtn').addEventListener('click', () => {
     if (!state.selected) return;
     window.location.href = `/chat.html#${state.selected.id}`;

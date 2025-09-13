@@ -60,14 +60,6 @@ embedder_config:
       resolver_: ENV
       var_: OAI_BASE_URL
 
-# Vector index configuration (used by ensure_vector_index)
-vector_index:
-  name: graphrag_index
-  label: Chunk
-  property: embedding
-  dimensions: 1536
-  similarity: cosine
-
 # Optional: provide schema guidance (defaults to automatic extraction if omitted)
 schema:
   node_types:

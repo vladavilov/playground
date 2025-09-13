@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 import neo4j
 import structlog
 from neo4j.exceptions import ClientError, Neo4jError, ServiceUnavailable, TransientError
+from neo4j_graphrag.indexes import create_vector_index
+from configuration.vector_index_config import get_vector_index_env
 
 logger = structlog.get_logger(__name__)
 
@@ -61,21 +63,190 @@ class Neo4jIndexMaintenance:
 
         logger.info("Neo4j index maintenance service initialized")
 
+    def ensure_community_indexes(self) -> Dict[str, Any]:
+        """Ensure B-tree and FTS indexes for community nodes exist.
+
+        Creates:
+        - B-tree index on :__Community__(id)
+        - B-tree index on :__Community__(level)
+        - Fulltext index on :__Community__(summary)
+
+        Returns a summary dict with success and operations performed.
+        """
+        operations: List[str] = []
+        try:
+            statements = [
+                "CREATE INDEX community_id IF NOT EXISTS FOR (c:`__Community__`) ON (c.id)",
+                "CREATE INDEX community_level IF NOT EXISTS FOR (c:`__Community__`) ON (c.level)",
+                "CREATE FULLTEXT INDEX community_summary_fts IF NOT EXISTS FOR (c:`__Community__`) ON EACH [c.summary]",
+            ]
+            with self.neo4j_client.get_session() as session:
+                for stmt in statements:
+                    session.run(stmt)
+            operations.extend([
+                "community_id",
+                "community_level",
+                "community_summary_fts",
+            ])
+            logger.info("community_indexes_ensured", operations=operations)
+            return {"success": True, "operations": operations}
+        except (Neo4jError, ClientError, ServiceUnavailable, TransientError) as e:
+            logger.warning("community_indexes_ensure_failed", error=str(e))
+            return {"success": False, "error": str(e), "operations": operations}
+
+    def ensure_ingestion_constraints(self) -> Dict[str, Any]:
+        """Ensure idempotent constraints required by ingestion/import flows.
+
+        Creates constraints equivalent to the former ingestion service:
+        - Unique on `:__Chunk__(id)`
+        - Unique on `:__Document__(id)`
+        - Unique on `:__Community__(community)`
+        - Unique on `:__Entity__(id)`
+        - Unique on `:__Entity__(title)`
+        - Unique on relationship `RELATED(id)`
+        """
+        statements = [
+            "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (c:`__Chunk__`) REQUIRE c.id IS UNIQUE",
+            "CREATE CONSTRAINT document_id IF NOT EXISTS FOR (d:`__Document__`) REQUIRE d.id IS UNIQUE",
+            "CREATE CONSTRAINT community_id IF NOT EXISTS FOR (c:`__Community__`) REQUIRE c.community IS UNIQUE",
+            "CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:`__Entity__`) REQUIRE e.id IS UNIQUE",
+            "CREATE CONSTRAINT entity_title IF NOT EXISTS FOR (e:`__Entity__`) REQUIRE e.title IS UNIQUE",
+            "CREATE CONSTRAINT related_id IF NOT EXISTS FOR ()-[rel:RELATED]->() REQUIRE rel.id IS UNIQUE",
+        ]
+        executed: List[str] = []
+        try:
+            with self.neo4j_client.get_session() as session:
+                for stmt in statements:
+                    session.run(stmt)
+                    executed.append(stmt)
+            logger.info("ingestion_constraints_ensured", total=len(executed))
+            return {"success": True, "executed": executed}
+        except (Neo4jError, ClientError, ServiceUnavailable, TransientError) as e:
+            logger.warning("ingestion_constraints_ensure_failed", error=str(e))
+            return {"success": False, "error": str(e), "executed": executed}
+
+    async def ensure_all_indexes(self) -> Dict[str, Any]:
+        """Ensure all required indexes and constraints exist.
+
+        Ensures: ingestion constraints, vector indexes (chunk/community/entity), and community indexes.
+        """
+        result: Dict[str, Any] = {"success": True}
+        # Ensure constraints first
+        constraints = self.ensure_ingestion_constraints()
+        result["constraints"] = constraints
+        if not constraints.get("success"):
+            result["success"] = False
+        env = get_vector_index_env()
+        try:
+            create_vector_index(
+                self.neo4j_client.driver,
+                env.CHUNK_VECTOR_INDEX_NAME,
+                label=env.CHUNK_VECTOR_INDEX_LABEL,
+                embedding_property=env.VECTOR_INDEX_PROPERTY,
+                dimensions=env.VECTOR_INDEX_DIMENSIONS,
+                similarity_fn=env.VECTOR_INDEX_SIMILARITY,
+                fail_if_exists=False,
+            )
+            result["chunk_vector"] = {
+                "success": True,
+                "name": env.CHUNK_VECTOR_INDEX_NAME,
+                "label": env.CHUNK_VECTOR_INDEX_LABEL,
+                "property": env.VECTOR_INDEX_PROPERTY,
+                "dimensions": env.VECTOR_INDEX_DIMENSIONS,
+                "similarity": env.VECTOR_INDEX_SIMILARITY,
+            }
+            logger.info(
+                "vector_index_ensured",
+                name=env.CHUNK_VECTOR_INDEX_NAME,
+                label=env.CHUNK_VECTOR_INDEX_LABEL,
+                property=env.VECTOR_INDEX_PROPERTY,
+                dimensions=env.VECTOR_INDEX_DIMENSIONS,
+                similarity=env.VECTOR_INDEX_SIMILARITY,
+            )
+            create_vector_index(
+                self.neo4j_client.driver,
+                env.COMMUNITY_VECTOR_INDEX_NAME,
+                label=env.COMMUNITY_VECTOR_INDEX_LABEL,
+                embedding_property=env.VECTOR_INDEX_PROPERTY,
+                dimensions=env.VECTOR_INDEX_DIMENSIONS,
+                similarity_fn=env.VECTOR_INDEX_SIMILARITY,
+                fail_if_exists=False,
+            )
+            result["community_vector"] = {
+                "success": True,
+                "name": env.COMMUNITY_VECTOR_INDEX_NAME,
+                "label": env.COMMUNITY_VECTOR_INDEX_LABEL,
+                "property": env.VECTOR_INDEX_PROPERTY,
+                "dimensions": env.VECTOR_INDEX_DIMENSIONS,
+                "similarity": env.VECTOR_INDEX_SIMILARITY,
+            }
+            logger.info(
+                "vector_index_ensured",
+                name=env.COMMUNITY_VECTOR_INDEX_NAME,
+                label=env.COMMUNITY_VECTOR_INDEX_LABEL,
+                property=env.VECTOR_INDEX_PROPERTY,
+                dimensions=env.VECTOR_INDEX_DIMENSIONS,
+                similarity=env.VECTOR_INDEX_SIMILARITY,
+            )
+            create_vector_index(
+                self.neo4j_client.driver,
+                env.ENTITY_VECTOR_INDEX_NAME,
+                label=env.ENTITY_VECTOR_INDEX_LABEL,
+                embedding_property=env.VECTOR_INDEX_PROPERTY,
+                dimensions=env.VECTOR_INDEX_DIMENSIONS,
+                similarity_fn=env.VECTOR_INDEX_SIMILARITY,
+                fail_if_exists=False,
+            )
+            result["entity_vector"] = {
+                "success": True,
+                "name": env.ENTITY_VECTOR_INDEX_NAME,
+                "label": env.ENTITY_VECTOR_INDEX_LABEL,
+                "property": env.VECTOR_INDEX_PROPERTY,
+                "dimensions": env.VECTOR_INDEX_DIMENSIONS,
+                "similarity": env.VECTOR_INDEX_SIMILARITY,
+            }
+            logger.info(
+                "vector_index_ensured",
+                name=env.ENTITY_VECTOR_INDEX_NAME,
+                label=env.ENTITY_VECTOR_INDEX_LABEL,
+                property=env.VECTOR_INDEX_PROPERTY,
+                dimensions=env.VECTOR_INDEX_DIMENSIONS,
+                similarity=env.VECTOR_INDEX_SIMILARITY,
+            )
+        except (Neo4jError, ClientError, ServiceUnavailable, TransientError) as e:
+            result["entity_vector"] = {
+                "success": False,
+                "error": str(e),
+                "name": env.ENTITY_VECTOR_INDEX_NAME,
+                "label": env.ENTITY_VECTOR_INDEX_LABEL,
+            }
+            result["success"] = False
+            logger.error(
+                "vector_index_ensure_failed",
+                error=str(e),
+                name=env.ENTITY_VECTOR_INDEX_NAME,
+                label=env.ENTITY_VECTOR_INDEX_LABEL,
+            )
+        comm = self.ensure_community_indexes()
+        result["community"] = comm
+        if not comm.get("success"):
+            result["success"] = False
+        return result
+
     async def check_index_health(self) -> List[IndexHealthStatus]:
         """
-        Check the health of all vector indexes.
+        Check the health of all relevant indexes (VECTOR + community BTREE/FTS).
 
         Returns:
             List[IndexHealthStatus]: Health status for each index
         """
-        health_statuses = []
+        health_statuses: List[IndexHealthStatus] = []
 
         try:
             with self.neo4j_client.get_session() as session:
-                # Get all vector indexes
+                # Get all indexes we care about
                 result = session.run("""
                     SHOW INDEXES
-                    WHERE type = 'VECTOR'
                     YIELD name, state, populationPercent, type, entityType,
                           labelsOrTypes, properties
                 """)
@@ -83,7 +254,8 @@ class Neo4jIndexMaintenance:
                 for record in result:
                     index_name = record['name']
                     state = record['state']
-                    population_percent = record['populationPercent']
+                    population_percent = record.get('populationPercent') or 100.0
+                    idx_type = record.get('type')
 
                     # Check index health
                     is_healthy = True
@@ -98,8 +270,8 @@ class Neo4jIndexMaintenance:
                             "Check index creation and population status"
                         )
 
-                    # Check population percentage
-                    if population_percent < 100.0:
+                    # Check population percentage (only applies to VECTOR)
+                    if idx_type == 'VECTOR' and population_percent < 100.0:
                         is_healthy = False
                         issues.append(
                             f"Index population at {population_percent}%, "
@@ -110,9 +282,7 @@ class Neo4jIndexMaintenance:
                         )
 
                     # Check for additional health indicators
-                    additional_health = await self._check_additional_health_indicators(
-                        session, index_name
-                    )
+                    additional_health = await self._check_additional_health_indicators(session, index_name)
                     if additional_health['issues']:
                         is_healthy = False
                         issues.extend(additional_health['issues'])
@@ -250,25 +420,30 @@ class Neo4jIndexMaintenance:
             record: Index record from Neo4j
             result: Result dictionary to update with issues and recommendations
         """
-        # Check if this is a vector index
-        if record.get('type') != 'VECTOR':
-            result['issues'].append(
-                f"Expected VECTOR index type, found {record.get('type')}"
-            )
+        idx_type = record.get('type')
+        if idx_type == 'VECTOR':
+            options = record.get('options', {}) or {}
+            entity_type = record.get('entityType', '')
+            properties = record.get('properties', []) or []
+            index_config = options.get('indexConfig', {})
+
+            # Validate vector configuration
+            self._check_vector_dimension(index_config, result)
+            self._check_similarity_function(index_config, result)
+            self._check_hnsw_parameters(index_config, result)
+            self._check_quantization_settings(index_config, result)
+            self._check_entity_type(entity_type, result)
+            self._check_properties(properties, result)
             return
 
-        options = record.get('options', {}) or {}
+        # For BTREE/LOOKUP/FTS indexes, perform minimal validation
         entity_type = record.get('entityType', '')
+        if entity_type not in ['NODE', 'RELATIONSHIP']:
+            result['issues'].append(f"Unexpected entity type: {entity_type}")
         properties = record.get('properties', []) or []
-        index_config = options.get('indexConfig', {})
+        if not properties and idx_type != 'LOOKUP':
+            result['issues'].append("No properties configured for index")
 
-        # Validate vector configuration
-        self._check_vector_dimension(index_config, result)
-        self._check_similarity_function(index_config, result)
-        self._check_hnsw_parameters(index_config, result)
-        self._check_quantization_settings(index_config, result)
-        self._check_entity_type(entity_type, result)
-        self._check_properties(properties, result)
 
     def _check_vector_dimension(
         self, index_config: Dict[str, Any], result: Dict[str, List[str]]
