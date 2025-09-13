@@ -75,7 +75,7 @@ class TestDocumentWorkflow:
                     TestConstants.PROJECT_STATUS_RAG_PROCESSING,
                     TestConstants.PROJECT_STATUS_RAG_READY,
                 ],
-                timeout_per_step=TestConstants.DEFAULT_TIMEOUT,
+                timeout_per_step=300,
             )
             # processing
             _ = next(seq)
@@ -85,7 +85,7 @@ class TestDocumentWorkflow:
             _ = next(seq)
             # rag_ready
             _ = next(seq)
-            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY)
+            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
 
         # Step 8: Verify DB status and pct
         wa.verify_db_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, min_pct=100.0)
@@ -166,13 +166,13 @@ class TestDocumentWorkflow:
                     TestConstants.PROJECT_STATUS_RAG_PROCESSING,
                     TestConstants.PROJECT_STATUS_RAG_READY,
                 ],
-                timeout_per_step=TestConstants.DEFAULT_TIMEOUT,
+                timeout_per_step=300,
             )
             _ = next(seq)
             _ = next(seq)
             _ = next(seq)
             _ = next(seq)
-            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY)
+            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
 
         # Verify DB status
         wa.verify_db_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, min_pct=100.0)

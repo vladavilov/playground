@@ -2,7 +2,7 @@ from uuid import UUID
 
 import structlog
 from utils.celery_factory import get_celery_app
-from utils.ingestion_gating import should_enqueue
+from utils.ingestion_gating import should_enqueue_async
 from utils.redis_client import get_redis_client
 from constants import (
     APP_NAME_PROJECT_MANAGEMENT,
@@ -28,7 +28,7 @@ class TaskRequestPublisher:
         try:
             # Gate per project to prevent bursts and duplicates
             redis_client = get_redis_client()
-            if not should_enqueue(GATE_NS_DOCS, str(project_id), client=redis_client):
+            if not await should_enqueue_async(GATE_NS_DOCS, str(project_id), client=redis_client):
                 logger.info(
                     "Document processing enqueue suppressed by gating",
                     project_id=str(project_id),

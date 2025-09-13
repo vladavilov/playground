@@ -64,7 +64,8 @@ def get_maintenance_service(db_client: Neo4jClient = Depends(get_db_client)) -> 
 
 @neo4j_router.post("/init-neo4j")
 async def init_neo4j(
-    schema_service: Neo4jSchemaService = Depends(get_schema_service)
+    schema_service: Neo4jSchemaService = Depends(get_schema_service),
+    maintenance_service: Neo4jIndexMaintenance = Depends(get_maintenance_service)
 ) -> JSONResponse:
     """
     Initialize Neo4j Graph RAG schema.
@@ -79,7 +80,15 @@ async def init_neo4j(
         # Execute schema initialization
         result = await schema_service.initialize_schema()
 
+        # Ensure vector and community indexes (vector index for embeddings)
+        maintenance_result = await maintenance_service.ensure_all_indexes()
+
         if result["success"]:
+            # Extract vector index details
+            vector_result = maintenance_result.get("vector", {})
+            community_result = maintenance_result.get("community", {})
+            constraints_result = maintenance_result.get("constraints", {})
+            
             response_data = {
                 "status": "Neo4j Graph RAG schema initialized successfully",
                 "constraints_created": len(result["constraints"]["executed_queries"]),
@@ -87,14 +96,30 @@ async def init_neo4j(
                 "relationship_types_created": len(result["relationship_types"]["executed_queries"]),
                 "failed_queries": result["summary"]["failed"],
                 "total_queries": result["summary"]["total_queries"],
-                "hnsw_optimization": "enabled",
-                "vector_dimensions": 1536,
-                "similarity_function": "cosine"
+                "vector_index_ensured": vector_result.get("success", False),
+                "vector_index_name": vector_result.get("name"),
+                "vector_dimensions": vector_result.get("dimensions", 1536),
+                "similarity_function": vector_result.get("similarity", "cosine"),
+                "hnsw_optimization": {
+                    "enabled": True,
+                    "vector.hnsw.m": 32,
+                    "vector.hnsw.ef_construction": 200,
+                    "vector.quantization.enabled": True
+                },
+                "community_indexes_created": len(community_result.get("operations", [])),
+                "community_indexes_success": community_result.get("success", False),
+                "community_indexes_operations": community_result.get("operations", []),
+                "ingestion_constraints_success": constraints_result.get("success", False),
+                "ingestion_constraints_applied": len(constraints_result.get("executed", []))
             }
 
             return JSONResponse(status_code=200, content=response_data)
 
-        # Some queries failed but not all
+        # Extract vector index details for error response
+        vector_result = maintenance_result.get("vector", {})
+        community_result = maintenance_result.get("community", {})
+        constraints_result = maintenance_result.get("constraints", {})
+        
         response_data = {
             "status": "Neo4j Graph RAG schema initialized with some failures",
             "constraints_created": len(result["constraints"]["executed_queries"]),
@@ -106,7 +131,22 @@ async def init_neo4j(
                 "failed_constraints": result["constraints"]["failed_queries"],
                 "failed_indexes": result["indexes"]["failed_queries"],
                 "failed_relationship_types": result["relationship_types"]["failed_queries"]
-            }
+            },
+            "vector_index_ensured": vector_result.get("success", False),
+            "vector_index_name": vector_result.get("name"),
+            "vector_dimensions": vector_result.get("dimensions", 1536),
+            "similarity_function": vector_result.get("similarity", "cosine"),
+            "hnsw_optimization": {
+                "enabled": True,
+                "vector.hnsw.m": 32,
+                "vector.hnsw.ef_construction": 200,
+                "vector.quantization.enabled": True
+            },
+            "community_indexes_created": len(community_result.get("operations", [])),
+            "community_indexes_success": community_result.get("success", False),
+            "community_indexes_operations": community_result.get("operations", []),
+            "ingestion_constraints_success": constraints_result.get("success", False),
+            "ingestion_constraints_applied": len(constraints_result.get("executed", []))
         }
 
         return JSONResponse(status_code=200, content=response_data)

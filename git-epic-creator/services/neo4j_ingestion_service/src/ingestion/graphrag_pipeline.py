@@ -1,50 +1,15 @@
-import asyncio
-import logging
-import os
 import json
 from pathlib import Path
 
-from neo4j import Driver
-
-from neo4j_graphrag.experimental.pipeline.config.runner import PipelineRunner
-from neo4j_graphrag.indexes import create_vector_index
-from .community_detection import CommunityDetectionService
-from .community_summarizer import CommunitySummarizerService
-import yaml
-
-def _load_yaml_config(config_path: str) -> dict | None:
-	"""
-	Load YAML configuration from a file path.
-	Returns a dictionary or None if parsing fails.
-	"""
-	try:
-		with open(config_path, "r", encoding="utf-8") as f:
-			return yaml.safe_load(f)
-	except Exception:
-		return None
-
-
-def _resolve_vector_index_config(config_data: dict | None) -> dict:
-	"""
-	Resolve vector index configuration from YAML config data with safe defaults.
-	"""
-	defaults = {
-		"name": "graphrag_index",
-		"label": "Chunk",
-		"property": "embedding",
-		"dimensions": 1536,
-		"similarity": "cosine",
-	}
-	if not isinstance(config_data, dict):
-		return defaults
-	index_cfg = config_data.get("vector_index", {}) or {}
-	return {
-		"name": index_cfg.get("name", defaults["name"]),
-		"label": index_cfg.get("label", defaults["label"]),
-		"property": index_cfg.get("property", defaults["property"]),
-		"dimensions": int(index_cfg.get("dimensions", defaults["dimensions"])),
-		"similarity": index_cfg.get("similarity", defaults["similarity"]),
-	}
+from utils.neo4j_client import get_neo4j_client
+from neo4j_graphrag.experimental.pipeline import Pipeline
+from .components import (
+	KGIngestionComponent,
+	EntityRelationshipDescriptionBackfillComponent,
+	CommunityDetectionComponent,
+	CommunityRetrievalComponent,
+	CommunitySummarizationComponent,
+)
 
 def _prepare_document_for_ingestion(json_content: str, file_path: str, project_id: str) -> dict:
 	"""
@@ -86,13 +51,18 @@ def _prepare_document_for_ingestion(json_content: str, file_path: str, project_i
 				document["version"] = metadata["version"]
 			if "tags" in metadata:
 				document["tags"] = metadata["tags"]
-				
+			# Assign a stable id derived from filename (without .json); guarantees id/text presence
+			document["id"] = Path(file_path).stem
+			if not isinstance(document.get("text"), str):
+				document["text"] = ""
+			
 			return document
 	except (json.JSONDecodeError, KeyError):
 		pass
 	
 	# Fallback to basic document info
 	return {
+		"id": Path(file_path).stem,
 		"text": "",
 		"path": file_path,
 		"title": Path(file_path).name,
@@ -102,116 +72,44 @@ def _prepare_document_for_ingestion(json_content: str, file_path: str, project_i
 		"content_type": "application/octet-stream"
 	}
 
-def ensure_vector_index(driver: Driver, index_cfg: dict) -> None:
+async def run_end_to_end(documents: list[dict]) -> dict[str, object]:
 	"""
-	Ensure the Neo4j vector index exists using the provided configuration.
+	Run the single end-to-end pipeline (ingestion + community analysis).
 	"""
-	create_vector_index(
-		driver,
-		index_cfg["name"],
-		label=index_cfg["label"],
-		embedding_property=index_cfg["property"],
-		dimensions=index_cfg["dimensions"],
-		similarity_fn=index_cfg["similarity"],
-		fail_if_exists=False,
-	)
-
-
-async def run_documents(
-	driver: Driver,
-	documents: list[dict],
-	*,
-	passes: int = 3,
-	config_path: str,
-) -> None:
-	"""
-	Run the YAML-configured GraphRAG KG builder pipeline with the provided documents.
-
-	Args:
-		driver: Neo4j driver instance
-		documents: List of document dictionaries with metadata (each must contain a 'text' field)
-		passes: Number of iterations to run the pipeline over the documents
-		config_path: Path to YAML config file for the SimpleKGPipeline template
-	"""
-	if not documents or not isinstance(documents, list):
+	# Basic shape check; detailed validation happens inside KGIngestionComponent
+	if not isinstance(documents, list) or len(documents) == 0:
 		raise ValueError("documents must be a non-empty list")
-	
-	if not all(isinstance(doc, dict) and "text" in doc for doc in documents):
-		raise ValueError("all documents must be dictionaries with 'text' field")
 
-	if passes <= 0:
-		raise ValueError("passes must be a positive integer")
+	config_dir = Path(__file__).resolve().parent / "config"
+	kg_builder_yaml = str(config_dir / "kg_builder_config.yaml")
 
-	config_data = _load_yaml_config(config_path)
-	index_cfg = _resolve_vector_index_config(config_data)
+	client = get_neo4j_client()
+	driver = client.driver
 
-	ensure_vector_index(driver, index_cfg)
-	documents_json = json.dumps(documents, ensure_ascii=False, indent=2)
-	await kg_builder.run_async(text=documents_json)
+	pipe = Pipeline()
+	pipe.add_component(KGIngestionComponent(driver=driver), "ingest")
+	pipe.add_component(EntityRelationshipDescriptionBackfillComponent(driver=driver), "backfill")
+	pipe.add_component(CommunityDetectionComponent(driver=driver), "detect")
+	pipe.add_component(CommunityRetrievalComponent(driver=driver), "retrieve")
+	pipe.add_component(CommunitySummarizationComponent(driver=driver), "summarize")
 
+	# Wire: subsequent steps consume the accumulated dict from previous
+	pipe.connect("ingest", "backfill", input_config={"data": "ingest.data"})
+	pipe.connect("backfill", "detect", input_config={"data": "backfill.data"})
+	pipe.connect("detect", "retrieve", input_config={"data": "detect.data"})
+	pipe.connect("retrieve", "summarize", input_config={"data": "retrieve.data"})
 
-async def run_community_analysis(driver: Driver) -> dict[str, object]:
-	"""
-	Run community detection and summarization pipeline.
-	
-	Args:
-		driver: Neo4j driver instance
-		
-	Returns:
-		Dictionary containing community analysis results and metrics
-	"""
-	logger = logging.getLogger(__name__)
-	logger.info("Starting community analysis pipeline")
-	
-	try:
-		# Step 1: Community Detection
-		community_detector = CommunityDetectionService(driver)
-		detection_result = await community_detector.run_community_detection()
-		
-		if not detection_result.get("success"):
-			logger.error("Community detection failed")
-			return detection_result
-		
-		logger.info(f"Community detection completed. Found {detection_result.get('communities_created', 0)} communities.")
-		
-		# Step 2: Community Summarization
-		ran_levels = detection_result.get("ran_levels", 0)
-		communities = community_detector.get_communities_for_summarization(max_levels=ran_levels)
-		
-		if not communities:
-			logger.warning("No communities found for summarization")
-			return {
-				"success": True,
-				"communities_detected": 0,
-				"communities_summarized": 0,
-				"ran_levels": ran_levels,
-				"message": "No communities found to summarize"
-			}
-		
-		community_summarizer = CommunitySummarizerService(driver)
-		summarization_result = await community_summarizer.summarize_communities(communities)
-		
-		if not summarization_result.get("success"):
-			logger.error("Community summarization failed")
-			return summarization_result
-		
-		logger.info(f"Community analysis completed successfully. {summarization_result.get('successful_summaries', 0)} communities summarized.")
-		
-		return {
-			"success": True,
-			"communities_detected": detection_result.get("communities_created", 0),
-			"communities_summarized": summarization_result.get("successful_summaries", 0),
-			"ran_levels": detection_result.get("ran_levels", 0),
-			"detection_result": detection_result,
-			"summarization_result": summarization_result
+	# Run with initial inputs for ingestion stage
+	result = await pipe.run({
+		"ingest": {
+			"documents": documents,
+			"kg_config_path": kg_builder_yaml,
 		}
-		
-	except Exception as e:
-		logger.error(f"Community analysis pipeline failed: {e}")
-		return {
-			"success": False,
-			"error": str(e)
-		}
+	})
+
+	# Final accumulated dict is under summarize.data
+	final_payload = result.get("summarize", {}).get("data", {}) if isinstance(result, dict) else {}
+	return final_payload
 
 
 def prepare_document_from_json(file_path: str, project_id: str) -> dict:

@@ -18,13 +18,16 @@ dependencies = [
     "uvicorn[standard]",
     "neo4j",
     "neo4j-graphrag[openai]",
+    "graphrag",
     "openai",
     "structlog",
     "python-dotenv",
     "pydantic-settings",
+    "pyyaml",
     "azure-storage-blob",
     "celery",
     "redis",
+    "lancedb",
     "shared @ file:../shared"
 ]
 

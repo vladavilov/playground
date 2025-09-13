@@ -23,8 +23,7 @@ from utils.neo4j_client import get_neo4j_client
 from clients.project_management_client import ProjectManagementClient
 from config import get_graphrag_settings
 import asyncio
-from utils.redis_client import get_redis_client, get_sync_redis_client
-from utils.ingestion_gating import post_run_cleanup
+from utils.redis_client import get_sync_redis_client
 from constants import (
     TASK_RUN_GRAPHRAG_JOB,
     QUEUE_NEO4J_INGESTION,
@@ -56,13 +55,9 @@ def run_graphrag_job(
     if not isinstance(project_id, str) or not project_id.strip():
         raise ValueError("project_id must be a non-empty string")
 
-    # Use a single event loop to handle all async work
     redis_client = get_sync_redis_client()
-    ran_successfully = False
     try:
-        result = asyncio.run(_run_graphrag_job_async(job_id, project_id, attempts, start))
-        ran_successfully = True
-        return result
+        return asyncio.run(_run_graphrag_job_async(job_id, project_id, attempts, start))
     finally:
         try:
             def _enqueue(job_id_: str, project_id_: str, attempts_: int) -> None:
@@ -92,13 +87,6 @@ def run_graphrag_job(
                 _enqueue(job_id, project_id, int(attempts or 0))
         except Exception:
             pass
-        if ran_successfully:
-            try:
-                root = Path(get_graphrag_settings().RAG_WORKSPACE_ROOT)
-                workdir: Path = root / project_id
-                shutil.rmtree(workdir, ignore_errors=True)
-            except Exception:
-                pass
 
 
 async def _run_graphrag_job_async(

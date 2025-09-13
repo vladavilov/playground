@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 from typing import Callable, Optional
 
+import redis as redis_sync
+
 from redis.asyncio import Redis
 
 
@@ -19,42 +21,67 @@ def _build_keys(namespace: str, project_id: str) -> tuple[str, str, str]:
     return coalesce_key, running_key, pending_key
 
 
-def should_enqueue(
+async def should_enqueue_async(
     namespace: str,
     project_id: str,
     *,
-    client: Redis,
+    client: "Redis",
     running_ttl_seconds: int = 300,
     pending_ttl_seconds: int = 60,
     coalesce_ttl_seconds: int = 5,
 ) -> bool:
     """
-    Generic enqueue gating for a namespaced workflow.
-
-    - Debounce bursts per project via a short-lived coalesce key
-    - Enforce single-flight via a running key; set a pending marker if already running
+    Async variant of enqueue gating for use in async contexts (e.g., FastAPI handlers).
     """
     try:
-        redis_client = client
         coalesce_key, running_key, pending_key = _build_keys(namespace, project_id)
 
         # Debounce: suppress bursts for a brief window
-        if not asyncio.run(
-            redis_client.set(coalesce_key, "1", nx=True, ex=coalesce_ttl_seconds)
-        ):
+        ok = await client.set(coalesce_key, "1", nx=True, ex=coalesce_ttl_seconds)
+        if not ok:
             return False
 
         # Single-flight: set running if not present
-        if asyncio.run(
-            redis_client.set(running_key, "1", nx=True, ex=running_ttl_seconds)
-        ):
+        ok_running = await client.set(running_key, "1", nx=True, ex=running_ttl_seconds)
+        if ok_running:
             return True
 
         # Already running: set a short pending marker and skip enqueue
         try:
-            asyncio.run(
-                redis_client.set(pending_key, "1", nx=True, ex=pending_ttl_seconds)
-            )
+            await client.set(pending_key, "1", nx=True, ex=pending_ttl_seconds)
+        except Exception:
+            pass
+        return False
+    except Exception:
+        # On Redis errors, default to allowing enqueue to avoid blocking progress
+        return True
+
+def should_enqueue_sync(
+    namespace: str,
+    project_id: str,
+    *,
+    client: "redis_sync.Redis",
+    running_ttl_seconds: int = 300,
+    pending_ttl_seconds: int = 60,
+    coalesce_ttl_seconds: int = 5,
+) -> bool:
+    """
+    Sync variant of enqueue gating for use in synchronous contexts (e.g., Celery tasks).
+    """
+    try:
+        coalesce_key, running_key, pending_key = _build_keys(namespace, project_id)
+
+        # Debounce: suppress bursts for a brief window
+        if not client.set(coalesce_key, "1", nx=True, ex=coalesce_ttl_seconds):
+            return False
+
+        # Single-flight: set running if not present
+        if client.set(running_key, "1", nx=True, ex=running_ttl_seconds):
+            return True
+
+        # Already running: set a short pending marker and skip enqueue
+        try:
+            client.set(pending_key, "1", nx=True, ex=pending_ttl_seconds)
         except Exception:
             pass
         return False
