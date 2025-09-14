@@ -10,7 +10,6 @@ import os
 import time
 from typing import Any, Dict
 from pathlib import Path
-import shutil
 
 import structlog
 logger = structlog.get_logger(__name__)
@@ -21,9 +20,8 @@ from services.ingestion_service import Neo4jIngestionService
 from utils.retry_policy import compute_retry_decision
 from utils.neo4j_client import get_neo4j_client
 from clients.project_management_client import ProjectManagementClient
-from config import get_graphrag_settings
 import asyncio
-from utils.redis_client import get_sync_redis_client
+from utils.workflow_gating import run_with_lock
 from constants import (
     TASK_RUN_GRAPHRAG_JOB,
     QUEUE_NEO4J_INGESTION,
@@ -33,6 +31,8 @@ from constants import (
 @celery_app.task(
     bind=True,
     name=TASK_RUN_GRAPHRAG_JOB,
+    soft_time_limit=3600,
+    time_limit=0,
 )
 def run_graphrag_job(
     self,
@@ -55,38 +55,28 @@ def run_graphrag_job(
     if not isinstance(project_id, str) or not project_id.strip():
         raise ValueError("project_id must be a non-empty string")
 
-    redis_client = get_sync_redis_client()
-    try:
-        return asyncio.run(_run_graphrag_job_async(job_id, project_id, attempts, start))
-    finally:
-        try:
-            def _enqueue(job_id_: str, project_id_: str, attempts_: int) -> None:
-                celery_app.send_task(
-                    TASK_RUN_GRAPHRAG_JOB,
-                    args=[job_id_, project_id_, int(attempts_)],
-                    queue=QUEUE_NEO4J_INGESTION,
-                )
+    def _enqueue_follow_up(job_id_: str, project_id_: str, attempts_: int) -> None:
+        celery_app.send_task(
+            TASK_RUN_GRAPHRAG_JOB,
+            args=[job_id_, project_id_, int(attempts_)],
+            queue=QUEUE_NEO4J_INGESTION,
+        )
 
-            # Synchronous cleanup equivalent of post_run_cleanup
-            running_key = f"{GATE_NS_INGESTION}:running:{project_id}"
-            pending_key = f"{GATE_NS_INGESTION}:pending:{project_id}"
-            try:
-                redis_client.delete(running_key)
-            except Exception:
-                pass
-            script = (
-                "if redis.call('get', KEYS[1]) then "
-                "redis.call('del', KEYS[1]); return 1 else return 0 end"
-            )
-            had_pending = False
-            try:
-                had_pending = bool(redis_client.eval(script, 1, pending_key))
-            except Exception:
-                had_pending = False
-            if had_pending:
-                _enqueue(job_id, project_id, int(attempts or 0))
-        except Exception:
-            pass
+    async def _execute() -> Dict[str, Any]:
+        return await _run_graphrag_job_async(job_id, project_id, attempts, start)
+
+    # Centralized lock/pending/retry handling
+    return asyncio.run(
+        run_with_lock(
+            namespace=GATE_NS_INGESTION,
+            identifier=project_id,
+            job_id=job_id,
+            attempts=int(attempts or 0),
+            execute=_execute,
+            schedule_retry=schedule_ingestion_retry,
+            enqueue_follow_up=_enqueue_follow_up,
+        )
+    )
 
 
 async def _run_graphrag_job_async(
@@ -96,14 +86,6 @@ async def _run_graphrag_job_async(
     start_time: float,
 ) -> Dict[str, Any]:
     """Single-event-loop orchestration for the GraphRAG job."""
-    # Distributed lock per project using synchronous Redis lock
-    sync_client = get_sync_redis_client()
-    lock_key = f"{GATE_NS_INGESTION}:lock:{project_id}"
-    sync_lock = sync_client.lock(lock_key, timeout=300, blocking=False)
-    if not sync_lock.acquire(blocking=False):
-        logger.warning("Project lock busy; skipping execution", project_id=project_id)
-        await schedule_ingestion_retry(job_id, project_id, attempts or 0, False, countdown=3)
-        return {"job_id": job_id, "project_id": project_id, "attempts": attempts, "skipped": True}
 
     try:
         # Mark project as rag_processing (best-effort)
@@ -166,8 +148,3 @@ async def _run_graphrag_job_async(
             await schedule_ingestion_retry(job_id, project_id, next_attempts, False, countdown=countdown)
         # Re-raise to surface failure to Celery for visibility
         raise
-    finally:
-        try:
-            sync_lock.release()
-        except Exception:
-            pass

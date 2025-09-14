@@ -76,6 +76,21 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
     input_cfg["storage"] = storage_cfg
     settings["input"] = input_cfg
 
+    # Vector store: use relative path so GraphRAG joins it against the project root
+    settings["vector_store"] = {
+        "default": {
+            "type": "lancedb",
+            "db_uri": "output/lancedb",
+            "container_name": "default",
+            "overwrite": True,
+        }
+    }
+
+    embed_text_cfg = settings.get("embed_text", {}) or {}
+    embed_text_cfg.setdefault("model_id", embedding_model_id)
+    embed_text_cfg.setdefault("vector_store_id", "default")
+    settings["embed_text"] = embed_text_cfg
+
     # Remove legacy or conflicting indexing block so CLI doesn't prefer defaults
     if "indexing" in settings:
         try:

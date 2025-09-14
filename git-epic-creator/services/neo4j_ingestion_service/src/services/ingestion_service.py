@@ -1,4 +1,4 @@
-import logging
+import structlog
 import os
 import time
 from pathlib import Path
@@ -14,7 +14,7 @@ class Neo4jIngestionService:
     
     def __init__(self, client: Neo4jClient):
         self.client = client
-        self.logger = logging.getLogger(__name__)
+        self.logger = structlog.get_logger(__name__)
 
     async def run_graphrag_pipeline(self, project_id: str) -> Dict[str, Any]:
         if not isinstance(project_id, str) or not project_id.strip():
@@ -65,8 +65,8 @@ class Neo4jIngestionService:
                         if isinstance(result, dict):
                             pipeline_output = result
                         self.logger.info(
-                            "Successfully processed %d documents with Microsoft GraphRAG",
-                            documents,
+                            "Successfully processed documents with Microsoft GraphRAG",
+                            documents=documents,
                         )
                         
                         # Cleanup source JSONs only after successful ingestion
@@ -76,10 +76,10 @@ class Neo4jIngestionService:
                             except Exception:
                                 pass
                     except Exception as e:
-                        self.logger.error("Failed to run Microsoft GraphRAG pipeline: %s", str(e))
+                        self.logger.error("Failed to run Microsoft GraphRAG pipeline", error=str(e))
                         raise
         except Exception as e:
-            self.logger.error("Blob ingestion failed: %s", str(e))
+            self.logger.error("Blob ingestion failed", error=str(e))
             raise
 
         return {

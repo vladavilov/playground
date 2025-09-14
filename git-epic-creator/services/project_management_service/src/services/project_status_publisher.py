@@ -32,10 +32,12 @@ class ProjectStatusPublisher:
         processed_count: Optional[int] = None,
         total_count: Optional[int] = None,
         processed_pct: Optional[float] = None,
+        process_step: Optional[str] = None,
     ) -> bool:
         message = ProjectProgressMessage(
             project_id=project_id,
             status=status,
+            process_step=process_step,
             processed_count=processed_count,
             total_count=total_count,
             processed_pct=processed_pct,

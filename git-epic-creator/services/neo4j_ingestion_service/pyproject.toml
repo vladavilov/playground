@@ -23,6 +23,7 @@ dependencies = [
     "structlog",
     "python-dotenv",
     "pydantic-settings",
+    "pandas",
     "pyyaml",
     "azure-storage-blob",
     "celery",
