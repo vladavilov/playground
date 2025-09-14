@@ -362,17 +362,30 @@ class RedisTestMonitor:
     def iter_ui_sequence(
         self,
         project_id: str,
-        expected_statuses: list[str],
+        expected_statuses: list[Any],
         *,
         timeout_per_step: int = TestConstants.DEFAULT_TIMEOUT
     ):
-        """Generator that yields each expected UI status message in order.
+        """Generator that yields each expected UI message in order.
+
+        Backward-compatible matching by status, with optional process_step matching.
+
+        - Each expected item can be either a plain status string (existing behavior),
+          or a tuple (status, process_step) where process_step must match exactly.
 
         Usage:
-            seq = monitor.iter_ui_sequence(project_id, ["processing", "active"]) 
+            seq = monitor.iter_ui_sequence(project_id, [
+                "processing",
+                "active",
+                ("rag_processing", "pipeline_start"),
+                ("rag_processing", "pipeline_end"),
+                "rag_ready",
+            ])
             msg1 = next(seq)  # blocks until 'processing'
-            # ... do assertions/side-effects ...
             msg2 = next(seq)  # blocks until 'active'
+            msg3 = next(seq)  # blocks until ('rag_processing','pipeline_start')
+            msg4 = next(seq)  # blocks until ('rag_processing','pipeline_end')
+            msg5 = next(seq)  # blocks until 'rag_ready'
         """
         if not self.ui_monitoring_active or self.ui_project_id != project_id:
             raise AssertionError("UI monitoring must be active for the target project before iterating a sequence")
@@ -380,6 +393,16 @@ class RedisTestMonitor:
         consumed_index = 0
 
         for expected in expected_statuses:
+            # Normalize expected input to (status, process_step)
+            expected_status: str
+            expected_step: str | None
+            if isinstance(expected, tuple) and len(expected) >= 1:
+                expected_status = expected[0]
+                expected_step = expected[1] if len(expected) > 1 else None
+            else:
+                expected_status = str(expected)
+                expected_step = None
+
             deadline = time.time() + timeout_per_step
             found_msg: Dict[str, Any] | None = None
             while time.time() < deadline and found_msg is None:
@@ -393,16 +416,20 @@ class RedisTestMonitor:
                         msg = self.ui_messages_received[idx]
                         if self._is_message_for_current_test(msg):
                             status = msg.get('status')
-                            if status == expected:
+                            step = msg.get('process_step')
+                            if status == expected_status and (expected_step is None or step == expected_step):
                                 consumed_index = idx + 1
                                 found_msg = msg
                                 break
             if found_msg is None:
                 last_status = None
+                last_step = None
                 if self.ui_messages_received:
                     last_status = self.ui_messages_received[-1].get('status')
+                    last_step = self.ui_messages_received[-1].get('process_step')
                 raise AssertionError(
-                    f"Did not observe expected UI status '{expected}' within {timeout_per_step}s; last='{last_status}'"
+                    f"Did not observe expected UI message status='{expected_status}', process_step='{expected_step}' "
+                    f"within {timeout_per_step}s; last_status='{last_status}', last_step='{last_step}'"
                 )
             yield found_msg
 

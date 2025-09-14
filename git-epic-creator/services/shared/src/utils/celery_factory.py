@@ -38,6 +38,10 @@ def get_celery_app(name: str) -> Celery:
         "worker_max_tasks_per_child": settings.CELERY_WORKER_MAX_TASKS_PER_CHILD,
         "worker_concurrency": settings.CELERY_WORKER_CONCURRENCY,
         "task_routes": settings.CELERY_TASK_ROUTES,
+        # Logging controls to preserve structlog config and correct stdout level
+        "worker_hijack_root_logger": False,
+        "worker_redirect_stdouts": True,
+        "worker_redirect_stdouts_level": "INFO",
         # Reliability flags
         "task_reject_on_worker_lost": True,
         "task_acks_on_failure_or_timeout": True,

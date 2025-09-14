@@ -129,6 +129,7 @@ class ProjectManagementClient:
         total_count: Optional[int] = None,
         status: Optional[str] = None,
         error_message: Optional[str] = None,
+        process_step: Optional[str] = None,
     ) -> UpdateProjectStatusResult:
         # Validate project_id
         try:
@@ -167,6 +168,8 @@ class ProjectManagementClient:
             payload["status"] = status
         if error_message:
             payload["error_message"] = error_message
+        if process_step:
+            payload["process_step"] = process_step
 
         endpoint = f"/projects/{project_id}/status"
         try:
