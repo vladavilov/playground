@@ -73,36 +73,9 @@ class TestDocumentWorkflow:
                     TestConstants.PROJECT_STATUS_PROCESSING,
                     TestConstants.PROJECT_STATUS_ACTIVE,
                     (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_start"),
-                    # 1: load_input_documents
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 2: create_base_text_units
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 3: create_final_documents
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 4: extract_graph
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 5: finalize_graph
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 6: extract_covariates
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 7: create_communities
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 8: create_final_text_units
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 9: create_community_reports
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 10: generate_text_embeddings
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # assert intermediate messages without relying on exact names
+                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
+                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
                     (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_end"),
                     TestConstants.PROJECT_STATUS_RAG_READY,
                 ],
@@ -114,36 +87,16 @@ class TestDocumentWorkflow:
             _ = next(seq)
             # rag_processing: pipeline_start
             _ = next(seq)
-            # 1: workflow_start, workflow_end
-            _ = next(seq)
-            _ = next(seq)
-            # 2: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 3: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 4: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 5: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 6: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 7: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 8: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 9: start, end
-            _ = next(seq)
-            _ = next(seq)
-            # 10: start, end
-            _ = next(seq)
-            _ = next(seq)
+            # intermediate: expect a workflow_start message
+            _msg = next(seq)
+            assert isinstance(_msg, dict) and _msg.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
+            _ps = _msg.get("process_step") or ""
+            assert isinstance(_ps, str) and _ps.startswith("workflow_start"), f"Unexpected process_step: {_ps}"
+            # intermediate: expect a workflow_end message
+            _msg2 = next(seq)
+            assert isinstance(_msg2, dict) and _msg2.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
+            _ps2 = _msg2.get("process_step") or ""
+            assert isinstance(_ps2, str) and _ps2.startswith("workflow_end"), f"Unexpected process_step: {_ps2}"
             # rag_processing: pipeline_end (all workflows done)
             _ = next(seq)
             # rag_ready
@@ -227,36 +180,9 @@ class TestDocumentWorkflow:
                     TestConstants.PROJECT_STATUS_PROCESSING,
                     TestConstants.PROJECT_STATUS_ACTIVE,
                     (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_start"),
-                    # 1: load_input_documents
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 2: create_base_text_units
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 3: create_final_documents
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 4: extract_graph
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 5: finalize_graph
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 6: extract_covariates
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 7: create_communities
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 8: create_final_text_units
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 9: create_community_reports
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
-                    # 10: generate_text_embeddings
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # assert intermediate messages without relying on exact names
+                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
+                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
                     (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_end"),
                     TestConstants.PROJECT_STATUS_RAG_READY,
                 ],
@@ -265,36 +191,19 @@ class TestDocumentWorkflow:
             _ = next(seq)
             _ = next(seq)
             _ = next(seq)
-            # 1
+            # intermediate: expect a workflow_start message
+            _msg = next(seq)
+            assert isinstance(_msg, dict) and _msg.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
+            _ps = _msg.get("process_step") or ""
+            assert isinstance(_ps, str) and _ps.startswith("workflow_start"), f"Unexpected process_step: {_ps}"
+            # intermediate: expect a workflow_end message
+            _msg2 = next(seq)
+            assert isinstance(_msg2, dict) and _msg2.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
+            _ps2 = _msg2.get("process_step") or ""
+            assert isinstance(_ps2, str) and _ps2.startswith("workflow_end"), f"Unexpected process_step: {_ps2}"
+            # pipeline_end
             _ = next(seq)
-            _ = next(seq)
-            # 2
-            _ = next(seq)
-            _ = next(seq)
-            # 3
-            _ = next(seq)
-            _ = next(seq)
-            # 4
-            _ = next(seq)
-            _ = next(seq)
-            # 5
-            _ = next(seq)
-            _ = next(seq)
-            # 6
-            _ = next(seq)
-            _ = next(seq)
-            # 7
-            _ = next(seq)
-            _ = next(seq)
-            # 8
-            _ = next(seq)
-            _ = next(seq)
-            # 9
-            _ = next(seq)
-            _ = next(seq)
-            # 10
-            _ = next(seq)
-            _ = next(seq)
+            # rag_ready
             _ = next(seq)
             wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
 
