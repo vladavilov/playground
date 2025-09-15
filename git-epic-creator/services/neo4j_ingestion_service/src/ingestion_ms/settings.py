@@ -35,6 +35,20 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
     azure_embed_deployment = os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT", embed_model_name)
     api_key_value = os.getenv("OAI_KEY", "")
 
+    # Wide defaults for rate limits/concurrency; can be overridden via env
+    chat_requests_per_minute = int(os.getenv("OAI_CHAT_RPM", "6000"))
+    chat_tokens_per_minute = int(os.getenv("OAI_CHAT_TPM", "400000"))
+    chat_timeout_seconds = int(os.getenv("OAI_CHAT_TIMEOUT", "60"))
+    chat_max_retries = int(os.getenv("OAI_CHAT_MAX_RETRIES", "3"))
+    chat_max_concurrency = int(os.getenv("OAI_CHAT_CONCURRENCY", "4"))
+
+    embed_requests_per_minute = int(os.getenv("OAI_EMBED_RPM", "6000"))
+    embed_tokens_per_minute = int(os.getenv("OAI_EMBED_TPM", "400000"))
+    embed_timeout_seconds = int(os.getenv("OAI_EMBED_TIMEOUT", "60"))
+    embed_max_retries = int(os.getenv("OAI_EMBED_MAX_RETRIES", "3"))
+    embed_max_concurrency = int(os.getenv("OAI_EMBED_CONCURRENCY", "4"))
+    embed_max_batch_size = int(os.getenv("OAI_EMBED_BATCH", "64"))
+
     chat_cfg = {
         "type": "azure_openai_chat",
         "api_base": azure_base,
@@ -43,6 +57,12 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
         "deployment_name": azure_chat_deployment,
         "auth_type": "api_key",
         "api_key": api_key_value,
+        # Wide, explicit limits to avoid deadlocks in schedulers
+        "requests_per_minute": chat_requests_per_minute,
+        "tokens_per_minute": chat_tokens_per_minute,
+        "timeout": chat_timeout_seconds,
+        "max_retries": chat_max_retries,
+        "max_concurrent_requests": chat_max_concurrency,
     }
     embed_cfg = {
         "type": "azure_openai_embedding",
@@ -52,6 +72,13 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
         "deployment_name": azure_embed_deployment,
         "auth_type": "api_key",
         "api_key": api_key_value,
+        # Wide, explicit limits to avoid deadlocks in schedulers
+        "requests_per_minute": embed_requests_per_minute,
+        "tokens_per_minute": embed_tokens_per_minute,
+        "timeout": embed_timeout_seconds,
+        "max_retries": embed_max_retries,
+        "max_concurrent_requests": embed_max_concurrency,
+        "max_batch_size": embed_max_batch_size,
     }
     models[chat_model_id] = chat_cfg
     models[embedding_model_id] = embed_cfg
@@ -89,6 +116,13 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
     embed_text_cfg = settings.get("embed_text", {}) or {}
     embed_text_cfg.setdefault("model_id", embedding_model_id)
     embed_text_cfg.setdefault("vector_store_id", "default")
+    # Execution parameters for embedding job
+    embed_text_cfg.setdefault("batch_size", int(os.getenv("EMBED_TEXT_BATCH_SIZE", "64")))
+    embed_text_cfg.setdefault(
+        "max_concurrent_requests", int(os.getenv("EMBED_TEXT_CONCURRENCY", "2"))
+    )
+    embed_text_cfg.setdefault("retry_max_attempts", int(os.getenv("EMBED_TEXT_RETRIES", "3")))
+    embed_text_cfg.setdefault("request_timeout", int(os.getenv("EMBED_TEXT_TIMEOUT", "60")))
     settings["embed_text"] = embed_text_cfg
 
     # Remove legacy or conflicting indexing block so CLI doesn't prefer defaults
