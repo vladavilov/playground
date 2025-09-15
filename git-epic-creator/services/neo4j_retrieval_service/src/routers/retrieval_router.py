@@ -76,10 +76,10 @@ def _run_primer(oai: httpx.Client, session, question: str, k: int) -> Dict[str, 
 
     names = {r["name"] for r in session.run("SHOW INDEXES YIELD name RETURN name")}
     communities: List[int] = []
-    if "community_summary_idx" in names:
+    if "graphrag_comm_index" in names:
         rows = list(session.run(
             "CALL db.index.vector.queryNodes($name, $k, $qvec)",
-            name="community_summary_idx",
+            name="graphrag_comm_index",
             k=k,
             qvec=qvec,
         ))
@@ -90,7 +90,7 @@ def _run_primer(oai: httpx.Client, session, question: str, k: int) -> Dict[str, 
     else:
         raise HTTPException(status_code=502, detail="Community summary index not found")
     
-    chunk_index: str = "chunk_embeddings"
+    chunk_index: str = "graphrag_chunk_index"
 
     sampled: Dict[int, List[int]] = {}
     if communities and chunk_index:
@@ -145,7 +145,7 @@ def _run_primer(oai: httpx.Client, session, question: str, k: int) -> Dict[str, 
 
 def _run_followups(oai: httpx.Client, session, followups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
-    chunk_index = "chunk_embeddings"
+    chunk_index = "graphrag_chunk_index"
 
     for f in followups[:2]:
         cids = f.get("target_communities") or []

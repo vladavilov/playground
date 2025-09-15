@@ -367,7 +367,7 @@ services:
       context: ./services
       dockerfile: ./openai_mock_service/Dockerfile
       args:
-        - PRECACHE_MODELS=false
+        - PRECACHE_MODELS=true # Set to true if it's the first time running the service
     container_name: openai_mock_service
     ports:
       - "8010:8000"
