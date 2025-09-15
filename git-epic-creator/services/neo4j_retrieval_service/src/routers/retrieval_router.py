@@ -1,11 +1,12 @@
 from typing import Any, Dict, List, Optional
 import json
 
-import os
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from neo4j import GraphDatabase
+
+from ..config import get_retrieval_settings
+from ..services.clients import get_oai_client as _clients_oai, get_neo4j_session as _clients_neo4j
 
 
 retrieval_router = APIRouter()
@@ -16,28 +17,21 @@ class RetrievalRequest(BaseModel):
     top_k: int = 1
 
 
-def _oai_client() -> httpx.Client:
-    base = os.getenv("OAI_BASE_URL", "http://openai-mock-service:8000/v1").rstrip("/")
-    key = os.getenv("OAI_KEY", "key")
-    headers = {"Authorization": f"Bearer {key}"}
-    return httpx.Client(base_url=base, headers=headers, timeout=10)
+def _oai_client() -> httpx.Client:  # re-exported alias for tests to monkeypatch
+    return _clients_oai()
 
 
-def _neo4j_session():
-    uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
-    user = os.getenv("NEO4J_USERNAME", "neo4j")
-    pwd = os.getenv("NEO4J_PASSWORD", "neo4j123")
-    database = os.getenv("NEO4J_DATABASE", "neo4j")
-    driver = GraphDatabase.driver(uri, auth=(user, pwd))
-    return driver.session(database=database)
+def _neo4j_session():  # re-exported alias for tests to monkeypatch
+    return _clients_neo4j()
 
 
 def _chat_completion(oai: httpx.Client, messages: List[Dict[str, str]]) -> str:
+    settings = get_retrieval_settings()
     resp = oai.post("/chat/completions", json={
-        "model": os.getenv("OAI_MODEL", "gpt-4.1"),
+        "model": settings.OAI_MODEL,
         "messages": messages,
         "max_tokens": 256,
-        "temperature": 0,
+        "temperature": settings.LLM_TEMPERATURE,
     })
     data = resp.json()
     try:
@@ -47,7 +41,8 @@ def _chat_completion(oai: httpx.Client, messages: List[Dict[str, str]]) -> str:
 
 
 def _embed(oai: httpx.Client, texts: List[str]) -> List[float]:
-    model = os.getenv("OAI_EMBED_MODEL", os.getenv("OAI_MODEL", "text-embedding-3-small"))
+    settings = get_retrieval_settings()
+    model = settings.OAI_EMBED_MODEL or settings.OAI_MODEL
     resp = oai.post("/embeddings", json={
         "model": model,
         "input": texts,
@@ -76,10 +71,11 @@ def _run_primer(oai: httpx.Client, session, question: str, k: int) -> Dict[str, 
 
     names = {r["name"] for r in session.run("SHOW INDEXES YIELD name RETURN name")}
     communities: List[int] = []
-    if "graphrag_comm_index" in names:
+    settings = get_retrieval_settings()
+    if settings.GRAPHRAG_COMM_INDEX in names:
         rows = list(session.run(
             "CALL db.index.vector.queryNodes($name, $k, $qvec)",
-            name="graphrag_comm_index",
+            name=settings.GRAPHRAG_COMM_INDEX,
             k=k,
             qvec=qvec,
         ))
@@ -90,7 +86,7 @@ def _run_primer(oai: httpx.Client, session, question: str, k: int) -> Dict[str, 
     else:
         raise HTTPException(status_code=502, detail="Community summary index not found")
     
-    chunk_index: str = "graphrag_chunk_index"
+    chunk_index: str = settings.GRAPHRAG_CHUNK_INDEX
 
     sampled: Dict[int, List[int]] = {}
     if communities and chunk_index:
