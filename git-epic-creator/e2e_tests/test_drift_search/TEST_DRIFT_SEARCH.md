@@ -61,7 +61,7 @@ OAI_BASE_URL=http://openai-mock-service:8000   # provided by docker-compose for 
 
 * Do not create indexes in tests; only verify they exist and are usable.
 * Expected indexes:
-  * Vector: `community_summary_idx` on `c.summary_embedding` (1536, COSINE)
+  * Vector: `graphrag_comm_index` on `c.summary_embedding` (1536, COSINE)
   * Vector: `chunk_idx` on `ch.embedding` (1536, COSINE)
   * Full-text: `community_summary_fts` on `(:Community).summary`
   * Full-text: `chunk_text_fts` on `(:Chunk).text`
@@ -100,7 +100,7 @@ OAI_BASE_URL=http://openai-mock-service:8000   # provided by docker-compose for 
   * Assert Cypher call to:
 
     ```cypher
-    CALL db.index.vector.queryNodes('community_summary_idx', $k, $qvec)
+    CALL db.index.vector.queryNodes('graphrag_comm_index', $k, $qvec)
     ```
   * The test verifies `$k` matches config (from README), `$qvec` shape=1536.
 * **Sample chunks per community**:
@@ -168,7 +168,7 @@ OAI_BASE_URL=http://openai-mock-service:8000   # provided by docker-compose for 
 
 * **Vector indexes** exist and are usable\*\*:
 
-  * `db.index.vector.queryNodes('community_summary_idx', 1, qvec)` returns rows (or empty set without error).
+  * `db.index.vector.queryNodes('graphrag_comm_index', 1, qvec)` returns rows (or empty set without error).
   * Same for `'chunk_idx'`.
 * **Full-text indexes** exist\*\*:
 

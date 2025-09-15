@@ -28,7 +28,7 @@ Your graph:
 ### Indexes (Neo4j 5+)
 
 The vector index for communities should be created **once**:
-cypher CREATE VECTOR INDEX community_summary_idx IF NOT EXISTS FOR (c:Community) ON (c.summary_embedding) OPTIONS {indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'COSINE' }};
+cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:Community) ON (c.summary_embedding) OPTIONS {indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'COSINE' }};
 > **Note:** Community embeddings should be computed once from each
 > community's `summary` (using the same embedding model as for chunks)
 > and stored in `c.summary_embedding`.
@@ -81,7 +81,7 @@ improved coverage.
     Hypothetical answer paragraph:
 
 ### Community Retrieval
-cypher CALL db.index.vector.queryNodes('community_summary_idx', $k, $qvec) YIELD node, score RETURN node, score ORDER BY score DESC;
+cypher CALL db.index.vector.queryNodes('graphrag_comm_index', $k, $qvec) YIELD node, score RETURN node, score ORDER BY score DESC;
 ### Sample Chunks per Community
 cypher MATCH (c:Community) WHERE id(c) IN $communityIds CALL { WITH c, $qvec AS qvec MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:Chunk) WITH ch, qvec CALL db.index.vector.queryNodes('chunk_idx', 50, qvec) YIELD node AS cand, score WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } RETURN c, collect({chunk: chunk, score: score}) AS top_chunks;
 ### Primer Prompt

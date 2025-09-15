@@ -7,8 +7,8 @@ This service orchestrates a project-scoped ingestion using the Neo4j GraphRAG Py
 - Download project-scoped `.json` documents from Azure Blob into `RAG_WORKSPACE_ROOT/{project_id}/input/` (prefix: `output/`).
 - Run the Neo4j GraphRAG Python pipeline (`SimpleKGPipeline`) to construct a knowledge graph directly in Neo4j.
 - Ensure Neo4j vector indexes exist (1536 dims, cosine):
-  - `chunk_embeddings` on `(:Chunk).embedding`
-  - `community_summary_idx` on `(:__Community__).summary_embedding`
+  - `graphrag_chunk_index` on `(:__Chunk__).embedding`
+  - `graphrag_comm_index` on `(:__Community__).summary_embedding`
 - Update Project Management Service status to `rag_processing` at start, `rag_ready` on success, or `rag_failed` on error.
 
 Reference: Neo4j GraphRAG (Python pipeline)
@@ -109,7 +109,7 @@ Upstream produces JSON documents; the service injects `project_id` and enriches 
 - A default finance-oriented schema is provided with permissive extensions.
 - Vector indexes are ensured via `neo4j_graphrag.indexes.create_vector_index`:
   - name: `graphrag_chunk_index`, label: `__Chunk__`, property: `embedding`, dimensions: `1536`, similarity: `cosine`.
-  - name: `community_summary_idx`, label: `__Community__`, property: `summary_embedding`, dimensions: `1536`, similarity: `cosine`.
+  - name: `graphrag_comm_index`, label: `__Community__`, property: `summary_embedding`, dimensions: `1536`, similarity: `cosine`.
 
 ### Subscriber and retry/DLQ
 - Subscriber (`subscribers/task_subscriber.py`) consumes stream `ingestion.trigger` and enqueues the Celery task on queue `neo4j_ingestion` with args `[job_id, project_id, attempts]`.

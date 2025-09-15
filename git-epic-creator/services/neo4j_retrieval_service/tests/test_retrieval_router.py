@@ -16,9 +16,9 @@ class FakeNeo4jSession:
     def run(self, query: str, **params: Any):
         # Simulate SHOW INDEXES returning both required indexes
         if query.strip().lower().startswith("show indexes"):
-            return [{"name": "community_summary_idx"}, {"name": "chunk_idx"}]
+            return [{"name": "graphrag_comm_index"}, {"name": "chunk_idx"}]
         # Community vector search → return rows with nodes having id attributes
-        if "db.index.vector.queryNodes" in query and "community_summary_idx" in query:
+        if "db.index.vector.queryNodes" in query and "graphrag_comm_index" in query:
             class Node:
                 def __init__(self, nid: int):
                     self.id = nid

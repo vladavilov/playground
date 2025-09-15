@@ -14,8 +14,8 @@ from services.neo4j_admin import supports_multi_db, ensure_database, drop_databa
 
 
 REQUIRED_INDEXES = (
-    "community_summary_idx",
-    "chunk_embeddings",
+    "graphrag_comm_index",
+    "graphrag_chunk_index",
     "community_summary_fts",
     "chunk_text_fts",
     "chunk_index_unique",
@@ -70,17 +70,18 @@ def cleanup_session(driver, target_db_name):
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_after_session(driver, target_db_name):
     yield
-    pass
+    cleanup_session(driver, target_db_name)
+
 
 
 def test_seed_data_loaded(driver, target_db_name, ensure_clean_session_setup):
     with driver.session(database=target_db_name) as session:
-        result = session.run("MATCH (c:Chunk) RETURN collect(c.index) AS idxs")
+        result = session.run("MATCH (c:__Chunk__) RETURN collect(c.index) AS idxs")
         idxs = result.single()["idxs"]
         assert sorted([int(i) for i in idxs]) == [0, 1]
 
         result = session.run(
-            "MATCH (:Chunk {index:'0'})-[:NEXT_CHUNK]->(:Chunk {index:'1'}) RETURN count(*) AS cnt"
+            "MATCH (:__Chunk__ {index:'0'})-[:NEXT_CHUNK]->(:__Chunk__ {index:'1'}) RETURN count(*) AS cnt"
         )
         assert result.single()["cnt"] == 1
 
@@ -89,8 +90,8 @@ def test_seed_data_loaded(driver, target_db_name, ensure_clean_session_setup):
 
         query = (
             "MATCH (e:__Entity__) "
-            "OPTIONAL MATCH (e)-[:FROM_CHUNK]->(c0:Chunk {index:'0'}) "
-            "OPTIONAL MATCH (e)-[:FROM_CHUNK]->(c1:Chunk {index:'1'}) "
+            "OPTIONAL MATCH (e)-[:FROM_CHUNK]->(c0:__Chunk__ {index:'0'}) "
+            "OPTIONAL MATCH (e)-[:FROM_CHUNK]->(c1:__Chunk__ {index:'1'}) "
             "WITH e, count(c0) AS c0n, count(c1) AS c1n "
             "RETURN count(CASE WHEN c0n>0 AND c1n>0 THEN 1 END) AS both"
         )
@@ -109,12 +110,12 @@ def test_indexes_exist(driver, target_db_name, ensure_clean_session_setup):
         indexes = [dict(r) for r in result]
         names = {idx["name"] for idx in indexes}
 
-        required_always = {"community_summary_idx", "community_summary_fts", "chunk_text_fts", "chunk_embeddings"}
+        required_always = {"graphrag_comm_index", "community_summary_fts", "chunk_text_fts", "graphrag_chunk_index"}
         missing_always = required_always - names
         assert not missing_always, f"Missing indexes: {missing_always}. Present: {names}"
 
         idx_by_name = {idx["name"]: idx for idx in indexes}
-        for vec_name in ("community_summary_idx", "chunk_embeddings"):
+        for vec_name in ("graphrag_comm_index", "graphrag_chunk_index"):
             idx = idx_by_name[vec_name]
             assert idx["type"].upper() == "VECTOR"
             opts = idx.get("options") or {}
@@ -133,7 +134,7 @@ def test_embeddings_written(driver, target_db_name, ensure_clean_session_setup):
     with driver.session(database=target_db_name) as session:
         res = session.run(
             """
-            MATCH (ch:Chunk)
+            MATCH (ch:__Chunk__)
             WITH ch, (ch.embedding IS NOT NULL) AS has, CASE WHEN ch.embedding IS NOT NULL THEN size(ch.embedding) ELSE -1 END AS sz
             RETURN count(*) AS total,
                    count(CASE WHEN has THEN 1 END) AS with_prop,
@@ -141,7 +142,7 @@ def test_embeddings_written(driver, target_db_name, ensure_clean_session_setup):
             """
         ).single()
         if res["with_prop"] == 0:
-            pytest.skip("Chunk embeddings not present in seed; skipping shape check")
+            pytest.skip("__Chunk__ embeddings not present in seed; skipping shape check")
         assert res["with_prop"] == res["good"]
 
         res = session.run(
@@ -163,20 +164,20 @@ def test_embeddings_written(driver, target_db_name, ensure_clean_session_setup):
 def test_indexes_queryable(driver, target_db_name, ensure_clean_session_setup):
     with driver.session(database=target_db_name) as session:
         names = {r["name"] for r in session.run("SHOW INDEXES YIELD name RETURN name")}
-        if "community_summary_idx" not in names or "chunk_embeddings" not in names:
+        if "graphrag_comm_index" not in names or "graphrag_chunk_index" not in names:
             pytest.skip("Required vector indexes not present; verify-only per environment")
 
         qvec = [0.0] * 1536
         qvec[0] = 1.0
         session.run(
             "CALL db.index.vector.queryNodes($name, $k, $qvec)",
-            name="community_summary_idx",
+            name="graphrag_comm_index",
             k=1,
             qvec=qvec,
         ).consume()
         session.run(
             "CALL db.index.vector.queryNodes($name, $k, $qvec)",
-            name="chunk_embeddings",
+            name="graphrag_chunk_index",
             k=1,
             qvec=qvec,
         ).consume()
