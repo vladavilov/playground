@@ -38,7 +38,7 @@ def test_get_index_queries_content_and_structure():
     builder = SchemaQueryBuilder()
     indexes = builder.get_index_queries()
     index_text = " ".join(indexes)
-    assert "chunk_embeddings" in index_text
+    assert "graphrag_chunk_index" in index_text
     for index in indexes:
         assert index.startswith("CREATE")
         assert "INDEX" in index

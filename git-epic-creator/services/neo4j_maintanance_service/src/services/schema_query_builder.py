@@ -52,7 +52,7 @@ class SchemaQueryBuilder:
         )
 
         indexes = [
-            (f"CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS FOR (c:Chunk) "
+            (f"CREATE VECTOR INDEX graphrag_chunk_index IF NOT EXISTS FOR (c:Chunk) "
              f"ON (c.embedding) {vector_index_options}"),
         ]
 

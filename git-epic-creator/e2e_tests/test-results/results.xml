@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="2" tests="18" time="751.432" timestamp="2025-09-15T13:11:02.899505+00:00" hostname="d4bd8204fa44"><testcase classname="src.test_document_workflow.TestDocumentWorkflow" name="test_complete_document_processing_workflow" time="302.974"><failure message="AssertionError: Did not observe expected UI message status='rag_processing', process_step='pipeline_start' within 300s; last_status='active', last_step='None'">src/test_document_workflow.py:116: in test_complete_document_processing_workflow
+    _ = next(seq)
+        ^^^^^^^^^
+src/services/redis_test_monitor.py:430: in iter_ui_sequence
+    raise AssertionError(
+E   AssertionError: Did not observe expected UI message status='rag_processing', process_step='pipeline_start' within 300s; last_status='active', last_step='None'</failure></testcase><testcase classname="src.test_document_workflow.TestDocumentWorkflow" name="test_multiple_document_upload_workflow" time="300.457"><failure message="AssertionError: Did not observe expected UI message status='rag_processing', process_step='pipeline_start' within 300s; last_status='active', last_step='None'">src/test_document_workflow.py:267: in test_multiple_document_upload_workflow
+    _ = next(seq)
+        ^^^^^^^^^
+src/services/redis_test_monitor.py:430: in iter_ui_sequence
+    raise AssertionError(
+E   AssertionError: Did not observe expected UI message status='rag_processing', process_step='pipeline_start' within 300s; last_status='active', last_step='None'</failure></testcase><testcase classname="src.test_document_workflow.TestDocumentWorkflow" name="test_document_upload_error_handling" time="0.047" /><testcase classname="src.test_document_workflow.TestDocumentWorkflowEdgeCases" name="test_concurrent_document_uploads" time="0.126" /><testcase classname="src.test_neo4j_drift_search" name="test_seed_data_loaded" time="10.586"><failure message="assert [] == [0, 1]&#10;  &#10;  Right contains 2 more items, first extra item: 0&#10;  &#10;  Full diff:&#10;  + []&#10;  - [&#10;  -     0,&#10;  -     1,&#10;  - ]">src/test_neo4j_drift_search.py:81: in test_seed_data_loaded
+    assert sorted([int(i) for i in idxs]) == [0, 1]
+E   assert [] == [0, 1]
+E     
+E     Right contains 2 more items, first extra item: 0
+E     
+E     Full diff:
+E     + []
+E     - [
+E     -     0,
+E     -     1,
+E     - ]</failure></testcase><testcase classname="src.test_neo4j_drift_search" name="test_indexes_exist" time="0.098" /><testcase classname="src.test_neo4j_drift_search" name="test_embeddings_written" time="0.083"><skipped type="pytest.skip" message="Chunk embeddings not present in seed; skipping shape check">/e2e-tests/src/test_neo4j_drift_search.py:145: Chunk embeddings not present in seed; skipping shape check</skipped></testcase><testcase classname="src.test_neo4j_drift_search" name="test_indexes_queryable" time="0.225" /><testcase classname="src.test_neo4j_drift_search" name="test_drop_test_db_conditional" time="0.599"><skipped type="pytest.skip" message="Database creation not permitted; skipping DB drop test">/e2e-tests/src/test_neo4j_drift_search.py:207: Database creation not permitted; skipping DB drop test</skipped></testcase><testcase classname="src.test_neo4j_drift_search" name="test_retrieval_service_end_to_end_requests_recorded" time="5.941" /><testcase classname="src.test_services_health.TestServicesHealth" name="test_postgres_connectivity" time="0.014" /><testcase classname="src.test_services_health.TestServicesHealth" name="test_neo4j_connectivity" time="0.101" /><testcase classname="src.test_services_health.TestServicesHealth" name="test_celery_health_endpoint" time="9.078" /><testcase classname="src.test_services_health.TestServicesHealth" name="test_all_services_accessible" time="0.030" /><testcase classname="src.test_services_health.TestDatabaseIntegrity" name="test_postgres_schema_exists" time="0.029" /><testcase classname="src.test_services_health.TestDatabaseIntegrity" name="test_neo4j_database_accessible" time="0.043" /><testcase classname="src.test_services_health.TestDatabaseIntegrity" name="test_redis_info" time="0.005" /><testcase classname="src.test_ui_workflow.TestUIRequirementsWorkflow" name="test_ui_end_to_end_requirements_workflow" time="120.514"><failure message="AssertionError: Did not observe expected UI message status='rag_processing', process_step='None' within 120s; last_status='active', last_step='None'">src/test_ui_workflow.py:83: in test_ui_end_to_end_requirements_workflow
+    _ = next(seq)
+        ^^^^^^^^^
+src/services/redis_test_monitor.py:430: in iter_ui_sequence
+    raise AssertionError(
+E   AssertionError: Did not observe expected UI message status='rag_processing', process_step='None' within 120s; last_status='active', last_step='None'</failure></testcase></testsuite></testsuites>
