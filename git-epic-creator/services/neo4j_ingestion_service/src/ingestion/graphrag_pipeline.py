@@ -29,7 +29,7 @@ def _resolve_vector_index_config(config_data: dict | None) -> dict:
 	Resolve vector index configuration from YAML config data with safe defaults.
 	"""
 	defaults = {
-		"name": "graphrag_index",
+		"name": "chunk_embeddings",
 		"label": "Chunk",
 		"property": "embedding",
 		"dimensions": 1536,
@@ -38,6 +38,29 @@ def _resolve_vector_index_config(config_data: dict | None) -> dict:
 	if not isinstance(config_data, dict):
 		return defaults
 	index_cfg = config_data.get("vector_index", {}) or {}
+	return {
+		"name": index_cfg.get("name", defaults["name"]),
+		"label": index_cfg.get("label", defaults["label"]),
+		"property": index_cfg.get("property", defaults["property"]),
+		"dimensions": int(index_cfg.get("dimensions", defaults["dimensions"])),
+		"similarity": index_cfg.get("similarity", defaults["similarity"]),
+	}
+
+def _resolve_community_index_config(config_data: dict | None) -> dict:
+	"""
+	Resolve community summary vector index configuration with safe defaults.
+	Defaults: name 'community_summary_idx', label '__Community__', property 'summary_embedding'.
+	"""
+	defaults = {
+		"name": "community_summary_idx",
+		"label": "__Community__",
+		"property": "summary_embedding",
+		"dimensions": 1536,
+		"similarity": "cosine",
+	}
+	if not isinstance(config_data, dict):
+		return defaults
+	index_cfg = (config_data.get("community_vector_index") or {})
 	return {
 		"name": index_cfg.get("name", defaults["name"]),
 		"label": index_cfg.get("label", defaults["label"]),
@@ -116,6 +139,20 @@ def ensure_vector_index(driver: Driver, index_cfg: dict) -> None:
 		fail_if_exists=False,
 	)
 
+def ensure_community_summary_index(driver: Driver, index_cfg: dict) -> None:
+	"""
+	Ensure the community summary vector index exists using the provided configuration.
+	"""
+	create_vector_index(
+		driver,
+		index_cfg["name"],
+		label=index_cfg["label"],
+		embedding_property=index_cfg["property"],
+		dimensions=index_cfg["dimensions"],
+		similarity_fn=index_cfg["similarity"],
+		fail_if_exists=False,
+	)
+
 
 async def run_documents(
 	driver: Driver,
@@ -126,7 +163,7 @@ async def run_documents(
 ) -> None:
 	"""
 	Run the YAML-configured GraphRAG KG builder pipeline with the provided documents.
-
+	
 	Args:
 		driver: Neo4j driver instance
 		documents: List of document dictionaries with metadata (each must contain a 'text' field)
@@ -144,8 +181,10 @@ async def run_documents(
 
 	config_data = _load_yaml_config(config_path)
 	index_cfg = _resolve_vector_index_config(config_data)
+	community_idx_cfg = _resolve_community_index_config(config_data)
 
 	ensure_vector_index(driver, index_cfg)
+	ensure_community_summary_index(driver, community_idx_cfg)
 	documents_json = json.dumps(documents, ensure_ascii=False, indent=2)
 	await kg_builder.run_async(text=documents_json)
 

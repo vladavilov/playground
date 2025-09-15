@@ -62,9 +62,17 @@ embedder_config:
 
 # Vector index configuration (used by ensure_vector_index)
 vector_index:
-  name: graphrag_index
+  name: chunk_embeddings
   label: Chunk
   property: embedding
+  dimensions: 1536
+  similarity: cosine
+
+# Community summaries vector index (ensured by pipeline)
+community_vector_index:
+  name: community_summary_idx
+  label: __Community__
+  property: summary_embedding
   dimensions: 1536
   similarity: cosine
 

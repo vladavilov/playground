@@ -4,7 +4,7 @@ WITH p,
     {
       id: child.id,
       summary: coalesce(child.summary, ""),
-      numberOfChildren: size( (child)<-[:IN_COMMUNITY]-(:`__Community__`) )
+      numberOfChildren: COUNT {(child)<-[:IN_COMMUNITY]-()}
     }
   ] AS communities
 RETURN p.id AS communityId, communities

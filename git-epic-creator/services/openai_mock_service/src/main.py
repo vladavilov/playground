@@ -10,6 +10,8 @@ from fastapi.responses import ORJSONResponse
 from fastapi.exceptions import RequestValidationError
 import structlog
 import uvicorn
+from collections import deque
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 # Ensure Hugging Face cache dir uses HF_HOME to avoid deprecation warning
@@ -30,6 +32,7 @@ def get_config() -> Dict[str, Optional[str]]:
         "OAI_EMBED_MODEL": get_environment_variable(
             "OAI_EMBED_MODEL", "text-embedding-3-large"
         ),
+        "EMBEDDINGS_SIZE": get_environment_variable("EMBEDDINGS_SIZE", "1536"),
     }
 
 
@@ -63,6 +66,57 @@ app = FastAPI(default_response_class=ORJSONResponse)
 
 
 
+
+SPY_MAX_RECORDS = int(os.getenv("SPY_MAX_RECORDS", "1000"))
+_spy_requests = deque(maxlen=SPY_MAX_RECORDS)
+
+
+class SpyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Avoid spying on spy endpoints themselves to prevent recursion
+        path = request.url.path or ""
+        if not path.startswith("/spy"):
+            try:
+                raw_body = await request.body()
+                # Restore body for downstream consumers
+                async def receive():
+                    return {"type": "http.request", "body": raw_body, "more_body": False}
+                request._receive = receive  # type: ignore[attr-defined]
+
+                headers = {k.lower(): v for k, v in request.headers.items()}
+                body_text: str
+                try:
+                    body_text = raw_body.decode("utf-8")
+                except Exception:
+                    body_text = "<non-text-body>"
+                _spy_requests.append({
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "method": request.method,
+                    "path": path,
+                    "headers": headers,
+                    "body": body_text,
+                })
+            except Exception as exc:
+                logger.warning("spy_record_failed", error=str(exc))
+        response = await call_next(request)
+        return response
+
+
+app.add_middleware(SpyMiddleware)
+
+
+@app.post("/spy/clear")
+async def spy_clear() -> Dict[str, str]:
+    _spy_requests.clear()
+    return {"status": "cleared"}
+
+
+@app.get("/spy/requests")
+async def spy_requests(howMany: int = 50) -> Dict[str, Any]:
+    n = max(0, min(int(howMany), SPY_MAX_RECORDS))
+    # Return most recent first
+    items = list(_spy_requests)[-n:][::-1]
+    return {"items": items, "count": len(items)}
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(
@@ -109,6 +163,11 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
     messages = body.get("messages")
     if not model or messages is None:
         raise HTTPException(status_code=400, detail="Bad Request")
+    # Log incoming messages for observability
+    try:
+        logger.info("oai_chat_request", messages=messages)
+    except Exception:
+        logger.info("oai_chat_request_unloggable")
     user_prompt: str = ""
     try:
         # Build a tiny prompt from the last user message if available
@@ -117,6 +176,182 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
                 if isinstance(msg, dict) and msg.get("role") == "user":
                     user_prompt = str(msg.get("content", ""))
                     break
+
+        # DRIFT-search deterministic routing for E2E tests
+        # Recognize simple keyword cues and return fixed, sensible JSON/text
+        # Assume test user question is: "what are the main components of the bridge?"
+        all_text = "\n".join([str(m.get("content", "")) for m in messages if isinstance(m, dict)])
+        lower_all = all_text.lower()
+        if "hyde" in lower_all or "hypothetical answer paragraph" in lower_all:
+            generated = (
+                "Hypothetical paragraph about bridge components: deck, supports, arches, cables, and foundations."
+            )
+            logger.info("drift_mock_hyde")
+            return {
+                "id": "cmpl-mock-hyde",
+                "object": "chat.completion",
+                "created": 1700000001,
+                "model": config["OAI_MODEL"],
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 20, "total_tokens": 23},
+            }
+
+        if "you are drift-search primer" in lower_all:
+            primer_json = {
+                "initial_answer": "Bridges consist of deck, supports, and load-bearing structures.",
+                "followups": [
+                    {"question": "Clarify deck materials and structural role.", "target_communities": [1]},
+                    {"question": "Explain arch mechanics in load distribution.", "target_communities": [2]},
+                ],
+                "rationale": "Primer synthesized from community summaries and sampled chunks.",
+            }
+            generated = json.dumps(primer_json)
+            logger.info("drift_mock_primer")
+            return {
+                "id": "cmpl-mock-primer",
+                "object": "chat.completion",
+                "created": 1700000002,
+                "model": config["OAI_MODEL"],
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 30, "total_tokens": 33},
+            }
+
+        if "you are drift-search local executor" in lower_all:
+            # Branch 1: Clarify deck materials and structural role -> answer + 1 new follow-up, should_continue = true
+            if "clarify deck materials and structural role" in lower_all:
+                local_json = {
+                    "answer": (
+                        "Bridge decks are commonly built from reinforced concrete, steel orthotropic panels, or composite systems. "
+                        "The deck distributes vehicular loads to primary load-bearing elements (girders, arches, or cables) and provides a riding surface."
+                    ),
+                    "citations": [
+                        {"chunk_id": 0, "span": "deck materials overview"},
+                        {"chunk_id": 1, "span": "load path from deck to supports"},
+                    ],
+                    "new_followups": [
+                        {
+                            "question": "List common deck materials and how they influence load distribution.",
+                            "target_communities": [1],
+                        }
+                    ],
+                    "confidence": 0.9,
+                    "should_continue": True,
+                }
+                generated = json.dumps(local_json)
+                logger.info("drift_mock_local_deck_materials")
+                return {
+                    "id": "cmpl-mock-local",
+                    "object": "chat.completion",
+                    "created": 1700000003,
+                    "model": config["OAI_MODEL"],
+                    "choices": [
+                        {"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}
+                    ],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 28, "total_tokens": 31},
+                }
+
+            # Branch 2: Answer the generated follow-up; should_continue = false
+            if "list common deck materials and how they influence load distribution" in lower_all:
+                local_json = {
+                    "answer": (
+                        "Reinforced concrete decks spread loads through slab action to supporting girders; steel orthotropic decks channel loads via stiffened plates; "
+                        "composite steel–concrete decks combine slab and girder action, improving stiffness and distributing loads more evenly."
+                    ),
+                    "citations": [
+                        {"chunk_id": 2, "span": "concrete slab load distribution"},
+                        {"chunk_id": 3, "span": "orthotropic deck behavior"},
+                    ],
+                    "new_followups": [],
+                    "confidence": 0.92,
+                    "should_continue": False,
+                }
+                generated = json.dumps(local_json)
+                logger.info("drift_mock_local_deck_materials_followup")
+                return {
+                    "id": "cmpl-mock-local",
+                    "object": "chat.completion",
+                    "created": 1700000003,
+                    "model": config["OAI_MODEL"],
+                    "choices": [
+                        {"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}
+                    ],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 28, "total_tokens": 31},
+                }
+
+            # Branch 3: Explain arch mechanics in load distribution; should_continue = false
+            if "explain arch mechanics in load distribution" in lower_all:
+                local_json = {
+                    "answer": (
+                        "Arches carry deck loads primarily in compression, transferring forces as thrust to abutments. "
+                        "Load paths curve along the arch rib, minimizing bending and channeling forces into supports."
+                    ),
+                    "citations": [
+                        {"chunk_id": 4, "span": "arch compression and thrust"},
+                        {"chunk_id": 5, "span": "load path along arch rib"},
+                    ],
+                    "new_followups": [],
+                    "confidence": 0.9,
+                    "should_continue": False,
+                }
+                generated = json.dumps(local_json)
+                logger.info("drift_mock_local_arch_mechanics")
+                return {
+                    "id": "cmpl-mock-local",
+                    "object": "chat.completion",
+                    "created": 1700000003,
+                    "model": config["OAI_MODEL"],
+                    "choices": [
+                        {"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}
+                    ],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 28, "total_tokens": 31},
+                }
+
+            # Default Local Executor behavior
+            local_json = {
+                "answer": "The deck carries traffic; arches transfer loads to supports.",
+                "citations": [{"chunk_id": 0, "span": "deck overview"}, {"chunk_id": 1, "span": "arch mechanics"}],
+                "new_followups": [],
+                "confidence": 0.9,
+                "should_continue": False,
+            }
+            generated = json.dumps(local_json)
+            logger.info("drift_mock_local")
+            return {
+                "id": "cmpl-mock-local",
+                "object": "chat.completion",
+                "created": 1700000003,
+                "model": config["OAI_MODEL"],
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 28, "total_tokens": 31},
+            }
+
+        if "you are drift-search aggregator" in lower_all:
+            agg_json = {
+                "final_answer": "Bridges comprise the deck, supports, and load-bearing structures such as arches or cables.",
+                "key_facts": [
+                    {"fact": "Deck carries traffic and distributes loads.", "citations": [0]},
+                    {"fact": "Arches channel forces into supports.", "citations": [1]},
+                ],
+                "residual_uncertainty": "Specific materials and design vary by bridge type.",
+            }
+            generated = json.dumps(agg_json)
+            logger.info("drift_mock_aggregator")
+            return {
+                "id": "cmpl-mock-agg",
+                "object": "chat.completion",
+                "created": 1700000004,
+                "model": config["OAI_MODEL"],
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": generated}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 35, "total_tokens": 38},
+            }
         # First, try to satisfy integration-test patterns from ai_workflow_service
         if isinstance(messages, list):
             system_content = "".join(
@@ -365,12 +600,9 @@ async def embeddings(body: Dict[str, Any]) -> Dict[str, Any]:
             for idx, vec in enumerate(vectors)
         ]
     except Exception as exc:
-        logger.warning("embedding_failed_fallback", error=str(exc))
-        vector = [0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008]
-        data = [
-            {"object": "embedding", "index": idx, "embedding": vector}
-            for idx, _ in enumerate(items)
-        ]
+        logger.error("embedding_failed", error=str(exc))
+        # Explicitly surface failure instead of returning small dummy vectors
+        raise HTTPException(status_code=500, detail=f"Embedding model unavailable: {exc}")
 
     return {
         "object": "list",
@@ -381,39 +613,105 @@ async def embeddings(body: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _load_embedder():
-    """Lazy-load sentence-transformers model from local directory.
+    """Lazy-load a local Jina embeddings model from models/embeddings/jina-embeddings-v2-base-en.
 
-    Returns the model or None if unavailable.
+    Tries Sentence-Transformers first. If that fails (e.g., local snapshot lacks
+    sentence-transformers specific files), falls back to raw Transformers with
+    mean pooling. Returns an object exposing a callable "encode(texts: List[str]) -> List[List[float]]".
+    Raises RuntimeError if the model cannot be loaded locally.
     """
+    model_dir = os.path.join(os.getcwd(), "models", "embeddings", "jina-embeddings-v2-base-en")
+    if not os.path.isdir(model_dir):
+        raise RuntimeError(f"Embedding model directory not found: {model_dir}")
+
+    # Attempt Sentence-Transformers loading path
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore
-    except Exception:
-        return None
 
-    # Hardcoded long-context embedding model directory
-    model_dir = os.path.join(os.getcwd(), "models", "embeddings", "jina-embeddings-v2-base-en")
-    # Load from the locally downloaded snapshot; suppress attention warning via model_kw
-    model = SentenceTransformer(
-        model_dir,
-        model_kwargs={"attn_implementation": "eager"},
-    )
-    # Truncate long inputs to speed up and avoid OOM
-    # Hardcode 10k token window for embeddings
-    model.max_seq_length = 10000
-    return model
+        st_model = SentenceTransformer(
+            model_dir,
+            model_kwargs={"attn_implementation": "eager"},
+        )
+        # Truncate long inputs to speed up and avoid OOM
+        st_model.max_seq_length = 10000
+        logger.info("embedder_loaded", backend="sentence-transformers", path=model_dir)
+        return st_model
+    except Exception as exc:
+        logger.warning("embedder_st_load_failed", error=str(exc))
+
+    # Fallback: load with raw Transformers and implement mean pooling
+    try:
+        import torch  # type: ignore
+        from transformers import AutoModel, AutoTokenizer  # type: ignore
+
+        class TransformersMeanPoolEmbedder:
+            def __init__(self, directory: str) -> None:
+                self.tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True)
+                # trust_remote_code is not required for standard architectures
+                self.model = AutoModel.from_pretrained(directory, local_files_only=True)
+                self.model.eval()
+
+            def _mean_pool(self, last_hidden_state, attention_mask):
+                # Mean pooling excluding padding tokens
+                input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+                sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, dim=1)
+                sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
+                embeddings = sum_embeddings / sum_mask
+                # L2 normalize
+                embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+                return embeddings
+
+            def encode(self, texts: List[str], show_progress_bar: bool = False, convert_to_numpy: bool = False, normalize_embeddings: bool = False):  # type: ignore[override]
+                # normalize_embeddings handled inherently by L2 normalization above
+                with torch.no_grad():
+                    inputs = self.tokenizer(
+                        texts,
+                        padding=True,
+                        truncation=True,
+                        max_length=10000,
+                        return_tensors="pt",
+                    )
+                    outputs = self.model(**inputs)
+                    last_hidden_state = outputs.last_hidden_state
+                    pooled = self._mean_pool(last_hidden_state, inputs["attention_mask"])  # [batch, hidden]
+                    if convert_to_numpy:
+                        return pooled.cpu().numpy()
+                    return pooled.cpu().tolist()
+
+        hf_embedder = TransformersMeanPoolEmbedder(model_dir)
+        # Probe once to confirm it works
+        _ = hf_embedder.encode(["test"], show_progress_bar=False, convert_to_numpy=False)
+        logger.info("embedder_loaded", backend="transformers-mean-pool", path=model_dir)
+        return hf_embedder
+    except Exception as exc:
+        logger.error("embedder_transformers_load_failed", error=str(exc))
+        raise RuntimeError(f"Failed to load local embedding model from {model_dir}: {exc}")
 
 def _embed_texts_locally(texts: List[str]) -> List[List[float]]:
     embedder = _load_embedder()
-    if embedder is None:
-        raise RuntimeError("Embedder not available")
+    # Enforce target dimension from env
+    try:
+        target_dim = int(get_config()["EMBEDDINGS_SIZE"] or "1536")
+    except Exception:
+        target_dim = 1536
     # Return plain python lists to avoid numpy dependency overhead
-    embeddings = embedder.encode(
+    embeddings = embedder.encode(  # type: ignore[attr-defined]
         texts,
         show_progress_bar=False,
         convert_to_numpy=False,
         normalize_embeddings=False,
     )
-    return [[float(x) for x in vec] for vec in embeddings]
+    # Ensure primitives
+    vectors: List[List[float]] = []
+    for vec in embeddings:
+        lst = [float(x) for x in vec]
+        # Pad or truncate to target_dim
+        if len(lst) < target_dim:
+            lst = lst + [0.0] * (target_dim - len(lst))
+        elif len(lst) > target_dim:
+            lst = lst[:target_dim]
+        vectors.append(lst)
+    return vectors
 
 
 def _generate_text_locally(
