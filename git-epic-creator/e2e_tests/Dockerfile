@@ -26,6 +26,7 @@ WORKDIR /e2e-tests
 
 COPY --from=builder /e2e-tests/src/ ./src/
 COPY --from=builder /e2e-tests/resources ./resources
+COPY --from=builder /e2e-tests/test_drift_search ./test_drift_search
 
 # Ensure test results directory exists for junitxml output
 RUN mkdir -p /e2e-tests/test-results
