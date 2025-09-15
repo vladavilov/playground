@@ -208,7 +208,7 @@ class ProjectService:
             logger.warning("User access denied", project_id=str(project_id), user_id=user_id)
             return False
 
-    def update_project_progress(self, project_id: UUID, processed_count: Optional[int], total_count: Optional[int], status: ProjectStatus) -> Optional[Project]:
+    def update_project_progress(self, project_id: UUID, processed_count: Optional[int], total_count: Optional[int], status: ProjectStatus, processed_pct: Optional[float] = None) -> Optional[Project]:
         logger.info(
             "Updating project progress",
             project_id=str(project_id),
@@ -229,7 +229,10 @@ class ProjectService:
 
             project.status = status.value
 
-            if processed_count is not None and total_count is not None:
+            # Prefer directly provided processed_pct when available; otherwise derive from counts.
+            if processed_pct is not None:
+                project.processed_pct = max(0.0, min(100.0, float(processed_pct)))
+            elif processed_count is not None and total_count is not None:
                 project.processed_pct = round((processed_count / total_count) * 100, 2)
             elif status == ProjectStatus.RAG_READY:
                 project.processed_pct = 100.0

@@ -1,4 +1,5 @@
 import threading
+import multiprocessing as mp
 import uvicorn
 import structlog
 from fastapi import APIRouter
@@ -6,6 +7,12 @@ from fastapi import APIRouter
 from configuration.logging_config import configure_logging
 from utils.app_factory import FastAPIFactory
 from worker.celery_app import celery_app, get_task_validation_status
+
+# Force spawn to avoid fork with LanceDB
+try:
+    mp.set_start_method("spawn", force=True)
+except Exception:
+    pass
 
 # Configure logging at application startup
 configure_logging()
@@ -54,7 +61,7 @@ def start_worker() -> None:
         args = [
             "worker",
             "--loglevel=info",
-            "--concurrency=2",
+            "--concurrency=1",
             f"--hostname={unique_host}",
             "--queues=neo4j_ingestion,neo4j_ingestion_dlq",
             "--prefetch-multiplier=1",
@@ -62,6 +69,8 @@ def start_worker() -> None:
         # On Windows, prefer 'solo' pool to avoid unsupported features and improve stability
         if os_name == "nt":
             args.append("--pool=solo")
+        else:
+            args.append("--pool=threads")
         # Avoid cluster mingle/gossip to prevent DuplicateNodenameWarning noise when other workers exist
         args.append("--without-mingle")
         args.append("--without-gossip")

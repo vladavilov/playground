@@ -10,10 +10,12 @@ from .cypher import (
     get_merge_relationship_query,
     get_backfill_entity_rel_ids,
     get_backfill_community_membership,
+    get_dedup_has_chunk_relationships,
 )
 
 
 from configuration.vector_index_config import get_vector_index_env
+from .callbacks import IngestionWorkflowCallbacks
 
 
 logger = structlog.get_logger(__name__)
@@ -95,28 +97,72 @@ class Neo4jIngestor:
         statement = self._build_update_embeddings_statement(label, text_property)
         return self._batched_run(statement, rows, batch_size)
 
-    def ingest_all_vectors(self, vectors: Dict[str, List[Dict[str, Any]]], batch_size: int = 1000) -> Dict[str, int]:
-        return {
-            "community_summary": self.ingest_vectors_for_label("__Community__", "summary", vectors.get("community_summary", []), batch_size),
-            "entity_description": self.ingest_vectors_for_label("__Entity__", "description", vectors.get("entity_description", []), batch_size),
-            "chunk_text": self.ingest_vectors_for_label("__Chunk__", "text", vectors.get("chunk_text", []), batch_size),
-        }
+    def ingest_all_vectors(
+        self,
+        vectors: Dict[str, List[Dict[str, Any]]],
+        callbacks: IngestionWorkflowCallbacks,
+        batch_size: int = 1000,
+    ) -> Dict[str, int]:
+        result: Dict[str, int] = {}
+
+        def _run(label: str, prop: str, key: str) -> int:
+            rows = vectors.get(key, [])
+            callbacks.vectors_ingest_start(label, prop, len(rows))
+            count = self.ingest_vectors_for_label(label, prop, rows, batch_size)
+            return count
+
+        # Align with LanceDB table based on community full_content
+        result["community_summary"] = _run("__Community__", "full_content", "community_summary")
+        result["entity_description"] = _run("__Entity__", "description", "entity_description")
+        result["chunk_text"] = _run("__Chunk__", "text", "chunk_text")
+        return result
 
     # -----------------------
     # Backfills
     # -----------------------
-    def backfill_entity_relationship_ids(self) -> None:
+    def backfill_entity_relationship_ids(self, callbacks: IngestionWorkflowCallbacks) -> None:
+        step = "backfill_entity_relationship_ids"
+        callbacks.backfill_start(step)
+        ok = True
+        err: str | None = None
         try:
             with self._driver.session() as session:
                 session.run(get_backfill_entity_rel_ids())
         except Exception as exc:
-            logger.warning("Failed to backfill entity.relationship_ids", error=str(exc))
+            ok = False
+            err = str(exc)
+            logger.warning("Failed to backfill entity.relationship_ids", error=err)
+        finally:
+            callbacks.backfill_end(step, ok, err)
 
-    def backfill_community_membership(self) -> None:
+    def backfill_community_membership(self, callbacks: IngestionWorkflowCallbacks) -> None:
+        step = "backfill_community_membership"
+        callbacks.backfill_start(step)
+        ok = True
+        err: str | None = None
         try:
             with self._driver.session() as session:
                 session.run(get_backfill_community_membership())
         except Exception as exc:
-            logger.warning("Failed to backfill community.entity_ids and IN_COMMUNITY edges", error=str(exc))
+            ok = False
+            err = str(exc)
+            logger.warning("Failed to backfill community.entity_ids and IN_COMMUNITY edges", error=err)
+        finally:
+            callbacks.backfill_end(step, ok, err)
+
+    def dedup_has_chunk_relationships(self, callbacks: IngestionWorkflowCallbacks) -> None:
+        step = "dedup_has_chunk_relationships"
+        callbacks.backfill_start(step)
+        ok = True
+        err: str | None = None
+        try:
+            with self._driver.session() as session:
+                session.run(get_dedup_has_chunk_relationships())
+        except Exception as exc:
+            ok = False
+            err = str(exc)
+            logger.warning("Failed to deduplicate HAS_CHUNK relationships", error=err)
+        finally:
+            callbacks.backfill_end(step, ok, err)
 
 

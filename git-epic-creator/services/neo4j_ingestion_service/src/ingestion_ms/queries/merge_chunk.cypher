@@ -5,6 +5,12 @@ UNWIND dids AS did
 WITH c,did WHERE did IS NOT NULL
 MATCH (d:__Document__ {id:did})
 MERGE (d)-[:HAS_CHUNK]->(c)
+// Ensure no duplicate HAS_CHUNK relationships exist for this chunk even if input repeats
+WITH c
+MATCH (a)-[r:HAS_CHUNK]->(c)
+WITH a,c,collect(r) AS rs
+WHERE size(rs) > 1
+FOREACH (x IN rs[1..] | DELETE x)
 WITH c WHERE c.text IS NOT NULL AND c.text <> ''
 MATCH (x:__Chunk__ {text:c.text})
 WITH c,x ORDER BY x.id

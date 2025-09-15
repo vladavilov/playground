@@ -111,12 +111,12 @@ function renderDetails() {
   if (!state.selected) {
     box.classList.add('hidden');
     upload.classList.add('hidden');
-    chat.classList.add('hidden');
+    if (chat) chat.classList.add('hidden');
     return;
   }
   box.classList.remove('hidden');
   upload.classList.remove('hidden');
-  chat.classList.remove('hidden');
+  if (chat) chat.classList.remove('hidden');
   box.innerHTML = '';
   const p = state.selected;
   box.append(
@@ -127,7 +127,10 @@ function renderDetails() {
     el('div', { class: 'text-sm text-slate-600' }, `Updated: ${p.updated_at}`),
     el('div', { class: 'text-sm mt-2' }, [renderGitInfoLine(p.gitlab_url, 'project')]),
     el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_repository_url, 'repository')]),
-    el('div', { class: 'mt-4 flex items-center justify-end' }, [
+    el('div', { class: 'mt-4 flex items-center justify-between' }, [
+      el('div', { class: 'flex items-center gap-2' }, [
+        el('button', { id: 'openChatBtn', class: 'px-3 py-2 border rounded text-slate-700 hover:bg-slate-50', title: 'Open chat to capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/chat.html#${state.selected.id}`; } }, 'Open Chat'),
+      ]),
       el('button', { class: 'px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete project')
     ])
   );
@@ -185,11 +188,13 @@ function selectProject(p) {
   try {
     const text = document.getElementById('progressText');
     const bar = document.getElementById('progressBar');
+    const pct = document.getElementById('progressPct');
     const input = document.getElementById('fileInput');
     const badgeHost = document.getElementById('statusBadge');
     const log = document.getElementById('progressLog');
     if (text) text.textContent = 'No processing yet';
     if (bar) bar.style.width = '0%';
+    if (pct) pct.textContent = '0%';
     if (input) input.value = '';
     if (badgeHost) { badgeHost.innerHTML = ''; }
     if (log) log.innerHTML = '';
@@ -203,10 +208,26 @@ async function uploadFiles() {
   const form = new FormData();
   for (const f of files) form.append('files', f);
   try {
+    // Reset progress UI and log at the start of upload
+    const text = document.getElementById('progressText');
+    const bar = document.getElementById('progressBar');
+    const pct = document.getElementById('progressPct');
+    const badgeHost = document.getElementById('statusBadge');
+    const log = document.getElementById('progressLog');
+    if (text) text.textContent = 'Uploading files…';
+    if (bar) bar.style.width = '0%';
+    if (pct) pct.textContent = '0%';
+    if (badgeHost) badgeHost.innerHTML = '';
+    if (log) log.innerHTML = '';
+
     await api.postForm(`/projects/${state.selected.id}/documents/upload`, form);
     // Reset input after successful upload
     const input = document.getElementById('fileInput');
     if (input) input.value = '';
+    const fileCount = document.getElementById('fileCount');
+    const selectedFiles = document.getElementById('selectedFiles');
+    if (fileCount) fileCount.textContent = 'No files selected';
+    if (selectedFiles) { selectedFiles.textContent = ''; selectedFiles.classList.add('hidden'); }
   } catch (e) { alert('Upload failed'); return; }
 }
 
@@ -225,25 +246,20 @@ function connectSSE() {
       const bar = document.getElementById('progressBar');
       const badgeHost = document.getElementById('statusBadge');
       const logHost = document.getElementById('progressLog');
+      const pct = document.getElementById('progressPct');
       if (badgeHost) { badgeHost.innerHTML = ''; badgeHost.appendChild(getStatusBadge(msg.status)); }
-
       const stepLabel = (msg.process_step && String(msg.process_step).trim() !== '') ? String(msg.process_step) : (msg.status || 'unknown');
-      const total = Number.isFinite(msg.total_count) ? msg.total_count : null;
-      const processed = Number.isFinite(msg.processed_count) ? msg.processed_count : null;
-      const pctBase = Number.isFinite(msg.processed_pct) ? msg.processed_pct : ((total && total > 0 && Number.isFinite(processed)) ? (processed / total) * 100 : null);
-      const safePct = (pctBase == null ? null : Math.max(0, Math.min(100, Math.round(pctBase))));
-      const countsStr = (total != null && processed != null)
-        ? (safePct != null ? ` — ${safePct}% (${processed}/${total})` : ` — (${processed}/${total})`)
-        : '';
+      const safePct = (Number.isFinite(msg.processed_pct) ? Math.max(0, Math.min(100, Math.round(msg.processed_pct))) : null);
 
-      if (text) { text.textContent = `${stepLabel}${countsStr}`; }
-      if (bar) { bar.style.width = (safePct != null ? `${safePct}%` : '0%'); }
+      if (text) { text.textContent = stepLabel; }
+      if (bar && safePct != null) { bar.style.width = `${safePct}%`; }
+      if (pct && safePct != null) { pct.textContent = `${safePct}%`; }
 
       if (logHost) {
         const ts = (msg.timestamp ? new Date(msg.timestamp) : new Date());
         const tsStr = isNaN(ts.getTime()) ? new Date().toLocaleTimeString() : ts.toLocaleTimeString();
         const line = document.createElement('div');
-        line.textContent = `${tsStr} | ${stepLabel}${countsStr}`;
+        line.textContent = `${tsStr} | ${stepLabel}`;
         logHost.appendChild(line);
         while (logHost.children.length > 200) { logHost.removeChild(logHost.firstChild); }
         logHost.scrollTop = logHost.scrollHeight;
@@ -266,13 +282,53 @@ function setupActions() {
   document.getElementById('createProject').addEventListener('click', createProject);
   const search = document.getElementById('projectName');
   if (search) search.addEventListener('input', (e) => { state.filterText = e.target.value || ''; renderProjects(); });
-  document.getElementById('uploadBtn').addEventListener('click', uploadFiles);
+  const uploadBtn = document.getElementById('uploadBtn');
+  if (uploadBtn) uploadBtn.addEventListener('click', uploadFiles);
   const clearBtn = document.getElementById('clearLogBtn');
   if (clearBtn) clearBtn.addEventListener('click', () => {
     const log = document.getElementById('progressLog');
     if (log) log.innerHTML = '';
   });
-  document.getElementById('openChatBtn').addEventListener('click', () => {
+  const clearBtnTop = document.getElementById('clearLogBtnTop');
+  if (clearBtnTop) clearBtnTop.addEventListener('click', () => {
+    const log = document.getElementById('progressLog');
+    if (log) log.innerHTML = '';
+  });
+
+  // Dropzone wiring
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const fileCount = document.getElementById('fileCount');
+  const selectedFiles = document.getElementById('selectedFiles');
+  const updateSelected = () => {
+    if (!fileInput || !fileCount || !selectedFiles) return;
+    const files = Array.from(fileInput.files || []);
+    if (files.length === 0) {
+      fileCount.textContent = 'No files selected';
+      selectedFiles.classList.add('hidden');
+      selectedFiles.textContent = '';
+      return;
+    }
+    fileCount.textContent = `${files.length} file${files.length > 1 ? 's' : ''} selected`;
+    selectedFiles.classList.remove('hidden');
+    selectedFiles.textContent = files.map(f => `• ${f.name}`).join(', ');
+  };
+  if (fileInput) fileInput.addEventListener('change', updateSelected);
+  if (dropzone && fileInput) {
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-slate-400'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('border-slate-400'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-slate-400');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        updateSelected();
+      }
+    });
+  }
+  const openChatBtn = document.getElementById('openChatBtn');
+  if (openChatBtn) openChatBtn.addEventListener('click', () => {
     if (!state.selected) return;
     window.location.href = `/chat.html#${state.selected.id}`;
   });

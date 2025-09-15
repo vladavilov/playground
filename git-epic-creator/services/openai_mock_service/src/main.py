@@ -32,7 +32,7 @@ def get_config() -> Dict[str, Optional[str]]:
         "OAI_EMBED_MODEL": get_environment_variable(
             "OAI_EMBED_MODEL", "text-embedding-3-large"
         ),
-        "EMBEDDINGS_SIZE": get_environment_variable("EMBEDDINGS_SIZE", "1536"),
+        "EMBEDDINGS_SIZE": get_environment_variable("VECTOR_INDEX_DIMENSIONS", "1536"),
     }
 
 
@@ -994,11 +994,7 @@ def _load_embedder():
 
 def _embed_texts_locally(texts: List[str]) -> List[List[float]]:
     embedder = _load_embedder()
-    # Enforce target dimension from env
-    try:
-        target_dim = int(get_config()["EMBEDDINGS_SIZE"] or "1536")
-    except Exception:
-        target_dim = 1536
+    target_dim = int(get_config()["EMBEDDINGS_SIZE"] or "1536")
     # Return plain python lists to avoid numpy dependency overhead
     embeddings = embedder.encode(  # type: ignore[attr-defined]
         texts,

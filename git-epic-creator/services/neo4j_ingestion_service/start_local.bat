@@ -17,15 +17,21 @@ if not exist "venv312\Scripts\activate.bat" (
 REM Activate virtual environment
 call venv312\Scripts\activate.bat
 
-REM Check if dependencies are installed
-if not exist "venv312\Scripts\neo4j-ingestion-service.exe" (
-    echo Installing dependencies...
-    pip install -e .
-    if errorlevel 1 (
-        echo Error: Failed to install dependencies
-        pause
-        exit /b 1
-    )
+REM Ensure shared package and service are installed/updated (editable)
+echo Installing/Updating shared package...
+pip install -e ..\shared
+if errorlevel 1 (
+    echo Error: Failed to install shared package
+    pause
+    exit /b 1
+)
+
+echo Installing/Updating service package...
+pip install -e .
+if errorlevel 1 (
+    echo Error: Failed to install service package
+    pause
+    exit /b 1
 )
 
 REM Create logs directory if it doesn't exist
@@ -154,7 +160,7 @@ set BACKFILL_BATCH=100
 set BACKFILL_MAX_WORKERS=4
 
 REM Set additional environment variables for local development
-set PYTHONPATH=%CD%\src
+set PYTHONPATH=%CD%\src;%CD%\..\shared\src
 set PYTHONUNBUFFERED=1
 
 echo Starting service...

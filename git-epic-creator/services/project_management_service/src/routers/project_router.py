@@ -297,7 +297,8 @@ async def update_project_status(
         project_id,
         update_request.processed_count,
         update_request.total_count,
-        status=update_request.status
+        status=update_request.status,
+        processed_pct=update_request.processed_pct,
     )
 
     if not project:
@@ -316,8 +317,8 @@ async def update_project_status(
         publish_success = await project_status_publisher.publish_project_update(
             project_id=project_id,
             status=project.status,
-            processed_count=update_request.processed_count,
-            total_count=update_request.total_count,
+            processed_count=None,
+            total_count=None,
             processed_pct=project.processed_pct,
             process_step=update_request.process_step,
         )
