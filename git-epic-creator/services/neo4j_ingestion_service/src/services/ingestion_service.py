@@ -1,5 +1,4 @@
-import logging
-import inspect
+import structlog
 import os
 import time
 from pathlib import Path
@@ -8,23 +7,14 @@ from typing import Any, Dict
 
 from utils.neo4j_client import Neo4jClient
 from utils.blob_storage import get_blob_storage_client
-from ingestion.graphrag_pipeline import prepare_document_from_json, run_documents, run_community_analysis
+from ingestion_ms.runner import run_graphrag_pipeline as run_ms_pipeline
 from config import get_graphrag_settings
 
 class Neo4jIngestionService:
     
     def __init__(self, client: Neo4jClient):
         self.client = client
-        self.logger = logging.getLogger(__name__)
-
-    def _resolve_config_path(self, filename: str) -> str:
-        """
-        Resolve path to a config file located under this service's source tree.
-        Order:
-        - Default: <package_root>/config/<filename>
-        """
-        package_root = Path(__file__).resolve().parent.parent
-        return str(package_root / "config" / filename)
+        self.logger = structlog.get_logger(__name__)
 
     async def run_graphrag_pipeline(self, project_id: str) -> Dict[str, Any]:
         if not isinstance(project_id, str) or not project_id.strip():
@@ -33,6 +23,7 @@ class Neo4jIngestionService:
         start = time.time()
 
         documents = 0
+        pipeline_output: Dict[str, Any] = {}
 
         # 1) Sync inputs from Blob → WORKDIR/{project_id}/input (JSON files only)
         try:
@@ -57,7 +48,6 @@ class Neo4jIngestionService:
             if not getattr(list_result, "success", False):
                 raise RuntimeError("Blob listing failed: success flag is False")
             if getattr(list_result, "success", False):
-                documents_to_ingest = []
                 blobs_to_delete: list[str] = []
                 
                 for blob_name in list_result.file_list or []:
@@ -65,49 +55,19 @@ class Neo4jIngestionService:
                         continue
                     dest_path = input_dir / os.path.basename(blob_name)
                     blob_client.download_file(blob_name, str(dest_path), project_id=parsed_project_id)
-                    
-                    try:
-                        # Prepare document for ingestion
-                        document = prepare_document_from_json(str(dest_path), project_id)
-                        documents_to_ingest.append(document)
-                        documents += 1
-                        # Mark for deletion after successful pipeline run
-                        blobs_to_delete.append(blob_name)
-                    except Exception as e:
-                        self.logger.warning("Failed to prepare document %s: %s", blob_name, str(e))
-                        continue
+                    documents += 1
+                    # Mark for deletion after successful pipeline run
+                    blobs_to_delete.append(blob_name)
                 
-                # Run the GraphRAG pipeline with all prepared documents
-                if documents_to_ingest:
+                if documents:
                     try:
-                        config_path = self._resolve_config_path("kg_builder_config.yaml")
-                        result = run_documents(self.client.driver, documents_to_ingest, passes=3, config_path=config_path)
-                        # Support both async (real) and sync (test mock) callables
-                        if inspect.isawaitable(result):
-                            await result
-                        self.logger.info("Successfully processed %d documents through GraphRAG pipeline", len(documents_to_ingest))
-                        
-                        # Run community analysis after successful GraphRAG ingestion
-                        try:
-                            self.logger.info("Starting community analysis pipeline")
-                            community_result = await run_community_analysis(self.client.driver)
-
-                            if community_result.get("success"):
-                                self.logger.info(
-                                    "Community analysis completed: %d communities detected, %d summarized",
-                                    community_result.get("communities_detected", 0),
-                                    community_result.get("communities_summarized", 0),
-                                )
-                            else:
-                                self.logger.warning(
-                                    "Community analysis failed: %s",
-                                    community_result.get("error", "Unknown error"),
-                                )
-                        except Exception as e:
-                            self.logger.warning(
-                                "Community analysis failed, continuing with cleanup: %s",
-                                str(e),
-                            )
+                        result = await run_ms_pipeline(project_id)
+                        if isinstance(result, dict):
+                            pipeline_output = result
+                        self.logger.info(
+                            "Successfully processed documents with Microsoft GraphRAG",
+                            documents=documents,
+                        )
                         
                         # Cleanup source JSONs only after successful ingestion
                         for blob_name in blobs_to_delete:
@@ -116,10 +76,10 @@ class Neo4jIngestionService:
                             except Exception:
                                 pass
                     except Exception as e:
-                        self.logger.error("Failed to run GraphRAG pipeline: %s", str(e))
+                        self.logger.error("Failed to run Microsoft GraphRAG pipeline", error=str(e))
                         raise
         except Exception as e:
-            self.logger.error("Blob ingestion failed: %s", str(e))
+            self.logger.error("Blob ingestion failed", error=str(e))
             raise
 
         return {
@@ -127,5 +87,6 @@ class Neo4jIngestionService:
             "counts": {
                 "documents": documents
             },
+            "pipeline": pipeline_output,
             "duration_ms": round((time.time() - start) * 1000, 2),
         }

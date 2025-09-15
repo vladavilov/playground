@@ -1,5 +1,10 @@
+x-service-defaults: &service_defaults
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
 services:
   postgres:
+    <<: *service_defaults
     image: postgres:16-alpine
     container_name: postgres_db
     environment:
@@ -19,17 +24,20 @@ services:
       retries: 5
 
   neo4j:
+    <<: *service_defaults
     image: neo4j:5.21-community
     container_name: neo4j_db
     restart: always
     environment:
       NEO4J_AUTH: ${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-neo4j123}
       NEO4J_initial_dbms_default__database: ${NEO4J_DATABASE:-neo4j}
-      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-512m}
-      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
-      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-512m}
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-1G}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-2G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-1G}
       NEO4J_dbms_security_procedures_unrestricted: "gds.*,apoc.*"
       NEO4J_dbms_security_procedures_allowlist: "gds.*,apoc.*"
+      NEO4J_server_jvm_additional: "-XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=4G"
+      NEO4J_gds_validate__using__max__memory__estimation: "true"
       NEO4J_apoc_import_file_enabled: "true"
       NEO4J_apoc_import_file_use__neo4j__config: "true"
       NEO4J_server_directories_import: "/import"
@@ -58,6 +66,7 @@ services:
       start_period: 30s
 
   db-init-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./db_init_service/Dockerfile
@@ -82,6 +91,7 @@ services:
     restart: unless-stopped
 
   neo4j-maintenance-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./neo4j_maintanance_service/Dockerfile
@@ -106,6 +116,7 @@ services:
     restart: unless-stopped
 
   neo4j-schema-init:
+    <<: *service_defaults
     image: curlimages/curl:8.7.1
     container_name: neo4j_schema_init
     depends_on:
@@ -118,6 +129,7 @@ services:
     restart: "no"
 
   neo4j-ingestion-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./neo4j_ingestion_service/Dockerfile
@@ -144,6 +156,7 @@ services:
     restart: unless-stopped
 
   project-management-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./project_management_service/Dockerfile
@@ -170,6 +183,7 @@ services:
     restart: unless-stopped
 
   ui-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./ui_service/Dockerfile
@@ -198,6 +212,7 @@ services:
     restart: unless-stopped
 
   document-processing-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./document_processing_service/Dockerfile
@@ -222,6 +237,7 @@ services:
     restart: unless-stopped
 
   neo4j-retrieval-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./neo4j_retrieval_service/Dockerfile
@@ -243,6 +259,7 @@ services:
     restart: unless-stopped
 
   ai-workflow-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./ai_workflow_service/Dockerfile
@@ -270,6 +287,7 @@ services:
 
   # Redis for Celery background tasks
   redis:
+    <<: *service_defaults
     image: redis:7-alpine
     container_name: redis_cache
     restart: always
@@ -288,6 +306,7 @@ services:
 
   # Azurite for Azure Blob Storage emulation
   azurite:
+    <<: *service_defaults
     image: mcr.microsoft.com/azure-storage/azurite:latest
     container_name: azurite_storage
     ports:
@@ -303,6 +322,7 @@ services:
   
   # Optional: Admin tools for database management
   pgadmin:
+    <<: *service_defaults
     image: dpage/pgadmin4:8
     container_name: pgadmin_tool
     environment:
@@ -320,6 +340,7 @@ services:
   
   # Optional: The mock Azure AD authentication server
   mock-auth-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./mock_auth_service/Dockerfile
@@ -341,6 +362,7 @@ services:
     restart: unless-stopped
 
   openai-mock-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./openai_mock_service/Dockerfile
@@ -364,6 +386,7 @@ services:
       - e2e-tests
 
   gpt-oss-service:
+    <<: *service_defaults
     build:
       context: ./services
       dockerfile: ./gpt_oss/Dockerfile
@@ -386,6 +409,7 @@ services:
 
   # End-to-end integration tests
   e2e-tests:
+    <<: *service_defaults
     build:
       context: ./e2e_tests
       dockerfile: ./Dockerfile
@@ -395,7 +419,7 @@ services:
       - PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
       - DOCUMENT_PROCESSING_URL=http://document-processing-service:8000
       - NEO4J_INGESTION_URL=http://neo4j-ingestion-service:8000
-      - AZURE_AD_AUTHORITY=http://mock-auth-service:8000
+      - AZURE_AD_AUTHORITY=http://host.docker.internal:8005
       - INIT_DB_SERVICE_URL=http://db-init-service:8000
       - NEO4J_MAINTENANCE_URL=http://neo4j-maintenance-service:8000
       - UI_SERVICE_URL=http://ui-service:8000

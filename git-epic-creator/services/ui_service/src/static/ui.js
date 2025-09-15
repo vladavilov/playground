@@ -187,10 +187,12 @@ function selectProject(p) {
     const bar = document.getElementById('progressBar');
     const input = document.getElementById('fileInput');
     const badgeHost = document.getElementById('statusBadge');
+    const log = document.getElementById('progressLog');
     if (text) text.textContent = 'No processing yet';
     if (bar) bar.style.width = '0%';
     if (input) input.value = '';
     if (badgeHost) { badgeHost.innerHTML = ''; }
+    if (log) log.innerHTML = '';
   } catch {}
 }
 
@@ -222,20 +224,34 @@ function connectSSE() {
       const text = document.getElementById('progressText');
       const bar = document.getElementById('progressBar');
       const badgeHost = document.getElementById('statusBadge');
+      const logHost = document.getElementById('progressLog');
       if (badgeHost) { badgeHost.innerHTML = ''; badgeHost.appendChild(getStatusBadge(msg.status)); }
-      const status = String(msg.status || '').toLowerCase();
-      if (status === 'rag_processing' || status === 'rag_ready') {
-        text.textContent = `Status: ${msg.status}`;
-        bar.style.width = '0%';
-      } else {
-        const total = Number.isFinite(msg.total_count) ? msg.total_count : 0;
-        const processed = Number.isFinite(msg.processed_count) ? msg.processed_count : 0;
-        const pct = (Number.isFinite(msg.processed_pct) ? msg.processed_pct : (total > 0 ? (processed / total) * 100 : 0));
-        const safePct = Math.max(0, Math.min(100, Math.round(pct)));
-        text.textContent = `Status: ${msg.status} — ${safePct}% (${processed}/${total})`;
-        bar.style.width = `${safePct}%`;
+
+      const stepLabel = (msg.process_step && String(msg.process_step).trim() !== '') ? String(msg.process_step) : (msg.status || 'unknown');
+      const total = Number.isFinite(msg.total_count) ? msg.total_count : null;
+      const processed = Number.isFinite(msg.processed_count) ? msg.processed_count : null;
+      const pctBase = Number.isFinite(msg.processed_pct) ? msg.processed_pct : ((total && total > 0 && Number.isFinite(processed)) ? (processed / total) * 100 : null);
+      const safePct = (pctBase == null ? null : Math.max(0, Math.min(100, Math.round(pctBase))));
+      const countsStr = (total != null && processed != null)
+        ? (safePct != null ? ` — ${safePct}% (${processed}/${total})` : ` — (${processed}/${total})`)
+        : '';
+
+      if (text) { text.textContent = `${stepLabel}${countsStr}`; }
+      if (bar) { bar.style.width = (safePct != null ? `${safePct}%` : '0%'); }
+
+      if (logHost) {
+        const ts = (msg.timestamp ? new Date(msg.timestamp) : new Date());
+        const tsStr = isNaN(ts.getTime()) ? new Date().toLocaleTimeString() : ts.toLocaleTimeString();
+        const line = document.createElement('div');
+        line.textContent = `${tsStr} | ${stepLabel}${countsStr}`;
+        logHost.appendChild(line);
+        while (logHost.children.length > 200) { logHost.removeChild(logHost.firstChild); }
+        logHost.scrollTop = logHost.scrollHeight;
       }
-    } catch {}
+    } catch (err) {
+      // Swallow errors to avoid breaking SSE loop
+      // Optionally, could console.debug(err);
+    }
   });
 }
 
@@ -251,6 +267,11 @@ function setupActions() {
   const search = document.getElementById('projectName');
   if (search) search.addEventListener('input', (e) => { state.filterText = e.target.value || ''; renderProjects(); });
   document.getElementById('uploadBtn').addEventListener('click', uploadFiles);
+  const clearBtn = document.getElementById('clearLogBtn');
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    const log = document.getElementById('progressLog');
+    if (log) log.innerHTML = '';
+  });
   document.getElementById('openChatBtn').addEventListener('click', () => {
     if (!state.selected) return;
     window.location.href = `/chat.html#${state.selected.id}`;
@@ -371,5 +392,6 @@ function emptyToNull(v) { const s = (v || '').trim(); return s === '' ? null : s
 function valOrNull(v) { const s = (v || '').trim(); return s === '' ? null : s; }
 
 init().catch(err => console.error(err));
+
 
 

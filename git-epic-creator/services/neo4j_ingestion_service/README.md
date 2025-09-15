@@ -108,7 +108,7 @@ Upstream produces JSON documents; the service injects `project_id` and enriches 
 - Uses `SimpleKGPipeline` to build a KG directly in Neo4j; no CLI, `settings.yaml`, or parquet artifacts are used.
 - A default finance-oriented schema is provided with permissive extensions.
 - Vector indexes are ensured via `neo4j_graphrag.indexes.create_vector_index`:
-  - name: `chunk_embeddings`, label: `Chunk`, property: `embedding`, dimensions: `1536`, similarity: `cosine`.
+  - name: `graphrag_chunk_index`, label: `__Chunk__`, property: `embedding`, dimensions: `1536`, similarity: `cosine`.
   - name: `community_summary_idx`, label: `__Community__`, property: `summary_embedding`, dimensions: `1536`, similarity: `cosine`.
 
 ### Subscriber and retry/DLQ

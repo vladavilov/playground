@@ -45,6 +45,13 @@
               <div id="progressText" class="text-sm text-slate-600">No processing yet</div>
             </div>
           </div>
+          <div class="mt-4">
+            <div class="flex items-center justify-between">
+              <h4 class="text-sm font-medium text-slate-700">Processing log</h4>
+              <button id="clearLogBtn" type="button" class="text-xs text-slate-500 hover:text-slate-700">Clear</button>
+            </div>
+            <div id="progressLog" class="mt-2 h-48 overflow-y-auto bg-slate-50 border rounded p-2 text-xs font-mono text-slate-700" aria-live="polite" aria-atomic="false"></div>
+          </div>
         </div>
 
         <div id="chatSection" class="bg-white border rounded p-4 hidden">

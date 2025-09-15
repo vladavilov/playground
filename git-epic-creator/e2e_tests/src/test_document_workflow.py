@@ -72,20 +72,83 @@ class TestDocumentWorkflow:
                 [
                     TestConstants.PROJECT_STATUS_PROCESSING,
                     TestConstants.PROJECT_STATUS_ACTIVE,
-                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_start"),
+                    # 1: load_input_documents
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 2: create_base_text_units
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 3: create_final_documents
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 4: extract_graph
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 5: finalize_graph
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 6: extract_covariates
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 7: create_communities
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 8: create_final_text_units
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 9: create_community_reports
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 10: generate_text_embeddings
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_end"),
                     TestConstants.PROJECT_STATUS_RAG_READY,
                 ],
-                timeout_per_step=TestConstants.DEFAULT_TIMEOUT,
+                timeout_per_step=300,
             )
             # processing
             _ = next(seq)
             # active -> after this, blobs should be present
             _ = next(seq)
-            # rag_processing
+            # rag_processing: pipeline_start
+            _ = next(seq)
+            # 1: workflow_start, workflow_end
+            _ = next(seq)
+            _ = next(seq)
+            # 2: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 3: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 4: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 5: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 6: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 7: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 8: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 9: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # 10: start, end
+            _ = next(seq)
+            _ = next(seq)
+            # rag_processing: pipeline_end (all workflows done)
             _ = next(seq)
             # rag_ready
             _ = next(seq)
-            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY)
+            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
 
         # Step 8: Verify DB status and pct
         wa.verify_db_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, min_pct=100.0)
@@ -163,16 +226,77 @@ class TestDocumentWorkflow:
                 [
                     TestConstants.PROJECT_STATUS_PROCESSING,
                     TestConstants.PROJECT_STATUS_ACTIVE,
-                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_start"),
+                    # 1: load_input_documents
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 2: create_base_text_units
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 3: create_final_documents
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 4: extract_graph
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 5: finalize_graph
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 6: extract_covariates
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 7: create_communities
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 8: create_final_text_units
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 9: create_community_reports
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    # 10: generate_text_embeddings
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_start"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "workflow_end"),
+                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_end"),
                     TestConstants.PROJECT_STATUS_RAG_READY,
                 ],
-                timeout_per_step=TestConstants.DEFAULT_TIMEOUT,
+                timeout_per_step=300,
             )
             _ = next(seq)
             _ = next(seq)
             _ = next(seq)
+            # 1
             _ = next(seq)
-            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY)
+            _ = next(seq)
+            # 2
+            _ = next(seq)
+            _ = next(seq)
+            # 3
+            _ = next(seq)
+            _ = next(seq)
+            # 4
+            _ = next(seq)
+            _ = next(seq)
+            # 5
+            _ = next(seq)
+            _ = next(seq)
+            # 6
+            _ = next(seq)
+            _ = next(seq)
+            # 7
+            _ = next(seq)
+            _ = next(seq)
+            # 8
+            _ = next(seq)
+            _ = next(seq)
+            # 9
+            _ = next(seq)
+            _ = next(seq)
+            # 10
+            _ = next(seq)
+            _ = next(seq)
+            _ = next(seq)
+            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
 
         # Verify DB status
         wa.verify_db_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, min_pct=100.0)
