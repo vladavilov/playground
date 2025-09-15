@@ -12,7 +12,7 @@ from clients.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
 from celery_worker_app import celery_app
 from utils.redis_client import get_redis_client, get_sync_redis_client
-from utils.ingestion_gating import should_enqueue, post_run_cleanup
+from utils.workflow_gating import gate_and_enqueue_sync, cleanup_after_run_sync
 
 logger = structlog.get_logger(__name__)
 
@@ -138,14 +138,19 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
 
         if isinstance(result, dict):
             try:
-                if should_enqueue(GATE_NS_INGESTION, project_id, client=redis_client):
+                def _enqueue_ingestion() -> None:
                     celery_app.send_task(
                         TASK_RUN_GRAPHRAG_JOB,
                         args=[self.request.id, project_id, 0],
                         queue=QUEUE_NEO4J_INGESTION,
                     )
-                else:
-                    logger.info('Ingestion enqueue suppressed by gating', project_id=project_id)
+
+                gate_and_enqueue_sync(
+                    GATE_NS_INGESTION,
+                    project_id,
+                    client=sync_client,
+                    enqueue=_enqueue_ingestion,
+                )
             except Exception as pub_error:
                 logger.error('Failed to enqueue ingestion task', error=str(pub_error))
         return result
@@ -171,23 +176,20 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                     pass
         except Exception:
             pass
-        # Post-run cleanup for document processing namespace: clear running and
-        # enqueue a single follow-up if a pending marker exists
+        # Post-run cleanup for document processing namespace: enqueue a single follow-up if a pending marker exists
         try:
-            def _enqueue(_job_id: str, _project_id: str, _attempts: int) -> None:
+            def _enqueue_docs_follow_up() -> None:
                 celery_app.send_task(
                     TASK_PROCESS_PROJECT_DOCS,
-                    args=[_project_id],
+                    args=[project_id],
                     queue=QUEUE_DOCUMENT_PROCESSING,
                 )
 
-            post_run_cleanup(
+            cleanup_after_run_sync(
                 GATE_NS_DOCS,
-                str(self.request.id),
                 project_id,
-                0,
-                client=redis_client,
-                enqueue_callable=_enqueue,
+                client=sync_client,
+                enqueue_follow_up=_enqueue_docs_follow_up,
             )
         except Exception:
             pass

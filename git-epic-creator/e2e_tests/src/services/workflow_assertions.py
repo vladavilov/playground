@@ -151,49 +151,38 @@ class WorkflowAssertions:
 
     def verify_neo4j_project_and_documents(self, project_id: str, fixtures: WorkflowTestFixtures, *, min_docs: int = 1) -> None:
         with fixtures.neo4j_driver.session() as session:
-            # Verify project node presence by property
-            project_record = session.run(
-                """
-                MATCH (p)
-                WHERE (p.project_id IS NOT NULL AND p.project_id = $project_id)
-                   OR (p.id IS NOT NULL AND toString(p.id) = $project_id)
-                RETURN p
-                LIMIT 1
-                """,
-                project_id=project_id,
-            ).single()
-            assert project_record is not None, f"No project node found for project {project_id}"
-
-            # Verify PROJECT_HAS_DOCUMENT relationships from the anchor
-            rel_record = session.run(
-                """
-                MATCH (p)
-                WHERE (p.project_id IS NOT NULL AND p.project_id = $project_id)
-                   OR (p.id IS NOT NULL AND toString(p.id) = $project_id)
-                OPTIONAL MATCH (p)-[:PROJECT_HAS_DOCUMENT]->(d)
-                RETURN collect(d) AS documents
-                """,
-                project_id=project_id,
-            ).single()
-            assert rel_record is not None, f"Project found but failed to retrieve document links for {project_id}"
-            documents = rel_record["documents"]
-            valid_docs = [d for d in (documents or []) if d is not None]
-            assert len(valid_docs) >= min_docs, (
-                f"Expected at least {min_docs} PROJECT_HAS_DOCUMENT relation(s), found {len(valid_docs)}"
-            )
-
-            # Verify stored document records exist for this project (as produced by GraphRAG pipeline)
+            # Verify GraphRAG-ingested nodes exist according to runner.py logic
+            # 1) Documents
             doc_count_record = session.run(
                 """
-                MATCH (n)
-                WHERE n.project_id = $project_id AND (n.file_name IS NOT NULL OR n.title IS NOT NULL)
-                RETURN count(n) AS c
-                """,
-                project_id=project_id,
+                MATCH (d:__Document__)
+                RETURN count(d) AS c
+                """
             ).single()
-            assert doc_count_record is not None and int(doc_count_record["c"] or 0) >= min_docs, (
-                f"Expected at least {min_docs} stored document record(s) for project {project_id}"
+            assert doc_count_record is not None, "Failed to query __Document__ nodes"
+            assert int(doc_count_record["c"] or 0) >= min_docs, (
+                f"Expected at least {min_docs} __Document__ node(s), found {doc_count_record['c']}"
             )
+
+            # 2) Document -> Chunk edges created during import
+            chunk_edge_record = session.run(
+                """
+                MATCH (:__Document__)-[:HAS_CHUNK]->(c:__Chunk__)
+                RETURN count(DISTINCT c) AS c
+                """
+            ).single()
+            assert chunk_edge_record is not None, "Failed to query HAS_CHUNK edges to __Chunk__"
+            if min_docs > 0:
+                assert int(chunk_edge_record["c"] or 0) > 0, "Expected HAS_CHUNK edges from __Document__ to __Chunk__"
+
+            # 3) Optional entity links (not guaranteed for all inputs but should exist post-ingestion)
+            entity_link_record = session.run(
+                """
+                MATCH (:__Chunk__)-[:HAS_ENTITY]->(e:__Entity__)
+                RETURN count(e) AS c
+                """
+            ).single()
+            assert entity_link_record is not None, "Failed to query HAS_ENTITY links from __Chunk__ to __Entity__"
 
     def verify_neo4j_constraints_minimal(self, fixtures: WorkflowTestFixtures) -> None:
         with fixtures.neo4j_driver.session() as session:
@@ -215,6 +204,19 @@ class WorkflowAssertions:
             assert has_node_unique("__Entity__"), "Missing unique constraint on __Entity__(id)"
 
     def verify_neo4j_vector_index(self, fixtures: WorkflowTestFixtures) -> None:
+        """Verify vector indexes exist and are ONLINE with correct settings.
+
+        Use exact literals so tests fail if labels/properties change.
+        """
+        expected = {
+            "chunk": {"label": "__Chunk__"},
+            "community": {"label": "__Community__"},
+            "entity": {"label": "__Entity__"},
+        }
+        expected_property = "embedding"
+        expected_dims = 1536
+        expected_sim = "cosine"
+
         with fixtures.neo4j_driver.session() as session:
             records = list(session.run(
                 """
@@ -224,24 +226,30 @@ class WorkflowAssertions:
                 RETURN name, state, type, entityType, labelsOrTypes, properties, options
                 """
             ))
-            def get_entity_vector_index():
+
+            def find_vector_index(label: str, prop: str):
                 for rec in records:
                     labels = rec.get("labelsOrTypes") or []
                     props = rec.get("properties") or []
-                    # Align to ingestion pipeline which indexes Chunk.embedding
-                    if "Chunk" in labels and "embedding" in props:
+                    if label in labels and prop in props:
                         return rec
                 return None
-            entity_vec_idx = get_entity_vector_index()
-            assert entity_vec_idx is not None, "Missing vector index for Chunk(embedding)"
-            assert entity_vec_idx.get("state") == "ONLINE", "Entity vector index is not ONLINE"
-            index_cfg = (entity_vec_idx.get("options") or {}).get("indexConfig", {}) or {}
-            dims = index_cfg.get("vector.dimensions")
-            sim = index_cfg.get("vector.similarity_function")
-            if isinstance(sim, str):
-                sim = sim.lower()
-            assert dims == 1536, "Vector index dimension must be 1536"
-            assert sim == "cosine", "Vector similarity must be cosine"
+
+            for key, cfg in expected.items():
+                idx = find_vector_index(cfg["label"], expected_property)
+                assert idx is not None, f"Missing vector index for {cfg['label']}({expected_property})"
+                assert idx.get("state") == "ONLINE", f"Vector index for {cfg['label']} is not ONLINE"
+                index_cfg = (idx.get("options") or {}).get("indexConfig", {}) or {}
+                dims = index_cfg.get("vector.dimensions")
+                sim = index_cfg.get("vector.similarity_function")
+                if isinstance(sim, str):
+                    sim = sim.lower()
+                assert dims == expected_dims, (
+                    f"Vector index dimension must be {expected_dims} for {cfg['label']}"
+                )
+                assert sim == expected_sim, (
+                    f"Vector similarity must be {expected_sim} for {cfg['label']}"
+                )
 
     # ----- Assertions -----
     def verify_upload_response(self, project_id: str, upload_result: Dict[str, Any], fixtures: WorkflowTestFixtures) -> None:

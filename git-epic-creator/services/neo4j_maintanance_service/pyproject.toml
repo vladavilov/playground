@@ -17,6 +17,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "neo4j",
+    "neo4j-graphrag[openai]",
     "structlog",
     "python-dotenv",
     "pydantic-settings",

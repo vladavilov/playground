@@ -318,7 +318,8 @@ async def update_project_status(
             status=project.status,
             processed_count=update_request.processed_count,
             total_count=update_request.total_count,
-            processed_pct=project.processed_pct
+            processed_pct=project.processed_pct,
+            process_step=update_request.process_step,
         )
 
         if not publish_success:

@@ -76,6 +76,8 @@ venv/
 ENV/
 env/
 .venv/
+.venv312/
+venv312/
 
 # IDE files
 .vscode/

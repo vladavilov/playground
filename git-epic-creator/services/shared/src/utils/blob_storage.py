@@ -3,6 +3,7 @@ Azure Blob Storage client for temporary file storage.
 """
 
 import os
+import logging
 from typing import Optional, List
 from dataclasses import dataclass
 from uuid import UUID
@@ -51,10 +52,27 @@ class BlobStorageClient:
         self.blob_service_client = None
         logger.info("BlobStorageClient initialized successfully", base_container_name=self.base_container_name)
 
+        # Suppress Azure SDK HTTP/web interaction logs and urllib3 connection logs
+        try:
+            for logger_name in (
+                "azure.storage.blob",
+                "azure.core.pipeline.policies.http_logging_policy",
+                "azure.core.pipeline.transport",
+                "azure",
+                "urllib3",
+                "urllib3.connectionpool",
+            ):
+                sdk_logger = logging.getLogger(logger_name)
+                sdk_logger.setLevel(logging.WARNING)
+        except Exception:
+            pass
+
     def _get_blob_service_client(self):
         """Get or create the blob service client."""
         if self.blob_service_client is None:    
-            self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
+            self.blob_service_client = BlobServiceClient.from_connection_string(
+                self.connection_string
+            )
         return self.blob_service_client
 
     def _get_container_name(self, project_id: Optional[UUID] = None) -> str:
@@ -88,12 +106,11 @@ class BlobStorageClient:
             
             # Check if container already exists
             if container_client.exists():
-                logger.debug("Container already exists", container_name=container_name)
+                logger.info("Container already exists", container_name=container_name)
                 return True
             
             # Create the container
             container_client.create_container()
-            logger.info("Container created successfully", container_name=container_name)
             return True
             
         except ResourceExistsError:
@@ -184,8 +201,6 @@ class BlobStorageClient:
         Returns:
             BlobStorageResult: Download operation result
         """
-        logger.info("Starting file download", blob_name=blob_name, local_path=local_path)
-
         try:
             # Ensure container exists before attempting download
             if not self._ensure_container_exists(project_id):
@@ -235,8 +250,6 @@ class BlobStorageClient:
         Returns:
             BlobStorageResult: Delete operation result
         """
-        logger.info("Starting file deletion", blob_name=blob_name)
-
         try:
             # Ensure container exists before attempting deletion
             if not self._ensure_container_exists(project_id):
@@ -282,8 +295,6 @@ class BlobStorageClient:
         Returns:
             BlobStorageResult: List operation result with file names
         """
-        logger.info("Starting file listing", project_id=str(project_id) if project_id else None, prefix=prefix)
-
         try:
             # Ensure container exists before attempting to list files
             if not self._ensure_container_exists(project_id):
@@ -305,8 +316,6 @@ class BlobStorageClient:
             blob_list = []
             for blob in container_client.list_blobs(name_starts_with=list_prefix):
                 blob_list.append(blob.name)
-
-            logger.info("File listing completed", file_count=len(blob_list), prefix=list_prefix, container_name=container_name)
 
             return BlobStorageResult(
                 success=True,
@@ -331,8 +340,6 @@ class BlobStorageClient:
         Returns:
             BlobStorageResult: Cleanup operation result
         """
-        logger.info("Starting project file cleanup", project_id=str(project_id))
-
         try:
             list_result = self.list_files(project_id=project_id)
 

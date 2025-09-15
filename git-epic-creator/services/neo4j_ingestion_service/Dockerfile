@@ -4,7 +4,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+ENV PATH="/opt/venv/bin:$PATH" \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Ensure modern packaging tools and be resilient to slow networks
+RUN pip install --retries 10 --timeout 120 --upgrade pip setuptools wheel
 
 WORKDIR /app
 
@@ -12,10 +18,10 @@ COPY ./shared/ ./shared/
 COPY ./neo4j_ingestion_service/ ./neo4j_ingestion_service/
 
 WORKDIR /app/shared
-RUN pip install --no-cache-dir .
+RUN pip install --retries 10 --prefer-binary --timeout 120 .
 
 WORKDIR /app/neo4j_ingestion_service
-RUN pip install --no-cache-dir .
+RUN pip install --retries 10 --prefer-binary --timeout 120 .
 
 FROM python:3.12-slim AS final
 

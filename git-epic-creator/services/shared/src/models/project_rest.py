@@ -130,6 +130,10 @@ class ProjectProgressUpdateRequest(BaseModel):
         default=ProjectStatus.ACTIVE,
         description="Project status"
     )
+    process_step: Optional[str] = Field(
+        None,
+        description="Optional human-readable pipeline step for UI progress"
+    )
     processed_count: Optional[int] = Field(
         None,
         ge=0,
