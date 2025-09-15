@@ -14,7 +14,7 @@
         <button id="togglePanel" class="lg:hidden inline-flex items-center px-3 py-1 rounded border text-sm">Hide</button>
       </div>
       <div class="p-4 space-y-3">
-        <button id="createProject" class="w-full px-3 py-2 bg-indigo-600 text-white rounded">Create</button>
+        <button id="createProject" class="w-full px-3 py-2 border rounded text-slate-700 hover:bg-slate-50">＋ Create</button>
         <input id="projectName" type="text" class="w-full border rounded px-3 py-2" placeholder="Search projects by name" />
         <ul id="projectsList" class="space-y-2 overflow-y-auto max-h-[calc(100vh-240px)] pr-1"></ul>
       </div>
@@ -29,37 +29,51 @@
         <div class="text-sm text-slate-500" id="statusBar">Disconnected</div>
       </div>
 
-      <section class="p-6 space-y-6">
-        <div id="projectDetails" class="bg-white border rounded p-4 hidden"></div>
+      <section class="p-6">
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 items-stretch">
+          <div id="projectDetails" class="bg-white border rounded p-4 hidden h-full"></div>
 
-        <div id="uploadSection" class="bg-white border rounded p-4 hidden">
-          <h3 class="font-semibold mb-3">Upload documents</h3>
-          <input id="fileInput" type="file" multiple class="block mb-3" />
-          <button id="uploadBtn" class="px-4 py-2 bg-emerald-600 text-white rounded">Upload</button>
-          <div class="mt-4">
-            <div class="h-2 bg-slate-200 rounded overflow-hidden">
-              <div id="progressBar" class="h-2 bg-emerald-500 w-0"></div>
-            </div>
-            <div class="flex items-center gap-2 mt-2">
-              <span id="statusBadge"></span>
-              <div id="progressText" class="text-sm text-slate-600">No processing yet</div>
-            </div>
-          </div>
-          <div class="mt-4">
+          <div id="uploadSection" class="bg-white border rounded p-4 hidden h-full">
             <div class="flex items-center justify-between">
-              <h4 class="text-sm font-medium text-slate-700">Processing log</h4>
-              <button id="clearLogBtn" type="button" class="text-xs text-slate-500 hover:text-slate-700">Clear</button>
+              <h3 class="font-semibold">Upload documents</h3>
+              <span class="text-xs text-slate-500" id="fileCount">No files selected</span>
             </div>
-            <div id="progressLog" class="mt-2 h-48 overflow-y-auto bg-slate-50 border rounded p-2 text-xs font-mono text-slate-700" aria-live="polite" aria-atomic="false"></div>
-          </div>
-        </div>
 
-        <div id="chatSection" class="bg-white border rounded p-4 hidden">
-          <div class="flex items-center justify-between">
-            <h3 class="font-semibold">Requirements Chat</h3>
-            <button id="openChatBtn" class="px-3 py-2 bg-sky-600 text-white rounded">Open Chat</button>
+            <div id="dropzone" class="mt-3 border-2 border-dashed border-slate-300 rounded-lg p-6 text-center cursor-pointer transition-colors hover:border-slate-400">
+              <div class="flex flex-col items-center gap-2">
+                <div class="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">⬆</div>
+                <p class="text-sm text-slate-700"><span class="font-medium">Drag & drop</span> files here or click to browse</p>
+                <p class="text-xs text-slate-500">PDF, DOCX, TXT and more</p>
+              </div>
+              <input id="fileInput" type="file" multiple class="sr-only" aria-label="Select files to upload" />
+            </div>
+
+            <div id="selectedFiles" class="mt-3 text-sm text-slate-700 hidden"></div>
+
+            <div class="mt-4 flex items-center gap-2">
+              <button id="uploadBtn" class="px-4 py-2 bg-emerald-600 text-white rounded">Upload</button>
+              <button id="clearLogBtn" type="button" class="px-3 py-2 border rounded text-slate-700">Clear log</button>
+            </div>
+
+            <div class="mt-4">
+              <div class="relative h-3 bg-slate-200 rounded overflow-hidden">
+                <div id="progressBar" class="absolute left-0 top-0 h-full bg-emerald-500 w-0 transition-all"></div>
+                <div id="progressPct" class="absolute inset-0 flex items-center justify-center text-[10px] font-medium text-slate-700">0%</div>
+              </div>
+              <div class="flex items-center gap-2 mt-2">
+                <span id="statusBadge"></span>
+                <div id="progressText" class="text-sm text-slate-600">No processing yet</div>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="flex items-center justify-between">
+                <h4 class="text-sm font-medium text-slate-700">Processing log</h4>
+                <button id="clearLogBtnTop" type="button" class="text-xs text-slate-500 hover:text-slate-700">Clear</button>
+              </div>
+              <div id="progressLog" class="mt-2 h-48 overflow-y-auto bg-slate-50 border rounded p-2 text-xs font-mono text-slate-700" aria-live="polite" aria-atomic="false"></div>
+            </div>
           </div>
-          <p class="text-sm text-slate-600 mt-2">Start AI-assisted requirements capture and push to GitLab.</p>
         </div>
       </section>
     </main>

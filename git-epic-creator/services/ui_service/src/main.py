@@ -28,6 +28,14 @@ app = FastAPIFactory.create_app(
     enable_redis=True,
 )
 
+# Ensure broker stops cleanly with the app
+@app.on_event("shutdown")
+async def _shutdown_broker_event():
+    try:
+        await _broker.stop()
+    except Exception:
+        pass
+
 def format_sse(data: dict, event: str | None = None) -> str:
     payload_lines = [f"data: {json.dumps(data)}"]
     if event:
@@ -36,53 +44,129 @@ def format_sse(data: dict, event: str | None = None) -> str:
     return "\n".join(payload_lines)
 
 
-async def redis_event_stream(request: Request) -> AsyncIterator[str]:
-    redis = get_redis_client()
-    pubsub = redis.pubsub()
-    await pubsub.subscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
-    logger.info(
-        "SSE subscriber connected",
-        project_channel=UI_PROJECT_PROGRESS_CHANNEL,
-        ai_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
-    )
+class _SSEBroker:
+    """Single-process Redis pub/sub bridge to multiplex messages to many SSE clients."""
 
+    def __init__(self) -> None:
+        self._started: bool = False
+        self._pubsub = None
+        self._task: asyncio.Task | None = None
+        self._subscribers: set[asyncio.Queue[str]] = set()
+        self._start_lock: asyncio.Lock = asyncio.Lock()
+
+    async def start(self, redis_client) -> None:
+        async with self._start_lock:
+            if self._started:
+                return
+            self._pubsub = redis_client.pubsub()
+            await self._pubsub.subscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
+            self._started = True
+            self._task = asyncio.create_task(self._read_loop())
+            logger.info(
+                "SSE broker started",
+                project_channel=UI_PROJECT_PROGRESS_CHANNEL,
+                ai_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+            )
+
+    async def stop(self) -> None:
+        try:
+            if self._task is not None:
+                try:
+                    self._task.cancel()
+                except Exception:
+                    pass
+            if self._pubsub is not None:
+                try:
+                    await self._pubsub.unsubscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
+                except Exception:
+                    pass
+                try:
+                    await self._pubsub.close()
+                except Exception:
+                    pass
+        finally:
+            self._started = False
+            self._pubsub = None
+            self._task = None
+            self._subscribers.clear()
+            logger.info("SSE broker stopped")
+
+    def _broadcast(self, payload: str) -> None:
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                # Drop slow subscriber
+                self._subscribers.discard(q)
+            except Exception:
+                self._subscribers.discard(q)
+
+    async def _read_loop(self) -> None:
+        try:
+            while True:
+                msg = await self._pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if msg and msg.get("type") == "message":
+                    channel = msg.get("channel")
+                    if isinstance(channel, (bytes, bytearray)):
+                        try:
+                            channel = channel.decode("utf-8")
+                        except Exception:
+                            channel = str(channel)
+
+                    data_field = msg.get("data")
+                    if isinstance(data_field, (bytes, bytearray)):
+                        try:
+                            data_field = data_field.decode("utf-8")
+                        except Exception:
+                            data_field = str(data_field)
+
+                    try:
+                        parsed = json.loads(data_field) if isinstance(data_field, str) else data_field
+                    except Exception:
+                        parsed = {"raw": str(data_field)}
+
+                    event_name = (
+                        "ai_workflow_progress"
+                        if channel == UI_AI_WORKFLOW_PROGRESS_CHANNEL
+                        else "project_progress"
+                    )
+                    self._broadcast(format_sse(parsed, event=event_name))
+                await asyncio.sleep(0.01)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.warning("SSE broker loop error", error=str(e))
+
+    def register(self) -> asyncio.Queue[str]:
+        q: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
+        self._subscribers.add(q)
+        return q
+
+    def unregister(self, q: asyncio.Queue[str]) -> None:
+        self._subscribers.discard(q)
+
+
+_broker = _SSEBroker()
+
+
+async def redis_event_stream(request: Request) -> AsyncIterator[str]:
+    redis = getattr(request.app.state, "redis_client", None) or get_redis_client()
+    await _broker.start(redis)
+    queue = _broker.register()
+    logger.info("SSE subscriber connected")
     try:
-        # Send a hello event
         yield format_sse({"connected": True, "channel": UI_PROJECT_PROGRESS_CHANNEL}, event="hello")
         while True:
             if await request.is_disconnected():
                 break
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if message and message.get("type") == "message":
-                try:
-                    data = json.loads(message["data"].decode("utf-8") if isinstance(message["data"], (bytes, bytearray)) else message["data"]) 
-                except Exception:
-                    data = {"raw": str(message.get("data"))}
-                # Determine which channel this message came from to set SSE event name
-                channel = message.get("channel")
-                if isinstance(channel, (bytes, bytearray)):
-                    try:
-                        channel = channel.decode("utf-8")
-                    except Exception:
-                        channel = str(channel)
-                event_name = (
-                    "ai_workflow_progress"
-                    if channel == UI_AI_WORKFLOW_PROGRESS_CHANNEL
-                    else "project_progress"
-                )
-                yield format_sse(data, event=event_name)
-            await asyncio.sleep(0.05)
+            try:
+                payload = await asyncio.wait_for(queue.get(), timeout=1.0)
+                yield payload
+            except asyncio.TimeoutError:
+                continue
     finally:
-        try:
-            await pubsub.unsubscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
-        except Exception:
-            pass
-        await pubsub.close()
-        logger.info(
-            "SSE subscriber disconnected",
-            project_channel=UI_PROJECT_PROGRESS_CHANNEL,
-            ai_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
-        )
+        _broker.unregister(queue)
+        logger.info("SSE subscriber disconnected")
 
 
 @app.get("/events")

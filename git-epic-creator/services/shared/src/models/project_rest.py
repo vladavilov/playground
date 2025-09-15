@@ -137,12 +137,18 @@ class ProjectProgressUpdateRequest(BaseModel):
     processed_count: Optional[int] = Field(
         None,
         ge=0,
-        description="Number of processed documents (required for PROCESSING status)"
+        description="Deprecated: prefer processed_pct; kept for backward compatibility"
     )
     total_count: Optional[int] = Field(
         None,
         gt=0,
-        description="Total number of documents to process (required for PROCESSING status)"
+        description="Deprecated: prefer processed_pct; kept for backward compatibility"
+    )
+    processed_pct: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="Overall normalized progress percent (0-100)."
     )
     error_message: Optional[str] = Field(
         None,
@@ -163,12 +169,11 @@ class ProjectProgressUpdateRequest(BaseModel):
         """Validate requirements for PROCESSING status and count relationships."""
         errors = []
 
-        # Check PROCESSING status requirements (but allow RAG_PROCESSING without counts)
+        # Check PROCESSING status requirements (but allow RAG_PROCESSING without counts).
+        # Accept processed_pct instead of counts for PROCESSING.
         if self.status == ProjectStatus.PROCESSING:
-            if self.processed_count is None:
-                errors.append("processed_count is required when status is PROCESSING")
-            if self.total_count is None:
-                errors.append("total_count is required when status is PROCESSING")
+            if self.processed_pct is None and (self.processed_count is None or self.total_count is None):
+                errors.append("Either processed_pct or both processed_count and total_count are required when status is PROCESSING")
         
         # Check that processed_count doesn't exceed total_count
         if (self.processed_count is not None and

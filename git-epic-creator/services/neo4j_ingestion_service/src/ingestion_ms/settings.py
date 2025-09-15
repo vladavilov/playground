@@ -44,9 +44,9 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
 
     embed_requests_per_minute = int(os.getenv("OAI_EMBED_RPM", "6000"))
     embed_tokens_per_minute = int(os.getenv("OAI_EMBED_TPM", "400000"))
-    embed_timeout_seconds = int(os.getenv("OAI_EMBED_TIMEOUT", "60"))
-    embed_max_retries = int(os.getenv("OAI_EMBED_MAX_RETRIES", "3"))
-    embed_max_concurrency = int(os.getenv("OAI_EMBED_CONCURRENCY", "4"))
+    embed_timeout_seconds = int(os.getenv("OAI_EMBED_TIMEOUT", "30"))
+    embed_max_retries = int(os.getenv("OAI_EMBED_MAX_RETRIES", "1"))
+    embed_max_concurrency = int(os.getenv("OAI_EMBED_CONCURRENCY", "1"))
     embed_max_batch_size = int(os.getenv("OAI_EMBED_BATCH", "64"))
 
     chat_cfg = {
@@ -103,9 +103,16 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
     input_cfg["storage"] = storage_cfg
     settings["input"] = input_cfg
 
-    # Vector store: use relative path so GraphRAG joins it against the project root
+    # Output configuration: write all artifacts under workspace/output
+    output_cfg = settings.get("output", {}) or {}
+    output_cfg["type"] = output_cfg.get("type", "file")
+    output_cfg["base_dir"] = output_cfg.get("base_dir", "output")
+    settings["output"] = output_cfg
+
+    # Vector store: GraphRAG expects a mapping of named stores → VectorStoreConfig
+    # Provide the expected default id used by the pipeline: "default_vector_store"
     settings["vector_store"] = {
-        "default": {
+        "default_vector_store": {
             "type": "lancedb",
             "db_uri": "output/lancedb",
             "container_name": "default",
@@ -113,24 +120,17 @@ def configure_settings_for_json(workspace: Path) -> Dict[str, Any]:
         }
     }
 
+    # Ensure embed_text points to the configured store and model
     embed_text_cfg = settings.get("embed_text", {}) or {}
-    embed_text_cfg.setdefault("model_id", embedding_model_id)
-    embed_text_cfg.setdefault("vector_store_id", "default")
-    # Execution parameters for embedding job
-    embed_text_cfg.setdefault("batch_size", int(os.getenv("EMBED_TEXT_BATCH_SIZE", "64")))
-    embed_text_cfg.setdefault(
-        "max_concurrent_requests", int(os.getenv("EMBED_TEXT_CONCURRENCY", "2"))
-    )
-    embed_text_cfg.setdefault("retry_max_attempts", int(os.getenv("EMBED_TEXT_RETRIES", "3")))
-    embed_text_cfg.setdefault("request_timeout", int(os.getenv("EMBED_TEXT_TIMEOUT", "60")))
+    embed_text_cfg["model_id"] = embed_text_cfg.get("model_id", embedding_model_id)
+    embed_text_cfg["vector_store_id"] = embed_text_cfg.get("vector_store_id", "default_vector_store")
     settings["embed_text"] = embed_text_cfg
 
-    # Remove legacy or conflicting indexing block so CLI doesn't prefer defaults
-    if "indexing" in settings:
-        try:
-            settings.pop("indexing")
-        except Exception:
-            pass
+    # Cache configuration: use file cache under workspace/cache to avoid missing dirs on reuse
+    cache_cfg = settings.get("cache", {}) or {}
+    cache_cfg["type"] = cache_cfg.get("type", "file")
+    cache_cfg["base_dir"] = cache_cfg.get("base_dir", "cache")
+    settings["cache"] = cache_cfg
 
     return settings
 

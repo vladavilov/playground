@@ -18,7 +18,7 @@ from .callbacks import IngestionWorkflowCallbacks
 logger = structlog.get_logger(__name__)
 
 
-async def _run(workspace: Path, project_id: str) -> None:
+async def _run(workspace: Path, cb: IngestionWorkflowCallbacks) -> None:
     """Run GraphRAG indexing pipeline programmatically using the library API.
 
     Uses the common logger; no separate file handler/log file is configured here.
@@ -27,8 +27,6 @@ async def _run(workspace: Path, project_id: str) -> None:
     config = create_graphrag_config(configure_settings_for_json(workspace), str(workspace))
 
     try:
-        # Wire callbacks for logging + ProjectManagementClient updates
-        cb = IngestionWorkflowCallbacks(project_id=project_id)
         callbacks = [cb]
         await graphrag_api.build_index(config=config, callbacks=callbacks)
         # Ensure all pending progress publishes are flushed
@@ -47,6 +45,9 @@ def ensure_workspace_initialized(workspace_root: Path, project_id: str) -> Path:
     workspace.mkdir(parents=True, exist_ok=True)
     (workspace / "input").mkdir(parents=True, exist_ok=True)
     (workspace / "output").mkdir(parents=True, exist_ok=True)
+    # Ensure cache directories exist for GraphRAG cached LLM calls
+    (workspace / "cache").mkdir(parents=True, exist_ok=True)
+    (workspace / "cache" / "extract_graph").mkdir(parents=True, exist_ok=True)
     return workspace
 
 
@@ -59,7 +60,9 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
 
     workspace = ensure_workspace_initialized(root, project_id)
 
-    await _run(workspace, project_id)
+    cb = IngestionWorkflowCallbacks(project_id=project_id)
+
+    await _run(workspace, cb)
 
     # Post-processing: load outputs into Neo4j
     output_dir = workspace / "output"
@@ -83,14 +86,16 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
 
         # Read LanceDB vectors and ingest
         ldb = LanceDBReader()
-        vectors = ldb.read_all_embeddings(workspace)
-        ingestor.ingest_all_vectors(vectors)
+        vectors = ldb.read_all_embeddings(workspace, cb)
+        vector_counts = ingestor.ingest_all_vectors(vectors, callbacks=cb)
 
         # Backfills
-        ingestor.backfill_entity_relationship_ids()
-        ingestor.backfill_community_membership()
+        ingestor.backfill_entity_relationship_ids(cb)
+        ingestor.backfill_community_membership(cb)
+        # Global deduplication of HAS_CHUNK edges to ensure uniqueness
+        ingestor.dedup_has_chunk_relationships(cb)
 
-        logger.info("Neo4j import counts", imported=imported)
+        logger.info("Neo4j import counts", imported=imported, vectors=vector_counts)
     finally:
         try:
             driver.close()
@@ -106,6 +111,7 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
         "success": True,
         "output_dir": str(output_dir),
         "neo4j_import": imported,
+        "vector_import": vector_counts,
     }
 
 

@@ -138,6 +138,7 @@ services:
       - "8006:8000"
     environment:
       - API_PORT=8000
+      - RAG_WORKSPACE_ROOT=/workspace/graphrag
     env_file:
       - docker-compose.env
     depends_on:
@@ -147,6 +148,8 @@ services:
         condition: service_completed_successfully
     networks:
       - microservices_network
+    volumes:
+      - graphrag_workspace:/workspace
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
@@ -479,4 +482,6 @@ volumes:
   redis_data:
     driver: local
   azurite_data:
+    driver: local
+  graphrag_workspace:
     driver: local

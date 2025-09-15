@@ -6,6 +6,7 @@ import pandas as pd
 import lancedb
 
 from configuration.vector_index_config import get_vector_index_env
+from .callbacks import IngestionWorkflowCallbacks
 
 logger = structlog.get_logger(__name__)
 
@@ -25,8 +26,8 @@ class LanceDBReader:
     def __init__(self) -> None:
         pass
 
-    def read_all_embeddings(self, workspace: Path) -> Dict[str, List[Dict[str, Any]]]:
-        base = Path(workspace) / "output" / "lancedb"
+    def read_all_embeddings(self, workspace: Path, callbacks: IngestionWorkflowCallbacks) -> Dict[str, List[Dict[str, Any]]]:
+        base = (Path(workspace) / "output" / "lancedb").resolve()
         env = get_vector_index_env()
         dims = int(env.VECTOR_INDEX_DIMENSIONS)
         results: Dict[str, List[Dict[str, Any]]] = {k: [] for k in self.DEFAULT_TABLES.keys()}
@@ -35,16 +36,22 @@ class LanceDBReader:
             return results
 
         for key, table_name in self.DEFAULT_TABLES.items():
+            callbacks.vectors_read_start(table_name)
             df = self._read_table_df(base, table_name)
             if df is None:
+                logger.warning("LanceDB table empty or not found", table=table_name)
                 results[key] = []
+                callbacks.vectors_read_end(table_name, 0)
                 continue
             rows = self._build_rows(df, dims=dims, text_col="text", vector_col="vector")
             results[key] = rows
+            callbacks.vectors_read_end(table_name, len(rows))
         return results
 
     def _read_table_df(self, base_dir: Path, table_name: str) -> Optional[pd.DataFrame]:
-        conn = lancedb.connect(str(base_dir))
+        # Use absolute db_uri to avoid relative-path quirks
+        db_uri = str(Path(base_dir).resolve())
+        conn = lancedb.connect(db_uri)
         table = conn.open_table(table_name)
         return table.to_pandas()
 
