@@ -9,3 +9,6 @@ WITH c, eids
 UNWIND eids AS eid 
 MATCH (e:__Entity__ {id:eid}) 
 MERGE (e)-[:IN_COMMUNITY]->(c)
+WITH c, e
+MATCH (ch:__Chunk__)-[:HAS_ENTITY]->(e)
+MERGE (ch)-[:IN_COMMUNITY]->(c)

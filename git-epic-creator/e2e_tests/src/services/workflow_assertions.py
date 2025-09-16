@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import io
 import time
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Iterable, List
 
 import requests
 
@@ -17,6 +17,9 @@ from services.redis_test_monitor import RedisTestMonitor
 from shared_utils import ProjectTestUtils
 from services.workflow_models import WorkflowTestFixtures
 from contextlib import contextmanager
+from pathlib import Path
+
+from services.cypher_loader import execute_cypher_script
 
 class WorkflowAssertions:
     """High-cohesion helper for asserting workflow behavior across services."""
@@ -206,14 +209,12 @@ class WorkflowAssertions:
     def verify_neo4j_vector_index(self, fixtures: WorkflowTestFixtures) -> None:
         """Verify vector indexes exist and are ONLINE with correct settings.
 
-        Use exact literals so tests fail if labels/properties change.
+        Community uses property 'summary_embedding'; chunks use 'embedding'.
         """
-        expected = {
-            "chunk": {"label": "__Chunk__"},
-            "community": {"label": "__Community__"},
-            "entity": {"label": "__Entity__"},
-        }
-        expected_property = "embedding"
+        expected = [
+            {"label": "__Chunk__", "property": "embedding"},
+            {"label": "__Community__", "property": "summary_embedding"},
+        ]
         expected_dims = 1536
         expected_sim = "cosine"
 
@@ -235,9 +236,9 @@ class WorkflowAssertions:
                         return rec
                 return None
 
-            for key, cfg in expected.items():
-                idx = find_vector_index(cfg["label"], expected_property)
-                assert idx is not None, f"Missing vector index for {cfg['label']}({expected_property})"
+            for cfg in expected:
+                idx = find_vector_index(cfg["label"], cfg["property"])
+                assert idx is not None, f"Missing vector index for {cfg['label']}({cfg['property']})"
                 assert idx.get("state") == "ONLINE", f"Vector index for {cfg['label']} is not ONLINE"
                 index_cfg = (idx.get("options") or {}).get("indexConfig", {}) or {}
                 dims = index_cfg.get("vector.dimensions")
@@ -250,6 +251,78 @@ class WorkflowAssertions:
                 assert sim == expected_sim, (
                     f"Vector similarity must be {expected_sim} for {cfg['label']}"
                 )
+
+    # ----- Neo4j admin/test helpers reused across e2e modules -----
+    def reset_neo4j_database(
+        self,
+        driver: Any,
+        database_name: str,
+        *,
+        required_index_names: Iterable[str] | None = None,
+    ) -> None:
+        """Remove all nodes/relationships and drop provided indexes if exist.
+
+        Keeps behaviour identical to existing drift-search setup.
+        """
+        with driver.session(database=database_name) as session:
+            session.run("MATCH (n) DETACH DELETE n").consume()
+            session.run("CALL apoc.schema.assert({}, {})").consume()
+            if required_index_names:
+                for idx in required_index_names:
+                    session.run(f"DROP INDEX {idx} IF EXISTS").consume()
+
+    def load_cypher_script(self, driver: Any, database_name: str, script_path: Path) -> None:
+        execute_cypher_script(driver, database_name, script_path)
+
+    def verify_required_index_names(
+        self,
+        driver: Any,
+        *,
+        required_vector_names: Iterable[str] = (),
+        required_fulltext_names: Iterable[str] = (),
+    ) -> None:
+        with driver.session() as session:
+            result = session.run(
+                """
+                SHOW INDEXES YIELD name, type, entityType, labelsOrTypes, properties, options
+                RETURN name, type, entityType, labelsOrTypes, properties, options
+                """
+            )
+            indexes: List[Dict[str, Any]] = [dict(r) for r in result]
+            names = {idx.get("name") for idx in indexes}
+
+            # Presence checks by family
+            missing_vec = set(required_vector_names) - names
+            missing_fts = set(required_fulltext_names) - names
+            assert not missing_vec and not missing_fts, (
+                f"Missing indexes: vector={missing_vec} fulltext={missing_fts}. Present: {names}"
+            )
+
+            # Additional sanity: types for provided names
+            idx_by_name = {idx.get("name"): idx for idx in indexes}
+            for nm in required_vector_names:
+                if nm in idx_by_name:
+                    assert str(idx_by_name[nm].get("type", "")).upper() == "VECTOR"
+            for nm in required_fulltext_names:
+                if nm in idx_by_name:
+                    assert str(idx_by_name[nm].get("type", "")).upper() == "FULLTEXT"
+
+    def poll_active_queries(self, driver: Any, duration_seconds: float = 2.0) -> list[str]:
+        import time as _time
+        deadline = _time.time() + duration_seconds
+        seen: list[str] = []
+        while _time.time() < deadline:
+            try:
+                with driver.session() as session:
+                    rows = list(session.run("SHOW TRANSACTIONS YIELD currentQuery RETURN currentQuery"))
+                    for r in rows:
+                        q = r.get("currentQuery") or ""
+                        if q and q not in seen:
+                            seen.append(q)
+            except Exception:
+                pass
+            _time.sleep(0.05)
+        return seen
 
     # ----- Assertions -----
     def verify_upload_response(self, project_id: str, upload_result: Dict[str, Any], fixtures: WorkflowTestFixtures) -> None:

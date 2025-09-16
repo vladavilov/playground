@@ -10,7 +10,6 @@ from .cypher import (
     get_merge_relationship_query,
     get_backfill_entity_rel_ids,
     get_backfill_community_membership,
-    get_dedup_has_chunk_relationships,
 )
 
 
@@ -149,20 +148,3 @@ class Neo4jIngestor:
             logger.warning("Failed to backfill community.entity_ids and IN_COMMUNITY edges", error=err)
         finally:
             callbacks.backfill_end(step, ok, err)
-
-    def dedup_has_chunk_relationships(self, callbacks: IngestionWorkflowCallbacks) -> None:
-        step = "dedup_has_chunk_relationships"
-        callbacks.backfill_start(step)
-        ok = True
-        err: str | None = None
-        try:
-            with self._driver.session() as session:
-                session.run(get_dedup_has_chunk_relationships())
-        except Exception as exc:
-            ok = False
-            err = str(exc)
-            logger.warning("Failed to deduplicate HAS_CHUNK relationships", error=err)
-        finally:
-            callbacks.backfill_end(step, ok, err)
-
-
