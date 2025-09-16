@@ -6,6 +6,7 @@ service health checks, and test data management.
 """
 
 import uuid
+from pathlib import Path
 from typing import Dict, Any, Generator, Optional
 
 import pytest
@@ -371,3 +372,25 @@ def blob_storage_config(test_config: TestConfig) -> Dict[str, Any]:
 def wa() -> WorkflowAssertions:
     """Provide a reusable WorkflowAssertions helper instance per test."""
     return WorkflowAssertions()
+
+
+@pytest.fixture(scope="session")
+def target_db_name(neo4j_config) -> str:
+    """Standardized Neo4j database name for tests."""
+    return neo4j_config.get("database", "neo4j")
+
+
+@pytest.fixture(scope="session")
+def cyphers_path() -> Path:
+    """Locate the drift_search_cyphers.txt script across multiple candidate paths."""
+    candidates = [
+        Path(__file__).parent / ".." / "resources" / "drift_search_cyphers.txt",
+        Path("/e2e-tests/resources/drift_search_cyphers.txt"),
+        Path("/e2e-tests") / "resources" / "drift_search_cyphers.txt",
+        Path.cwd() / "resources" / "drift_search_cyphers.txt",
+    ]
+    for p in candidates:
+        p = p.resolve()
+        if p.exists():
+            return p
+    raise AssertionError(f"Cypher script not found in any known location. Tried: {candidates}")

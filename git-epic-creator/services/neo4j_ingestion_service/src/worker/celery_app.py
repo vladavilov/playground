@@ -10,8 +10,31 @@ logger = structlog.get_logger(__name__)
 
 from utils.celery_factory import get_celery_app
 from constants import APP_NAME_NEO4J_INGESTION, EXPECTED_TASKS_INGESTION
+from module_utils.asyncio_runner import PersistentEventLoopRunner
+from celery import signals
 
 celery_app = get_celery_app(APP_NAME_NEO4J_INGESTION)
+
+@signals.worker_process_init.connect
+def _on_worker_process_init(**kwargs):  # noqa: D401
+    """Start persistent asyncio event loop when a worker process starts."""
+    try:
+        runner = PersistentEventLoopRunner.get_instance()
+        runner.start()
+        logger.info("Persistent asyncio loop started for worker process")
+    except Exception as exc:
+        logger.error("Failed to start persistent asyncio loop", extra={"error": str(exc)})
+
+@signals.worker_process_shutdown.connect
+def _on_worker_process_shutdown(**kwargs):  # noqa: D401
+    """Stop persistent asyncio event loop when the worker process shuts down."""
+    try:
+        runner = PersistentEventLoopRunner.get_instance()
+        if runner.is_running():
+            runner.stop()
+        logger.info("Persistent asyncio loop stopped for worker process")
+    except Exception as exc:
+        logger.error("Failed to stop persistent asyncio loop", extra={"error": str(exc)})
 
 # Ensure tasks are registered by importing task modules
 try:

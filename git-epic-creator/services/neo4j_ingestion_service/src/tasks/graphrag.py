@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import time
 from typing import Any, Dict
-from pathlib import Path
 
 import structlog
 logger = structlog.get_logger(__name__)
@@ -22,6 +21,7 @@ from utils.neo4j_client import get_neo4j_client
 from clients.project_management_client import ProjectManagementClient
 import asyncio
 from utils.workflow_gating import run_with_lock
+from module_utils.asyncio_runner import run_async
 from constants import (
     TASK_RUN_GRAPHRAG_JOB,
     QUEUE_NEO4J_INGESTION,
@@ -65,8 +65,8 @@ def run_graphrag_job(
     async def _execute() -> Dict[str, Any]:
         return await _run_graphrag_job_async(job_id, project_id, attempts, start)
 
-    # Centralized lock/pending/retry handling
-    return asyncio.run(
+    # Centralized lock/pending/retry handling using persistent event loop
+    return run_async(
         run_with_lock(
             namespace=GATE_NS_INGESTION,
             identifier=project_id,
@@ -86,6 +86,12 @@ async def _run_graphrag_job_async(
     start_time: float,
 ) -> Dict[str, Any]:
     """Single-event-loop orchestration for the GraphRAG job."""
+    # Debug: log the active event loop id to verify persistence across tasks
+    try:
+        loop = asyncio.get_running_loop()
+        logger.info("Persistent event loop active", loop_id=id(loop))
+    except Exception:
+        pass
 
     try:
         # Mark project as rag_processing (best-effort)

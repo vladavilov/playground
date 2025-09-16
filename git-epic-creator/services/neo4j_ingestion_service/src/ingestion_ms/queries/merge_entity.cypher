@@ -39,3 +39,6 @@ WITH e, value
 UNWIND coalesce(value.text_unit_ids,[]) AS chunk_id
 MATCH (c:__Chunk__ {id: chunk_id})
 MERGE (c)-[:HAS_ENTITY]->(e)
+WITH c, e
+MATCH (e)-[:IN_COMMUNITY]->(comm:__Community__)
+MERGE (c)-[:IN_COMMUNITY]->(comm)

@@ -24,7 +24,7 @@ async def _run(workspace: Path, cb: IngestionWorkflowCallbacks) -> None:
     Uses the common logger; no separate file handler/log file is configured here.
     """
     # Build config dict programmatically and create GraphRAG config without writing files
-    config = create_graphrag_config(configure_settings_for_json(workspace), str(workspace))
+    config = create_graphrag_config(configure_settings_for_json(), str(workspace))
 
     try:
         callbacks = [cb]
@@ -92,8 +92,6 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
         # Backfills
         ingestor.backfill_entity_relationship_ids(cb)
         ingestor.backfill_community_membership(cb)
-        # Global deduplication of HAS_CHUNK edges to ensure uniqueness
-        ingestor.dedup_has_chunk_relationships(cb)
 
         logger.info("Neo4j import counts", imported=imported, vectors=vector_counts)
     finally:

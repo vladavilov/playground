@@ -67,40 +67,59 @@ class TestDocumentWorkflow:
             wa.verify_upload_response(project_id, upload_result, fixtures)
 
             # Step 4-7: Iterate UI status sequence with yields between steps
+            expected = [
+                TestConstants.PROJECT_STATUS_PROCESSING,
+                TestConstants.PROJECT_STATUS_ACTIVE,
+                TestConstants.PROJECT_STATUS_RAG_PROCESSING,
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline started"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Load input documents (1/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Load input documents"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create base text units (2/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create base text units"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final documents (3/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final documents"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract graph (4/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Extract graph — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract graph"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Finalize graph (5/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Finalize graph"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract covariates (6/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract covariates"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create communities (7/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create communities"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final text units (8/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final text units"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create community reports (9/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create community reports — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create community reports"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Generate text embeddings (10/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Generate text embeddings — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Generate text embeddings"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline finished"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-community-full_content"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-community-full_content (1/3)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-entity-description"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-entity-description (2/3)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-text_unit-text"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-text_unit-text (3/3)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Community__.full_content"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Entity__.description"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Chunk__.text"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_entity_relationship_ids"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_entity_relationship_ids (1/2)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_community_membership"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_community_membership (2/2)"),
+                TestConstants.PROJECT_STATUS_RAG_READY,
+            ]
             seq = fixtures.redis_monitor.iter_ui_sequence(
                 project_id,
-                [
-                    TestConstants.PROJECT_STATUS_PROCESSING,
-                    TestConstants.PROJECT_STATUS_ACTIVE,
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_start"),
-                    # assert intermediate messages without relying on exact names
-                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
-                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_end"),
-                    TestConstants.PROJECT_STATUS_RAG_READY,
-                ],
+                expected,
                 timeout_per_step=300,
             )
-            # processing
-            _ = next(seq)
-            # active -> after this, blobs should be present
-            _ = next(seq)
-            # rag_processing: pipeline_start
-            _ = next(seq)
-            # intermediate: expect a workflow_start message
-            _msg = next(seq)
-            assert isinstance(_msg, dict) and _msg.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
-            _ps = _msg.get("process_step") or ""
-            assert isinstance(_ps, str) and _ps.startswith("workflow_start"), f"Unexpected process_step: {_ps}"
-            # intermediate: expect a workflow_end message
-            _msg2 = next(seq)
-            assert isinstance(_msg2, dict) and _msg2.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
-            _ps2 = _msg2.get("process_step") or ""
-            assert isinstance(_ps2, str) and _ps2.startswith("workflow_end"), f"Unexpected process_step: {_ps2}"
-            # rag_processing: pipeline_end (all workflows done)
-            _ = next(seq)
-            # rag_ready
-            _ = next(seq)
+            for _ in expected:
+                _ = next(seq)
             wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
 
         # Step 8: Verify DB status and pct
@@ -174,37 +193,59 @@ class TestDocumentWorkflow:
             wa.verify_multiple_upload_response(upload_result, project_id, expected_filenames)
 
             # Validate UI message sequence
+            expected = [
+                TestConstants.PROJECT_STATUS_PROCESSING,
+                TestConstants.PROJECT_STATUS_ACTIVE,
+                TestConstants.PROJECT_STATUS_RAG_PROCESSING,
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline started"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Load input documents (1/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Load input documents"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create base text units (2/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create base text units"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final documents (3/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final documents"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract graph (4/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Extract graph — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract graph"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Finalize graph (5/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Finalize graph"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract covariates (6/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract covariates"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create communities (7/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create communities"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final text units (8/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final text units"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create community reports (9/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create community reports — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create community reports"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Generate text embeddings (10/10)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Generate text embeddings — 100%"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Generate text embeddings"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline finished"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-community-full_content"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-community-full_content (1/3)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-entity-description"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-entity-description (2/3)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-text_unit-text"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-text_unit-text (3/3)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Community__.full_content"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Entity__.description"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Chunk__.text"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_entity_relationship_ids"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_entity_relationship_ids (1/2)"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_community_membership"),
+                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_community_membership (2/2)"),
+                TestConstants.PROJECT_STATUS_RAG_READY,
+            ]
             seq = redis_monitor.iter_ui_sequence(
                 project_id,
-                [
-                    TestConstants.PROJECT_STATUS_PROCESSING,
-                    TestConstants.PROJECT_STATUS_ACTIVE,
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_start"),
-                    # assert intermediate messages without relying on exact names
-                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
-                    TestConstants.PROJECT_STATUS_RAG_PROCESSING,
-                    (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "pipeline_end"),
-                    TestConstants.PROJECT_STATUS_RAG_READY,
-                ],
+                expected,
                 timeout_per_step=300,
             )
-            _ = next(seq)
-            _ = next(seq)
-            _ = next(seq)
-            # intermediate: expect a workflow_start message
-            _msg = next(seq)
-            assert isinstance(_msg, dict) and _msg.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
-            _ps = _msg.get("process_step") or ""
-            assert isinstance(_ps, str) and _ps.startswith("workflow_start"), f"Unexpected process_step: {_ps}"
-            # intermediate: expect a workflow_end message
-            _msg2 = next(seq)
-            assert isinstance(_msg2, dict) and _msg2.get("status") == TestConstants.PROJECT_STATUS_RAG_PROCESSING
-            _ps2 = _msg2.get("process_step") or ""
-            assert isinstance(_ps2, str) and _ps2.startswith("workflow_end"), f"Unexpected process_step: {_ps2}"
-            # pipeline_end
-            _ = next(seq)
-            # rag_ready
-            _ = next(seq)
+            for _ in expected:
+                _ = next(seq)
             wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
 
         # Verify DB status

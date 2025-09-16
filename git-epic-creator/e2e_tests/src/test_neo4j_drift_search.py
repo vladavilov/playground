@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from neo4j import GraphDatabase
-import os
-import requests
 import threading
-import time
 
-from services.cypher_loader import execute_cypher_script
 from services.neo4j_admin import supports_multi_db, ensure_database, drop_database, list_databases
+from shared_utils import HTTPUtils
 
 
 REQUIRED_INDEXES = (
@@ -26,57 +20,18 @@ REQUIRED_INDEXES = (
 )
 
 
-@pytest.fixture(scope="session")
-def cyphers_path() -> Path:
-    # Try multiple locations to support both repo and container layouts
-    candidates = [
-        Path(__file__).parent / ".." / "resources" / "drift_search_cyphers.txt",
-        Path("/e2e-tests/resources/drift_search_cyphers.txt"),
-        Path("/e2e-tests") / "resources" / "drift_search_cyphers.txt",
-        Path.cwd() / "resources" / "drift_search_cyphers.txt",
-    ]
-    for p in candidates:
-        p = p.resolve()
-        if p.exists():
-            return p
-    raise AssertionError(f"Cypher script not found in any known location. Tried: {candidates}")
-
-
-@pytest.fixture(scope="session")
-def driver(neo4j_config) -> GraphDatabase.driver:
-    return GraphDatabase.driver(neo4j_config["uri"], auth=(neo4j_config["username"], neo4j_config["password"]))
-
-
-@pytest.fixture(scope="session")
-def target_db_name(neo4j_config) -> str:
-    return neo4j_config.get("database", "neo4j")
-
-
-@pytest.fixture(scope="session")
-def ensure_clean_session_setup(driver, target_db_name, cyphers_path):
-    cleanup_session(driver, target_db_name)
-    execute_cypher_script(driver, target_db_name, cyphers_path)
+@pytest.fixture(scope="function")
+def ensure_clean_session_setup(neo4j_driver, target_db_name, cyphers_path, wa):
+    from services.workflow_assertions import WorkflowAssertions  # type: ignore
+    assert isinstance(wa, WorkflowAssertions)
+    wa.reset_neo4j_database(neo4j_driver, target_db_name, required_index_names=REQUIRED_INDEXES)
+    wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)
     yield
 
 
-def cleanup_session(driver, target_db_name):
-    with driver.session(database=target_db_name) as session:
-        session.run("MATCH (n) DETACH DELETE n").consume()
-        session.run("CALL apoc.schema.assert({}, {})").consume()
-        for idx in REQUIRED_INDEXES:
-            session.run(f"DROP INDEX {idx} IF EXISTS").consume()
 
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_after_session(driver, target_db_name):
-    yield
-    # cleanup_session(driver, target_db_name)
-    pass
-
-
-
-def test_seed_data_loaded(driver, target_db_name, ensure_clean_session_setup):
-    with driver.session(database=target_db_name) as session:
+def test_seed_data_loaded(neo4j_driver, target_db_name, ensure_clean_session_setup):
+    with neo4j_driver.session(database=target_db_name) as session:
         result = session.run("MATCH (c:__Chunk__) RETURN collect(c.index) AS idxs")
         idxs = result.single()["idxs"]
         assert sorted([int(i) for i in idxs]) == [0, 1]
@@ -100,8 +55,16 @@ def test_seed_data_loaded(driver, target_db_name, ensure_clean_session_setup):
         assert both == 0
 
 
-def test_indexes_exist(driver, target_db_name, ensure_clean_session_setup):
-    with driver.session(database=target_db_name) as session:
+def test_indexes_exist(neo4j_driver, target_db_name, ensure_clean_session_setup, wa):
+    # Strict name/type checks via shared helper
+    wa.verify_required_index_names(
+        neo4j_driver,
+        required_vector_names=("graphrag_comm_index", "graphrag_chunk_index"),
+        required_fulltext_names=("community_summary_fts", "chunk_text_fts"),
+    )
+
+    # Retain explicit dimension/similarity assertions
+    with neo4j_driver.session(database=target_db_name) as session:
         result = session.run(
             """
             SHOW INDEXES YIELD name, type, entityType, labelsOrTypes, properties, options
@@ -110,10 +73,6 @@ def test_indexes_exist(driver, target_db_name, ensure_clean_session_setup):
         )
         indexes = [dict(r) for r in result]
         names = {idx["name"] for idx in indexes}
-
-        required_always = {"graphrag_comm_index", "community_summary_fts", "chunk_text_fts", "graphrag_chunk_index"}
-        missing_always = required_always - names
-        assert not missing_always, f"Missing indexes: {missing_always}. Present: {names}"
 
         idx_by_name = {idx["name"]: idx for idx in indexes}
         for vec_name in ("graphrag_comm_index", "graphrag_chunk_index"):
@@ -131,8 +90,8 @@ def test_indexes_exist(driver, target_db_name, ensure_clean_session_setup):
             assert idx["type"].upper() == "FULLTEXT"
 
 
-def test_embeddings_written(driver, target_db_name, ensure_clean_session_setup):
-    with driver.session(database=target_db_name) as session:
+def test_embeddings_written(neo4j_driver, target_db_name, ensure_clean_session_setup):
+    with neo4j_driver.session(database=target_db_name) as session:
         res = session.run(
             """
             MATCH (ch:__Chunk__)
@@ -162,8 +121,8 @@ def test_embeddings_written(driver, target_db_name, ensure_clean_session_setup):
             assert res["with_prop"] == res["good"]
 
 
-def test_indexes_queryable(driver, target_db_name, ensure_clean_session_setup):
-    with driver.session(database=target_db_name) as session:
+def test_indexes_queryable(neo4j_driver, target_db_name, ensure_clean_session_setup):
+    with neo4j_driver.session(database=target_db_name) as session:
         names = {r["name"] for r in session.run("SHOW INDEXES YIELD name RETURN name")}
         if "graphrag_comm_index" not in names or "graphrag_chunk_index" not in names:
             pytest.skip("Required vector indexes not present; verify-only per environment")
@@ -195,19 +154,19 @@ def test_indexes_queryable(driver, target_db_name, ensure_clean_session_setup):
             ).consume()
 
 
-def test_drop_test_db_conditional(driver):
-    if not supports_multi_db(driver):
+def test_drop_test_db_conditional(neo4j_driver):
+    if not supports_multi_db(neo4j_driver):
         pytest.skip("Multi-database not supported; skipping DB drop test")
     test_db = "drift_search_test"
     try:
-        ensure_database(driver, test_db, wait_seconds=5)
+        ensure_database(neo4j_driver, test_db, wait_seconds=5)
     except Exception:
         pytest.skip("CREATE DATABASE not supported; skipping DB drop test")
-    names = {row.get("name") for row in list_databases(driver)}
+    names = {row.get("name") for row in list_databases(neo4j_driver)}
     if test_db not in names:
         pytest.skip("Database creation not permitted; skipping DB drop test")
-    drop_database(driver, test_db)
-    names = {row.get("name") for row in list_databases(driver)}
+    drop_database(neo4j_driver, test_db)
+    names = {row.get("name") for row in list_databases(neo4j_driver)}
     assert test_db not in names
 
 
@@ -215,37 +174,17 @@ def test_drop_test_db_conditional(driver):
 # ------------------------- RETRIEVAL SERVICE E2E TEST -------------------------
 
 
-def _poll_active_queries(driver, duration_seconds: float = 2.0) -> list[str]:
-    deadline = time.time() + duration_seconds
-    seen: list[str] = []
-    while time.time() < deadline:
-        try:
-            with driver.session() as session:
-                # SHOW TRANSACTIONS displays active statements; may be empty if idle
-                rows = list(session.run("SHOW TRANSACTIONS YIELD currentQuery RETURN currentQuery"))
-                for r in rows:
-                    q = r.get("currentQuery") or ""
-                    if q and q not in seen:
-                        seen.append(q)
-        except Exception:
-            pass
-        time.sleep(0.05)
-    return seen
-
-
-def _call_retrieval_service(question: str) -> requests.Response:
-    base = os.getenv("RETRIEVAL_BASE_URL", "http://neo4j-retrieval-service:8000")
-    url = base.rstrip('/') + "/retrieve"
+def _call_retrieval_service(service_urls, question: str):
+    base = service_urls["neo4j_retrieval"].rstrip('/')
+    url = base + "/retrieve"
     payload = {"query": question}
-    # The retrieval service schema expects a RetrievalPlan; we allow user to adjust payload later
-    resp = requests.post(url, json=payload, timeout=10)
-    return resp
+    return HTTPUtils.make_request_with_retry("POST", url, json_data=payload, timeout=10)
 
 
-def test_retrieval_service_end_to_end_requests_recorded(driver):
+def test_retrieval_service_end_to_end_requests_recorded(neo4j_driver, service_urls, wa):
     # Clear recorded requests in OpenAI mock service
-    oai_base = os.getenv("OPENAI_MOCK_URL", "http://openai-mock-service:8000").rstrip("/")
-    clr = requests.post(f"{oai_base}/spy/clear", timeout=5)
+    oai_base = service_urls["openai_mock"].rstrip("/")
+    clr = HTTPUtils.make_request_with_retry("POST", f"{oai_base}/spy/clear", timeout=5)
     assert clr.status_code == 200
 
     question = "what are the main components of the bridge?"
@@ -255,18 +194,18 @@ def test_retrieval_service_end_to_end_requests_recorded(driver):
 
     def _poller():
         nonlocal queries
-        queries = _poll_active_queries(driver, duration_seconds=3.0)
+        queries = wa.poll_active_queries(neo4j_driver, duration_seconds=3.0)
 
     poll_thread = threading.Thread(target=_poller, daemon=True)
     poll_thread.start()
-    resp = _call_retrieval_service(question)
+    resp = _call_retrieval_service(service_urls, question)
     poll_thread.join()
 
     # Assert: HTTP call succeeded
     assert resp.status_code == 200, f"retrieval status {resp.status_code}, body={resp.text[:200]}"
 
     # Assert: OpenAI mock recorded requests and verify which endpoints were hit
-    spy_resp = requests.get(f"{oai_base}/spy/requests", params={"howMany": 50}, timeout=5)
+    spy_resp = HTTPUtils.make_request_with_retry("GET", f"{oai_base}/spy/requests?howMany=50", timeout=5)
     assert spy_resp.status_code == 200
     payload = spy_resp.json()
     items = payload.get("items") or []
