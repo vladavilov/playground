@@ -35,7 +35,7 @@ def primer_messages(question: str, community_details: List[Dict], sample_chunks:
     ]
 
 
-def local_executor_messages(qtext: str, target_communities: List[int], chunks_preview: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+def local_executor_messages(qtext: str, target_communities: List[Dict[str, Any]], chunks_preview: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     prompt = (
         "You are DRIFT-Search Local Executor.\n"
         "Input: follow-up question + retrieved chunks + graph neighborhoods.\n"
@@ -46,7 +46,7 @@ def local_executor_messages(qtext: str, target_communities: List[int], chunks_pr
         "- Assign confidence [0..1] and whether to continue.\n"
         "Return JSON:\n"
         "{ answer, citations:[{chunk_id, span}], new_followups:[...], confidence, should_continue }\n\n"
-        f"Follow-up: {qtext}\nTarget communities: {target_communities}\nScoped chunk ids: {chunks_preview}"
+        f"Follow-up: {qtext}\nTarget communities: {json.dumps(target_communities)}\nScoped chunk contexts: {json.dumps(chunks_preview)}"
     )
     return [
         {"role": "system", "content": "You are DRIFT-Search Local Executor."},

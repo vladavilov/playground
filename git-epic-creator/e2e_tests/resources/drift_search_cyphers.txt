@@ -297,7 +297,7 @@ DROP CONSTRAINT UNIQUE_IMPORT_NAME;
 :commit
 :begin
 MATCH (n)-[:IN_COMMUNITY]->(c:__Community__)
-MATCH (n)-[:IN_CHUNK]->(ch:__Chunk__)
+MATCH (n)-[:FROM_CHUNK]->(ch:__Chunk__)
 WITH DISTINCT ch, c
 MERGE (ch)-[:IN_COMMUNITY]->(c);
 :commit
