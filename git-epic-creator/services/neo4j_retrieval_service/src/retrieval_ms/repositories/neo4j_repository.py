@@ -18,8 +18,8 @@ class Neo4jRepository:
 
     def sample_chunks_for_communities(self, community_ids: List[int], chunk_index: str, qvec: List[float]) -> Dict[int, List[int]]:
         query = (
-            "MATCH (c:Community) WHERE id(c) IN $communityIds "
-            "CALL { WITH c MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:Chunk) "
+            "MATCH (c:__Community__) WHERE id(c) IN $communityIds "
+            "CALL { WITH c MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:__Chunk__) "
             "WITH ch CALL db.index.vector.queryNodes($chunkIndex, 50, $qvec) YIELD node AS cand, score "
             "WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } "
             "RETURN id(c) AS cid, collect(id(chunk)) AS chunk_ids"
@@ -35,7 +35,7 @@ class Neo4jRepository:
 
     def fetch_community_summaries(self, ids: List[int]) -> Dict[int, str]:
         rows = list(self._session.run(
-            "MATCH (c:Community) WHERE id(c) IN $ids RETURN id(c) AS id, c.summary AS summary",
+            "MATCH (c:__Community__) WHERE id(c) IN $ids RETURN id(c) AS id, c.summary AS summary",
             ids=ids,
         ))
         out: Dict[int, str] = {}
@@ -50,19 +50,34 @@ class Neo4jRepository:
     def scoped_chunk_ids(self, cids: List[int], chunk_index: str, qvec: List[float]) -> List[int]:
         scoped_q = (
             "WITH $qvec AS qvec, $cids AS cids "
-            "MATCH (c:Community) WHERE id(c) IN cids "
-            "MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:Chunk) "
+            "MATCH (c:__Community__) WHERE id(c) IN cids "
+            "MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:__Chunk__) "
             "WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes($chunkIndex, 200, qvec) YIELD node AS cand, score "
             "WHERE cand = ch RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30"
         )
         rows = list(self._session.run(scoped_q, qvec=qvec, cids=cids, chunkIndex=chunk_index))
         return [int(r.get("cid")) for r in rows if r.get("cid") is not None]
 
-    def expand_neighborhood_minimal(self, chunk_ids: List[int]) -> None:
-        nb_q = (
-            "UNWIND $chunkIds AS cid MATCH (ch:Chunk) WHERE id(ch)=cid "
-            "OPTIONAL MATCH (n)-[:IN_CHUNK]->(ch) RETURN cid, count(n) AS ncnt"
+    def expand_neighborhood_minimal(self, chunk_ids: List[int]) -> List[Dict[str, Any]]:
+        query = (
+            "UNWIND $chunkIds AS cid "
+            "MATCH (ch:__Chunk__) WHERE id(ch) = cid "
+            "OPTIONAL MATCH (e)-[:IN_CHUNK]->(ch) "
+            "WHERE e:__Entity__ OR e:Entity "
+            "WITH ch, cid, e "
+            "WITH cid, ch, collect({ _id: id(e), properties: { "
+            "name: e.name, description: e.description, type: coalesce(e.type, e.category, ''), "
+            "communities: toString(e.communities) } })[0..5] AS neigh "
+            "RETURN cid AS chunk_id, ch.text AS text, neigh AS neighbours"
         )
-        list(self._session.run(nb_q, chunkIds=chunk_ids[:3]))
+        rows = list(self._session.run(query, chunkIds=chunk_ids[:3]))
+        result: List[Dict[str, Any]] = []
+        for r in rows:
+            result.append({
+                "chunk_id": int(r.get("chunk_id")) if r.get("chunk_id") is not None else None,
+                "text": r.get("text") or "",
+                "neighbours": r.get("neighbours") or [],
+            })
+        return result
 
 

@@ -1,5 +1,22 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 import json
+
+
+def hyde_messages(question: str) -> List[Dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are assisting a retrieval system. Write a short, factual paragraph that would likely appear in an ideal answer to this user question."
+            ),
+        },
+        {"role": "user", "content": f"Question: \"{question}\"\nHypothetical answer paragraph:"},
+    ]
+
+
+def build_hyde_embed_text(question: str, hyde_answer: str) -> str:
+    # Required format: User question on first line, then the LLM answer used for HyDE
+    return f"{question}\n{hyde_answer}"
 
 
 def primer_messages(question: str, community_details: List[Dict], sample_chunks: List[Dict]) -> List[Dict[str, str]]:
@@ -18,7 +35,7 @@ def primer_messages(question: str, community_details: List[Dict], sample_chunks:
     ]
 
 
-def local_executor_messages(qtext: str, target_communities: List[int], chunks_preview: List[int]) -> List[Dict[str, str]]:
+def local_executor_messages(qtext: str, target_communities: List[int], chunks_preview: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     prompt = (
         "You are DRIFT-Search Local Executor.\n"
         "Input: follow-up question + retrieved chunks + graph neighborhoods.\n"

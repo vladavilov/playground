@@ -5,9 +5,8 @@ import httpx
 from fastapi import HTTPException
 
 from ..config import get_retrieval_settings
-from ..retrieval_ms.prompts import primer_messages, local_executor_messages, aggregator_messages
+from ..retrieval_ms.prompts import primer_messages, local_executor_messages, aggregator_messages, hyde_messages, build_hyde_embed_text
 from ..retrieval_ms.repositories.neo4j_repository import Neo4jRepository
-from ..retrieval_ms.models import PrimerResult
 
 
 GetSessionFn = Callable[[], Any]
@@ -58,20 +57,14 @@ class Neo4jRetrievalService:
             data = resp.json()
             vec = data["data"][0]["embedding"]
             return [float(x) for x in vec]
-        except Exception:
-            # Fallback for tests or degraded environments: return a small zero vector
-            return [0.0] * 10
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Invalid Embeddings response: {exc}")
 
     # ------------------ Domain steps ------------------
     def _run_primer(self, oai: httpx.Client, session: Any, question: str, k: int) -> Dict[str, Any]:
-        # HyDE expansion (we don't need the text beyond embedding in current logic)
-        _ = self._chat_completion(oai, [
-            {"role": "system", "content": (
-                "You are assisting a retrieval system. Write a short, factual paragraph that would likely appear in an ideal answer to this user question."
-            )},
-            {"role": "user", "content": f"Question: \"{question}\"\nHypothetical answer paragraph:"},
-        ])
-        hyde_text = question
+        # HyDE expansion: use model response, and embed "question + LLM answer" per spec
+        hyde_text_resp = self._chat_completion(oai, hyde_messages(question))
+        hyde_text = build_hyde_embed_text(question, hyde_text_resp)
         qvec = self._embed(oai, [hyde_text])
 
         repo = Neo4jRepository(session)
@@ -97,15 +90,6 @@ class Neo4jRetrievalService:
         community_details = [{"id": cid, "summary": summaries.get(cid, "")} for cid in communities]
         sample_chunks = [{"community_id": cid, "chunk_ids": ids} for cid, ids in sampled.items()]
 
-        primer_prompt = (
-            "You are DRIFT-Search Primer.\n"
-            "Input: user question + community summaries + sample chunks.\n"
-            "Tasks:\n"
-            "- Draft initial answer (note uncertainty if needed).\n"
-            "- Generate 2–6 follow-up questions with target communities.\n"
-            "Return JSON: { initial_answer, followups:[{question, target_communities:[...] }], rationale }\n\n"
-            f"User question: {question}\n, community details: {json.dumps(community_details)}\n, sample chunks: {json.dumps(sample_chunks)}"
-        )
         primer_text = self._chat_completion(oai, primer_messages(question, community_details, sample_chunks))
         try:
             primer_json = json.loads(primer_text)
@@ -130,27 +114,11 @@ class Neo4jRetrievalService:
                 repo = Neo4jRepository(session)
                 rows = repo.scoped_chunk_ids(cids, chunk_index, qvec)
                 chunks = [int(x) for x in rows]
-
+            
             if chunks:
-                nb_q = (
-                    "UNWIND $chunkIds AS cid MATCH (ch:Chunk) WHERE id(ch)=cid "
-                    "OPTIONAL MATCH (n)-[:IN_CHUNK]->(ch) RETURN cid, count(n) AS ncnt"
-                )
-                list(session.run(nb_q, chunkIds=chunks[:3]))
+                chunks = Neo4jRepository(session).expand_neighborhood_minimal(chunks)
 
-            local_prompt = (
-                "You are DRIFT-Search Local Executor.\n"
-                "Input: follow-up question + retrieved chunks + graph neighborhoods.\n"
-                "Tasks:\n"
-                "- Answer follow-up using ONLY provided context.\n"
-                "- Cite chunk IDs where evidence comes from.\n"
-                "- Propose 0–3 additional follow-ups (if needed).\n"
-                "- Assign confidence [0..1] and whether to continue.\n"
-                "Return JSON:\n"
-                "{ answer, citations:[{chunk_id, span}], new_followups:[...], confidence, should_continue }\n\n"
-                f"Follow-up: {qtext}\nTarget communities: {cids}\nScoped chunk ids: {chunks[:10]}"
-            )
-            local_text = self._chat_completion(oai, local_executor_messages(qtext, cids, chunks[:10]))
+            local_text = self._chat_completion(oai, local_executor_messages(qtext, cids, chunks))
             try:
                 local_json = json.loads(local_text)
             except Exception as exc:  # noqa: BLE001
@@ -162,15 +130,8 @@ class Neo4jRetrievalService:
                     if not nf_q:
                         continue
                     nf_vec = self._embed(oai, [nf_q])
-                    scoped_q2 = (
-                        "WITH $qvec AS qvec, $cids AS cids "
-                        "MATCH (c:Community) WHERE id(c) IN cids "
-                        "MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:Chunk) "
-                        "WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes($chunkIndex, 200, qvec) YIELD node AS cand, score "
-                        "WHERE cand = ch RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30"
-                    )
-                    rows2 = list(session.run(scoped_q2, qvec=nf_vec, cids=cids, chunkIndex=chunk_index))
-                    extra_chunks = [int(r.get("cid")) for r in rows2 if r.get("cid") is not None]
+                    repo = Neo4jRepository(session)
+                    extra_chunks = repo.scoped_chunk_ids(cids, chunk_index, nf_vec)
                     if extra_chunks:
                         citations = local_json.setdefault("citations", [])
                         for ec in extra_chunks[:3]:
@@ -178,5 +139,3 @@ class Neo4jRetrievalService:
 
             results.append(local_json)
         return results
-
-
