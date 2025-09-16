@@ -21,7 +21,7 @@ class FakeNeo4jSession:
             return [{"cid": 1, "chunk_ids": [10, 11, 12]}, {"cid": 2, "chunk_ids": [20, 21, 22]}]
         if "RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30" in query:
             return [{"cid": 10}, {"cid": 11}, {"cid": 12}]
-        if "OPTIONAL MATCH (n)-[:IN_CHUNK]->(ch) RETURN cid, count(n) AS ncnt" in query:
+        if "OPTIONAL MATCH (n)-[:FROM_CHUNK]->(ch) RETURN cid, count(n) AS ncnt" in query:
             return [{"cid": 10, "ncnt": 1}]
         if "MATCH (c:Community) WHERE id(c) IN $ids RETURN id(c) AS id, c.summary AS summary" in query:
             return [{"id": 1, "summary": "community 1"}, {"id": 2, "summary": "community 2"}]

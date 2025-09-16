@@ -19,7 +19,7 @@ class Neo4jRepository:
     def sample_chunks_for_communities(self, community_ids: List[int], chunk_index: str, qvec: List[float]) -> Dict[int, List[int]]:
         query = (
             "MATCH (c:__Community__) WHERE id(c) IN $communityIds "
-            "CALL { WITH c MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:__Chunk__) "
+            "CALL { WITH c MATCH (c)<-[:IN_COMMUNITY]-(:__Entity__)-[:FROM_CHUNK]->(ch:__Chunk__) "
             "WITH ch CALL db.index.vector.queryNodes($chunkIndex, 50, $qvec) YIELD node AS cand, score "
             "WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } "
             "RETURN id(c) AS cid, collect(id(chunk)) AS chunk_ids"
@@ -47,11 +47,25 @@ class Neo4jRepository:
                 continue
         return out
 
+    def fetch_communities_brief(self, ids: List[int]) -> List[Dict[str, Any]]:
+        rows = list(self._session.run(
+            "MATCH (c:__Community__) WHERE id(c) IN $ids RETURN id(c) AS id, c.summary AS summary, c.name AS name",
+            ids=ids,
+        ))
+        result: List[Dict[str, Any]] = []
+        for r in rows:
+            result.append({
+                "id": int(r.get("id")) if r.get("id") is not None else None,
+                "name": r.get("name") or "",
+                "summary": r.get("summary") or "",
+            })
+        return result
+
     def scoped_chunk_ids(self, cids: List[int], chunk_index: str, qvec: List[float]) -> List[int]:
         scoped_q = (
             "WITH $qvec AS qvec, $cids AS cids "
             "MATCH (c:__Community__) WHERE id(c) IN cids "
-            "MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:__Chunk__) "
+            "MATCH (c)<-[:IN_COMMUNITY]-(:__Entity__)-[:FROM_CHUNK]->(ch:__Chunk__) "
             "WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes($chunkIndex, 200, qvec) YIELD node AS cand, score "
             "WHERE cand = ch RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30"
         )
@@ -62,8 +76,7 @@ class Neo4jRepository:
         query = (
             "UNWIND $chunkIds AS cid "
             "MATCH (ch:__Chunk__) WHERE id(ch) = cid "
-            "OPTIONAL MATCH (e)-[:IN_CHUNK]->(ch) "
-            "WHERE e:__Entity__ OR e:Entity "
+            "OPTIONAL MATCH (e:__Entity__)-[:FROM_CHUNK]->(ch) "
             "WITH ch, cid, e "
             "WITH cid, ch, collect({ _id: id(e), properties: { "
             "name: e.name, description: e.description, type: coalesce(e.type, e.category, ''), "

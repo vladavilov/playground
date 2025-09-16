@@ -31,7 +31,7 @@ class FakeNeo4jSession:
         if "RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30" in query:
             return [{"cid": 10}, {"cid": 11}, {"cid": 12}]
         # Neighborhood expansion
-        if "OPTIONAL MATCH (n)-[:IN_CHUNK]->(ch) RETURN cid, count(n) AS ncnt" in query:
+        if "OPTIONAL MATCH (n)-[:FROM_CHUNK]->(ch) RETURN cid, count(n) AS ncnt" in query:
             return [{"cid": 10, "ncnt": 1}]
         return []
 

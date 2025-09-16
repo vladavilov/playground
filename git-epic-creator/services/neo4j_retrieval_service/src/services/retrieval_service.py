@@ -87,10 +87,13 @@ class Neo4jRetrievalService:
 
         summaries: Dict[int, str] = repo.fetch_community_summaries(communities) if communities else {}
 
-        community_details = [{"id": cid, "summary": summaries.get(cid, "")} for cid in communities]
+        community_brief = Neo4jRepository(session).fetch_communities_brief(communities) if communities else []
+        # Fallback to id+summary if name missing
+        if not community_brief and communities:
+            community_brief = [{"id": cid, "name": "", "summary": summaries.get(cid, "")} for cid in communities]
         sample_chunks = [{"community_id": cid, "chunk_ids": ids} for cid, ids in sampled.items()]
 
-        primer_text = self._chat_completion(oai, primer_messages(question, community_details, sample_chunks))
+        primer_text = self._chat_completion(oai, primer_messages(question, community_brief, sample_chunks))
         try:
             primer_json = json.loads(primer_text)
         except Exception as exc:  # noqa: BLE001
@@ -118,7 +121,10 @@ class Neo4jRetrievalService:
             if chunks:
                 chunks = Neo4jRepository(session).expand_neighborhood_minimal(chunks)
 
-            local_text = self._chat_completion(oai, local_executor_messages(qtext, cids, chunks))
+            # Replace target_communities ids with brief community objects for the LLM
+            target_communities_brief = Neo4jRepository(session).fetch_communities_brief(cids) if cids else []
+
+            local_text = self._chat_completion(oai, local_executor_messages(qtext, target_communities_brief, chunks))
             try:
                 local_json = json.loads(local_text)
             except Exception as exc:  # noqa: BLE001

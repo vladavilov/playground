@@ -10,10 +10,10 @@ adapts Microsoft's DRIFT method to your schema and Python environment.
 
 Your graph:
 
-    (:Chunk)<-[:IN_CHUNK]-(:Node)
-    (:Community {level:0})<-[:IN_COMMUNITY]-(:Node)
-    (:Community {level:1})<-[:IN_COMMUNITY]-(:Community {level:0})
-    (:Community {level:N})<-[:IN_COMMUNITY]-(:Community {level:N-1})
+    (:__Chunk__)<-[:FROM_CHUNK]-(:Node)
+    (:__Community__ {level:0})<-[:IN_COMMUNITY]-(:Node)
+    (:__Community__ {level:1})<-[:IN_COMMUNITY]-(:__Community__ {level:0})
+    (:__Community__ {level:N})<-[:IN_COMMUNITY]-(:__Community__ {level:N-1})
 
 -   Communities have `summary` (text) describing contained nodes or
     subcommunities.
@@ -22,13 +22,13 @@ Your graph:
 
 ### Properties
 
--   `:Chunk.embedding :: List[Float]` (already present)
--   `:Community.summary_embedding :: List[Float]`
+-   `:__Chunk__.embedding :: List[Float]` (already present)
+-   `:__Community__.summary_embedding :: List[Float]`
 
 ### Indexes (Neo4j 5+)
 
 The vector index for communities should be created **once**:
-cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:Community) ON (c.summary_embedding) OPTIONS {indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'COSINE' }};
+cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:__Community__) ON (c.summary_embedding) OPTIONS {indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'COSINE' }};
 > **Note:** Community embeddings should be computed once from each
 > community's `summary` (using the same embedding model as for chunks)
 > and stored in `c.summary_embedding`.
@@ -83,7 +83,7 @@ improved coverage.
 ### Community Retrieval
 cypher CALL db.index.vector.queryNodes('graphrag_comm_index', $k, $qvec) YIELD node, score RETURN node, score ORDER BY score DESC;
 ### Sample Chunks per Community
-cypher MATCH (c:Community) WHERE id(c) IN $communityIds CALL { WITH c, $qvec AS qvec MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:Chunk) WITH ch, qvec CALL db.index.vector.queryNodes('chunk_idx', 50, qvec) YIELD node AS cand, score WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } RETURN c, collect({chunk: chunk, score: score}) AS top_chunks;
+cypher MATCH (c:__Community__) WHERE id(c) IN $communityIds CALL { WITH c, $qvec AS qvec MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:FROM_CHUNK]->(ch:__Chunk__) WITH ch, qvec CALL db.index.vector.queryNodes('chunk_idx', 50, qvec) YIELD node AS cand, score WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } RETURN c, collect({chunk: chunk, score: score}) AS top_chunks;
 ### Primer Prompt
 
     You are DRIFT-Search Primer.
@@ -106,13 +106,13 @@ cypher MATCH (c:Community) WHERE id(c) IN $communityIds CALL { WITH c, $qvec AS 
 Scoped retrieval means we only search within the **chunks belonging to
 specific target communities** (instead of the entire graph), which
 improves efficiency and precision.
-cypher WITH $qvec AS qvec, $cids AS cids MATCH (c:Community) WHERE id(c) IN cids MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:IN_CHUNK]->(ch:Chunk) WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes('chunk_idx', 200, qvec) YIELD node AS cand, score WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 30;
+cypher WITH $qvec AS qvec, $cids AS cids MATCH (c:__Community__) WHERE id(c) IN cids MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:FROM_CHUNK]->(ch:__Chunk__) WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes('chunk_idx', 200, qvec) YIELD node AS cand, score WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 30;
 ### Neighborhood Expansion
 
 For each selected chunk, fetch its **nearest neighbors** (1-hop nodes,
 relations, and chunks). This ensures local context is added without
 exploding the search space.
-cypher UNWIND $chunkIds AS cid MATCH (ch:Chunk) WHERE id(ch)=cid OPTIONAL MATCH (n)-[:IN_CHUNK]->(ch) OPTIONAL MATCH (n)-[r]->(m)-[:IN_CHUNK]->(ch2) RETURN cid, ch.text AS chunk_text, collect(DISTINCT {id:id(n), label:labels(n)}) AS nodes1, collect(DISTINCT {id:id(m), label:labels(m)}) AS nodes2, collect(DISTINCT {type:type(r)}) AS rels, collect(DISTINCT id(ch2)) AS neighbor_chunk_ids;
+cypher UNWIND $chunkIds AS cid MATCH (ch:__Chunk__) WHERE id(ch)=cid OPTIONAL MATCH (n)-[:FROM_CHUNK]->(ch) OPTIONAL MATCH (n)-[r]->(m)-[:FROM_CHUNK]->(ch2) RETURN cid, ch.text AS chunk_text, collect(DISTINCT {id:id(n), label:labels(n)}) AS nodes1, collect(DISTINCT {id:id(m), label:labels(m)}) AS nodes2, collect(DISTINCT {type:type(r)}) AS rels, collect(DISTINCT id(ch2)) AS neighbor_chunk_ids;
 ### Follow-up Prompt
 
     You are DRIFT-Search Local Executor.
