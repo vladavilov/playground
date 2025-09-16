@@ -142,3 +142,5 @@ id_rsa.pub
 
 # Lock files
 *.lock 
+
+e2e_tests/test-results/*
