@@ -30,10 +30,10 @@ REQUIRED_INDEXES = (
 def cyphers_path() -> Path:
     # Try multiple locations to support both repo and container layouts
     candidates = [
-        Path(__file__).parent / ".." / "test_drift_search" / "infra" / "cyphers.txt",
-        Path("/e2e-tests/test_drift_search/infra/cyphers.txt"),
-        Path("/e2e-tests") / "test_drift_search" / "infra" / "cyphers.txt",
-        Path.cwd() / "test_drift_search" / "infra" / "cyphers.txt",
+        Path(__file__).parent / ".." / "resources" / "drift_search_cyphers.txt",
+        Path("/e2e-tests/resources/drift_search_cyphers.txt"),
+        Path("/e2e-tests") / "resources" / "drift_search_cyphers.txt",
+        Path.cwd() / "resources" / "drift_search_cyphers.txt",
     ]
     for p in candidates:
         p = p.resolve()
@@ -70,7 +70,8 @@ def cleanup_session(driver, target_db_name):
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_after_session(driver, target_db_name):
     yield
-    cleanup_session(driver, target_db_name)
+    # cleanup_session(driver, target_db_name)
+    pass
 
 
 
