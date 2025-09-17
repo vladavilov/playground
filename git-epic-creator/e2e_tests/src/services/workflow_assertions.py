@@ -325,6 +325,54 @@ class WorkflowAssertions:
         return seen
 
     # ----- Assertions -----
+    def expected_ui_sequence(self) -> list:
+        """Standard expected UI status/progress messages for a full run."""
+        return [
+            TestConstants.PROJECT_STATUS_PROCESSING,
+            TestConstants.PROJECT_STATUS_ACTIVE,
+            TestConstants.PROJECT_STATUS_RAG_PROCESSING,
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline started"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Load input documents (1/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Load input documents"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create base text units (2/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units — 100%"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create base text units"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final documents (3/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final documents"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract graph (4/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Extract graph — 100%"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract graph"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Finalize graph (5/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Finalize graph"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract covariates (6/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract covariates"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create communities (7/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create communities"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final text units (8/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final text units"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create community reports (9/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create community reports — 100%"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create community reports"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Generate text embeddings (10/10)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Generate text embeddings — 100%"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Generate text embeddings"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline finished"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-community-full_content"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-community-full_content (1/3)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-entity-description"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-entity-description (2/3)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-text_unit-text"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-text_unit-text (3/3)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Community__.full_content"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Entity__.description"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Chunk__.text"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_entity_relationship_ids"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_entity_relationship_ids (1/2)"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_community_membership"),
+            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_community_membership (2/2)"),
+            TestConstants.PROJECT_STATUS_RAG_READY,
+        ]
     def verify_upload_response(self, project_id: str, upload_result: Dict[str, Any], fixtures: WorkflowTestFixtures) -> None:
         assert upload_result["project_id"] == project_id
         assert upload_result["total_files"] == 1
