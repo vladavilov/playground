@@ -138,7 +138,7 @@ class TestDocumentWorkflow:
             # Upload multiple documents
             upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], project_id)
             upload_response = HTTPUtils.make_request_with_retry(
-                "POST", upload_url, files=dict(files), headers=auth_headers, timeout=60
+                "POST", upload_url, files=files, headers=auth_headers, timeout=60
             )
 
             assert upload_response.status_code == TestConstants.HTTP_OK, (
