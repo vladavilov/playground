@@ -206,8 +206,8 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
             primer_json = {
                 "initial_answer": "Bridges consist of deck, supports, and load-bearing structures.",
                 "followups": [
-                    {"question": "Clarify deck materials and structural role.", "target_communities": [1]},
-                    {"question": "Explain arch mechanics in load distribution.", "target_communities": [2]},
+                    {"question": "Clarify deck materials and structural role."},
+                    {"question": "Explain arch mechanics in load distribution."},
                 ],
                 "rationale": "Primer synthesized from community summaries and sampled chunks.",
             }
@@ -226,7 +226,8 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
 
         if "you are drift-search local executor" in lower_all:
             # Branch 1: Clarify deck materials and structural role -> answer + 1 new follow-up, should_continue = true
-            if "clarify deck materials and structural role" in lower_all:
+            if "clarify deck materials and structural role" in lower_all \
+                and "[{\\\"id\\\": 265, \\\"summary\\\": \\\"Cantilever: projec" in lower_all:
                 local_json = {
                     "answer": (
                         "Bridge decks are commonly built from reinforced concrete, steel orthotropic panels, or composite systems. "
@@ -238,8 +239,7 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
                     ],
                     "new_followups": [
                         {
-                            "question": "List common deck materials and how they influence load distribution.",
-                            "target_communities": [1],
+                            "question": "List common deck materials and how they influence load distribution."
                         }
                     ],
                     "confidence": 0.9,
@@ -287,7 +287,8 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
                 }
 
             # Branch 3: Explain arch mechanics in load distribution; should_continue = false
-            if "explain arch mechanics in load distribution" in lower_all:
+            if "explain arch mechanics in load distribution" in lower_all \
+            and "Target communities: [{\\\"id\\\": 2, \\\"name\\\": \\\"\\\", \\\"summary\\\": \\\"Romans & aqueducts: Romans built bridge-like aqueducts and widely used cement.\\\"}]\\nScoped chunk contexts: [{\\\"chunk_id\\\": 130, \\\"text\\\": \\\"1. Introduction: " in lower_all:
                 local_json = {
                     "answer": (
                         "Arches carry deck loads primarily in compression, transferring forces as thrust to abutments. "
