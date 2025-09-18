@@ -60,15 +60,15 @@ class Neo4jRepository:
             })
         return result
 
-    def scoped_chunk_ids(self, cids: List[int], chunk_index: str, qvec: List[float]) -> List[int]:
+    def scoped_chunk_ids(self, cids: List[int], chunk_index: str, qvec: List[float], limit: int) -> List[int]:
         scoped_q = (
             "WITH $qvec AS qvec, $cids AS cids "
             "MATCH (c:__Community__) WHERE id(c) IN cids "
-            "MATCH (c)<-[:IN_COMMUNITY]-(:__Entity__)-[:FROM_CHUNK]->(ch:__Chunk__) "
+            "MATCH (c)<-[:IN_COMMUNITY]-(ch:__Chunk__) "
             "WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes($chunkIndex, 200, qvec) YIELD node AS cand, score "
-            "WHERE cand = ch RETURN id(ch) AS cid ORDER BY score DESC LIMIT 2"
+            "WHERE cand = ch RETURN id(ch) AS cid ORDER BY score DESC LIMIT $limit"
         )
-        rows = list(self._session.run(scoped_q, qvec=qvec, cids=cids, chunkIndex=chunk_index))
+        rows = list(self._session.run(scoped_q, qvec=qvec, cids=cids, chunkIndex=chunk_index, limit=int(limit or 1)))
         return [int(r.get("cid")) for r in rows if r.get("cid") is not None]
 
     def expand_neighborhood_minimal(self, chunk_ids: List[int]) -> List[Dict[str, Any]]:
