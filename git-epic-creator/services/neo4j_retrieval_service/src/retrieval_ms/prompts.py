@@ -41,11 +41,11 @@ def local_executor_messages(qtext: str, target_communities: List[Dict[str, Any]]
         "Input: follow-up question + retrieved chunks + graph neighborhoods.\n"
         "Tasks:\n"
         "- Answer follow-up using ONLY provided context.\n"
-        "- Cite chunk IDs where evidence comes from.\n"
+        "- Cite chunk spans where evidence comes from.\n"
         "- Propose 0–3 additional follow-ups (if needed).\n"
         "- Assign confidence [0..1] and whether to continue.\n"
         "Return JSON:\n"
-        "{ answer, citations:[{chunk_id, span}], new_followups:[...], confidence, should_continue }\n\n"
+        "{ answer, citations:[{span}], new_followups:[...], confidence, should_continue }\n\n"
         f"Follow-up: {qtext}\nTarget communities: {json.dumps(target_communities)}\nScoped chunk contexts: {json.dumps(chunks_preview)}"
     )
     return [
