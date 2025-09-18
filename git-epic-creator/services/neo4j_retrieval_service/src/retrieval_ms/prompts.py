@@ -25,8 +25,8 @@ def primer_messages(question: str, community_details: List[Dict], sample_chunks:
         "Input: user question + community summaries + sample chunks.\n"
         "Tasks:\n"
         "- Draft initial answer (note uncertainty if needed).\n"
-        "- Generate 2–6 follow-up questions with target communities.\n"
-        "Return JSON: { initial_answer, followups:[{question, target_communities:[...] }], rationale }\n\n"
+        "- Generate 2–6 follow-up questions.\n"
+        "Return JSON: { initial_answer, followups:[{question}], rationale }\n\n"
         f"User question: {question}\n, community details: {json.dumps(community_details)}\n, sample chunks: {json.dumps(sample_chunks)}"
     )
     return [
@@ -61,7 +61,7 @@ def aggregator_messages(question: str, tree: Dict) -> List[Dict[str, str]]:
         f"Q/A tree (primer + follow-ups): {json.dumps(tree)}\n"
         "Tasks:\n"
         "1. Produce final concise answer.\n"
-        "2. List key facts with citations (chunk IDs).\n"
+        "2. List key facts with citations.\n"
         "3. Note any residual uncertainty.\n"
         "Return JSON:\n"
         "{ final_answer, key_facts:[{fact, citations:[...] }], residual_uncertainty }"
