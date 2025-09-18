@@ -206,8 +206,8 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
             primer_json = {
                 "initial_answer": "Bridges consist of deck, supports, and load-bearing structures.",
                 "followups": [
-                    {"question": "Clarify deck materials and structural role.", "target_communities": [1]},
-                    {"question": "Explain arch mechanics in load distribution.", "target_communities": [2]},
+                    {"question": "Clarify deck materials and structural role."},
+                    {"question": "Explain arch mechanics in load distribution."},
                 ],
                 "rationale": "Primer synthesized from community summaries and sampled chunks.",
             }
@@ -226,20 +226,21 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
 
         if "you are drift-search local executor" in lower_all:
             # Branch 1: Clarify deck materials and structural role -> answer + 1 new follow-up, should_continue = true
-            if "clarify deck materials and structural role" in lower_all:
+            if "clarify deck materials and structural role" in lower_all \
+                and "target communities: [{" in lower_all \
+                and "scoped chunk contexts: [{" in lower_all:
                 local_json = {
                     "answer": (
                         "Bridge decks are commonly built from reinforced concrete, steel orthotropic panels, or composite systems. "
                         "The deck distributes vehicular loads to primary load-bearing elements (girders, arches, or cables) and provides a riding surface."
                     ),
                     "citations": [
-                        {"chunk_id": 0, "span": "deck materials overview"},
-                        {"chunk_id": 1, "span": "load path from deck to supports"},
+                        {"span": "deck materials overview"},
+                        {"span": "load path from deck to supports"},
                     ],
                     "new_followups": [
                         {
-                            "question": "List common deck materials and how they influence load distribution.",
-                            "target_communities": [1],
+                            "question": "List common deck materials and how they influence load distribution."
                         }
                     ],
                     "confidence": 0.9,
@@ -259,15 +260,17 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
                 }
 
             # Branch 2: Answer the generated follow-up; should_continue = false
-            if "list common deck materials and how they influence load distribution" in lower_all:
+            if "list common deck materials and how they influence load distribution" in lower_all \
+                and "target communities: [{" in lower_all \
+                and "scoped chunk contexts: [{" in lower_all:
                 local_json = {
                     "answer": (
                         "Reinforced concrete decks spread loads through slab action to supporting girders; steel orthotropic decks channel loads via stiffened plates; "
                         "composite steel–concrete decks combine slab and girder action, improving stiffness and distributing loads more evenly."
                     ),
                     "citations": [
-                        {"chunk_id": 2, "span": "concrete slab load distribution"},
-                        {"chunk_id": 3, "span": "orthotropic deck behavior"},
+                        {"span": "concrete slab load distribution"},
+                        {"span": "orthotropic deck behavior"},
                     ],
                     "new_followups": [],
                     "confidence": 0.92,
@@ -287,15 +290,17 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
                 }
 
             # Branch 3: Explain arch mechanics in load distribution; should_continue = false
-            if "explain arch mechanics in load distribution" in lower_all:
+            if "explain arch mechanics in load distribution" in lower_all \
+                and "target communities: [{" in lower_all \
+                and "scoped chunk contexts: [{" in lower_all:
                 local_json = {
                     "answer": (
                         "Arches carry deck loads primarily in compression, transferring forces as thrust to abutments. "
                         "Load paths curve along the arch rib, minimizing bending and channeling forces into supports."
                     ),
                     "citations": [
-                        {"chunk_id": 4, "span": "arch compression and thrust"},
-                        {"chunk_id": 5, "span": "load path along arch rib"},
+                        {"span": "arch compression and thrust"},
+                        {"span": "load path along arch rib"},
                     ],
                     "new_followups": [],
                     "confidence": 0.9,
@@ -316,8 +321,8 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
 
             # Default Local Executor behavior
             local_json = {
-                "answer": "The deck carries traffic; arches transfer loads to supports.",
-                "citations": [{"chunk_id": 0, "span": "deck overview"}, {"chunk_id": 1, "span": "arch mechanics"}],
+                "answer": "ERROR FETCHING LOCAL EXECUTOR",
+                "citations": [{"span": "deck overview"}, {"span": "arch mechanics"}],
                 "new_followups": [],
                 "confidence": 0.9,
                 "should_continue": False,

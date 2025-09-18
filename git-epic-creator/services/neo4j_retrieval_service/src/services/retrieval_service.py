@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, List
 import json
+import logging
 
 import httpx
 from fastapi import HTTPException
@@ -12,6 +13,8 @@ from ..retrieval_ms.repositories.neo4j_repository import Neo4jRepository
 GetSessionFn = Callable[[], Any]
 GetOaiFn = Callable[[], httpx.Client]
 
+logger = logging.getLogger(__name__)
+
 
 class Neo4jRetrievalService:
     def __init__(self, get_session: GetSessionFn, get_oai: GetOaiFn) -> None:
@@ -21,12 +24,20 @@ class Neo4jRetrievalService:
     async def retrieve(self, question: str, top_k: int) -> Dict[str, Any]:
         if not isinstance(question, str) or not question.strip():
             raise HTTPException(status_code=400, detail="query must be a non-empty string")
-        k = max(1, int(top_k or 1))
+        k = max(5, int(top_k or 1))
 
         with self._get_session() as session:
             with self._get_oai() as oai:
                 primer = self._run_primer(oai, session, question, k)
-                followups = self._run_followups(oai, session, primer["primer"].get("followups", []))
+                logger.info("retrieve primer done: primer=%r", primer)
+                followups = self._run_followups(
+                    oai,
+                    session,
+                    primer["primer"].get("followups", []),
+                    primer.get("communities", []),
+                    k,
+                )
+                logger.info("retrieve followups done: followups=%r", followups)
                 tree = {"question": question, "primer": primer.get("primer"), "followups": followups}
                 agg_text = self._chat_completion(oai, aggregator_messages(question, tree))
                 try:
@@ -37,6 +48,7 @@ class Neo4jRetrievalService:
     # ------------------ LLM helpers ------------------
     def _chat_completion(self, oai: httpx.Client, messages: List[Dict[str, str]]) -> str:
         settings = get_retrieval_settings()
+        logger.info("LLM chat_completion start: model=%s, messages=%r", settings.OAI_MODEL, messages)
         resp = oai.post("/chat/completions", json={
             "model": settings.OAI_MODEL,
             "messages": messages,
@@ -45,7 +57,10 @@ class Neo4jRetrievalService:
         })
         data = resp.json()
         try:
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            usage = data.get("usage") or {}
+            logger.info("LLM chat_completion done: content=%r, usage=%r", content, usage)
+            return content
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"Invalid LLM response: {exc}")
 
@@ -56,7 +71,8 @@ class Neo4jRetrievalService:
             resp = oai.post("/embeddings", json={"model": model, "input": texts})
             data = resp.json()
             vec = data["data"][0]["embedding"]
-            return [float(x) for x in vec]
+            result = [float(x) for x in vec]
+            return result
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"Invalid Embeddings response: {exc}")
 
@@ -72,7 +88,9 @@ class Neo4jRetrievalService:
         settings = get_retrieval_settings()
         communities: List[int] = []
         if settings.GRAPHRAG_COMM_INDEX in names:
+            logger.info("Repo.vector_query_nodes start: index=%s, k=%d, qvec=%r", settings.GRAPHRAG_COMM_INDEX, k, len(qvec))
             rows = repo.vector_query_nodes(settings.GRAPHRAG_COMM_INDEX, k, qvec)
+            logger.info("Repo.vector_query_nodes done: rows=%r", len(rows))
             for r in rows:
                 node = r.get("node")
                 if node is not None:
@@ -83,14 +101,26 @@ class Neo4jRetrievalService:
         sampled: Dict[int, List[int]] = {}
         chunk_index = settings.GRAPHRAG_CHUNK_INDEX
         if communities and chunk_index:
+            logger.info("Repo.sample_chunks_for_communities start: communities=%r, index=%s, qvec=%r", communities, chunk_index, len(qvec))
             sampled = repo.sample_chunks_for_communities(communities, chunk_index, qvec)
+            logger.info("Repo.sample_chunks_for_communities done: sampled=%r", sampled)
 
-        summaries: Dict[int, str] = repo.fetch_community_summaries(communities) if communities else {}
+        if communities:
+            logger.info("Repo.fetch_community_summaries start: communities=%r", communities)
+            summaries: Dict[int, str] = repo.fetch_community_summaries(communities)
+            logger.info("Repo.fetch_community_summaries done: summaries=%r", summaries)
+        else:
+            summaries = {}
 
-        community_brief = Neo4jRepository(session).fetch_communities_brief(communities) if communities else []
+        if communities:
+            logger.info("Repo.fetch_communities_brief start: communities=%r", communities)
+            community_brief = Neo4jRepository(session).fetch_communities_brief(communities)
+            logger.info("Repo.fetch_communities_brief done: community_brief=%r", community_brief)
+        else:
+            community_brief = []
         # Fallback to id+summary if name missing
         if not community_brief and communities:
-            community_brief = [{"id": cid, "name": "", "summary": summaries.get(cid, "")} for cid in communities]
+            community_brief = [{"id": cid, "summary": summaries.get(cid, "")} for cid in communities]
         sample_chunks = [{"community_id": cid, "chunk_ids": ids} for cid, ids in sampled.items()]
 
         primer_text = self._chat_completion(oai, primer_messages(question, community_brief, sample_chunks))
@@ -100,13 +130,14 @@ class Neo4jRetrievalService:
             raise HTTPException(status_code=502, detail=f"Primer JSON parse failed: {exc}")
         return {"communities": communities, "sampled": sampled, "primer": primer_json}
 
-    def _run_followups(self, oai: httpx.Client, session: Any, followups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _run_followups(self, oai: httpx.Client, session: Any, followups: List[Dict[str, Any]], communities: List[int], k: int) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
         settings = get_retrieval_settings()
         chunk_index = settings.GRAPHRAG_CHUNK_INDEX
 
-        for f in followups[:2]:
-            cids = f.get("target_communities") or []
+        for f in followups:
+            # Ignore any target_communities on the followup; use primer communities instead
+            cids = communities or []
             qtext = str(f.get("question", ""))
             if not qtext:
                 continue
@@ -115,14 +146,23 @@ class Neo4jRetrievalService:
             chunks: List[int] = []
             if chunk_index and cids:
                 repo = Neo4jRepository(session)
-                rows = repo.scoped_chunk_ids(cids, chunk_index, qvec)
+                logger.info("Repo.scoped_chunk_ids start: cids=%r, index=%s, qvec=%r", cids, chunk_index, len(qvec))
+                rows = repo.scoped_chunk_ids(cids, chunk_index, qvec, k)
+                logger.info("Repo.scoped_chunk_ids done: rows=%r", rows)
                 chunks = [int(x) for x in rows]
             
             if chunks:
+                logger.info("Repo.expand_neighborhood_minimal start: seeds=%r", chunks)
                 chunks = Neo4jRepository(session).expand_neighborhood_minimal(chunks)
+                logger.info("Repo.expand_neighborhood_minimal done: chunks=%r", chunks)
 
             # Replace target_communities ids with brief community objects for the LLM
-            target_communities_brief = Neo4jRepository(session).fetch_communities_brief(cids) if cids else []
+            if cids:
+                logger.info("Repo.fetch_communities_brief start: cids=%r", cids)
+                target_communities_brief = Neo4jRepository(session).fetch_communities_brief(cids)
+                logger.info("Repo.fetch_communities_brief done: target_communities_brief=%r", target_communities_brief)
+            else:
+                target_communities_brief = []
 
             local_text = self._chat_completion(oai, local_executor_messages(qtext, target_communities_brief, chunks))
             try:
@@ -137,11 +177,18 @@ class Neo4jRetrievalService:
                         continue
                     nf_vec = self._embed(oai, [nf_q])
                     repo = Neo4jRepository(session)
-                    extra_chunks = repo.scoped_chunk_ids(cids, chunk_index, nf_vec)
+                    logger.info("Repo.scoped_chunk_ids start (nf): cids=%r, index=%s, qvec=%r", cids, chunk_index, len(nf_vec))
+                    extra_chunks = repo.scoped_chunk_ids(cids, chunk_index, nf_vec, k)
+                    logger.info("Repo.scoped_chunk_ids done (nf): rows=%r", extra_chunks)
                     if extra_chunks:
-                        citations = local_json.setdefault("citations", [])
-                        for ec in extra_chunks[:3]:
-                            citations.append({"chunk_id": ec, "span": "auto-continued"})
+                        logger.info("Repo.expand_neighborhood_minimal start (nf): seeds=%r", extra_chunks)
+                        expanded = Neo4jRepository(session).expand_neighborhood_minimal(extra_chunks)
+                        logger.info("Repo.expand_neighborhood_minimal done (nf): expanded=%r", expanded)
+                        nf["answer_context"] = expanded
+
+            # remove target_communities from final JSON
+            if isinstance(local_json, dict) and "target_communities" in local_json:
+                local_json.pop("target_communities", None)
 
             results.append(local_json)
         return results
