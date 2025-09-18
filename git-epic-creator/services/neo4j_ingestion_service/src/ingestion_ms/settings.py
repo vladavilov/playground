@@ -1,5 +1,6 @@
-import os
 from typing import Dict, Any
+from configuration.graphrag_config import get_graphrag_settings
+from configuration.llm_config import get_llm_config
 
 
 def configure_settings_for_json() -> Dict[str, Any]:
@@ -10,19 +11,19 @@ def configure_settings_for_json() -> Dict[str, Any]:
     """
     settings: Dict[str, Any] = {}
 
-    # Models configuration
+    gr = get_graphrag_settings()
+    llm = get_llm_config()
     models = settings.get("models", {})
     chat_model_id = "default_chat_model"
     embedding_model_id = "default_embedding_model"
 
-    # Always configure Azure OpenAI via OAI_* envs
-    azure_base = os.getenv("OAI_BASE_URL", "")
-    azure_api_version = os.getenv("OAI_API_VERSION", "2024-02-15-preview")
-    chat_model_name = os.getenv("OAI_MODEL", "gpt-4o")
-    embed_model_name = os.getenv("OAI_EMBED_MODEL", "text-embedding-3-small")
-    azure_chat_deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", chat_model_name)
-    azure_embed_deployment = os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT", embed_model_name)
-    api_key_value = os.getenv("OAI_KEY", "")
+    azure_base = llm.OAI_BASE_URL
+    azure_api_version = llm.OAI_API_VERSION
+    chat_model_name = llm.OAI_MODEL
+    embed_model_name = llm.OAI_EMBED_MODEL
+    azure_chat_deployment = chat_model_name
+    azure_embed_deployment = embed_model_name
+    api_key_value = llm.OAI_KEY
 
     chat_cfg = {
         "type": "azure_openai_chat",
@@ -33,7 +34,7 @@ def configure_settings_for_json() -> Dict[str, Any]:
         "auth_type": "api_key",
         "api_key": api_key_value,
         "model_supports_json": True,
-        "async_mode": "threaded",
+        "async_mode": gr.GRAPHRAG_ASYNC_MODE,
     }
     embed_cfg = {
         "type": "azure_openai_embedding",
@@ -43,8 +44,19 @@ def configure_settings_for_json() -> Dict[str, Any]:
         "deployment_name": azure_embed_deployment,
         "auth_type": "api_key",
         "api_key": api_key_value,
-        "async_mode": "threaded", 
+        "async_mode": gr.GRAPHRAG_ASYNC_MODE, 
     }
+    chat_cfg["parallelization_num_threads"] = gr.GRAPHRAG_LLM_THREAD_COUNT
+    chat_cfg["parallelization_stagger"] = gr.GRAPHRAG_LLM_THREAD_STAGGER
+    chat_cfg["concurrent_requests"] = gr.GRAPHRAG_LLM_CONCURRENT_REQUESTS
+    chat_cfg["tokens_per_minute"] = gr.GRAPHRAG_LLM_TOKENS_PER_MINUTE
+    chat_cfg["requests_per_minute"] = gr.GRAPHRAG_LLM_REQUESTS_PER_MINUTE
+
+    embed_cfg["parallelization_num_threads"] = gr.GRAPHRAG_EMBEDDING_THREAD_COUNT
+    embed_cfg["parallelization_stagger"] = gr.GRAPHRAG_EMBEDDING_THREAD_STAGGER
+    embed_cfg["concurrent_requests"] = gr.GRAPHRAG_EMBEDDING_CONCURRENT_REQUESTS
+    embed_cfg["tokens_per_minute"] = gr.GRAPHRAG_EMBEDDING_TOKENS_PER_MINUTE
+    embed_cfg["requests_per_minute"] = gr.GRAPHRAG_EMBEDDING_REQUESTS_PER_MINUTE
     models[chat_model_id] = chat_cfg
     models[embedding_model_id] = embed_cfg
 
@@ -87,6 +99,12 @@ def configure_settings_for_json() -> Dict[str, Any]:
             "container_name": "default",
             "overwrite": True,
         }
+    }
+
+    # Explicitly configure extract_graph to keep gleanings minimal and predictable
+    settings["extract_graph"] = {
+        "model_id": chat_model_id,
+        "max_gleanings": gr.GRAPHRAG_EXTRACT_MAX_GLEANINGS,
     }
 
     return settings
