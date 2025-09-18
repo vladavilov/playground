@@ -35,6 +35,7 @@ class Neo4jRetrievalService:
                     session,
                     primer["primer"].get("followups", []),
                     primer.get("communities", []),
+                    k,
                 )
                 logger.info("retrieve followups done: followups=%r", followups)
                 tree = {"question": question, "primer": primer.get("primer"), "followups": followups}
@@ -129,7 +130,7 @@ class Neo4jRetrievalService:
             raise HTTPException(status_code=502, detail=f"Primer JSON parse failed: {exc}")
         return {"communities": communities, "sampled": sampled, "primer": primer_json}
 
-    def _run_followups(self, oai: httpx.Client, session: Any, followups: List[Dict[str, Any]], communities: List[int]) -> List[Dict[str, Any]]:
+    def _run_followups(self, oai: httpx.Client, session: Any, followups: List[Dict[str, Any]], communities: List[int], k: int) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
         settings = get_retrieval_settings()
         chunk_index = settings.GRAPHRAG_CHUNK_INDEX
@@ -146,7 +147,7 @@ class Neo4jRetrievalService:
             if chunk_index and cids:
                 repo = Neo4jRepository(session)
                 logger.info("Repo.scoped_chunk_ids start: cids=%r, index=%s, qvec=%r", cids, chunk_index, len(qvec))
-                rows = repo.scoped_chunk_ids(cids, chunk_index, qvec)
+                rows = repo.scoped_chunk_ids(cids, chunk_index, qvec, k)
                 logger.info("Repo.scoped_chunk_ids done: rows=%r", rows)
                 chunks = [int(x) for x in rows]
             
@@ -177,7 +178,7 @@ class Neo4jRetrievalService:
                     nf_vec = self._embed(oai, [nf_q])
                     repo = Neo4jRepository(session)
                     logger.info("Repo.scoped_chunk_ids start (nf): cids=%r, index=%s, qvec=%r", cids, chunk_index, len(nf_vec))
-                    extra_chunks = repo.scoped_chunk_ids(cids, chunk_index, nf_vec)
+                    extra_chunks = repo.scoped_chunk_ids(cids, chunk_index, nf_vec, k)
                     logger.info("Repo.scoped_chunk_ids done (nf): rows=%r", extra_chunks)
                     if extra_chunks:
                         logger.info("Repo.expand_neighborhood_minimal start (nf): seeds=%r", extra_chunks)
