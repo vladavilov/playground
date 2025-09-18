@@ -344,8 +344,7 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
             agg_json = {
                 "final_answer": "Bridges comprise the deck, supports, and load-bearing structures such as arches or cables.",
                 "key_facts": [
-                    {"fact": "Deck carries traffic and distributes loads.", "citations": [0]},
-                    {"fact": "Arches channel forces into supports.", "citations": [1]},
+                    {"fact": "Deck carries traffic and distributes loads.", "citations": all_text},
                 ],
                 "residual_uncertainty": "Specific materials and design vary by bridge type.",
             }
