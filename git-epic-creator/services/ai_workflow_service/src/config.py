@@ -36,9 +36,10 @@ class AIWorkflowSettings(BaseConfig):
         description="Maximum number of agentic refinement iterations",
     )
 
-    GRAPH_RAG_RETRIEVE_PATH: str = Field(
-        default="/retrieve",
-        description="Path for GraphRAG retrieval endpoint",
+    RETRIEVAL_TOP_K: int = Field(
+        default=2,
+        description="Top-K for retrieval provider",
+        ge=1,
     )
 
     RETRIEVAL_MAX_ATTEMPTS: int = Field(
