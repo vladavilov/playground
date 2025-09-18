@@ -6,9 +6,9 @@ workflow, from project creation to document upload and processing completion.
 """
 
 from typing import Dict, Any
-
+import pytest
 from config import TestConstants
-from shared_utils import ProjectTestUtils
+from shared_utils import ProjectTestUtils, HTTPUtils
 import requests
 import io
 from conftest import ProjectManager
@@ -19,6 +19,11 @@ from neo4j import GraphDatabase
 
 class TestDocumentWorkflow:
     """Test suite for the complete end-to-end document processing workflow."""
+
+    @pytest.fixture(scope="function")
+    def ensure_clean_session_setup(neo4j_driver, target_db_name, wa):
+        wa.reset_neo4j_database(neo4j_driver, target_db_name)
+        yield
 
     def test_complete_document_processing_workflow(
         self,
@@ -67,52 +72,7 @@ class TestDocumentWorkflow:
             wa.verify_upload_response(project_id, upload_result, fixtures)
 
             # Step 4-7: Iterate UI status sequence with yields between steps
-            expected = [
-                TestConstants.PROJECT_STATUS_PROCESSING,
-                TestConstants.PROJECT_STATUS_ACTIVE,
-                TestConstants.PROJECT_STATUS_RAG_PROCESSING,
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline started"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Load input documents (1/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Load input documents"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create base text units (2/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create base text units"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final documents (3/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final documents"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract graph (4/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Extract graph — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract graph"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Finalize graph (5/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Finalize graph"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract covariates (6/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract covariates"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create communities (7/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create communities"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final text units (8/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final text units"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create community reports (9/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create community reports — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create community reports"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Generate text embeddings (10/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Generate text embeddings — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Generate text embeddings"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline finished"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-community-full_content"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-community-full_content (1/3)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-entity-description"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-entity-description (2/3)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-text_unit-text"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-text_unit-text (3/3)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Community__.full_content"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Entity__.description"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Chunk__.text"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_entity_relationship_ids"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_entity_relationship_ids (1/2)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_community_membership"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_community_membership (2/2)"),
-                TestConstants.PROJECT_STATUS_RAG_READY,
-            ]
+            expected = wa.expected_ui_sequence()
             seq = fixtures.redis_monitor.iter_ui_sequence(
                 project_id,
                 expected,
@@ -177,11 +137,8 @@ class TestDocumentWorkflow:
 
             # Upload multiple documents
             upload_url = ProjectTestUtils.build_upload_url(service_urls['project_management'], project_id)
-            upload_response = requests.post(
-                upload_url,
-                files=files,
-                headers=auth_headers,
-                timeout=60
+            upload_response = HTTPUtils.make_request_with_retry(
+                "POST", upload_url, files=files, headers=auth_headers, timeout=60
             )
 
             assert upload_response.status_code == TestConstants.HTTP_OK, (
@@ -193,52 +150,8 @@ class TestDocumentWorkflow:
             wa.verify_multiple_upload_response(upload_result, project_id, expected_filenames)
 
             # Validate UI message sequence
-            expected = [
-                TestConstants.PROJECT_STATUS_PROCESSING,
-                TestConstants.PROJECT_STATUS_ACTIVE,
-                TestConstants.PROJECT_STATUS_RAG_PROCESSING,
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline started"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Load input documents (1/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Load input documents"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create base text units (2/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create base text units — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create base text units"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final documents (3/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final documents"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract graph (4/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Extract graph — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract graph"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Finalize graph (5/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Finalize graph"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Extract covariates (6/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Extract covariates"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create communities (7/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create communities"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create final text units (8/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create final text units"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Create community reports (9/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Create community reports — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Create community reports"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Start: Generate text embeddings (10/10)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Generate text embeddings — 100%"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Finished: Generate text embeddings"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline finished"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-community-full_content"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-community-full_content (1/3)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-entity-description"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-entity-description (2/3)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read start: default-text_unit-text"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors read finished: default-text_unit-text (3/3)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Community__.full_content"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Entity__.description"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Vectors ingest start: __Chunk__.text"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_entity_relationship_ids"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_entity_relationship_ids (1/2)"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill start: backfill_community_membership"),
-                (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Backfill finished: backfill_community_membership (2/2)"),
-                TestConstants.PROJECT_STATUS_RAG_READY,
-            ]
+            expected = wa.expected_ui_sequence()
+            
             seq = redis_monitor.iter_ui_sequence(
                 project_id,
                 expected,

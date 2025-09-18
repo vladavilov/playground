@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import pytest
-import threading
 
 from services.neo4j_admin import supports_multi_db, ensure_database, drop_database, list_databases
-from shared_utils import HTTPUtils
-
 
 REQUIRED_INDEXES = (
     "graphrag_comm_index",
