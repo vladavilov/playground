@@ -22,7 +22,7 @@ class Neo4jRepository:
             "CALL { WITH c MATCH (c)<-[:IN_COMMUNITY]-(:__Entity__)-[:FROM_CHUNK]->(ch:__Chunk__) "
             "WITH ch CALL db.index.vector.queryNodes($chunkIndex, 50, $qvec) YIELD node AS cand, score "
             "WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } "
-            "RETURN id(c) AS cid, collect(id(chunk)) AS chunk_ids"
+            "RETURN id(c) AS cid, collect(distinct id(chunk)) AS chunk_ids"
         )
         res = list(self._session.run(query, communityIds=community_ids, qvec=qvec, chunkIndex=chunk_index))
         out: Dict[int, List[int]] = {}
@@ -49,27 +49,26 @@ class Neo4jRepository:
 
     def fetch_communities_brief(self, ids: List[int]) -> List[Dict[str, Any]]:
         rows = list(self._session.run(
-            "MATCH (c:__Community__) WHERE id(c) IN $ids RETURN id(c) AS id, c.summary AS summary, c.name AS name",
+            "MATCH (c:__Community__) WHERE id(c) IN $ids RETURN id(c) AS id, c.summary AS summary",
             ids=ids,
         ))
         result: List[Dict[str, Any]] = []
         for r in rows:
             result.append({
                 "id": int(r.get("id")) if r.get("id") is not None else None,
-                "name": r.get("name") or "",
                 "summary": r.get("summary") or "",
             })
         return result
 
-    def scoped_chunk_ids(self, cids: List[int], chunk_index: str, qvec: List[float]) -> List[int]:
+    def scoped_chunk_ids(self, cids: List[int], chunk_index: str, qvec: List[float], limit: int) -> List[int]:
         scoped_q = (
             "WITH $qvec AS qvec, $cids AS cids "
             "MATCH (c:__Community__) WHERE id(c) IN cids "
-            "MATCH (c)<-[:IN_COMMUNITY]-(:__Entity__)-[:FROM_CHUNK]->(ch:__Chunk__) "
+            "MATCH (c)<-[:IN_COMMUNITY]-(ch:__Chunk__) "
             "WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes($chunkIndex, 200, qvec) YIELD node AS cand, score "
-            "WHERE cand = ch RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30"
+            "WHERE cand = ch RETURN id(ch) AS cid ORDER BY score DESC LIMIT $limit"
         )
-        rows = list(self._session.run(scoped_q, qvec=qvec, cids=cids, chunkIndex=chunk_index))
+        rows = list(self._session.run(scoped_q, qvec=qvec, cids=cids, chunkIndex=chunk_index, limit=int(limit or 1)))
         return [int(r.get("cid")) for r in rows if r.get("cid") is not None]
 
     def expand_neighborhood_minimal(self, chunk_ids: List[int]) -> List[Dict[str, Any]]:
