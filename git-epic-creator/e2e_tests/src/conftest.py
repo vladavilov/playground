@@ -394,3 +394,8 @@ def cyphers_path() -> Path:
         if p.exists():
             return p
     raise AssertionError(f"Cypher script not found in any known location. Tried: {candidates}")
+
+@pytest.fixture(scope="function")
+def ensure_clean_session_setup(neo4j_driver, target_db_name, wa):
+    wa.reset_neo4j_database(neo4j_driver, target_db_name)
+    yield

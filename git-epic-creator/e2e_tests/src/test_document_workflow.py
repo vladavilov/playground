@@ -20,11 +20,6 @@ from neo4j import GraphDatabase
 class TestDocumentWorkflow:
     """Test suite for the complete end-to-end document processing workflow."""
 
-    @pytest.fixture(scope="function")
-    def ensure_clean_session_setup(neo4j_driver, target_db_name, wa):
-        wa.reset_neo4j_database(neo4j_driver, target_db_name)
-        yield
-
     def test_complete_document_processing_workflow(
         self,
         service_urls: Dict[str, str],
