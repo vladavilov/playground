@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import os
 import requests
+from neo4j import GraphDatabase
 
 from services.cypher_loader import execute_cypher_script
 
@@ -21,9 +22,16 @@ REQUIRED_INDEXES = (
 
 
 @pytest.fixture(scope="session")
-def ensure_clean_session_setup(neo4j_driver, target_db_name, cyphers_path):
-    cleanup_session(neo4j_driver, target_db_name)
-    execute_cypher_script(neo4j_driver, target_db_name, cyphers_path)
+def ensure_clean_session_setup(neo4j_config, target_db_name, cyphers_path):
+    driver = GraphDatabase.driver(
+        neo4j_config["uri"],
+        auth=(neo4j_config["username"], neo4j_config["password"]) 
+    )
+    try:
+        cleanup_session(driver, target_db_name)
+        execute_cypher_script(driver, target_db_name, cyphers_path)
+    finally:
+        driver.close()
     yield
 
 
@@ -36,9 +44,16 @@ def cleanup_session(driver, target_db_name):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def cleanup_after_session(neo4j_driver, target_db_name):
+def cleanup_after_session(neo4j_config, target_db_name):
     yield
-    cleanup_session(neo4j_driver, target_db_name)
+    driver = GraphDatabase.driver(
+        neo4j_config["uri"],
+        auth=(neo4j_config["username"], neo4j_config["password"]) 
+    )
+    try:
+        cleanup_session(driver, target_db_name)
+    finally:
+        driver.close()
 
 
 def _call_retrieval_service(question: str) -> requests.Response:
