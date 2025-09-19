@@ -20,6 +20,13 @@ class ContextRetriever:
                         citations.append(str(cid))
                     except Exception:
                         continue
+            # Also include top-level citations (objects with chunk_id/span) if present
+            for c in data.get("citations", []) or []:
+                try:
+                    if isinstance(c, dict) and "chunk_id" in c:
+                        citations.append(str(c.get("chunk_id")))
+                except Exception:
+                    continue
         except Exception:
             pass
         # Deduplicate citations while preserving order

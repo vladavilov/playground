@@ -22,7 +22,7 @@ class AIWorkflowSettings(BaseConfig):
     )
 
     CLARIFICATION_SCORE_TARGET: float = Field(
-        default=0.85,
+        default=0.7,
         description="Target score threshold for clarification loop",
     )
 
