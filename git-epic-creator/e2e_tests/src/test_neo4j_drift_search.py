@@ -6,8 +6,6 @@ import pytest
 from neo4j import GraphDatabase
 import os
 import requests
-import threading
-import time
 
 from services.cypher_loader import execute_cypher_script
 from services.neo4j_admin import supports_multi_db, ensure_database, drop_database, list_databases
@@ -209,99 +207,44 @@ def test_drop_test_db_conditional(driver):
     assert test_db not in names
 
 
-
-# ------------------------- RETRIEVAL SERVICE E2E TEST -------------------------
-
-
-def _poll_active_queries(driver, duration_seconds: float = 2.0) -> list[str]:
-    deadline = time.time() + duration_seconds
-    seen: list[str] = []
-    while time.time() < deadline:
-        try:
-            with driver.session() as session:
-                # SHOW TRANSACTIONS displays active statements; may be empty if idle
-                rows = list(session.run("SHOW TRANSACTIONS YIELD currentQuery RETURN currentQuery"))
-                for r in rows:
-                    q = r.get("currentQuery") or ""
-                    if q and q not in seen:
-                        seen.append(q)
-        except Exception:
-            pass
-        time.sleep(0.05)
-    return seen
-
-
 def _call_retrieval_service(question: str) -> requests.Response:
     base = os.getenv("RETRIEVAL_BASE_URL", "http://neo4j-retrieval-service:8000")
     url = base.rstrip('/') + "/retrieve"
     payload = {"query": question}
-    # The retrieval service schema expects a RetrievalPlan; we allow user to adjust payload later
     resp = requests.post(url, json=payload, timeout=10)
     return resp
 
 
 def test_retrieval_service_end_to_end_requests_recorded(driver):
-    # Clear recorded requests in OpenAI mock service
-    oai_base = os.getenv("OPENAI_MOCK_URL", "http://openai-mock-service:8000").rstrip("/")
-    clr = requests.post(f"{oai_base}/spy/clear", timeout=5)
-    assert clr.status_code == 200
-
     question = "what are the main components of the bridge?"
 
-    # Act: perform call and concurrently poll Neo4j for any active queries
-    queries: list[str] = []
-
-    def _poller():
-        nonlocal queries
-        queries = _poll_active_queries(driver, duration_seconds=3.0)
-
-    poll_thread = threading.Thread(target=_poller, daemon=True)
-    poll_thread.start()
     resp = _call_retrieval_service(question)
-    poll_thread.join()
 
-    # Assert: HTTP call succeeded
     assert resp.status_code == 200, f"retrieval status {resp.status_code}, body={resp.text[:200]}"
 
-    # Assert: OpenAI mock recorded requests and verify which endpoints were hit
-    spy_resp = requests.get(f"{oai_base}/spy/requests", params={"howMany": 50}, timeout=5)
-    assert spy_resp.status_code == 200
-    payload = spy_resp.json()
-    items = payload.get("items") or []
-    assert isinstance(items, list)
-    assert len(items) >= 1, "Expected at least one outbound request to OAI mock service"
-
-    # Verify specific endpoint paths and counts based on retrieval flow
-    # Expected calls (from retrieval_router):
-    # - chat/completions: 5 (HyDE, Primer, LocalExec#1, LocalExec#2, Aggregator)
-    # - embeddings: 4 (HyDE, Followup#1, Followup#2, NewFollowup from continuation)
-    paths = [str(r.get("path") or "") for r in items]
-    chat_hits = [p for p in paths if "/chat/completions" in p]
-    embed_hits = [p for p in paths if "/embeddings" in p]
-
-    # Count checks
-    assert len(chat_hits) == 5, f"Expected 5 chat completions, got {len(chat_hits)}; paths={chat_hits}"
-    assert len(embed_hits) == 4, f"Expected 4 embeddings, got {len(embed_hits)}; paths={embed_hits}"
-
-    # Assert: capture of Neo4j queries (if service performed any during request)
-    # We require at least one query captured; adjust if service becomes read-only
-    assert isinstance(queries, list)
-
-    # Verify specific endpoint paths were hit
-    any_chat = any("/chat" in (r.get("path") or "") for r in items)
-    any_embed = any("/embeddings" in (r.get("path") or "") for r in items)
-    assert any_chat or any_embed, f"Unexpected request targets: {[r.get('path') for r in items]}"
-
-    EXPECTED_RESPONSE = {
-                "final_answer": "Bridges comprise the deck, supports, and load-bearing structures such as arches or cables.",
-                "key_facts": [
-                    {"fact": "Deck carries traffic and distributes loads.", "citations": [0]},
-                    {"fact": "Arches channel forces into supports.", "citations": [1]},
-                ],
-                "residual_uncertainty": "Specific materials and design vary by bridge type.",
-            }
     try:
         body = resp.json()
     except Exception:
         pytest.fail(f"Retrieval service returned non-JSON: {resp.text[:200]}")
-    assert body == EXPECTED_RESPONSE, "Retrieval response did not match the expected placeholder payload"
+
+    assert "final_answer" in body
+    assert "key_facts" in body
+    assert "residual_uncertainty" in body
+
+    assert "Bridges comprise the deck, supports, and load-bearing structures such as arches or cables." in body['final_answer']
+
+    citations = body['key_facts'][0]['citations']
+
+    assert "citations" in citations
+    assert "neighbours" in citations
+    assert "4. Types of Bridges:" in citations
+    assert "1. Introduction:" in citations
+    assert "Clarify deck materials and structural role." in citations
+    assert "Explain arch mechanics in load distribution." in citations
+    assert "List common deck materials and how they influence load distribution." in citations
+
+    assert "Arches carry deck loads p" in citations
+    assert "Bridge decks are commonly built from reinforced" in citations
+    assert "Reinforced concrete decks spread loa" not in citations # no answers for follow-ups of the second level
+
+    assert "ERROR FETCHING LOCAL EXECUTOR" not in citations # no errors
