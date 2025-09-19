@@ -186,7 +186,7 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
             prompt_id=state.get("prompt_id"),
-            status="drafting_requirements",
+            status="evaluating",
             thought_summary="Drafted requirements, audited for issues, and evaluated against rubric.",
             details_md=(
                 "### Evaluation results\n"
@@ -250,9 +250,7 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
     builder.add_edge("init", "analyze")
     builder.add_edge("analyze", "retrieve")
     builder.add_edge("retrieve", "synthesize")
-    # after synthesize, run audit; evaluation occurs inside supervisor after audit
     builder.add_edge("synthesize", "audit")
-
     builder.add_edge("audit", "supervisor")
     # decide returns Command to goto next
     builder.add_edge("finalize", END)
