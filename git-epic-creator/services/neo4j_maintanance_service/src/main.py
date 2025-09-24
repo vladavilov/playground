@@ -208,55 +208,6 @@ async def get_index_health(
         ]
     }
 
-@neo4j_router.post("/maintenance/run")
-async def run_maintenance(
-    maintenance_service: Neo4jIndexMaintenance = Depends(get_maintenance_service)
-) -> Dict[str, Any]:
-    """
-    Run scheduled maintenance tasks.
-
-    Returns:
-        Dict[str, Any]: Maintenance results
-    """
-    # Auto-schedule maintenance based on health
-    await maintenance_service.auto_schedule_maintenance()
-
-    # Run scheduled tasks
-    completed_tasks = await maintenance_service.run_maintenance_tasks()
-
-    return {
-        "status": "success",
-        "completed_tasks": len(completed_tasks),
-        "tasks": [
-            {
-                "task_id": task.task_id,
-                "index_name": task.index_name,
-                "task_type": task.task_type,
-                "status": task.status,
-                "result": task.result
-            }
-            for task in completed_tasks
-        ]
-    }
-
-@neo4j_router.get("/maintenance/status")
-async def get_maintenance_status(
-    maintenance_service: Neo4jIndexMaintenance = Depends(get_maintenance_service)
-) -> Dict[str, Any]:
-    """
-    Get maintenance status.
-
-    Returns:
-        Dict[str, Any]: Maintenance status
-    """
-    status = await maintenance_service.get_maintenance_status()
-
-    return {
-        "status": "success",
-        "maintenance_status": status
-    }
-
-# Include the Neo4j router in the main app
 app.include_router(neo4j_router)
 
 def reset_neo4j_driver():

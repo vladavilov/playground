@@ -17,7 +17,7 @@ class AIWorkflowSettings(BaseConfig):
     )
 
     GRAPH_RAG_TIMEOUT_SEC: float = Field(
-        default=5.0,
+        default=30.0,
         description="Timeout in seconds for GraphRAG HTTP calls",
     )
 

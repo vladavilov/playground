@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Any
 import httpx
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 import config
@@ -6,8 +6,8 @@ from workflow_models.agent_models import PromptAnalysis, RetrievedContext
 
 
 class ContextRetriever:
-    async def retrieve(self, analysis: PromptAnalysis) -> RetrievedContext:
-        data = await self._retrieve_from_provider(analysis.prompt, analysis.intents)
+    async def retrieve(self, analysis: PromptAnalysis, project_id: Any) -> RetrievedContext:
+        data = await self._retrieve_from_provider(analysis.prompt, analysis.intents, project_id)
         key_facts = []
         citations: list[str] = []
         try:
@@ -56,16 +56,27 @@ class ContextRetriever:
             lines.append("- (none)")
         return "\n".join(lines)
 
-    async def _retrieve_from_provider(self, query: str, intents: List[str]):
+    async def _retrieve_from_provider(self, query: str, intents: List[str], project_id: Any):
         settings = config.get_ai_workflow_settings()
         merged = self._merge_query_with_intents(query, intents)
-        payload = {"query": merged, "top_k": settings.RETRIEVAL_TOP_K}
+        payload = {"query": merged, "top_k": settings.RETRIEVAL_TOP_K, "project_id": str(project_id)}
 
         timeout = settings.GRAPH_RAG_TIMEOUT_SEC
         attempts = settings.RETRIEVAL_MAX_ATTEMPTS
         backoff = settings.RETRIEVAL_BACKOFF_BASE_SEC
-        async for attempt in AsyncRetrying(reraise=True, stop=stop_after_attempt(attempts), wait=wait_exponential(multiplier=backoff)):
+        async for attempt in AsyncRetrying(
+            reraise=True,
+            stop=stop_after_attempt(attempts),
+            wait=wait_exponential(multiplier=backoff),
+        ):
             with attempt:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(self._build_url(), json=payload)
+                try:
+                    resp.raise_for_status()
+                except Exception:
+                    try:
+                        return resp.json()  # Let caller handle missing fields gracefully
+                    except Exception:
+                        return {"error": str(resp.text)}
                 return resp.json() if hasattr(resp, "json") else {}

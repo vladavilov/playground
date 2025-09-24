@@ -72,7 +72,7 @@ class TestDocumentWorkflow:
             seq = fixtures.redis_monitor.iter_ui_sequence(
                 project_id,
                 expected,
-                timeout_per_step=300,
+                timeout_per_step=TestConstants.DOCUMENT_PROCESSING_TIMEOUT,
             )
             for _ in expected:
                 _ = next(seq)
@@ -152,11 +152,11 @@ class TestDocumentWorkflow:
             seq = redis_monitor.iter_ui_sequence(
                 project_id,
                 expected,
-                timeout_per_step=300,
+                timeout_per_step=TestConstants.DOCUMENT_PROCESSING_TIMEOUT,
             )
             for _ in expected:
                 _ = next(seq)
-            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
+            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=100)
 
         # Verify DB status
         wa.verify_db_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, min_pct=100.0)

@@ -131,7 +131,10 @@ function renderDetails() {
       el('div', { class: 'flex items-center gap-2' }, [
         el('button', { id: 'openChatBtn', class: 'px-3 py-2 border rounded text-slate-700 hover:bg-slate-50', title: 'Open chat to capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/chat.html#${state.selected.id}`; } }, 'Open Chat'),
       ]),
-      el('button', { class: 'px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete project')
+      el('div', { class: 'flex items-center gap-2' }, [
+        el('button', { class: 'px-3 py-2 border rounded text-slate-700 hover:bg-slate-50', onclick: () => openProjectModal(p), 'aria-label': 'Edit project' }, 'Edit'),
+        el('button', { class: 'px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete')
+      ])
     ])
   );
 }
