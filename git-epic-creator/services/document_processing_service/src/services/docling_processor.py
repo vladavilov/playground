@@ -133,5 +133,3 @@ class DocumentProcessingResult:
     success: bool = False
     processing_time: Optional[float] = None
     error_message: Optional[str] = None
-
-
