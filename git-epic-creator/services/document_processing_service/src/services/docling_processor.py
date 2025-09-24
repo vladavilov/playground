@@ -9,12 +9,9 @@ from datetime import datetime
 import os
 import structlog
 
-# Explicit imports at module top; if Docling isn't available, raise immediately
-from docling.document_reader import DocumentReader
-from docling.models.base import InputDocument
-
 from service_configuration.docling_config import DoclingSettings
 from dataclasses import dataclass
+from docling.document_converter import DocumentConverter
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +36,9 @@ class DoclingProcessor:
         return self._is_pdf(file_path) or self._is_image(file_path)
 
     def extract_text(self, file_path: str) -> str:
+        # Delegate non-PDF/non-image to Tika directly
+        if not self.is_supported_format(file_path):
+            raise DocumentProcessingError("Unsopproted format for Docling")
         result = self.extract_text_with_result(file_path)
         if not result.success:
             raise DocumentProcessingError(result.error_message or "Unknown error")
@@ -76,38 +76,24 @@ class DoclingProcessor:
         if not os.path.exists(file_path):
             return DocumentProcessingResult(success=False, error_message=f"File not found: {file_path}")
 
-        use_docling = self.settings.DOCLING_ENABLED and self.is_supported_format(file_path)
-        if not use_docling:
-            return DocumentProcessingResult(success=False, error_message="Docling disabled or unsupported format")
+        if not self.settings.DOCLING_ENABLED:
+            return DocumentProcessingResult(success=False, error_message="Docling disabled")
+
+        if not self.is_supported_format(file_path):
+            raise DocumentProcessingError("Unsupported format for Docling")
 
         try:
             start_time = datetime.utcnow()
 
-            reader = DocumentReader()
-            input_doc = InputDocument.from_file(file_path)
-            parsed = reader.read(input_doc)
 
-            # Docling exposes text via pages/sections; collect simple concatenation
-            extracted_text_parts = []
-            page_count = 0
-            try:
-                for page in getattr(parsed, 'pages', []) or []:
-                    page_count += 1
-                    text = getattr(page, 'text', None)
-                    if text:
-                        extracted_text_parts.append(text)
-            except Exception:
-                # fallback: whole document text
-                text_attr = getattr(parsed, 'text', None)
-                if text_attr:
-                    extracted_text_parts.append(text_attr)
+            converter = DocumentConverter()
+            result = converter.convert(file_path)
 
-            extracted_text = ("\n\n".join(extracted_text_parts)).strip()
-
-            # Metadata: best-effort mapping
+            # Prefer Markdown export as unified plain text representation
+            extracted_text = (result.document.export_to_markdown() or "").strip()
             metadata: Dict[str, Any] = {}
             try:
-                meta_obj = getattr(parsed, 'metadata', None)
+                meta_obj = getattr(result.document, 'metadata', None)
                 if isinstance(meta_obj, dict):
                     metadata.update(meta_obj)
             except Exception:
@@ -119,13 +105,12 @@ class DoclingProcessor:
             logger.info("DOCLING PROCESSING COMPLETED",
                         file_path=file_path,
                         text_length=len(extracted_text),
-                        page_count=page_count or None,
                         processing_time=processing_time)
 
             return DocumentProcessingResult(
                 extracted_text=extracted_text,
                 file_type=file_type,
-                page_count=page_count or None,
+                page_count=None,
                 metadata=metadata,
                 success=True,
                 processing_time=processing_time,

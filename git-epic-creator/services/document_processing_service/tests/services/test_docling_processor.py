@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from services.docling_processor import DoclingProcessor, DocumentProcessingError
+from services.docling_processor import DoclingProcessor
 
 
 @pytest.fixture
@@ -21,13 +21,15 @@ def _write_bytes_temp(suffix: str, data: bytes) -> str:
     return tmp.name
 
 
-@patch("services.docling_processor.DocumentReader")
-@patch("services.docling_processor.InputDocument")
-def test_pdf_via_docling(mock_input_doc, mock_reader_cls, processor):
-    mock_reader = MagicMock()
-    mock_reader.read.return_value = MagicMock(pages=[MagicMock(text="Hello"), MagicMock(text="World")], metadata={"foo": "bar"})
-    mock_reader_cls.return_value = mock_reader
-    mock_input_doc.from_file.return_value = MagicMock()
+@patch("services.docling_processor.DocumentConverter")
+def test_pdf_via_docling(mock_converter_cls, processor):
+    mock_converter = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.export_to_markdown.return_value = "Hello\n\nWorld"
+    mock_doc.metadata = {"foo": "bar"}
+    mock_result = MagicMock(document=mock_doc)
+    mock_converter.convert.return_value = mock_result
+    mock_converter_cls.return_value = mock_converter
 
     path = _write_bytes_temp(".pdf", b"%PDF-1.4\nHello\n%%EOF")
     try:
@@ -43,13 +45,15 @@ def test_pdf_via_docling(mock_input_doc, mock_reader_cls, processor):
             pass
 
 
-@patch("services.docling_processor.DocumentReader")
-@patch("services.docling_processor.InputDocument")
-def test_image_via_docling(mock_input_doc, mock_reader_cls, processor):
-    mock_reader = MagicMock()
-    mock_reader.read.return_value = MagicMock(pages=[MagicMock(text="ImageText")], metadata={})
-    mock_reader_cls.return_value = mock_reader
-    mock_input_doc.from_file.return_value = MagicMock()
+@patch("services.docling_processor.DocumentConverter")
+def test_image_via_docling(mock_converter_cls, processor):
+    mock_converter = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.export_to_markdown.return_value = "ImageText"
+    mock_doc.metadata = {}
+    mock_result = MagicMock(document=mock_doc)
+    mock_converter.convert.return_value = mock_result
+    mock_converter_cls.return_value = mock_converter
 
     path = _write_bytes_temp(".png", b"\x89PNG\r\n\x1a\n")
     try:
@@ -64,17 +68,13 @@ def test_image_via_docling(mock_input_doc, mock_reader_cls, processor):
             pass
 
 
-@patch("services.tika_processor.parser")
-@patch("services.docling_processor.DocumentReader", side_effect=Exception("docling boom"))
-def test_pdf_fallback_to_tika(mock_reader_cls, mock_tika_parser, processor):
-    # When Docling fails, fall back to Tika for PDFs
-    mock_tika_parser.from_buffer.return_value = {"content": "Fallback text", "metadata": {"Content-Type": "application/pdf"}}
-
+@patch("services.docling_processor.DocumentConverter", side_effect=Exception("docling boom"))
+def test_pdf_failure_no_fallback(mock_converter_cls, processor):
     path = _write_bytes_temp(".pdf", b"%PDF-1.4\n%%EOF")
     try:
         result = processor.extract_text_with_result(path)
-        assert result.success
-        assert "Fallback text" in (result.extracted_text or "")
+        assert not result.success
+        assert "Docling failed" in (result.error_message or "")
     finally:
         try:
             os.unlink(path)
@@ -82,8 +82,8 @@ def test_pdf_fallback_to_tika(mock_reader_cls, mock_tika_parser, processor):
             pass
 
 
-@patch("services.docling_processor.DocumentReader", side_effect=Exception("docling fail"))
-def test_image_failure_no_fallback(mock_reader_cls, processor):
+@patch("services.docling_processor.DocumentConverter", side_effect=Exception("docling fail"))
+def test_image_failure_no_fallback(mock_converter_cls, processor):
     path = _write_bytes_temp(".jpg", b"\xff\xd8\xff\xe0")
     try:
         result = processor.extract_text_with_result(path)
@@ -101,8 +101,9 @@ def test_non_image_non_pdf_delegates_to_tika(mock_tika_parser, processor):
     mock_tika_parser.from_buffer.return_value = {"content": "Docx text", "metadata": {"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}}
     path = _write_bytes_temp(".docx", b"PK\x03\x04")
     try:
-        txt = processor.extract_text(path)
-        assert "Docx text" in txt
+        # This now should raise since DoclingProcessor rejects non-PDF/image formats directly
+        with pytest.raises(Exception):
+            processor.extract_text(path)
     finally:
         try:
             os.unlink(path)
