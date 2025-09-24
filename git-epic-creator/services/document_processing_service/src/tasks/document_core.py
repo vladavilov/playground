@@ -85,7 +85,7 @@ def _extract_filtered_metadata(raw_metadata: Dict[str, Any], filename: str) -> D
 def process_project_documents_core(
     project_id: str,
     blob_client: Any,
-    tika_processor: Any,
+    document_processor: Any,
     send_progress_update: Callable[[str, int, int], Dict[str, Any]],
     logger: Logger | None = None,
 ) -> Dict[str, Any]:
@@ -97,7 +97,7 @@ def process_project_documents_core(
     Args:
         project_id: Project ID as string UUID
         blob_client: Object providing list_files, download_file, delete_file methods
-        tika_processor: Object providing extract_text_with_result(path) -> result
+        document_processor: Object providing extract_text_with_result(path) -> result
         send_progress_update: Callable to send progress; returns { 'success': bool, ... }
         logger: Optional structlog logger
 
@@ -180,7 +180,7 @@ def process_project_documents_core(
                 log.error("Failed to download file", blob_name=blob_name, error=getattr(download_result, "error_message", None))
                 continue
 
-            processing_result = tika_processor.extract_text_with_result(temp_file_path)
+            processing_result = document_processor.extract_text_with_result(temp_file_path)
             if getattr(processing_result, "success", False):
                 # Map to ingestion document schema fields (creation_date unknown upstream)
                 documents_for_ingestion.append({
