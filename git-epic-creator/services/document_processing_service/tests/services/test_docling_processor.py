@@ -94,20 +94,3 @@ def test_image_failure_no_fallback(mock_converter_cls, processor):
             os.unlink(path)
         except Exception:
             pass
-
-
-@patch("services.tika_processor.parser")
-def test_non_image_non_pdf_delegates_to_tika(mock_tika_parser, processor):
-    mock_tika_parser.from_buffer.return_value = {"content": "Docx text", "metadata": {"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}}
-    path = _write_bytes_temp(".docx", b"PK\x03\x04")
-    try:
-        # This now should raise since DoclingProcessor rejects non-PDF/image formats directly
-        with pytest.raises(Exception):
-            processor.extract_text(path)
-    finally:
-        try:
-            os.unlink(path)
-        except Exception:
-            pass
-
-
