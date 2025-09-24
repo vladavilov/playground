@@ -129,11 +129,11 @@ function renderDetails() {
     el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_repository_url, 'repository')]),
     el('div', { class: 'mt-4 flex items-center justify-between' }, [
       el('div', { class: 'flex items-center gap-2' }, [
-        el('button', { id: 'openChatBtn', class: 'px-3 py-2 border rounded text-slate-700 hover:bg-slate-50', title: 'Open chat to capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/chat.html#${state.selected.id}`; } }, 'Open Chat'),
+        el('button', { id: 'openChatBtn', class: 'w-32 px-3 py-2 border rounded text-slate-700 hover:bg-slate-50 text-center', title: 'Open chat to capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/chat.html#${state.selected.id}`; } }, 'Open Chat'),
       ]),
       el('div', { class: 'flex items-center gap-2' }, [
-        el('button', { class: 'px-3 py-2 border rounded text-slate-700 hover:bg-slate-50', onclick: () => openProjectModal(p), 'aria-label': 'Edit project' }, 'Edit'),
-        el('button', { class: 'px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete')
+        el('button', { class: 'w-32 px-3 py-2 border rounded text-slate-700 hover:bg-slate-50 text-center', onclick: () => openProjectModal(p), 'aria-label': 'Edit project' }, 'Edit'),
+        el('button', { class: 'w-32 px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700 text-center', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete')
       ])
     ])
   );
@@ -165,6 +165,74 @@ function getStatusBadge(status) {
   else if (s === 'rag_ready') cls = 'bg-green-100 text-green-700';
   else if (s.includes('failed') || s === 'rag_failed') cls = 'bg-rose-100 text-rose-700';
   return el('span', { class: base + cls }, s || 'unknown');
+}
+
+// Strict helpers for ProjectProgressMessage payload
+function getMsgProjectId(msg) { return msg?.project_id ?? null; }
+function getMsgStatus(msg) { return msg?.status ?? null; }
+function getMsgProcessedPct(msg) { return Number.isFinite(msg?.processed_pct) ? msg.processed_pct : null; }
+
+// Update project state with incoming progress event and indicate if UI should re-render
+function updateProjectStateFromProgress(msg) {
+  try {
+    const pid = getMsgProjectId(msg);
+    if (pid == null) return false;
+    const idStr = String(pid);
+    const rawStatus = getMsgStatus(msg);
+    const nextStatus = (rawStatus || '').toLowerCase();
+    const pctVal = getMsgProcessedPct(msg);
+    let changed = false;
+
+    // Update item in projects list (mutate in place to preserve references)
+    for (const project of state.projects) {
+      if (String(project.id) !== idStr) continue;
+      if (nextStatus && nextStatus !== (project.status || '').toLowerCase()) {
+        project.status = nextStatus;
+        changed = true;
+      }
+      if (pctVal != null && pctVal !== project.processed_pct) {
+        project.processed_pct = pctVal;
+        changed = true;
+      }
+      if (msg.timestamp) {
+        const ts = new Date(msg.timestamp);
+        if (!isNaN(ts.getTime())) {
+          const iso = ts.toISOString();
+          if (project.updated_at !== iso) {
+            project.updated_at = iso;
+            changed = true;
+          }
+        }
+      }
+      break;
+    }
+
+    // Ensure selected reference reflects latest values too
+    if (state.selected && String(state.selected.id) === idStr) {
+      if (nextStatus && nextStatus !== (state.selected.status || '').toLowerCase()) {
+        state.selected.status = nextStatus;
+        changed = true;
+      }
+      if (pctVal != null && pctVal !== state.selected.processed_pct) {
+        state.selected.processed_pct = pctVal;
+        changed = true;
+      }
+      if (msg.timestamp) {
+        const ts = new Date(msg.timestamp);
+        if (!isNaN(ts.getTime())) {
+          const iso = ts.toISOString();
+          if (state.selected.updated_at !== iso) {
+            state.selected.updated_at = iso;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    return changed;
+  } catch {
+    return false;
+  }
 }
 
 async function createProject() { openProjectModal(null); }
@@ -241,23 +309,26 @@ function connectSSE() {
   state.evtSource.addEventListener('open', () => statusBar.textContent = 'Connected');
   state.evtSource.addEventListener('error', () => statusBar.textContent = 'Reconnecting...');
   state.evtSource.addEventListener('hello', () => statusBar.textContent = 'Connected');
-  state.evtSource.addEventListener('project_progress', (evt) => {
+  const handleProjectProgress = (msg) => {
     try {
-      const msg = JSON.parse(evt.data);
-      if (!state.selected || String(state.selected.id) !== String(msg.project_id)) return;
+      const changed = updateProjectStateFromProgress(msg);
+      if (changed) { renderProjects(); }
+      const pid = getMsgProjectId(msg);
+      const isSelected = !!state.selected && pid != null && String(state.selected.id) === String(pid);
+      if (!isSelected) return;
       const text = document.getElementById('progressText');
       const bar = document.getElementById('progressBar');
       const badgeHost = document.getElementById('statusBadge');
       const logHost = document.getElementById('progressLog');
       const pct = document.getElementById('progressPct');
-      if (badgeHost) { badgeHost.innerHTML = ''; badgeHost.appendChild(getStatusBadge(msg.status)); }
-      const stepLabel = (msg.process_step && String(msg.process_step).trim() !== '') ? String(msg.process_step) : (msg.status || 'unknown');
-      const safePct = (Number.isFinite(msg.processed_pct) ? Math.max(0, Math.min(100, Math.round(msg.processed_pct))) : null);
-
+      const statusForBadge = getMsgStatus(msg);
+      if (badgeHost) { badgeHost.innerHTML = ''; badgeHost.appendChild(getStatusBadge(statusForBadge)); }
+      const stepLabel = (msg.process_step && String(msg.process_step).trim() !== '') ? String(msg.process_step) : (statusForBadge || 'unknown');
+      const pctVal = getMsgProcessedPct(msg);
+      const safePct = (pctVal != null ? Math.max(0, Math.min(100, Math.round(pctVal))) : null);
       if (text) { text.textContent = stepLabel; }
       if (bar && safePct != null) { bar.style.width = `${safePct}%`; }
       if (pct && safePct != null) { pct.textContent = `${safePct}%`; }
-
       if (logHost) {
         const ts = (msg.timestamp ? new Date(msg.timestamp) : new Date());
         const tsStr = isNaN(ts.getTime()) ? new Date().toLocaleTimeString() : ts.toLocaleTimeString();
@@ -267,10 +338,12 @@ function connectSSE() {
         while (logHost.children.length > 200) { logHost.removeChild(logHost.firstChild); }
         logHost.scrollTop = logHost.scrollHeight;
       }
-    } catch (err) {
-      // Swallow errors to avoid breaking SSE loop
-      // Optionally, could console.debug(err);
-    }
+      if (changed) { renderDetails(); }
+    } catch {}
+  };
+
+  state.evtSource.addEventListener('project_progress', (evt) => {
+    try { handleProjectProgress(JSON.parse(evt.data)); } catch {}
   });
 }
 
@@ -287,16 +360,6 @@ function setupActions() {
   if (search) search.addEventListener('input', (e) => { state.filterText = e.target.value || ''; renderProjects(); });
   const uploadBtn = document.getElementById('uploadBtn');
   if (uploadBtn) uploadBtn.addEventListener('click', uploadFiles);
-  const clearBtn = document.getElementById('clearLogBtn');
-  if (clearBtn) clearBtn.addEventListener('click', () => {
-    const log = document.getElementById('progressLog');
-    if (log) log.innerHTML = '';
-  });
-  const clearBtnTop = document.getElementById('clearLogBtnTop');
-  if (clearBtnTop) clearBtnTop.addEventListener('click', () => {
-    const log = document.getElementById('progressLog');
-    if (log) log.innerHTML = '';
-  });
 
   // Dropzone wiring
   const dropzone = document.getElementById('dropzone');
