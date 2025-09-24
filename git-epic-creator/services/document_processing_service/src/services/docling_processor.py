@@ -5,7 +5,7 @@ Selection of which processor to use per file type is done by the calling layer.
 from __future__ import annotations
 
 from typing import Dict, Any, Optional, Set
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import structlog
 
@@ -38,7 +38,7 @@ class DoclingProcessor:
     def extract_text(self, file_path: str) -> str:
         # Delegate non-PDF/non-image to Tika directly
         if not self.is_supported_format(file_path):
-            raise DocumentProcessingError("Unsopproted format for Docling")
+            raise DocumentProcessingError("Unsupported format for Docling")
         result = self.extract_text_with_result(file_path)
         if not result.success:
             raise DocumentProcessingError(result.error_message or "Unknown error")
@@ -68,7 +68,7 @@ class DoclingProcessor:
             'extracted_text': result.extracted_text or '',
             'text_length': len(result.extracted_text or ''),
             'metadata': result.metadata or {},
-            'processing_timestamp': datetime.utcnow().isoformat(),
+            'processing_timestamp': datetime.now(timezone.utc).isoformat(),
             'processor_version': 'docling-1.0'
         }
 
@@ -83,7 +83,7 @@ class DoclingProcessor:
             raise DocumentProcessingError("Unsupported format for Docling")
 
         try:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
 
 
             converter = DocumentConverter()
@@ -99,7 +99,7 @@ class DoclingProcessor:
             except Exception:
                 pass
 
-            processing_time = (datetime.utcnow() - start_time).total_seconds()
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             file_type = 'application/pdf' if self._is_pdf(file_path) else 'image/*'
 
             logger.info("DOCLING PROCESSING COMPLETED",
