@@ -36,32 +36,32 @@ class DoclingProcessor:
         return self._is_pdf(file_path) or self._is_image(file_path)
 
     def extract_text(self, file_path: str) -> str:
-        # Delegate non-PDF/non-image to Tika directly
+        # Reject non-PDF/non-image formats
         if not self.is_supported_format(file_path):
-            raise DocumentProcessingError("Unsupported format for Docling")
+            raise ValueError("Unsupported format for Docling")
         result = self.extract_text_with_result(file_path)
         if not result.success:
-            raise DocumentProcessingError(result.error_message or "Unknown error")
+            raise RuntimeError(result.error_message or "Unknown error")
         return result.extracted_text or ""
 
     def extract_metadata(self, file_path: str) -> Dict[str, Any]:
         if not os.path.exists(file_path):
-            raise DocumentProcessingError(f"File not found: {file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
         if not self.is_supported_format(file_path):
-            raise DocumentProcessingError("Unsupported file format for Docling")
+            raise ValueError("Unsupported file format for Docling")
         docling_result = self.extract_text_with_result(file_path)
         if docling_result.success:
             return docling_result.metadata or {}
-        raise DocumentProcessingError(docling_result.error_message or "Docling failed to extract metadata")
+        raise RuntimeError(docling_result.error_message or "Docling failed to extract metadata")
 
     def process_document(self, file_path: str) -> Dict[str, Any]:
         if not os.path.exists(file_path):
-            raise DocumentProcessingError(f"File not found: {file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
         if not self.is_supported_format(file_path):
-            raise DocumentProcessingError("Unsupported file format for Docling")
+            raise ValueError("Unsupported file format for Docling")
         result = self.extract_text_with_result(file_path)
         if not result.success:
-            raise DocumentProcessingError(result.error_message or "Unknown error")
+            raise RuntimeError(result.error_message or "Unknown error")
         return {
             'file_path': file_path,
             'file_type': result.file_type or 'unknown',
@@ -76,15 +76,11 @@ class DoclingProcessor:
         if not os.path.exists(file_path):
             return DocumentProcessingResult(success=False, error_message=f"File not found: {file_path}")
 
-        if not self.settings.DOCLING_ENABLED:
-            return DocumentProcessingResult(success=False, error_message="Docling disabled")
-
         if not self.is_supported_format(file_path):
-            raise DocumentProcessingError("Unsupported format for Docling")
+            return DocumentProcessingResult(success=False, error_message="Unsupported format for Docling")
 
         try:
             start_time = datetime.now(timezone.utc)
-
 
             converter = DocumentConverter()
             result = converter.convert(file_path)
@@ -118,10 +114,6 @@ class DoclingProcessor:
         except Exception as exc:
             logger.warning("Docling processing failed", file_path=file_path, error=str(exc))
             return DocumentProcessingResult(success=False, error_message=f"Docling failed: {exc}")
-
-
-class DocumentProcessingError(Exception):
-    """Custom exception for document processing errors (Docling)."""
 
 
 @dataclass

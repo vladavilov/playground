@@ -15,11 +15,6 @@ class DoclingSettings(BaseSettings):
         extra='ignore'
     )
 
-    DOCLING_ENABLED: bool = Field(
-        default=True,
-        description="Enable Docling usage for PDFs and images"
-    )
-
     DOCLING_USE_OCR: bool = Field(
         default=True,
         description="Use OCR when extracting from images/PDFs if needed"
