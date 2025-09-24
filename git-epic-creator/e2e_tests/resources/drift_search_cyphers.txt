@@ -301,3 +301,19 @@ MATCH (n)-[:FROM_CHUNK]->(ch:__Chunk__)
 WITH DISTINCT ch, c
 MERGE (ch)-[:IN_COMMUNITY]->(c);
 :commit
+:begin
+WITH '11111111-1111-1111-1111-111111111111' AS pid
+MERGE (p:__Project__ {id: pid})
+WITH p
+MATCH (c:__Community__)
+MERGE (c)-[:IN_PROJECT]->(p)
+WITH p
+MATCH (ch:__Chunk__)
+MERGE (ch)-[:IN_PROJECT]->(p)
+WITH p
+MATCH (e:__Entity__)
+MERGE (e)-[:IN_PROJECT]->(p)
+WITH p
+MATCH (d:__Document__)
+MERGE (d)-[:IN_PROJECT]->(p)
+:commit

@@ -71,7 +71,7 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     try:
         # Initialize readers and ingestor
         pq = ParquetReader()
-        ingestor = Neo4jIngestor(driver=driver)
+        ingestor = Neo4jIngestor(driver=driver, project_id=project_id)
 
         # Read parquet records and ingest
         records = {

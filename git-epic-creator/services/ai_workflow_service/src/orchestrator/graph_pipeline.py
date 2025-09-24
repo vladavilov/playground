@@ -82,13 +82,13 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
             prompt_id=state.get("prompt_id"),
-            status="retrieving_context",
+            status="analyzing_prompt",
             thought_summary=f"Preparing retrieval plan and fetching project context. Intents found: {analysis.intents}.",
         )
         return {"analysis": analysis}
 
     async def retrieve_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        context = await retriever.retrieve(state["analysis"])
+        context = await retriever.retrieve(state["analysis"], state["project_id"])
         citations = list(context.citations or [])
         # Publish interim retrieval results
         try:

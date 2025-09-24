@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from uuid import uuid4
 
 from shared_utils import HTTPUtils
 from config import TestConstants
@@ -25,11 +26,14 @@ def test_retrieval_service(
 
     question = "what are the main components of the bridge?"
 
+    # Use fixed project id created by cypher script
+    project_id = "11111111-1111-1111-1111-111111111111"
+
     resp = HTTPUtils.make_request_with_retry(
         method="POST",
         url=service_urls['neo4j_retrieval'].rstrip('/') + "/retrieve",
         timeout=TestConstants.DEFAULT_TIMEOUT,
-        json_data={"query": question},
+        json_data={"query": question, "project_id": project_id},
     )
 
     assert resp.status_code == 200, f"retrieval status {resp.status_code}, body={resp.text[:200]}"

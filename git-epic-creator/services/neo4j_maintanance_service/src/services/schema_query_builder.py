@@ -6,6 +6,15 @@ Generates Neo4j constraint and index queries for the Graph RAG schema.
 
 from typing import List, Dict, Any
 import structlog
+from .constants import (
+    LABEL_ENTITY,
+    LABEL_DOCUMENT,
+    LABEL_CHUNK,
+    LABEL_COMMUNITY,
+    LABEL_PROJECT,
+    RELATIONSHIP_TYPES,
+)
+from configuration.vector_index_config import get_vector_index_env
 
 logger = structlog.get_logger(__name__)
 
@@ -25,12 +34,17 @@ class SchemaQueryBuilder:
             List[str]: List of Cypher constraint queries
         """
         constraints = [
-            ("CREATE CONSTRAINT entity_id_unique_underscored IF NOT EXISTS FOR (e:__Entity__) "
-             "REQUIRE e.id IS UNIQUE"),
-            ("CREATE CONSTRAINT document_id_unique_underscored IF NOT EXISTS FOR (d:__Document__) "
-             "REQUIRE d.id IS UNIQUE"),
-            ("CREATE CONSTRAINT community_id_unique_underscored IF NOT EXISTS FOR (c:__Community__) "
-             "REQUIRE c.id IS UNIQUE"),
+            (f"CREATE CONSTRAINT entity_id_unique_underscored IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) "
+             f"REQUIRE e.id IS UNIQUE"),
+            (f"CREATE CONSTRAINT document_id_unique_underscored IF NOT EXISTS FOR (d:`{LABEL_DOCUMENT}`) "
+             f"REQUIRE d.id IS UNIQUE"),
+            (f"CREATE CONSTRAINT chunk_id_unique_underscored IF NOT EXISTS FOR (c:`{LABEL_CHUNK}`) "
+             f"REQUIRE c.id IS UNIQUE"),
+            (f"CREATE CONSTRAINT project_id_unique_underscored IF NOT EXISTS FOR (p:`{LABEL_PROJECT}`) "
+             f"REQUIRE p.id IS UNIQUE"),
+            (f"CREATE CONSTRAINT community_key_unique_underscored IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) "
+             f"REQUIRE c.community IS UNIQUE"),
+            ("CREATE CONSTRAINT related_id IF NOT EXISTS FOR ()-[rel:RELATED]->() REQUIRE rel.id IS UNIQUE"),
         ]
 
         logger.debug("Generated constraint queries", count=len(constraints))
@@ -43,42 +57,33 @@ class SchemaQueryBuilder:
         Returns:
             List[str]: List of Cypher index queries
         """
+        env = get_vector_index_env()
+        prop = env.VECTOR_INDEX_PROPERTY
+        dims = int(env.VECTOR_INDEX_DIMENSIONS)
+        sim = env.VECTOR_INDEX_SIMILARITY
         # Keep options minimal to satisfy 5.x requirements and avoid invalid argument issues
         vector_index_options = (
-            "OPTIONS {indexConfig: {"
-            "`vector.dimensions`: 1536, "
-            "`vector.similarity_function`: 'cosine'"  
-            "}}"
+            f"OPTIONS {{indexConfig: {{`vector.dimensions`: {dims}, `vector.similarity_function`: '{sim}'}}}}"
         )
 
         indexes = [
-            (f"CREATE VECTOR INDEX graphrag_chunk_index IF NOT EXISTS FOR (c:Chunk) "
-             f"ON (c.embedding) {vector_index_options}"),
+            (f"CREATE VECTOR INDEX {env.CHUNK_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_CHUNK}`) "
+             f"ON (c.{prop}) {vector_index_options}"),
+            (f"CREATE VECTOR INDEX {env.COMMUNITY_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) "
+             f"ON (c.{prop}) {vector_index_options}"),
+            (f"CREATE VECTOR INDEX {env.ENTITY_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) "
+             f"ON (e.{prop}) {vector_index_options}"),
+            # Community support BTREE/FTS indexes
+            (f"CREATE INDEX community_id IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) ON (c.id)"),
+            (f"CREATE INDEX community_level IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) ON (c.level)"),
+            (f"CREATE FULLTEXT INDEX community_summary_fts IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) ON EACH [c.summary]"),
+            (f"CREATE INDEX entity_norm_title_index IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) ON (e.norm_title)"),
+            (f"CREATE INDEX entity_description_index IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) ON (e.description)"),
+            (f"CREATE INDEX chunk_text_index IF NOT EXISTS FOR (c:`{LABEL_CHUNK}`) ON (c.text)"),
         ]
 
         logger.debug("Generated index queries", count=len(indexes))
         return indexes
-
-    def get_all_queries(self) -> List[str]:
-        """
-        Get all schema queries (constraints + indexes + relationship types).
-
-        Returns:
-            List[str]: Combined list of all schema queries
-        """
-        constraints = self.get_constraint_queries()
-        indexes = self.get_index_queries()
-        relationship_types = self.get_relationship_type_queries()
-        all_queries = constraints + indexes + relationship_types
-
-        logger.debug(
-            "Generated all queries",
-            total=len(all_queries),
-            constraints=len(constraints),
-            indexes=len(indexes),
-            relationship_types=len(relationship_types)
-        )
-        return all_queries
 
     def get_node_types(self) -> List[str]:
         """
@@ -87,7 +92,7 @@ class SchemaQueryBuilder:
         Returns:
             List[str]: List of node type names
         """
-        node_types = ["__Entity__", "__Document__", "__Community__"]
+        node_types = [LABEL_ENTITY, LABEL_DOCUMENT, LABEL_CHUNK, LABEL_COMMUNITY, LABEL_PROJECT]
         logger.debug("Retrieved node types", count=len(node_types))
         return node_types
 
@@ -98,9 +103,7 @@ class SchemaQueryBuilder:
         Returns:
             List[str]: List of relationship type names
         """
-        relationships = [
-            "REFERENCED_BY", "EVIDENCED_BY", "MERGED_FROM", "RELATED_TO", "DESCRIBED_IN"
-        ]
+        relationships = RELATIONSHIP_TYPES
         logger.debug("Retrieved relationship types", count=len(relationships))
         return relationships
 

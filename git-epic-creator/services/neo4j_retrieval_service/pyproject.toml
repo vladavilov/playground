@@ -17,8 +17,9 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "structlog",
-    "httpx",
-    "openai",
+    "langgraph",
+    "langchain-core",
+    "langchain-openai",
     "neo4j>=5.0.0",
     "shared @ file:../shared"
 ]

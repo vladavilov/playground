@@ -1,5 +1,8 @@
 UNWIND $rows AS v
 MERGE (c:__Chunk__ {id:v.id}) SET c += v
+WITH c, v, v.project_id AS pid
+MERGE (p:__Project__ {id: pid})
+MERGE (c)-[:IN_PROJECT]->(p)
 WITH c,v,coalesce(v.document_ids,[]) AS dids
 UNWIND dids AS did
 WITH c,did WHERE did IS NOT NULL

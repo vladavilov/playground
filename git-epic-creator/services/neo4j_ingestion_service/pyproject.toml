@@ -18,7 +18,7 @@ dependencies = [
     "uvicorn[standard]",
     "neo4j",
     "neo4j-graphrag[openai]",
-    "graphrag",
+    "graphrag==2.5.0",
     "openai",
     "structlog",
     "python-dotenv",
