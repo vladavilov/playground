@@ -63,7 +63,7 @@ class ConsistencyAuditor:
             "requirements": payload["requirements"],
             "assumptions": payload["assumptions"],
             "risks": payload["risks"],
-            "contexts": context.citations,
+            "contexts": self._aggregate_context(context),
         })
         for s in out.suggestions:
             if isinstance(s, str) and s:
@@ -106,7 +106,7 @@ class ConsistencyAuditor:
             parts.append("Risks: " + "; ".join(draft.risks))
         answer_text = ". ".join(p for p in parts if p) or ""
 
-        contexts = list(context.citations) if (context and context.citations) else []
+        contexts = self._aggregate_context(context)
 
         axes: Dict[str, float] = {}
 
@@ -161,3 +161,11 @@ class ConsistencyAuditor:
         for k in ("faithfulness", "groundedness", "response_relevancy", "completeness"):
             axes.setdefault(k, 0.0)
         return axes
+
+    def _aggregate_context(self, context: RetrievedContext) -> List[str]:
+        parts: List[str] = []
+        if getattr(context, "context_answer", None):
+            parts.append(str(context.context_answer))
+        parts.extend([str(k) for k in getattr(context, "key_facts", []) or []])
+        parts.extend([f"citation:{c}" for c in (getattr(context, "citations", []) or [])])
+        return parts

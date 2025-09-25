@@ -27,7 +27,7 @@ Interfaces
 
 - Outbound calls:
   - GraphRAG Retrieval Service (HTTP):
-    - POST /v1/retrieve { project_id, plan, strategies[], weights }
+    - POST /retrieve { query, top_k }
     - Supports multiple retrieval strategies per request with weighting to minimize latency and improve recall/precision.
 
 Message Schemas
@@ -35,13 +35,11 @@ Message Schemas
 - WorkflowProgressMessage (user-visible step updates):
   - message_type: "ai_workflow_progress"
   - project_id: string (UUID)
-  - stage: string (e.g., "prompt_decomposition", "retrieve_context", "draft_requirements", "audit", "traceability", "evaluate")
   - iteration?: integer (>=1)
   - status: string (e.g., "analyzing_prompt", "retrieving_context", "drafting_requirements", "evaluating", "needs_clarification", "completed", "error")
   - score?: number in [0,1]
   - thought_summary: string (concise summary of progress/insight; no raw chain-of-thought)
-  - citations?: string[] (optional evidence ids/refs; sanitized)
-  - visibility: string ("user" | "internal"), default "user"
+  - details_md?: string (markdown-formatted step details)
   - message_id: string (UUID)
   - timestamp: string (ISO8601)
 
@@ -97,19 +95,26 @@ Agentic Pipeline (expanded, requirements‑focused)
    - Output: DecompositionGraph. Publish WorkflowProgressMessage (status: analyzing_prompt, stage: "prompt_decomposition").
 
 2) GraphRAG Context Retrieval (ContextRetriever)
-   - Proxy design: This service does not connect to Neo4j directly; it prepares strategy inputs and calls the external GraphRAG service.
+   - Proxy design: This service does not connect to Neo4j directly; it formats the user query and intents, and calls the external Retrieval service.
    - Proxy workflow:
-     1) Build RetrievalPlan from DecompositionGraph: entity seeds, relation hints, schema tags, query expansions.
-     2) Construct payload with multiple strategies (entity_neighborhood, relation_paths, hybrid_semantic, schema_guided, ranking weights for trust/recency/centrality).
-     3) POST /v1/retrieve {project_id, plan, strategies[]} to GraphRAG service.
-     4) Apply resilience: httpx AsyncClient, exponential backoff (tenacity), per‑strategy fallbacks, partial aggregation on timeout.
-     5) Normalize response into ContextPack with provenance and citations. Publish WorkflowProgressMessage (status: retrieving_context, stage: "retrieve_context").
+     1) Merge prompt and intents into markdown:
+        """
+        ### Question
+        {prompt}
+
+        ### Intents
+        - intent_1
+        - intent_2
+        """
+     2) POST /retrieve { query: <merged_markdown>, top_k }
+     3) Apply resilience: httpx AsyncClient, exponential backoff (tenacity).
+     4) Map response to RetrievedContext { context_answer, key_facts, citations } and publish WorkflowProgressMessage (status: retrieving_context).
 
 3) Requirement Synthesis (RequirementEngineer) — iterative agentic loop
-   - Approach: iterative refinement with reflection, guided by prompt + ContextPack + prior iteration output.
+   - Approach: iterative refinement with reflection, guided by prompt + RetrievedContext + prior iteration output.
    - Orchestration: LangGraph state machine with nodes [synthesize → audit → revise] and checkpointing; optional human‑in‑the‑loop via interrupts.
    - Iteration i:
-     1) Synthesize: produce BR/FR and ACs grounded in ContextPack with citations.
+     1) Synthesize: produce BR/FR and ACs grounded in RetrievedContext with citations.
      2) Audit (ConsistencyAuditor): detect conflicts, gaps, duplicates, non‑testable ACs, compliance issues.
      3) Revise: apply audit diffs; if blocking issues remain, propose targeted clarifications.
    - Stop when: score ≥ threshold, or max_iters reached, or no material diffs.
@@ -117,28 +122,28 @@ Agentic Pipeline (expanded, requirements‑focused)
 
 4) Consistency, Constraints, and Compliance (ConsistencyAuditor)
    - Checks: contradiction detection, duplicate/overlap clustering, constraint coverage, AC testability (Given/When/Then presence), NFRs mapping, regulatory mapping.
-   - Methods: rule‑based validators + LLM critique prompts with citations back to ContextPack.
+   - Methods: rule‑based validators + LLM critique prompts with citations back to RetrievedContext.
    - Links: requirement ↔ constraints ↔ entities; surface missing links as gaps.
-   - Output: ValidatedRequirements + risks + assumptions. Publish WorkflowProgressMessage (status: evaluating, stage: "audit").
+   - Output: ValidatedRequirements + risks + assumptions. Publish WorkflowProgressMessage (status: evaluating).
 
 5) Traceability Enrichment
    - Build bidirectional trace: requirement ↔ evidence (graph ids, doc ids), requirement ↔ constraint, FR ↔ ACs; capture source spans.
-   - Generate citation map for each requirement pointing to ContextPack items.
+   - Generate citation map for each requirement pointing to RetrievedContext.citations.
    - Produce machine‑readable trace tables to support downstream tooling (e.g., Git epics/stories).
    - Output: EnrichedRequirements. Publish WorkflowProgressMessage (status: evaluating, stage: "traceability").
 
 6) Evaluation and Scoring (Evaluator)
    - Compute metrics: precision/faithfulness, grounding, response_relevancy, completeness.
-   - Aggregate to s ∈ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, stage: "evaluate", score) summarizing rubric axes.
+   - Aggregate to s ∈ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, score) summarizing rubric axes.
 
 7a) If s ≥ 0.70 → Finalize
-   - Return RequirementsBundle. Publish WorkflowProgressMessage (status: completed, stage: "evaluate", score).
+   - Return RequirementsBundle. Publish WorkflowProgressMessage (status: completed, score).
 
 7b) If s < 0.70 → Clarification Loop (QuestionStrategist)
    - Identify weakest rubric axes and missing evidence/constraints.
    - Generate targeted clarification_questions with expected_impact descriptions.
-   - Publish WorkflowProgressMessage (status: needs_clarification, stage: "evaluate", score).
-   - On POST /workflow/answers: augment DecompositionGraph/ContextPack, repeat steps 2–6 until s ≥ 0.70 or question budget exhausted.
+   - Publish WorkflowProgressMessage (status: needs_clarification, score).
+   - On POST /workflow/answers: augment DecompositionGraph/RetrievedContext, repeat steps 2–6 until s ≥ 0.70 or question budget exhausted.
 
 Evaluation Rubric (configurable) and Technical Implementation
 
@@ -205,10 +210,9 @@ Service Components
 - FastAPI app with dependency wiring via shared FastAPIFactory
 - Orchestrator: coordinates experts, scoring, and clarification loop
 - Experts:
-  - PromptAnalyst, ContextRetriever, RequirementEngineer, ConsistencyAuditor, Evaluator, QuestionStrategist
+  - PromptAnalyst, ContextRetriever (HTTP), RequirementEngineer, ConsistencyAuditor, Evaluator, QuestionStrategist
   - Implemented as pure classes with explicit inputs/outputs for testability
 - Clients:
-  - GraphRAGClient (HTTP)
   - RedisPublisher (async)
 
 Configuration
@@ -247,7 +251,6 @@ Example Progress Messages
 {
   "message_type": "ai_workflow_progress",
   "project_id": "<uuid>",
-  "stage": "evaluate",
   "status": "evaluating",
   "score": 0.62,
   "thought_summary": "Scoring draft against retrieved context; gaps in completeness.",
