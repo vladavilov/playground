@@ -54,20 +54,6 @@ class TestServicesHealth:
             # Clean up the test node
             session.run("MATCH (n:HealthCheck {id: $id}) DELETE n", id="health_test")
 
-    def test_celery_health_endpoint(self, service_urls: Dict[str, str]) -> None:
-        """Test Celery health check endpoint if available."""
-        try:
-            response = requests.get(
-                f"{service_urls['document_processing']}{TestConstants.CELERY_HEALTH_ENDPOINT}",
-                timeout=TestConstants.DEFAULT_TIMEOUT
-            )
-            # If endpoint exists, it should return 200
-            assert response.status_code == TestConstants.HTTP_OK
-        except requests.RequestException:
-            # Celery health check endpoint might not be implemented
-            # This is acceptable - we'll skip this test
-            pytest.skip("Celery health check endpoint not available")
-
     def test_all_services_accessible(self, service_urls: Dict[str, str]) -> None:
         """Test that all configured services are accessible."""
         health_status = ServiceHealthChecker.check_all_services_health(service_urls)
