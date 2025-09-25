@@ -12,7 +12,12 @@ class RequirementsEngineer:
 
     async def synthesize(self, analysis: PromptAnalysis, context: RetrievedContext, findings: AuditFindings | None = None) -> DraftRequirements:
         intents = list(analysis.intents or [])
-        citations = list(context.citations or [])
+        # Aggregate context: final answer + key facts + citations
+        contexts: List[str] = []
+        if getattr(context, "context_answer", None):
+            contexts.append(str(context.context_answer))
+        contexts.extend([str(k) for k in getattr(context, "key_facts", []) or []])
+        contexts.extend([f"citation:{c}" for c in (getattr(context, "citations", []) or [])])
         findings_payload = {
             "issues": list((findings.issues if findings else []) or []),
             "suggestions": list((findings.suggestions if findings else []) or []),
@@ -42,7 +47,7 @@ class RequirementsEngineer:
         ])
         llm = get_llm()
         chain = tmpl | llm.with_structured_output(DraftOut)
-        out: DraftOut = await chain.ainvoke({"intents": intents, "contexts": citations, "findings": findings_payload})
+        out: DraftOut = await chain.ainvoke({"intents": intents, "contexts": contexts, "findings": findings_payload})
 
         def _mk(items: List[RequirementOut]) -> List[Requirement]:
             out_items: List[Requirement] = []

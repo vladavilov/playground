@@ -26,8 +26,9 @@ class Neo4jIngestor:
     This class ingests pre-shaped rows from ParquetReader and LanceDBReader.
     """
 
-    def __init__(self, driver: Any) -> None:
+    def __init__(self, driver: Any, project_id: str | None = None) -> None:
         self._driver = driver
+        self._project_id = project_id
         env = get_vector_index_env()
         self._embedding_property = env.VECTOR_INDEX_PROPERTY
 
@@ -47,23 +48,29 @@ class Neo4jIngestor:
     # -----------------------
     # Parquet entity ingestions
     # -----------------------
+    def _attach_project_id(self, rows: List[dict]) -> List[dict]:
+        if not self._project_id:
+            return rows
+        pid = self._project_id
+        return [{**r, "project_id": pid} for r in rows]
+
     def ingest_documents(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_document_query(), rows, batch_size)
+        return self._batched_run(get_merge_document_query(), self._attach_project_id(rows), batch_size)
 
     def ingest_chunks(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_chunk_query(), rows, batch_size)
+        return self._batched_run(get_merge_chunk_query(), self._attach_project_id(rows), batch_size)
 
     def ingest_entities(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_entity_query(), rows, batch_size)
+        return self._batched_run(get_merge_entity_query(), self._attach_project_id(rows), batch_size)
 
     def ingest_entity_relationships(self, rows: List[dict], batch_size: int = 1000) -> int:
         return self._batched_run(get_merge_relationship_query(), rows, batch_size)
 
     def ingest_community_reports(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_community_report_query(), rows, batch_size)
+        return self._batched_run(get_merge_community_report_query(), self._attach_project_id(rows), batch_size)
 
     def ingest_communities(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_community_query(), rows, batch_size)
+        return self._batched_run(get_merge_community_query(), self._attach_project_id(rows), batch_size)
 
     def ingest_all_parquet(self, records: Dict[str, List[dict]], batch_size: int = 1000) -> Dict[str, int]:
         return {

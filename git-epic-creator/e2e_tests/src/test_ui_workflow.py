@@ -17,6 +17,7 @@ import requests
 from config import TestConstants
 from services.redis_test_monitor import RedisTestMonitor
 from services.workflow_assertions import WorkflowAssertions
+from shared_utils import HTTPUtils
 
 
 class TestUIRequirementsWorkflow:
@@ -29,11 +30,22 @@ class TestUIRequirementsWorkflow:
         unique_test_filename: str,
         redis_monitor: RedisTestMonitor,
         wa: WorkflowAssertions,
+        neo4j_driver,
+        target_db_name,
+        cyphers_path,
     ) -> None:
         """
         Full user flow driven through UI service proxies.
         """
         ui_base = service_urls["ui_service"]  # requires config addition
+
+        # Seed Neo4j graph for deterministic retrieval behavior (same as retrieval test)
+        wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)
+
+        # Ensure retrieval service is healthy
+        assert HTTPUtils.wait_for_service_health(service_urls['neo4j_retrieval']), (
+            "neo4j_retrieval service is not healthy"
+        )
 
         # 1) Create project via UI proxy
         create_resp = requests.post(
@@ -83,6 +95,9 @@ class TestUIRequirementsWorkflow:
             _ = next(seq)
             _ = next(seq)
 
+        # Pre-fetch retrieval result for the target question to compare later
+        question = "what are the main components of the bridge?"
+        
         # 3) Trigger AI workflow via UI proxy and track ai_workflow_progress messages
         # Begin AI workflow monitoring for the same project
         # (requires RedisTestMonitor to support ai_workflow_progress)
@@ -90,7 +105,7 @@ class TestUIRequirementsWorkflow:
         try:
             req_payload = {
                 "project_id": project_id,
-                "prompt": "Generate requirements for document processing and retrieval",
+                "prompt": question,
             }
             wf_resp = requests.post(
                 f"{ui_base}/workflow/requirements",
@@ -102,7 +117,6 @@ class TestUIRequirementsWorkflow:
                 f"Workflow request failed via UI: {wf_resp.status_code} {wf_resp.text}"
             )
 
-            # Expect a reasonable AI progress sequence
             ai_seq = redis_monitor.iter_ai_sequence(
                 project_id,
                 [
@@ -112,9 +126,17 @@ class TestUIRequirementsWorkflow:
                 ],
                 timeout_per_step=TestConstants.DOCUMENT_PROCESSING_TIMEOUT,
             )  # type: ignore[attr-defined]
-            _ = next(ai_seq)
-            _ = next(ai_seq)
-            _ = next(ai_seq)
+            _ = next(ai_seq)  # analyzing_prompt
+            retrieving_msg = next(ai_seq)
+            _ = next(ai_seq)  # drafting_requirements
+
+            assert retrieving_msg.get("status") == "retrieving_context"
+            details_md = retrieving_msg.get("details_md") or ""
+            assert "### Retrieved context" in details_md
+            assert "Items:" in details_md
+            assert "- Top refs:" in details_md
+            # Expect at least one listed ref line
+            assert "  - " in details_md
 
             bundle = wf_resp.json()
             assert bundle.get("project_id") == project_id

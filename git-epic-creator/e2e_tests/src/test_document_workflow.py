@@ -20,13 +20,9 @@ from neo4j import GraphDatabase
 class TestDocumentWorkflow:
     """Test suite for the complete end-to-end document processing workflow."""
 
-    @pytest.fixture(scope="function")
-    def ensure_clean_session_setup(neo4j_driver, target_db_name, wa):
-        wa.reset_neo4j_database(neo4j_driver, target_db_name)
-        yield
-
     def test_complete_document_processing_workflow(
         self,
+        services_ready,
         service_urls: Dict[str, str],
         auth_headers: Dict[str, str],
         postgres_connection,
@@ -76,11 +72,11 @@ class TestDocumentWorkflow:
             seq = fixtures.redis_monitor.iter_ui_sequence(
                 project_id,
                 expected,
-                timeout_per_step=300,
+                timeout_per_step=TestConstants.DOCUMENT_PROCESSING_TIMEOUT,
             )
             for _ in expected:
                 _ = next(seq)
-            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
+            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=100)
 
         # Step 8: Verify DB status and pct
         wa.verify_db_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, min_pct=100.0)
@@ -92,6 +88,7 @@ class TestDocumentWorkflow:
 
     def test_multiple_document_upload_workflow(
         self,
+        services_ready,
         service_urls: Dict[str, str],
         auth_headers: Dict[str, str],
         postgres_connection,
@@ -155,11 +152,11 @@ class TestDocumentWorkflow:
             seq = redis_monitor.iter_ui_sequence(
                 project_id,
                 expected,
-                timeout_per_step=300,
+                timeout_per_step=TestConstants.DOCUMENT_PROCESSING_TIMEOUT,
             )
             for _ in expected:
                 _ = next(seq)
-            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=300)
+            wa.wait_for_api_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, timeout=100)
 
         # Verify DB status
         wa.verify_db_status(project_id, fixtures, TestConstants.PROJECT_STATUS_RAG_READY, min_pct=100.0)
@@ -193,6 +190,7 @@ class TestDocumentWorkflowEdgeCases:
 
     def test_concurrent_document_uploads(
         self,
+        services_ready,
         service_urls: Dict[str, str],
         auth_headers: Dict[str, str],
         test_project_data: Dict[str, Any],
