@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel, Field
 
 from workflow_models.workflow_models import Requirement, ClarificationQuestion
@@ -10,8 +10,9 @@ class PromptAnalysis(BaseModel):
 
 
 class RetrievedContext(BaseModel):
+    context_answer: str = ""
+    key_facts: List[str] = Field(default_factory=list)
     citations: List[str] = Field(default_factory=list)
-    notes: Optional[str] = None
 
 
 class DraftRequirements(BaseModel):

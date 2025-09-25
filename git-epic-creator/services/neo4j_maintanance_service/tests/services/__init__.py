@@ -1,1 +1,0 @@
-# Tests for Neo4j Graph RAG Schema Initialization Service 

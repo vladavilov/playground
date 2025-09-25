@@ -28,8 +28,8 @@ set REDIS_URL=redis://localhost:6379
 
 REM GraphRAG retrieval service (neo4j-retrieval-service -> host 8008)
 set GRAPH_RAG_BASE_URL=http://localhost:8008
-set GRAPH_RAG_RETRIEVE_PATH=/retrieve
 set GRAPH_RAG_TIMEOUT_SEC=5.0
+set RETRIEVAL_TOP_K=2
 set RETRIEVAL_MAX_ATTEMPTS=3
 set RETRIEVAL_BACKOFF_BASE_SEC=0.2
 

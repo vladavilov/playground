@@ -35,6 +35,9 @@ WITH e, value, e.id AS existing_id, norm_title
 SET e += value
 SET e.id = coalesce(existing_id, value.id)
 SET e.norm_title = coalesce(norm_title, e.norm_title)
+WITH e, value, value.project_id AS pid
+MERGE (p:__Project__ {id: pid})
+MERGE (e)-[:IN_PROJECT]->(p)
 WITH e, value
 UNWIND coalesce(value.text_unit_ids,[]) AS chunk_id
 MATCH (c:__Chunk__ {id: chunk_id})

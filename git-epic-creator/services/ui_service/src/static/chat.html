@@ -106,7 +106,7 @@
     // Thinking box UI helpers
     function createThinkingBox(promptId = null) {
       const wrap = document.createElement('details');
-      wrap.className = 'thinking-box bg-white border rounded p-3 relative my-3';
+      wrap.className = 'thinking-box border rounded p-3 relative my-3 bg-transparent text-slate-500';
       wrap.open = true;
 
       const summary = document.createElement('summary');
@@ -114,7 +114,7 @@
       summary.innerText = 'Agent thought stream';
 
       const pill = document.createElement('span');
-      pill.className = 'pill absolute -top-2 left-2 text-[10px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200 animate-pulse';
+      pill.className = 'pill absolute -top-2 left-2 text-[10px] px-2 py-0.5 rounded bg-slate-50 text-slate-600 ring-2 ring-slate-200 animate-pulse';
       pill.textContent = 'Thinking…';
       summary.appendChild(pill);
 
@@ -145,7 +145,7 @@
         appendMarkdown(md) {
           if (!md) return;
           const line = document.createElement('div');
-          line.className = 'text-slate-700';
+          line.className = 'text-slate-500';
           line.innerHTML = renderMarkdown(String(md));
           messages.appendChild(line);
           scrollToBottom();
@@ -153,7 +153,7 @@
         finish(status = 'ok') {
           const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
           pill.textContent = `Thinked ${seconds}s`;
-          pill.className = 'pill absolute -top-2 left-2 text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600';
+          pill.className = 'pill absolute -top-2 left-2 text-[10px] px-2 py-0.5 rounded bg-slate-50 text-slate-500';
           if (status !== 'ok') {
             pill.className += ' ring-2 ring-rose-200 text-rose-700 bg-rose-50';
           }
@@ -226,6 +226,7 @@
             const bundle = await res.json();
             state.currentBundle = bundle;
             appendAssistantHtml(renderBundleHtml(bundle), 'Assistant • Requirements');
+            wireActionTags(bundle);
             if (Array.isArray(bundle.clarification_questions) && bundle.clarification_questions.length) {
               wireClarificationsHandlers(bundle);
             }
@@ -281,10 +282,7 @@
 
       const reqs = (items) => (Array.isArray(items) && items.length) ? items.map((r, idx) => `
         <div class="border rounded-md p-3 bg-white">
-          <div class="flex items-start justify-between gap-3">
-            <div class="text-base font-semibold leading-snug">${esc(r.title || `Requirement ${idx+1}`)}</div>
-            <div class="shrink-0 hidden sm:block">${priorityPill(r.priority)}</div>
-          </div>
+          <div class="text-base font-semibold leading-snug">${esc(r.title || `Requirement ${idx+1}`)}</div>
           <div class="mt-1 text-sm text-slate-700">${esc(r.description || '')}</div>
           <div class="mt-2 text-sm">
             <span class="font-semibold">Priority:</span>
@@ -298,10 +296,6 @@
       `).join('') : '<div class="text-slate-500 text-sm">None</div>';
 
       let html = `
-        <div class="flex items-center justify-between">
-          <h3 class="text-base font-semibold">Requirements</h3>
-          <div class="text-sm">Score <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">${esc(bundle.score)}</span></div>
-        </div>
         <div class="mt-2">
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Business Requirements</div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${reqs(bundle.business_requirements)}</div>
@@ -320,34 +314,37 @@
             ${list(bundle.risks)}
           </div>
         </div>
+        <div id="actions_${esc(bundle.prompt_id)}" class="mt-4">
+          ${Number(bundle.score) > 0.7
+            ? `<button data-action="subtasks" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Create Sub-tasks</button>`
+            : `<button data-action="answer" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Answer Questions</button>`}
+        </div>
+        <div class="mt-2 text-sm">Score <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">${esc(bundle.score)}</span></div>
       `;
 
-      if (Array.isArray(bundle.clarification_questions) && bundle.clarification_questions.length) {
-        const qHtml = bundle.clarification_questions.map(q => {
-          const input = Array.isArray(q.options) && q.options.length
-            ? `<select name="q_${esc(q.id)}" class="border rounded px-2 py-1 w-full">${q.options.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>`
-            : `<input type="text" name="q_${esc(q.id)}" class="border rounded px-2 py-1 w-full" placeholder="Your answer" />`;
-          return `
-            <div class="border rounded p-3 bg-white">
-              <div class="text-sm font-medium mb-1">${esc(q.text)}</div>
-              <div class="text-xs text-slate-600 mb-2">${esc(q.expected_impact)}</div>
-              ${input}
-            </div>
-          `;
-        }).join('');
-
-        html += `
-          <div id="clarify_${esc(bundle.prompt_id)}" class="mt-4 border-t pt-3">
-            <div class="mb-2 text-sm text-slate-600">Additional clarifications needed to reach target quality.</div>
-            <div class="space-y-2">${qHtml}</div>
-            <div class="mt-3">
-              <button data-prompt-id="${esc(bundle.prompt_id)}" class="clarify-submit px-3 py-1.5 bg-indigo-600 text-white rounded">Submit answers</button>
-            </div>
-          </div>
-        `;
-      }
-
       return html;
+    }
+
+    function wireActionTags(bundle) {
+      const host = document.getElementById(`actions_${bundle.prompt_id}`);
+      if (!host) return;
+      host.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const action = btn.getAttribute('data-action');
+        if (action === 'answer') {
+          const count = Array.isArray(bundle.clarification_questions) ? bundle.clarification_questions.length : 0;
+          const lines = Array.from({ length: count }, (_, i) => `${i + 1}.`).join('\n');
+          const template = `Here are answers on questions to increase score:\n${lines}`;
+          chatInput.value = template;
+          chatInput.focus();
+        } else if (action === 'subtasks') {
+          appendModelMessage('Create Sub-tasks action triggered', 'System');
+          try {
+            document.dispatchEvent(new CustomEvent('create-subtasks', { detail: { bundle: bundle, projectId: state.projectId } }));
+          } catch {}
+        }
+      });
     }
 
     function wireClarificationsHandlers(bundle) {
@@ -384,6 +381,7 @@
             const nextBundle = await res.json();
             state.currentBundle = nextBundle;
             appendAssistantHtml(renderBundleHtml(nextBundle), 'Assistant • Updated Requirements');
+            wireActionTags(nextBundle);
             if (Array.isArray(nextBundle.clarification_questions) && nextBundle.clarification_questions.length) {
               wireClarificationsHandlers(nextBundle);
             }

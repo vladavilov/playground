@@ -17,12 +17,12 @@ class AIWorkflowSettings(BaseConfig):
     )
 
     GRAPH_RAG_TIMEOUT_SEC: float = Field(
-        default=5.0,
+        default=30.0,
         description="Timeout in seconds for GraphRAG HTTP calls",
     )
 
     CLARIFICATION_SCORE_TARGET: float = Field(
-        default=0.85,
+        default=0.7,
         description="Target score threshold for clarification loop",
     )
 
@@ -36,9 +36,10 @@ class AIWorkflowSettings(BaseConfig):
         description="Maximum number of agentic refinement iterations",
     )
 
-    GRAPH_RAG_RETRIEVE_PATH: str = Field(
-        default="/retrieve",
-        description="Path for GraphRAG retrieval endpoint",
+    RETRIEVAL_TOP_K: int = Field(
+        default=2,
+        description="Top-K for retrieval provider",
+        ge=1,
     )
 
     RETRIEVAL_MAX_ATTEMPTS: int = Field(

@@ -70,7 +70,7 @@ def services_ready(service_urls: Dict[str, str]) -> None:
         pytest.skip(f"Skipping tests: {e}")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def postgres_initialized(service_urls: Dict[str, str]) -> bool:
     """
     Initialize PostgreSQL database once before all tests.
@@ -275,7 +275,7 @@ class ProjectManager:
             conn = psycopg2.connect(**self.postgres_config)
             cursor = conn.cursor()
             # Delete only the project created by this test to avoid interfering with other tests
-            #cursor.execute("DELETE FROM projects WHERE id = %s", (self.project_id,))
+            cursor.execute("DELETE FROM projects WHERE id = %s", (self.project_id,))
             conn.commit()
             cursor.close()
             conn.close()
@@ -394,3 +394,15 @@ def cyphers_path() -> Path:
         if p.exists():
             return p
     raise AssertionError(f"Cypher script not found in any known location. Tried: {candidates}")
+
+@pytest.fixture(scope="function", autouse=True)
+def ensure_clean_session_setup(neo4j_driver, target_db_name, wa, service_urls):
+    wa.reset_neo4j_database(neo4j_driver, target_db_name)
+    # Recreate constraints and indexes dropped by reset
+    resp = requests.post(
+        f"{service_urls['neo4j_maintenance']}/init-neo4j",
+        timeout=TestConstants.DEFAULT_TIMEOUT
+    )
+    assert resp.status_code == TestConstants.HTTP_OK, f"Neo4j init failed: {resp.text}"
+    yield
+    wa.reset_neo4j_database(neo4j_driver, target_db_name)
