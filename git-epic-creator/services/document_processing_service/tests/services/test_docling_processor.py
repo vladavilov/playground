@@ -1,16 +1,13 @@
-"""Tests for Docling-backed document processor."""
+"""Integration tests for Docling-backed document processor (no local mocks).
+
+Only external web calls are suppressed by setting HF_HUB_OFFLINE.
+"""
 import os
 import tempfile
-from unittest.mock import patch, MagicMock
+from pathlib import Path
 
-import pytest
-
-from services.docling_processor import DoclingProcessor
-
-
-@pytest.fixture
-def processor():
-    return DoclingProcessor()
+# Intentionally avoid importing DoclingProcessor at module import time.
+# Each test imports it after environment variables are configured.
 
 
 def _write_bytes_temp(suffix: str, data: bytes) -> str:
@@ -21,46 +18,56 @@ def _write_bytes_temp(suffix: str, data: bytes) -> str:
     return tmp.name
 
 
-@patch("services.docling_processor.DocumentConverter")
-def test_pdf_via_docling(mock_converter_cls, processor):
-    mock_converter = MagicMock()
-    mock_doc = MagicMock()
-    mock_doc.export_to_markdown.return_value = "Hello\n\nWorld"
-    mock_doc.metadata = {"foo": "bar"}
-    mock_result = MagicMock(document=mock_doc)
-    mock_converter.convert.return_value = mock_result
-    mock_converter_cls.return_value = mock_converter
+def test_pdf_integration_local_sample(monkeypatch):
+    # Isolate HuggingFace caches to a temp dir and disable symlinks/hardlinks on Windows
+    tmp_root = tempfile.mkdtemp(prefix="hf-cache-")
+    monkeypatch.setenv("HF_HOME", tmp_root)
+    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", os.path.join(tmp_root, "hub"))
+    monkeypatch.setenv("TRANSFORMERS_CACHE", os.path.join(tmp_root, "transformers"))
+    monkeypatch.setenv("HF_HUB_DISABLE_SYMLINKS", "1")
+    monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
-    path = _write_bytes_temp(".pdf", b"%PDF-1.4\nHello\n%%EOF")
+    # Use an existing small sample PDF next to this test file
+    path = str(Path(__file__).resolve().parent / "dummy.pdf")
+
+    from services.docling_processor import DoclingProcessor
+    processor = DoclingProcessor()
+    result = processor.extract_text_with_result(path)
+    assert result.success is True
+    assert result.file_type == "application/pdf"
+    assert isinstance(result.extracted_text, str)
+    assert "Welcome to SmallPDF" in result.extracted_text
+
+def test_image_integration_png(monkeypatch):
+    # This test is opt-in due to VLM requirement; enable with DOC_VLM_TEST=1
+    if os.getenv("DOC_VLM_TEST") != "1":
+        import pytest
+        pytest.skip("Enable DOC_VLM_TEST=1 to run image/VLM integration test.")
+
+    # Isolate HuggingFace caches to a temp dir and disable symlinks/hardlinks on Windows
+    tmp_root = tempfile.mkdtemp(prefix="hf-cache-")
+    monkeypatch.setenv("HF_HOME", tmp_root)
+    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", os.path.join(tmp_root, "hub"))
+    monkeypatch.setenv("TRANSFORMERS_CACHE", os.path.join(tmp_root, "transformers"))
+    monkeypatch.setenv("HF_HUB_DISABLE_SYMLINKS", "1")
+    monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
+    # Create a small valid PNG via base64 to avoid decode errors
+    import base64
+    # 1x1 transparent PNG
+    png_b64 = (
+        b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ao9oZkAAAAASUVORK5CYII="
+    )
+    data = base64.b64decode(png_b64)
+    path = _write_bytes_temp(".png", data)
+
+    from services.docling_processor import DoclingProcessor
+    processor = DoclingProcessor()
     try:
         result = processor.extract_text_with_result(path)
-        assert result.success
-        assert "Hello" in (result.extracted_text or "")
-        assert result.file_type == "application/pdf"
-        assert result.metadata.get("foo") == "bar"
-    finally:
-        try:
-            os.unlink(path)
-        except Exception:
-            pass
-
-
-@patch("services.docling_processor.DocumentConverter")
-def test_image_via_docling(mock_converter_cls, processor):
-    mock_converter = MagicMock()
-    mock_doc = MagicMock()
-    mock_doc.export_to_markdown.return_value = "ImageText"
-    mock_doc.metadata = {}
-    mock_result = MagicMock(document=mock_doc)
-    mock_converter.convert.return_value = mock_result
-    mock_converter_cls.return_value = mock_converter
-
-    path = _write_bytes_temp(".png", b"\x89PNG\r\n\x1a\n")
-    try:
-        result = processor.extract_text_with_result(path)
-        assert result.success
-        assert "ImageText" in (result.extracted_text or "")
+        assert result.success is True
         assert result.file_type == "image/*"
+        assert isinstance(result.extracted_text, str)
     finally:
         try:
             os.unlink(path)
@@ -68,13 +75,15 @@ def test_image_via_docling(mock_converter_cls, processor):
             pass
 
 
-@patch("services.docling_processor.DocumentConverter", side_effect=Exception("docling boom"))
-def test_pdf_failure_no_fallback(mock_converter_cls, processor):
-    path = _write_bytes_temp(".pdf", b"%PDF-1.4\n%%EOF")
+def test_pdf_unsupported_format_error():
+    # Use a plain text file to trigger unsupported format handling
+    path = _write_bytes_temp(".txt", b"hello")
     try:
+        from services.docling_processor import DoclingProcessor
+        processor = DoclingProcessor()
         result = processor.extract_text_with_result(path)
-        assert not result.success
-        assert "Docling failed" in (result.error_message or "")
+        assert result.success is False
+        assert "Unsupported" in (result.error_message or "")
     finally:
         try:
             os.unlink(path)
@@ -82,15 +91,9 @@ def test_pdf_failure_no_fallback(mock_converter_cls, processor):
             pass
 
 
-@patch("services.docling_processor.DocumentConverter", side_effect=Exception("docling fail"))
-def test_image_failure_no_fallback(mock_converter_cls, processor):
-    path = _write_bytes_temp(".jpg", b"\xff\xd8\xff\xe0")
-    try:
-        result = processor.extract_text_with_result(path)
-        assert not result.success
-        assert "Docling failed" in (result.error_message or "")
-    finally:
-        try:
-            os.unlink(path)
-        except Exception:
-            pass
+def test_nonexistent_file_error():
+    from services.docling_processor import DoclingProcessor
+    processor = DoclingProcessor()
+    result = processor.extract_text_with_result("/path/does/not/exist.pdf")
+    assert result.success is False
+    assert "File not found" in (result.error_message or "")

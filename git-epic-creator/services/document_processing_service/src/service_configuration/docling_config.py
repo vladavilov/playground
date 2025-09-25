@@ -30,4 +30,16 @@ class DoclingSettings(BaseSettings):
         description="Timeout for Docling extraction"
     )
 
+    # OCR languages as comma-separated list, e.g. "en,fr,de"
+    DOCLING_OCR_LANGS: str = Field(
+        default="en",
+        description="Comma-separated list of OCR languages (e.g., 'en,fr,de')"
+    )
+
+    # Image scale for picture generation and VLM description quality
+    DOCLING_IMAGES_SCALE: float = Field(
+        default=2.0,
+        description="Scaling factor for images used in picture description"
+    )
+
 
