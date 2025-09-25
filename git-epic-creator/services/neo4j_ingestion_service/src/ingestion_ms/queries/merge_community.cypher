@@ -1,13 +1,17 @@
 UNWIND $rows AS value
 WITH value
-MERGE (c:__Community__ {community:value.community}) 
+WITH value, value.project_id AS pid
+MERGE (p:__Project__ {id: pid})
+MERGE (c:__Community__ {community:value.community, project_id: pid}) 
 SET c += value 
-WITH c, value, range(0, coalesce(size(value.entity_ids),0)-1) AS idxs 
+MERGE (c)-[:IN_PROJECT]->(p)
+WITH c, p, value, range(0, coalesce(size(value.entity_ids),0)-1) AS idxs 
 UNWIND idxs AS i 
-WITH c, value.entity_ids[i] AS entity_id 
-WITH c, entity_id WHERE entity_id IS NOT NULL 
-MATCH (e:__Entity__ {id:entity_id}) 
+WITH c, p, value.entity_ids[i] AS entity_id 
+WITH c, p, entity_id WHERE entity_id IS NOT NULL 
+MATCH (e:__Entity__ {id:entity_id})-[:IN_PROJECT]->(p)
 MERGE (e)-[:IN_COMMUNITY]->(c)
-WITH c, e
+WITH c, p, e
 MATCH (ch:__Chunk__)-[:HAS_ENTITY]->(e)
+MATCH (ch)-[:IN_PROJECT]->(p)
 MERGE (ch)-[:IN_COMMUNITY]->(c)

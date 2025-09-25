@@ -12,9 +12,6 @@ import neo4j
 from neo4j.exceptions import Neo4jError
 
 from utils.neo4j_client import Neo4jClient, Neo4jHealthChecker
-from utils.error_handler import ErrorHandler
-from configuration.neo4j_config import Neo4jSettings
-from .schema_query_builder import SchemaQueryBuilder
 
 logger = structlog.get_logger(__name__)
 
@@ -75,40 +72,31 @@ class Neo4jSchemaService:
                 await asyncio.sleep(self.settings.NEO4J_RETRY_DELAY)
 
     async def execute_queries_batch(self, queries: List[str]) -> Dict[str, Any]:
-        """Execute a batch of queries.
+        """Execute a batch of queries with shared flow."""
+        return await self._run_batch(queries)
 
-        Args:
-            queries: List of Cypher queries to execute
-
-        Returns:
-            Dict[str, Any]: Batch execution results
-        """
-        results = {
+    async def _run_batch(self, queries: List[str]) -> Dict[str, Any]:
+        results: Dict[str, Any] = {
             "executed_queries": [],
             "failed_queries": [],
-            "total_queries": len(queries)
+            "total_queries": len(queries or []),
         }
-
-        for query in queries:
-            query_result = await self.execute_query(query)
-
-            if query_result["success"]:
-                results["executed_queries"].append(query_result)
+        for query in (queries or []):
+            item = await self.execute_query(query)
+            if item.get("success"):
+                results["executed_queries"].append(item)
             else:
-                results["failed_queries"].append(query_result)
-
+                results["failed_queries"].append(item)
         executed_count = len(results["executed_queries"])
         total_count = results["total_queries"]
-        success_rate = self._calculate_success_rate(executed_count, total_count)
-
-        results["success_rate"] = success_rate
-
-        logger.info("Batch execution completed",
-                   total=total_count,
-                   executed=executed_count,
-                   failed=len(results["failed_queries"]),
-                   success_rate=success_rate)
-
+        results["success_rate"] = self._calculate_success_rate(executed_count, total_count)
+        logger.info(
+            "Batch execution completed",
+            total=total_count,
+            executed=executed_count,
+            failed=len(results["failed_queries"]),
+            success_rate=results["success_rate"],
+        )
         return results
 
     async def initialize_schema(self) -> Dict[str, Any]:

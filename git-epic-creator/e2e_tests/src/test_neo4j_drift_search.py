@@ -1,73 +1,38 @@
 from __future__ import annotations
 
 import pytest
-import os
-import requests
-from neo4j import GraphDatabase
+from uuid import uuid4
 
-from services.cypher_loader import execute_cypher_script
-
-
-REQUIRED_INDEXES = (
-    "graphrag_comm_index",
-    "graphrag_chunk_index",
-    "community_summary_fts",
-    "chunk_text_fts",
-    "chunk_index_unique",
-    "community_id_unique_underscored",
-    "document_id_unique_underscored",
-    "entity_id_unique_underscored",
-    "entity_name_unique",
-)
+from shared_utils import HTTPUtils
+from config import TestConstants
 
 
-@pytest.fixture(scope="session")
-def ensure_clean_session_setup(neo4j_config, target_db_name, cyphers_path):
-    driver = GraphDatabase.driver(
-        neo4j_config["uri"],
-        auth=(neo4j_config["username"], neo4j_config["password"]) 
+def test_retrieval_service(
+    neo4j_driver,
+    target_db_name,
+    cyphers_path,
+    service_urls,
+    services_ready,
+    wa,
+):
+    wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)
+
+    # Ensure retrieval service is healthy
+    assert HTTPUtils.wait_for_service_health(service_urls['neo4j_retrieval']), (
+        "neo4j_retrieval service is not healthy"
     )
-    try:
-        cleanup_session(driver, target_db_name)
-        execute_cypher_script(driver, target_db_name, cyphers_path)
-    finally:
-        driver.close()
-    yield
 
-
-def cleanup_session(driver, target_db_name):
-    with driver.session(database=target_db_name) as session:
-        session.run("MATCH (n) DETACH DELETE n").consume()
-        session.run("CALL apoc.schema.assert({}, {})").consume()
-        for idx in REQUIRED_INDEXES:
-            session.run(f"DROP INDEX {idx} IF EXISTS").consume()
-
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_after_session(neo4j_config, target_db_name):
-    yield
-    driver = GraphDatabase.driver(
-        neo4j_config["uri"],
-        auth=(neo4j_config["username"], neo4j_config["password"]) 
-    )
-    try:
-        cleanup_session(driver, target_db_name)
-    finally:
-        driver.close()
-
-
-def _call_retrieval_service(question: str) -> requests.Response:
-    base = os.getenv("RETRIEVAL_BASE_URL", "http://neo4j-retrieval-service:8000")
-    url = base.rstrip('/') + "/retrieve"
-    payload = {"query": question}
-    resp = requests.post(url, json=payload, timeout=10)
-    return resp
-
-
-def test_retrieval_service(ensure_clean_session_setup):
     question = "what are the main components of the bridge?"
 
-    resp = _call_retrieval_service(question)
+    # Use fixed project id created by cypher script
+    project_id = "11111111-1111-1111-1111-111111111111"
+
+    resp = HTTPUtils.make_request_with_retry(
+        method="POST",
+        url=service_urls['neo4j_retrieval'].rstrip('/') + "/retrieve",
+        timeout=TestConstants.DEFAULT_TIMEOUT,
+        json_data={"query": question, "project_id": project_id},
+    )
 
     assert resp.status_code == 200, f"retrieval status {resp.status_code}, body={resp.text[:200]}"
 
