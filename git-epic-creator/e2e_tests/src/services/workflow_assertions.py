@@ -256,9 +256,7 @@ class WorkflowAssertions:
     def reset_neo4j_database(
         self,
         driver: Any,
-        database_name: str,
-        *,
-        required_index_names: Iterable[str] | None = None,
+        database_name: str
     ) -> None:
         """Remove all nodes/relationships and drop provided indexes if exist.
 
@@ -267,9 +265,6 @@ class WorkflowAssertions:
         with driver.session(database=database_name) as session:
             session.run("MATCH (n) DETACH DELETE n").consume()
             session.run("CALL apoc.schema.assert({}, {})").consume()
-            if required_index_names:
-                for idx in required_index_names:
-                    session.run(f"DROP INDEX {idx} IF EXISTS").consume()
 
     def load_cypher_script(self, driver: Any, database_name: str, script_path: Path) -> None:
         execute_cypher_script(driver, database_name, script_path)

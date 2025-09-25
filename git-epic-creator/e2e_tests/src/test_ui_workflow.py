@@ -40,7 +40,6 @@ class TestUIRequirementsWorkflow:
         ui_base = service_urls["ui_service"]  # requires config addition
 
         # Seed Neo4j graph for deterministic retrieval behavior (same as retrieval test)
-        wa.reset_neo4j_database(neo4j_driver, target_db_name)
         wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)
 
         # Ensure retrieval service is healthy

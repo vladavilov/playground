@@ -15,8 +15,6 @@ def test_retrieval_service(
     services_ready,
     wa,
 ):
-    # Reset and seed Neo4j with drift search dataset
-    wa.reset_neo4j_database(neo4j_driver, target_db_name)
     wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)
 
     # Ensure retrieval service is healthy
