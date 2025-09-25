@@ -209,11 +209,10 @@ class WorkflowAssertions:
     def verify_neo4j_vector_index(self, fixtures: WorkflowTestFixtures) -> None:
         """Verify vector indexes exist and are ONLINE with correct settings.
 
-        Community uses property 'summary_embedding'; chunks use 'embedding'.
         """
         expected = [
             {"label": "__Chunk__", "property": "embedding"},
-            {"label": "__Community__", "property": "summary_embedding"},
+            {"label": "__Community__", "property": "embedding"},
         ]
         expected_dims = 1536
         expected_sim = "cosine"
