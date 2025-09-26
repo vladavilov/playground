@@ -5,6 +5,7 @@ Only external web calls are suppressed by setting HF_HUB_OFFLINE.
 import os
 import tempfile
 from pathlib import Path
+from services.docling_processor import DoclingProcessor
 
 # Intentionally avoid importing DoclingProcessor at module import time.
 # Each test imports it after environment variables are configured.
@@ -25,18 +26,18 @@ def test_pdf_integration_local_sample(monkeypatch):
     monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", os.path.join(tmp_root, "hub"))
     monkeypatch.setenv("TRANSFORMERS_CACHE", os.path.join(tmp_root, "transformers"))
     monkeypatch.setenv("HF_HUB_DISABLE_SYMLINKS", "1")
+    monkeypatch.setenv("HF_HUB_DISABLE_HARDLINKS", "1")
     monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
     # Use an existing small sample PDF next to this test file
     path = str(Path(__file__).resolve().parent / "dummy.pdf")
 
-    from services.docling_processor import DoclingProcessor
     processor = DoclingProcessor()
     result = processor.extract_text_with_result(path)
     assert result.success is True
     assert result.file_type == "application/pdf"
     assert isinstance(result.extracted_text, str)
-    assert "Welcome to SmallPDF" in result.extracted_text
+    assert "Welcome to Smallpdf" in result.extracted_text
 
 def test_image_integration_png(monkeypatch):
     # This test is opt-in due to VLM requirement; enable with DOC_VLM_TEST=1
@@ -50,6 +51,7 @@ def test_image_integration_png(monkeypatch):
     monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", os.path.join(tmp_root, "hub"))
     monkeypatch.setenv("TRANSFORMERS_CACHE", os.path.join(tmp_root, "transformers"))
     monkeypatch.setenv("HF_HUB_DISABLE_SYMLINKS", "1")
+    monkeypatch.setenv("HF_HUB_DISABLE_HARDLINKS", "1")
     monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
     # Create a small valid PNG via base64 to avoid decode errors
