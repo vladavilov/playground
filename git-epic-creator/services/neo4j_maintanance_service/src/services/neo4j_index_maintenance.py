@@ -84,12 +84,11 @@ class Neo4jIndexMaintenance:
     def ensure_ingestion_constraints(self) -> Dict[str, Any]:
         """Ensure idempotent constraints required by ingestion/import flows.
 
-        Creates constraints equivalent to the former ingestion service:
+        Creates constraints required for ingestion and removes legacy ones:
+        - Create composite unique on `:__Community__(project_id, community)`
         - Unique on `:__Chunk__(id)`
         - Unique on `:__Document__(id)`
-        - Unique on `:__Community__(community)`
         - Unique on `:__Entity__(id)`
-        - Unique on `:__Entity__(title)`
         - Unique on relationship `RELATED(id)`
         """
         statements = SchemaQueryBuilder().get_constraint_queries()
@@ -108,7 +107,8 @@ class Neo4jIndexMaintenance:
     async def ensure_all_indexes(self) -> Dict[str, Any]:
         """Ensure all required indexes and constraints exist.
 
-        Ensures: ingestion constraints, vector indexes (chunk/community/entity), and community indexes.
+        Ensures: ingestion constraints (including composite community uniqueness),
+        vector indexes (chunk/community/entity), and community indexes.
         """
         result: Dict[str, Any] = {"success": True}
         # Ensure constraints first

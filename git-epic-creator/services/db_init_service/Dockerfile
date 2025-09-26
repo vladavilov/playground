@@ -1,4 +1,4 @@
-FROM python:3.13-slim AS builder
+FROM python:3.13-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir .
 WORKDIR /app/db_init_service
 RUN pip install --no-cache-dir .
 
-FROM python:3.13-slim AS final
+FROM python:3.13-slim-bookworm AS final
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
