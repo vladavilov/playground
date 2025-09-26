@@ -8,9 +8,6 @@ import shutil
 from pathlib import Path
 from services.docling_processor import DoclingProcessor
 
-# Intentionally avoid importing DoclingProcessor at module import time.
-# Each test imports it after environment variables are configured.
-
 
 def _write_bytes_temp(suffix: str, data: bytes) -> str:
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
@@ -21,7 +18,6 @@ def _write_bytes_temp(suffix: str, data: bytes) -> str:
 
 
 def test_pdf_integration_local_sample(monkeypatch):
-    # Isolate HuggingFace caches to a temp dir and disable symlinks/hardlinks on Windows
     tmp_root = tempfile.mkdtemp(prefix="hf-cache-")
     monkeypatch.setenv("HF_HOME", tmp_root)
     monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", os.path.join(tmp_root, "hub"))
@@ -30,7 +26,6 @@ def test_pdf_integration_local_sample(monkeypatch):
     monkeypatch.setenv("HF_HUB_DISABLE_HARDLINKS", "1")
     monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
-    # Use an existing small sample PDF next to this test file
     path = str(Path(__file__).resolve().parent / "dummy.pdf")
 
     processor = DoclingProcessor()
@@ -41,12 +36,6 @@ def test_pdf_integration_local_sample(monkeypatch):
     assert "Welcome to Smallpdf" in result.extracted_text
 
 def test_image_integration_png(monkeypatch):
-    # This test is opt-in due to VLM requirement; enable with DOC_VLM_TEST=1
-    # if os.getenv("DOC_VLM_TEST") != "1":
-    #     import pytest
-    #     pytest.skip("Enable DOC_VLM_TEST=1 to run image/VLM integration test.")
-
-    # Isolate HuggingFace caches to a temp dir and disable symlinks/hardlinks on Windows
     tmp_root = tempfile.mkdtemp(prefix="hf-cache-")
     monkeypatch.setenv("HF_HOME", tmp_root)
     monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", os.path.join(tmp_root, "hub"))
@@ -55,7 +44,6 @@ def test_image_integration_png(monkeypatch):
     monkeypatch.setenv("HF_HUB_DISABLE_HARDLINKS", "1")
     monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
-    # Copy the existing PNG next to this test file into a temp dir as sample.png
     src_path = str(Path(__file__).resolve().parent / "01-sequence-diagram-example.png")
     tmp_img_dir = tempfile.mkdtemp(prefix="docling-img-")
     path = os.path.join(tmp_img_dir, "sample.png")
@@ -76,7 +64,6 @@ def test_image_integration_png(monkeypatch):
 
 
 def test_pdf_unsupported_format_error():
-    # Use a plain text file to trigger unsupported format handling
     path = _write_bytes_temp(".txt", b"hello")
     try:
         processor = DoclingProcessor()
