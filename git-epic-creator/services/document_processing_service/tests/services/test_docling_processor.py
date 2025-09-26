@@ -4,6 +4,7 @@ Only external web calls are suppressed by setting HF_HUB_OFFLINE.
 """
 import os
 import tempfile
+import shutil
 from pathlib import Path
 from services.docling_processor import DoclingProcessor
 
@@ -41,9 +42,9 @@ def test_pdf_integration_local_sample(monkeypatch):
 
 def test_image_integration_png(monkeypatch):
     # This test is opt-in due to VLM requirement; enable with DOC_VLM_TEST=1
-    if os.getenv("DOC_VLM_TEST") != "1":
-        import pytest
-        pytest.skip("Enable DOC_VLM_TEST=1 to run image/VLM integration test.")
+    # if os.getenv("DOC_VLM_TEST") != "1":
+    #     import pytest
+    #     pytest.skip("Enable DOC_VLM_TEST=1 to run image/VLM integration test.")
 
     # Isolate HuggingFace caches to a temp dir and disable symlinks/hardlinks on Windows
     tmp_root = tempfile.mkdtemp(prefix="hf-cache-")
@@ -54,25 +55,22 @@ def test_image_integration_png(monkeypatch):
     monkeypatch.setenv("HF_HUB_DISABLE_HARDLINKS", "1")
     monkeypatch.setenv("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
-    # Create a small valid PNG via base64 to avoid decode errors
-    import base64
-    # 1x1 transparent PNG
-    png_b64 = (
-        b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ao9oZkAAAAASUVORK5CYII="
-    )
-    data = base64.b64decode(png_b64)
-    path = _write_bytes_temp(".png", data)
+    # Copy the existing PNG next to this test file into a temp dir as sample.png
+    src_path = str(Path(__file__).resolve().parent / "01-sequence-diagram-example.png")
+    tmp_img_dir = tempfile.mkdtemp(prefix="docling-img-")
+    path = os.path.join(tmp_img_dir, "sample.png")
+    shutil.copyfile(src_path, path)
 
-    from services.docling_processor import DoclingProcessor
     processor = DoclingProcessor()
     try:
         result = processor.extract_text_with_result(path)
         assert result.success is True
+        assert "LifeLine" in result.extracted_text
         assert result.file_type == "image/*"
         assert isinstance(result.extracted_text, str)
     finally:
         try:
-            os.unlink(path)
+            shutil.rmtree(tmp_img_dir, ignore_errors=True)
         except Exception:
             pass
 
@@ -81,7 +79,6 @@ def test_pdf_unsupported_format_error():
     # Use a plain text file to trigger unsupported format handling
     path = _write_bytes_temp(".txt", b"hello")
     try:
-        from services.docling_processor import DoclingProcessor
         processor = DoclingProcessor()
         result = processor.extract_text_with_result(path)
         assert result.success is False
@@ -94,7 +91,6 @@ def test_pdf_unsupported_format_error():
 
 
 def test_nonexistent_file_error():
-    from services.docling_processor import DoclingProcessor
     processor = DoclingProcessor()
     result = processor.extract_text_with_result("/path/does/not/exist.pdf")
     assert result.success is False
