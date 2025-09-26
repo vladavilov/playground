@@ -42,8 +42,9 @@ class SchemaQueryBuilder:
              f"REQUIRE c.id IS UNIQUE"),
             (f"CREATE CONSTRAINT project_id_unique_underscored IF NOT EXISTS FOR (p:`{LABEL_PROJECT}`) "
              f"REQUIRE p.id IS UNIQUE"),
+            # Composite uniqueness scoped by project to avoid cross-project clashes
             (f"CREATE CONSTRAINT community_key_unique_underscored IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) "
-             f"REQUIRE c.community IS UNIQUE"),
+             f"REQUIRE (c.project_id, c.community) IS UNIQUE"),
             ("CREATE CONSTRAINT related_id IF NOT EXISTS FOR ()-[rel:RELATED]->() REQUIRE rel.id IS UNIQUE"),
         ]
 

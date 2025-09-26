@@ -18,6 +18,12 @@ echo Cleaning up unused Docker resources...
 docker system prune -f
 
 echo.
+echo Cleaning up unused Docker resources...
+docker system df
+docker system prune -a --volumes --force
+docker buildx prune -a --force
+
+echo.
 echo Docker cleanup completed!
 echo All containers, volumes, and temporary storage have been removed.
 pause
