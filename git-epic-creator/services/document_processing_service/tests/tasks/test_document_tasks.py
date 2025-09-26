@@ -104,7 +104,7 @@ def test_success_single_file():
     result = process_project_documents_core(
         project_id="00000000-0000-0000-0000-000000000001",
         blob_client=blob,
-        tika_processor=tika,
+        document_processor=tika,
         send_progress_update=_progress_stub,
     )
 
@@ -130,7 +130,7 @@ def test_list_failure_returns_false():
     result = process_project_documents_core(
         project_id="00000000-0000-0000-0000-000000000002",
         blob_client=blob,
-        tika_processor=tika,
+        document_processor=tika,
         send_progress_update=_progress_stub,
     )
 
@@ -166,7 +166,7 @@ def test_partial_failure_two_files():
     result = process_project_documents_core(
         project_id="00000000-0000-0000-0000-000000000003",
         blob_client=blob,
-        tika_processor=tika,
+        document_processor=tika,
         send_progress_update=_progress_stub,
     )
 

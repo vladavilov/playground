@@ -23,6 +23,7 @@ dependencies = [
     "httpx",
     "requests",
     "tenacity",
+    "docling[vlm]",
     "shared @ file:../shared"
 ]
 

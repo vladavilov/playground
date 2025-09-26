@@ -7,11 +7,12 @@ import asyncio
 import structlog
 
 from services.tika_processor import TikaProcessor
+from services.docling_processor import DoclingProcessor
 from utils.blob_storage import BlobStorageClient
 from clients.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
 from celery_worker_app import celery_app
-from utils.redis_client import get_redis_client, get_sync_redis_client
+from utils.redis_client import get_sync_redis_client
 from utils.workflow_gating import gate_and_enqueue_sync, cleanup_after_run_sync
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +26,27 @@ from constants import (
     GATE_NS_INGESTION,
     GATE_DEFAULT_RUNNING_TTL,
 )
+
+
+class _ProcessorDispatcher:
+    """Selects Docling for PDFs/images and Tika for other formats.
+
+    Exposes the same API used by process_project_documents_core: extract_text_with_result(path).
+    """
+
+    def __init__(self, docling: DoclingProcessor, tika: TikaProcessor) -> None:
+        self._docling = docling
+        self._tika = tika
+
+    def extract_text_with_result(self, file_path: str):  # type: ignore[override]
+        ext = os.path.splitext(file_path)[1].lower()
+        docling_exts = set((self._docling.settings.DOCLING_IMAGE_EXTENSIONS or "").split(","))
+        docling_exts = {e.strip().lower() for e in docling_exts if e.strip()}
+        if ext == ".pdf" or ext in docling_exts:
+            if self._docling.is_supported_format(file_path):
+                return self._docling.extract_text_with_result(file_path)
+        return self._tika.extract_text_with_result(file_path)
+
 
 async def _update_project_progress_via_http(
     project_id: str, 
@@ -111,7 +133,6 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
 
     try:
         # Acquire a per-project distributed lock to avoid concurrent processing (sync lock)
-        redis_client = get_redis_client()
         sync_client = get_sync_redis_client()
         lock_key = f"{GATE_NS_DOCS}:lock:{project_id}"
         sync_lock = sync_client.lock(lock_key, timeout=GATE_DEFAULT_RUNNING_TTL, blocking=False)
@@ -123,7 +144,9 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                 'skipped': True
             }
         blob_client = BlobStorageClient()
-        tika_processor = TikaProcessor()
+        # Choose processor based on file type at runtime within core loop via a dispatcher
+        # We pass both processors and decide per file in a thin wrapper
+        document_processor = _ProcessorDispatcher(DoclingProcessor(), TikaProcessor())
 
         def _send_progress_update(pid: str, processed: int, total: int) -> Dict[str, Any]:
             return asyncio.run(_update_project_progress_via_http(pid, processed, total))
@@ -131,7 +154,7 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
         result = process_project_documents_core(
             project_id=project_id,
             blob_client=blob_client,
-            tika_processor=tika_processor,
+            document_processor=document_processor,
             send_progress_update=_send_progress_update,
             logger=logger,
         )

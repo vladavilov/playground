@@ -22,11 +22,12 @@ FROM python:3.13-slim AS final
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install Java Runtime Environment, wget for Tika download, and curl for healthchecks
+# Install Java Runtime Environment, wget for Tika download, curl for healthchecks, and git for HF downloads
 RUN apt-get update && apt-get install -y \
     openjdk-21-jre-headless \
     wget \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/* && \
     java -version
 
@@ -72,6 +73,17 @@ ENV PYTHONPATH=/app/src
 WORKDIR /app
 
 COPY --from=builder /app/document_processing_service/src/ ./src/
+
+# Hugging Face caches and predownload
+ENV HF_HOME=/opt/hf-cache \
+    HUGGINGFACE_HUB_CACHE=/opt/hf-cache/hub \
+    TRANSFORMERS_CACHE=/opt/hf-cache/transformers \
+    HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct
+
+RUN mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-cache/models
+
+# Predownload local ungated VLM to bake into the image layer
+RUN python -m src.scripts.download_hf_model
 
 ENV API_PORT=8000
 EXPOSE $API_PORT
