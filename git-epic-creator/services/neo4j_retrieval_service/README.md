@@ -23,15 +23,15 @@ Your graph:
 ### Properties
 
 -   `:__Chunk__.embedding :: List[Float]` (already present)
--   `:__Community__.summary_embedding :: List[Float]`
+-   `:__Community__.embedding :: List[Float]`
 
 ### Indexes (Neo4j 5+)
 
 The vector index for communities should be created **once**:
-cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:__Community__) ON (c.summary_embedding) OPTIONS {indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'COSINE' }};
+cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:__Community__) ON (c.embedding) OPTIONS {indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'COSINE' }};
 > **Note:** Community embeddings should be computed once from each
 > community's `summary` (using the same embedding model as for chunks)
-> and stored in `c.summary_embedding`.
+> and stored in `c.embedding`.
 
 ------------------------------------------------------------------------
 

@@ -81,12 +81,12 @@ def test_metadata_includes_required_fields():
         file_list=["input/test_document.pdf"]
     )
     
-    tika_processor = FakeTikaProcessor(sample_metadata)
+    document_processor = FakeTikaProcessor(sample_metadata)
 
     result = process_project_documents_core(
         project_id="123e4567-e89b-12d3-a456-426614174000",
         blob_client=blob_client,
-        tika_processor=tika_processor,
+        document_processor=document_processor,
         send_progress_update=_progress_stub
     )
 
@@ -149,12 +149,12 @@ def test_metadata_filters_irrelevant_fields():
         file_list=["input/test_document.pdf"]
     )
     
-    tika_processor = FakeTikaProcessor(sample_metadata)
+    document_processor = FakeTikaProcessor(sample_metadata)
 
     result = process_project_documents_core(
         project_id="123e4567-e89b-12d3-a456-426614174000",
         blob_client=blob_client,
-        tika_processor=tika_processor,
+        document_processor=document_processor,
         send_progress_update=_progress_stub
     )
 
@@ -190,12 +190,12 @@ def test_metadata_handles_missing_dates():
         file_list=["input/test_document.pdf"]
     )
     
-    tika_processor = FakeTikaProcessor(sample_metadata)
+    document_processor = FakeTikaProcessor(sample_metadata)
 
     result = process_project_documents_core(
         project_id="123e4567-e89b-12d3-a456-426614174000",
         blob_client=blob_client,
-        tika_processor=tika_processor,
+        document_processor=document_processor,
         send_progress_update=_progress_stub
     )
 
@@ -234,12 +234,12 @@ def test_metadata_handles_different_file_types():
             file_list=[f"input/{filename}"]
         )
         
-        tika_processor = FakeTikaProcessor(sample_metadata)
+        document_processor = FakeTikaProcessor(sample_metadata)
 
         result = process_project_documents_core(
             project_id="123e4567-e89b-12d3-a456-426614174000",
             blob_client=blob_client,
-            tika_processor=tika_processor,
+            document_processor=document_processor,
             send_progress_update=_progress_stub
         )
 
@@ -266,12 +266,12 @@ def test_metadata_preserves_original_text_content():
         file_list=["input/test_document.pdf"]
     )
     
-    tika_processor = FakeTikaProcessor(sample_metadata)
+    document_processor = FakeTikaProcessor(sample_metadata)
 
     result = process_project_documents_core(
         project_id="123e4567-e89b-12d3-a456-426614174000",
         blob_client=blob_client,
-        tika_processor=tika_processor,
+        document_processor=document_processor,
         send_progress_update=_progress_stub
     )
 
