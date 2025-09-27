@@ -26,6 +26,7 @@
 
       <!-- Bottom input row -->
       <footer class="border-t bg-white p-3">
+        <div id="chatTags" class="mb-2 flex flex-wrap gap-2"></div>
         <form id="chatForm" class="flex items-end gap-2">
           <textarea id="chatInput" class="flex-1 border rounded px-3 py-2 min-h-[44px]" rows="2" placeholder="Ask about requirements or propose changes..."></textarea>
           <button id="chatSend" class="px-4 py-2 bg-indigo-600 text-white rounded">Send</button>
@@ -73,6 +74,7 @@
     const chatOutput = document.getElementById('chatOutput');
     const chatForm = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
+    const chatTags = document.getElementById('chatTags');
     const projectTitleEl = document.getElementById('chatProjectTitle');
     const projectStatusEl = document.getElementById('chatProjectStatus');
 
@@ -226,7 +228,7 @@
             const bundle = await res.json();
             state.currentBundle = bundle;
             appendAssistantHtml(renderBundleHtml(bundle), 'Assistant • Requirements');
-            wireActionTags(bundle);
+            updateTags(bundle);
             if (Array.isArray(bundle.clarification_questions) && bundle.clarification_questions.length) {
               wireClarificationsHandlers(bundle);
             }
@@ -314,15 +316,25 @@
             ${list(bundle.risks)}
           </div>
         </div>
-        <div id="actions_${esc(bundle.prompt_id)}" class="mt-4">
-          ${Number(bundle.score) > 0.7
-            ? `<button data-action="subtasks" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Create Sub-tasks</button>`
-            : `<button data-action="answer" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Answer Questions</button>`}
-        </div>
+        
         <div class="mt-2 text-sm">Score <span class="inline-flex items-center px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">${esc(bundle.score)}</span></div>
       `;
 
       return html;
+    }
+
+    function renderTagsHtml(bundle) {
+      const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const actions = Number(bundle.score) > 0.7
+        ? `<button data-action="subtasks" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Create Sub-tasks</button>`
+        : `<button data-action="answer" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Answer Questions</button>`;
+      return `<div id="actions_${esc(bundle.prompt_id)}" class="flex flex-wrap gap-2">${actions}</div>`;
+    }
+
+    function updateTags(bundle) {
+      if (!bundle || !chatTags) return;
+      chatTags.innerHTML = renderTagsHtml(bundle);
+      wireActionTags(bundle);
     }
 
     function wireActionTags(bundle) {
@@ -381,7 +393,7 @@
             const nextBundle = await res.json();
             state.currentBundle = nextBundle;
             appendAssistantHtml(renderBundleHtml(nextBundle), 'Assistant • Updated Requirements');
-            wireActionTags(nextBundle);
+            updateTags(nextBundle);
             if (Array.isArray(nextBundle.clarification_questions) && nextBundle.clarification_questions.length) {
               wireClarificationsHandlers(nextBundle);
             }
