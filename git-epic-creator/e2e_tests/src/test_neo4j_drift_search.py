@@ -12,6 +12,7 @@ def test_retrieval_service(
     target_db_name,
     cyphers_path,
     service_urls,
+    auth_headers,
     services_ready,
     wa,
 ):
@@ -31,6 +32,7 @@ def test_retrieval_service(
         method="POST",
         url=service_urls['neo4j_retrieval'].rstrip('/') + "/retrieve",
         timeout=TestConstants.DEFAULT_TIMEOUT,
+        headers=auth_headers,
         json_data={"query": question, "project_id": project_id},
     )
 

@@ -21,6 +21,49 @@ from shared_utils import HTTPUtils
 
 
 class TestUIRequirementsWorkflow:
+    def _simulate_sso_login(self, ui_base: str) -> requests.Session:
+        """
+        Simulate browser SSO login flow to get authenticated session.
+        
+        Flow:
+        1. GET /auth/login - UI service redirects to mock auth /authorize
+        2. Mock auth immediately redirects back with code
+        3. GET /auth/callback?code=... - UI service exchanges code for tokens, creates session
+        4. Session cookie is now set and can be used for API calls
+        
+        Args:
+            ui_base: Base URL of UI service
+            
+        Returns:
+            Authenticated requests.Session with cookies
+        """
+        session = requests.Session()
+        session.verify = False  # For self-signed certs
+        
+        # Initiate login - follow redirects automatically
+        # This will go: /auth/login -> mock_auth /authorize -> /auth/callback
+        response = session.get(
+            f"{ui_base}/auth/login",
+            allow_redirects=True,
+            timeout=TestConstants.DEFAULT_TIMEOUT
+        )
+        
+        # Should end up at home page (/) after successful auth
+        assert response.status_code == TestConstants.HTTP_OK, (
+            f"SSO login failed: {response.status_code} {response.text}"
+        )
+        
+        # Verify session is authenticated
+        me_response = session.get(
+            f"{ui_base}/auth/me",
+            timeout=TestConstants.DEFAULT_TIMEOUT
+        )
+        assert me_response.status_code == TestConstants.HTTP_OK
+        me_data = me_response.json()
+        assert me_data.get("authenticated") is True, f"Session not authenticated: {me_data}"
+        
+        return session
+    
     def test_ui_end_to_end_requirements_workflow(
         self,
         service_urls: Dict[str, str],
@@ -47,12 +90,13 @@ class TestUIRequirementsWorkflow:
             "neo4j_retrieval service is not healthy"
         )
 
-        # 1) Create project via UI proxy
-        create_resp = requests.post(
+        # Simulate browser SSO login to get authenticated session
+        authenticated_session = self._simulate_sso_login(ui_base)
+
+        # 1) Create project via UI proxy using authenticated session
+        create_resp = authenticated_session.post(
             f"{ui_base}/project/projects",
             json=test_project_data,
-            verify=False,
-            headers=auth_headers,
             timeout=TestConstants.DEFAULT_TIMEOUT,
         )
         assert create_resp.status_code == TestConstants.HTTP_CREATED, (
@@ -70,11 +114,9 @@ class TestUIRequirementsWorkflow:
                     "application/pdf",
                 )
             }
-            upload_resp = requests.post(
+            upload_resp = authenticated_session.post(
                 f"{ui_base}/project/projects/{project_id}/documents/upload",
                 files=files,
-                verify=False,
-                headers=auth_headers,
                 timeout=60,
             )
             assert upload_resp.status_code == TestConstants.HTTP_OK, (
@@ -109,11 +151,9 @@ class TestUIRequirementsWorkflow:
                 "project_id": project_id,
                 "prompt": question,
             }
-            wf_resp = requests.post(
+            wf_resp = authenticated_session.post(
                 f"{ui_base}/workflow/requirements",
                 json=req_payload,
-                verify=False,
-                headers=auth_headers,
                 timeout=120,
             )
             assert wf_resp.status_code == TestConstants.HTTP_OK, (

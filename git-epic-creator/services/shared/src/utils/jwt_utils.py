@@ -75,7 +75,8 @@ def verify_jwt(token: str, verify_exp: bool = True, algorithms: Optional[list[st
             "verify_exp": verify_exp,
             "verify_aud": False,  # Disable audience verification for internal S2S tokens
         }
-        claims = jwt.decode(token, secret, algorithms=algs, options=options)
+        # Note: verify_aud: False in options is not enough for jose library
+        claims = jwt.decode(token, secret, algorithms=algs, options=options, audience=None)
         logger.debug("JWT decoded successfully", verify_exp=verify_exp, algorithms=algs, aud=claims.get("aud"))
         return claims
     except Exception as e:
