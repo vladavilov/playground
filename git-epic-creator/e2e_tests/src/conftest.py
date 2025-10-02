@@ -8,6 +8,7 @@ service health checks, and test data management.
 import uuid
 from pathlib import Path
 from typing import Dict, Any, Generator, Optional
+import urllib3
 
 import pytest
 import redis
@@ -19,6 +20,13 @@ from config import TestConfig, TestConstants
 from services.redis_test_monitor import RedisTestMonitor
 from shared_utils import ServiceHealthChecker
 from services.workflow_assertions import WorkflowAssertions
+
+# Disable SSL warnings for development/testing with self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Disable SSL verification globally for requests in e2e tests
+# This is safe for local development with self-signed certificates
+requests.packages.urllib3.disable_warnings()  # type: ignore
 
 
 @pytest.fixture(scope="session")
@@ -91,7 +99,8 @@ def postgres_initialized(service_urls: Dict[str, str]) -> bool:
     try:
         response = requests.post(
             f"{service_urls['init_db_service']}/db/init",
-            timeout=TestConstants.DEFAULT_TIMEOUT
+            timeout=TestConstants.DEFAULT_TIMEOUT,
+            verify=False
         )
 
         if response.status_code == TestConstants.HTTP_OK:
@@ -253,6 +262,7 @@ class ProjectManager:
         response = requests.post(
             f"{self.service_urls['project_management']}/projects",
             json=project_data,
+            verify=False,
             headers=self.auth_headers,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
@@ -401,7 +411,8 @@ def ensure_clean_session_setup(neo4j_driver, target_db_name, wa, service_urls):
     # Recreate constraints and indexes dropped by reset
     resp = requests.post(
         f"{service_urls['neo4j_maintenance']}/init-neo4j",
-        timeout=TestConstants.DEFAULT_TIMEOUT
+        timeout=TestConstants.DEFAULT_TIMEOUT,
+        verify=False
     )
     assert resp.status_code == TestConstants.HTTP_OK, f"Neo4j init failed: {resp.text}"
     yield

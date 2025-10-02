@@ -85,6 +85,9 @@ RUN mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-c
 # Predownload local ungated VLM to bake into the image layer
 RUN python -m src.scripts.download_hf_model
 
+# Pre-warm docling plugins and models at build time to avoid lazy loading at runtime
+RUN python -m src.scripts.build_init
+
 ENV API_PORT=8000
 EXPOSE $API_PORT
 

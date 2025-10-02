@@ -51,6 +51,7 @@ class TestUIRequirementsWorkflow:
         create_resp = requests.post(
             f"{ui_base}/project/projects",
             json=test_project_data,
+            verify=False,
             headers=auth_headers,
             timeout=TestConstants.DEFAULT_TIMEOUT,
         )
@@ -72,6 +73,7 @@ class TestUIRequirementsWorkflow:
             upload_resp = requests.post(
                 f"{ui_base}/project/projects/{project_id}/documents/upload",
                 files=files,
+                verify=False,
                 headers=auth_headers,
                 timeout=60,
             )
@@ -110,6 +112,7 @@ class TestUIRequirementsWorkflow:
             wf_resp = requests.post(
                 f"{ui_base}/workflow/requirements",
                 json=req_payload,
+                verify=False,
                 headers=auth_headers,
                 timeout=120,
             )

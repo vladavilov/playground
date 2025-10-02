@@ -54,7 +54,8 @@ class WorkflowAssertions:
             upload_url,
             files=files,
             headers=fixtures.auth_headers,
-            timeout=30
+            timeout=30,
+            verify=False
         )
 
         assert upload_response.status_code == TestConstants.HTTP_OK, (
@@ -103,6 +104,7 @@ class WorkflowAssertions:
                 resp = requests.get(
                     project_url,
                     headers=fixtures.auth_headers,
+                    verify=False,
                     timeout=TestConstants.DEFAULT_TIMEOUT,
                 )
                 if resp.status_code == TestConstants.HTTP_OK:
@@ -372,6 +374,7 @@ class WorkflowAssertions:
         upload_response = requests.post(
             upload_url,
             headers=auth_headers,
+            verify=False,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
         assert upload_response.status_code in [400, 422], (
