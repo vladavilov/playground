@@ -54,7 +54,8 @@ class HTTPUtils:
                     timeout=timeout,
                     headers=headers,
                     json=json_data,
-                    files=files
+                    files=files,
+                    verify=False  # Disable SSL verification for self-signed certs
                 )
             except requests.RequestException as e:
                 last_exception = e
@@ -85,7 +86,8 @@ class HTTPUtils:
         try:
             response = requests.get(
                 f"{service_url}{endpoint}",
-                timeout=timeout
+                timeout=timeout,
+                verify=False  # Disable SSL verification for self-signed certs
             )
             return response.status_code == expected_status
         except requests.RequestException:

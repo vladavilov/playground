@@ -19,6 +19,14 @@ class HTTPClientSettings(BaseSettings):
         default="http://localhost:8001",
         description="URL for the project management service"
     )
+    AI_WORKFLOW_SERVICE_URL: str = Field(
+        default="http://localhost:8000",
+        description="URL for the AI workflow service"
+    )
+    AI_TASKS_SERVICE_URL: str = Field(
+        default="http://localhost:8003",
+        description="URL for the AI tasks/backlog generation service"
+    )
 
     # Connection settings
     CONNECTION_TIMEOUT: float = Field(
@@ -59,16 +67,25 @@ class HTTPClientSettings(BaseSettings):
         alias="HTTP_MAX_KEEPALIVE_CONNECTIONS"
     )
 
-    # Authentication settings
-    ENABLE_AZURE_AUTH: bool = Field(
-        default=True,
-        description="Enable Azure AD authentication for HTTP requests",
-        alias="HTTP_ENABLE_AZURE_AUTH"
-    )
-
     @field_validator('PROJECT_MANAGEMENT_SERVICE_URL')
     @classmethod
     def validate_url(cls, v: str) -> str:
+        """Validate that the URL is properly formatted."""
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError('URL must start with http:// or https://')
+        return v
+
+    @field_validator('AI_WORKFLOW_SERVICE_URL')
+    @classmethod
+    def validate_ai_url(cls, v: str) -> str:
+        """Validate that the URL is properly formatted."""
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError('URL must start with http:// or https://')
+        return v
+
+    @field_validator('AI_TASKS_SERVICE_URL')
+    @classmethod
+    def validate_ai_tasks_url(cls, v: str) -> str:
         """Validate that the URL is properly formatted."""
         if not v.startswith(('http://', 'https://')):
             raise ValueError('URL must start with http:// or https://')

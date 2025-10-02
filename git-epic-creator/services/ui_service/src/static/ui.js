@@ -5,10 +5,12 @@ const state = {
   projects: [],
   selected: null,
   evtSource: null,
-  token: null,
   loadingCount: 0,
   editTargetId: null,
   filterText: '',
+  gitlab: { status: 'connecting', configured: false },
+  authenticated: false,
+  rtEvents: { status: 'disconnected' },
 };
 
 async function loadConfig() {
@@ -17,15 +19,12 @@ async function loadConfig() {
 }
 
 class ApiClient {
-  constructor(getConfigFn, getTokenFn) {
+  constructor(getConfigFn) {
     this.getConfig = getConfigFn;
-    this.getToken = getTokenFn;
   }
 
   _buildHeaders(extra = {}, isJson = false) {
     const headers = { ...extra };
-    const token = this.getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
     if (isJson) headers['Content-Type'] = 'application/json';
     return headers;
   }
@@ -75,6 +74,14 @@ function el(tag, attrs = {}, children = []) {
   Object.entries(attrs).forEach(([k, v]) => {
     if (k === 'class') node.className = v;
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.substring(2), v);
+    else if (v === null || v === undefined || v === false) {
+      // Skip null, undefined, or false values (don't set attribute)
+      return;
+    }
+    else if (v === true) {
+      // For true boolean values, set attribute without value (e.g., disabled, checked)
+      node.setAttribute(k, '');
+    }
     else node.setAttribute(k, v);
   });
   for (const child of [].concat(children)) {
@@ -82,6 +89,20 @@ function el(tag, attrs = {}, children = []) {
     node.append(typeof child === 'string' ? document.createTextNode(child) : child);
   }
   return node;
+}
+
+function formatDate(isoString) {
+  if (!isoString) return 'N/A';
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return 'N/A';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return 'N/A';
+  }
 }
 
 function renderProjects() {
@@ -120,13 +141,25 @@ function renderDetails() {
   box.innerHTML = '';
   const p = state.selected;
   box.append(
-    el('div', { class: 'text-lg font-semibold' }, p.name || '(untitled)'),
-    p.description ? el('div', { class: 'mt-1 text-slate-700' }, p.description) : null,
-    el('div', { class: 'mt-2' }, [getStatusBadge(p.status)]),
-    el('div', { class: 'text-sm text-slate-600' }, `Created: ${p.created_at}`),
-    el('div', { class: 'text-sm text-slate-600' }, `Updated: ${p.updated_at}`),
-    el('div', { class: 'text-sm mt-2' }, [renderGitInfoLine(p.gitlab_url, 'project')]),
-    el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_repository_url, 'repository')]),
+    el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
+      el('div', { class: 'text-lg font-semibold' }, p.name || '(untitled)'),
+      getStatusBadge(p.status)
+    ]),
+    p.description ? el('div', { class: 'mt-2 text-slate-700' }, p.description) : null,
+    el('div', { class: 'mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-slate-600' }, [
+      el('div', {}, [
+        el('span', { class: 'font-medium' }, 'Created: '),
+        formatDate(p.created_at)
+      ]),
+      el('div', {}, [
+        el('span', { class: 'font-medium' }, 'Updated: '),
+        formatDate(p.updated_at)
+      ])
+    ]),
+    el('div', { class: 'mt-3 space-y-1' }, [
+      el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_url, 'project')]),
+      el('div', { class: 'text-sm' }, [renderGitRepoLine(p.gitlab_repository_url)])
+    ]),
     el('div', { class: 'mt-4 flex items-center justify-between' }, [
       el('div', { class: 'flex items-center gap-2' }, [
         el('button', { id: 'openChatBtn', class: 'w-32 px-3 py-2 border rounded text-slate-700 hover:bg-slate-50 text-center', title: 'Open chat to capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/chat.html#${state.selected.id}`; } }, 'Open Chat'),
@@ -152,6 +185,27 @@ function renderGitInfoLine(value, type) {
     return el('a', { class: 'text-sm text-sky-600 underline block', href: value, target: '_blank' }, type === 'project' ? 'GitLab Project' : 'Repository');
   }
   return el('div', { class: 'text-sm text-slate-500' }, type === 'project' ? 'N/A project' : 'N/A repository');
+}
+
+function getGitLabStatusIndicator(status, configured) {
+  const s = (status || '').toLowerCase();
+  const titleByState = {
+    connected: configured ? 'Connected to GitLab' : 'Connected (configuration missing?)',
+    connecting: 'Checking GitLab connection…',
+    'not_connected': configured ? 'Not connected to GitLab' : 'GitLab SSO not configured',
+  };
+  let cls = 'inline-block w-2.5 h-2.5 rounded-full bg-slate-400';
+  if (s === 'connected') cls = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500';
+  else if (s === 'connecting') cls = 'inline-block w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse';
+  else if (s === 'not_connected') cls = 'inline-block w-2.5 h-2.5 rounded-full bg-rose-500';
+  return el('span', { class: cls, title: titleByState[s] || 'GitLab status', 'aria-label': titleByState[s] || 'GitLab status' }, '');
+}
+
+function renderGitRepoLine(repoUrl) {
+  const link = (repoUrl && String(repoUrl).trim() !== '')
+    ? el('a', { class: 'text-sky-600 underline', href: repoUrl, target: '_blank' }, 'Repository')
+    : el('span', { class: 'text-slate-500' }, 'N/A repository');
+  return link;
 }
 
 function getStatusBadge(status) {
@@ -304,11 +358,19 @@ async function uploadFiles() {
 
 function connectSSE() {
   try { if (state.evtSource) state.evtSource.close(); } catch {}
-  const statusBar = document.getElementById('statusBar');
   state.evtSource = new EventSource('/events');
-  state.evtSource.addEventListener('open', () => statusBar.textContent = 'Connected');
-  state.evtSource.addEventListener('error', () => statusBar.textContent = 'Reconnecting...');
-  state.evtSource.addEventListener('hello', () => statusBar.textContent = 'Connected');
+  state.evtSource.addEventListener('open', () => {
+    state.rtEvents.status = 'connected';
+    updateConnectionsPanel();
+  });
+  state.evtSource.addEventListener('error', () => {
+    state.rtEvents.status = 'connecting';
+    updateConnectionsPanel();
+  });
+  state.evtSource.addEventListener('hello', () => {
+    state.rtEvents.status = 'connected';
+    updateConnectionsPanel();
+  });
   const handleProjectProgress = (msg) => {
     try {
       const changed = updateProjectStateFromProgress(msg);
@@ -360,6 +422,16 @@ function setupActions() {
   if (search) search.addEventListener('input', (e) => { state.filterText = e.target.value || ''; renderProjects(); });
   const uploadBtn = document.getElementById('uploadBtn');
   if (uploadBtn) uploadBtn.addEventListener('click', uploadFiles);
+  
+  // Logout button
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+
+  // GitLab connect button
+  const gitlabConnectBtn = document.getElementById('gitlabConnectBtn');
+  if (gitlabConnectBtn) gitlabConnectBtn.addEventListener('click', () => {
+    if (state.gitlab.configured) startGitLabSSO();
+  });
 
   // Dropzone wiring
   const dropzone = document.getElementById('dropzone');
@@ -427,14 +499,32 @@ async function init() {
   setupPanelToggle();
   setupActions();
   await loadConfig();
-  api = new ApiClient(() => state.config, () => state.token);
-  // Get dev token when available
+  api = new ApiClient(() => state.config);
+  
+  // Check authentication status
   try {
-    const t = await fetch('/dev-token', { method: 'POST' }).then(r => r.json());
-    state.token = t && t.access_token ? t.access_token : null;
-  } catch {}
+    const authStatus = await fetch('/auth/me').then(r => r.json());
+    state.authenticated = authStatus.authenticated || false;
+    
+    // Update auth UI
+    updateAuthUI(authStatus);
+    
+    if (!state.authenticated) {
+      // Redirect to login if not authenticated
+      window.location.href = '/auth/login';
+      return;
+    }
+  } catch (err) {
+    console.error('Failed to check auth status:', err);
+    updateAuthUI({ authenticated: false, username: null });
+    window.location.href = '/auth/login';
+    return;
+  }
+  
   connectSSE();
   await fetchProjects();
+  // Fetch GitLab connection status (session-level)
+  try { await fetchGitLabStatus(); } catch {}
 }
 
 // Loading overlay helpers
@@ -512,6 +602,160 @@ async function submitProjectForm(ev) {
 
 function emptyToNull(v) { const s = (v || '').trim(); return s === '' ? null : s; }
 function valOrNull(v) { const s = (v || '').trim(); return s === '' ? null : s; }
+
+async function fetchGitLabStatus() {
+  try {
+    state.gitlab.status = 'connecting';
+    updateConnectionsPanel();
+    const cfg = state.config || {};
+    const statusPath = cfg.gitlabAuthStatusPath || '/auth/gitlab/status';
+    const res = await fetch(statusPath);
+    if (!res.ok) throw new Error('status failed');
+    const data = await res.json();
+    state.gitlab.configured = Boolean(data && data.configured);
+    state.gitlab.status = data && data.connected ? 'connected' : 'not_connected';
+    console.log('GitLab status fetched:', { configured: state.gitlab.configured, status: state.gitlab.status });
+  } catch (err) {
+    console.error('Failed to fetch GitLab status:', err);
+    state.gitlab.status = 'not_connected';
+    state.gitlab.configured = false;
+  } finally {
+    updateConnectionsPanel();
+  }
+}
+
+function startGitLabSSO() {
+  try {
+    state.gitlab.status = 'connecting';
+    const returnTo = window.location.href;
+    const cfg = state.config || {};
+    const authorizePath = cfg.gitlabAuthAuthorizePath || '/auth/gitlab/authorize';
+    const url = `${authorizePath}?redirect_uri=${encodeURIComponent(returnTo)}`;
+    window.location.href = url;
+  } catch {}
+}
+
+function updateAuthUI(authStatus) {
+  try {
+    const profile = document.getElementById('userProfile');
+    const logoutBtn = document.getElementById('logoutBtn');
+    
+    if (authStatus.authenticated) {
+      // Update user profile
+      if (profile) {
+        const username = authStatus.username || 'User';
+        profile.textContent = username;
+        profile.title = `Logged in as ${username}`;
+      }
+      
+      // Show logout button
+      if (logoutBtn) {
+        logoutBtn.classList.remove('hidden');
+      }
+    } else {
+      // Update user profile
+      if (profile) {
+        profile.textContent = 'Not logged in';
+        profile.title = 'Not authenticated';
+      }
+      
+      // Hide logout button
+      if (logoutBtn) {
+        logoutBtn.classList.add('hidden');
+      }
+    }
+    
+    // Update connections panel
+    updateConnectionsPanel();
+  } catch (err) {
+    console.error('Failed to update auth UI:', err);
+  }
+}
+
+function updateConnectionsPanel() {
+  try {
+    // Update auth indicator
+    const authIndicator = document.getElementById('authIndicator');
+    if (authIndicator) {
+      if (state.authenticated) {
+        authIndicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
+        authIndicator.title = 'Authenticated';
+      } else {
+        authIndicator.className = 'w-2 h-2 rounded-full bg-rose-500';
+        authIndicator.title = 'Not authenticated';
+      }
+    }
+    
+    // Update GitLab indicator
+    const gitlabIndicator = document.getElementById('gitlabIndicator');
+    const gitlabConnectBtn = document.getElementById('gitlabConnectBtn');
+    if (gitlabIndicator) {
+      const s = (state.gitlab.status || '').toLowerCase();
+      let cls = 'w-2 h-2 rounded-full bg-slate-400';
+      let title = 'GitLab status';
+      
+      if (s === 'connected') {
+        cls = 'w-2 h-2 rounded-full bg-emerald-500';
+        title = 'Connected to GitLab';
+      } else if (s === 'connecting') {
+        cls = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
+        title = 'Checking GitLab connection…';
+      } else if (s === 'not_connected') {
+        cls = 'w-2 h-2 rounded-full bg-rose-500';
+        title = state.gitlab.configured ? 'Not connected to GitLab' : 'GitLab SSO not configured';
+      }
+      
+      gitlabIndicator.className = cls;
+      gitlabIndicator.title = title;
+    }
+    
+    // Update GitLab connect button state
+    if (gitlabConnectBtn) {
+      const disabled = !state.gitlab.configured;
+      const title = disabled ? 'GitLab SSO not configured' : 'Connect to GitLab';
+      gitlabConnectBtn.disabled = disabled;
+      gitlabConnectBtn.title = title;
+    }
+    
+    // Update RT Events indicator
+    const rtEventsIndicator = document.getElementById('rtEventsIndicator');
+    if (rtEventsIndicator) {
+      const s = (state.rtEvents.status || '').toLowerCase();
+      let cls = 'w-2 h-2 rounded-full bg-slate-400';
+      let title = 'Real-time events';
+      
+      if (s === 'connected') {
+        cls = 'w-2 h-2 rounded-full bg-emerald-500';
+        title = 'Connected to real-time events';
+      } else if (s === 'connecting') {
+        cls = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
+        title = 'Connecting to real-time events…';
+      } else {
+        cls = 'w-2 h-2 rounded-full bg-slate-400';
+        title = 'Disconnected from real-time events';
+      }
+      
+      rtEventsIndicator.className = cls;
+      rtEventsIndicator.title = title;
+    }
+  } catch (err) {
+    console.error('Failed to update connections panel:', err);
+  }
+}
+
+async function handleLogout() {
+  try {
+    showLoading();
+    await fetch('/auth/logout', { method: 'POST' });
+    // Redirect to login after logout
+    window.location.href = '/auth/login';
+  } catch (err) {
+    console.error('Logout failed:', err);
+    alert('Logout failed. Please try again.');
+  } finally {
+    hideLoading();
+  }
+}
 
 init().catch(err => console.error(err));
 

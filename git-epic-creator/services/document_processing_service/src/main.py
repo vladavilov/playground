@@ -35,8 +35,6 @@ app = FastAPIFactory.create_app(
     title="Document Processing Service",
     description="A microservice for processing documents with Celery tasks",
     version="1.0.0",
-    enable_azure_auth=False,
-    enable_docs_auth=False,
     enable_cors=True
 )
 

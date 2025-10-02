@@ -1,0 +1,5 @@
+# Ignore generated certificates
+*.pem
+*.key
+*.crt
+*.csr

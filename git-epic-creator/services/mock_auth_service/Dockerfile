@@ -27,11 +27,19 @@ ENV PYTHONPATH=/app/src
 WORKDIR /app
 
 COPY --from=builder /app/mock_auth_service/src/ ./src/
+COPY --from=builder /app/mock_auth_service/certs/generate_certs.py ./certs/generate_certs.py
+
+# Generate self-signed certificates for HTTPS
+RUN mkdir -p /app/certs && \
+    python /app/certs/generate_certs.py /app/certs/cert.pem /app/certs/key.pem
 
 ENV API_PORT=8000
+ENV SSL_CERTFILE=/app/certs/cert.pem
+ENV SSL_KEYFILE=/app/certs/key.pem
+
 EXPOSE $API_PORT
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:${API_PORT}/health || exit 1
+  CMD curl -f -k https://localhost:${API_PORT}/health || exit 1
 
 CMD ["python", "-m", "src.main"] 

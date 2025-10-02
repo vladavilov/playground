@@ -3,6 +3,7 @@ from uuid import UUID
 
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends
+from utils.local_auth import get_local_user_verified, LocalUser
 from pydantic import BaseModel, Field
 
 from utils.app_factory import get_redis_client_from_state
@@ -33,12 +34,14 @@ class AnswersRequest(BaseModel):
 async def create_requirements_bundle(
     request: RequirementsRequest,
     redis_client: redis.Redis = Depends(get_redis_client_from_state),
+    current_user: LocalUser = Depends(get_local_user_verified),
 ) -> RequirementsBundle:
     publisher = AiWorkflowStatusPublisher(redis_client)
     bundle = await run_requirements_workflow(
         project_id=request.project_id,
         prompt=request.prompt,
         publisher=publisher,
+        auth_header=(f"Bearer {current_user.token}"),
     )
     return bundle
 
@@ -47,6 +50,7 @@ async def create_requirements_bundle(
 async def answer_clarifications(
     request: AnswersRequest,
     redis_client: redis.Redis = Depends(get_redis_client_from_state),
+    current_user: LocalUser = Depends(get_local_user_verified),
 ) -> RequirementsBundle:
     publisher = AiWorkflowStatusPublisher(redis_client)
     bundle = await run_answers_workflow(
@@ -55,6 +59,7 @@ async def answer_clarifications(
         prompt=request.prompt or "",
         answers=request.answers,
         publisher=publisher,
+        auth_header=(f"Bearer {current_user.token}"),
     )
     return bundle
 

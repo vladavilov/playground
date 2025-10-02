@@ -90,6 +90,37 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  postgresdb-schema-init:
+    <<: *service_defaults
+    image: python:3.13-slim
+    container_name: postgresdb_schema_init
+    depends_on:
+      db-init-service:
+        condition: service_healthy
+    env_file:
+      - docker-compose.env
+    networks:
+      - microservices_network
+    # Run once: initialize PostgreSQL schema via db-init-service endpoint
+    command:
+      - python
+      - -c
+      - |
+          import os,time,json,hmac,hashlib,base64,urllib.request
+          secret=os.environ.get('LOCAL_JWT_SECRET','')
+          if not secret: raise SystemExit('LOCAL_JWT_SECRET not set')
+          header={'alg':'HS256','typ':'JWT'}
+          payload={'oid': os.environ.get('DEV_USER_OID','system'), 'preferred_username': os.environ.get('DEV_USERNAME','system@local'), 'roles': [], 'iat': int(time.time()), 'exp': int(time.time())+600}
+          def b64url(d): return base64.urlsafe_b64encode(d).rstrip(b'=')
+          seg=b'.'.join([b64url(json.dumps(header,separators=(',',':')).encode()), b64url(json.dumps(payload,separators=(',',':')).encode())])
+          sig=b64url(hmac.new(secret.encode(), seg, hashlib.sha256).digest())
+          token=(seg+b'.'+sig).decode()
+          req=urllib.request.Request('http://db-init-service:8000/db/init', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
+          print('POST /db/init with Authorization header')
+          with urllib.request.urlopen(req, timeout=60) as resp:
+              print(resp.status, resp.read().decode())
+    restart: "no"
+
   neo4j-maintenance-service:
     <<: *service_defaults
     build:
@@ -117,15 +148,33 @@ services:
 
   neo4j-schema-init:
     <<: *service_defaults
-    image: curlimages/curl:8.7.1
+    image: python:3.13-slim
     container_name: neo4j_schema_init
     depends_on:
       neo4j-maintenance-service:
         condition: service_healthy
+    env_file:
+      - docker-compose.env
     networks:
       - microservices_network
     # Run once: initialize Neo4j schema via maintenance service endpoint
-    command: ["-X", "POST", "-f", "http://neo4j-maintenance-service:8000/init-neo4j"]
+    command:
+      - python
+      - -c
+      - |
+          import os,time,json,hmac,hashlib,base64,urllib.request
+          secret=os.environ.get('LOCAL_JWT_SECRET','')
+          if not secret: raise SystemExit('LOCAL_JWT_SECRET not set')
+          header={'alg':'HS256','typ':'JWT'}
+          payload={'oid': os.environ.get('DEV_USER_OID','system'), 'preferred_username': os.environ.get('DEV_USERNAME','system@local'), 'roles': [], 'iat': int(time.time()), 'exp': int(time.time())+600}
+          def b64url(d): return base64.urlsafe_b64encode(d).rstrip(b'=')
+          seg=b'.'.join([b64url(json.dumps(header,separators=(',',':')).encode()), b64url(json.dumps(payload,separators=(',',':')).encode())])
+          sig=b64url(hmac.new(secret.encode(), seg, hashlib.sha256).digest())
+          token=(seg+b'.'+sig).decode()
+          req=urllib.request.Request('http://neo4j-maintenance-service:8000/init-neo4j', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
+          print('POST /init-neo4j with Authorization header')
+          with urllib.request.urlopen(req, timeout=60) as resp:
+              print(resp.status, resp.read().decode())
     restart: "no"
 
   neo4j-ingestion-service:
@@ -173,6 +222,8 @@ services:
     depends_on:
       db-init-service:
         condition: service_healthy
+      postgresdb-schema-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks:
@@ -203,6 +254,8 @@ services:
       project-management-service:
         condition: service_healthy
       mock-auth-service:
+        condition: service_healthy
+      gitlab-mock-service:
         condition: service_healthy
     networks:
       - microservices_network
@@ -349,11 +402,35 @@ services:
       dockerfile: ./mock_auth_service/Dockerfile
     environment:
       - API_PORT=8000
+      - ENABLE_HTTPS=true
     env_file:
       - docker-compose.env
     container_name: mock_auth_service
     ports:
       - "8005:8000"
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Mock GitLab service for OAuth and API
+  gitlab-mock-service:
+    <<: *service_defaults
+    build:
+      context: ./services
+      dockerfile: ./gitlab_mock_service/Dockerfile
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    container_name: gitlab_mock_service
+    ports:
+      - "8011:8000"
     networks:
       - microservices_network
     healthcheck:
@@ -422,7 +499,7 @@ services:
       - PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
       - DOCUMENT_PROCESSING_URL=http://document-processing-service:8000
       - NEO4J_INGESTION_URL=http://neo4j-ingestion-service:8000
-      - AZURE_AD_AUTHORITY=http://host.docker.internal:8005
+      - AZURE_AD_AUTHORITY=https://host.docker.internal:8005
       - INIT_DB_SERVICE_URL=http://db-init-service:8000
       - NEO4J_MAINTENANCE_URL=http://neo4j-maintenance-service:8000
       - UI_SERVICE_URL=http://ui-service:8000
