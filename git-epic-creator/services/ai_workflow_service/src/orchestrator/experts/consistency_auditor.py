@@ -3,6 +3,17 @@ from typing import List, Set, Dict
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.llm import get_llm
+import structlog
+import os
+from configuration.llm_config import get_llm_config
+from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+from deepeval.metrics import (
+    FaithfulnessMetric,
+    AnswerRelevancyMetric,
+    GEval,
+)
+
+logger = structlog.get_logger(__name__)
 
 class ConsistencyAuditor:
     def __init__(self) -> None:
@@ -108,15 +119,37 @@ class ConsistencyAuditor:
 
         contexts = self._aggregate_context(context)
 
+        logger.info(
+            "deepeval_evaluation_starting",
+            requirements_count=len(draft.business_requirements) + len(draft.functional_requirements),
+            contexts_count=len(contexts),
+            user_prompt_length=len(user_prompt),
+        )
+
         axes: Dict[str, float] = {}
 
         try:
-            from deepeval.test_case import LLMTestCase, LLMTestCaseParams  # type: ignore
-            from deepeval.metrics import (  # type: ignore
-                FaithfulnessMetric,
-                AnswerRelevancyMetric,
-                GEval,
-            )
+            # Configure OpenAI environment variables for DeepEval
+            
+            llm_config = get_llm_config()
+            
+            if not llm_config.OAI_KEY:
+                raise RuntimeError(
+                    "OpenAI API key not configured. Set OAI_KEY environment variable. "
+                    "DeepEval requires OpenAI API access for evaluation metrics."
+                )
+            
+            os.environ["OPENAI_API_KEY"] = llm_config.OAI_KEY
+            os.environ["OPENAI_API_TYPE"] = "azure"
+            os.environ["AZURE_OPENAI_ENDPOINT"] = llm_config.OAI_BASE_URL
+            os.environ["OPENAI_API_VERSION"] = llm_config.OAI_API_VERSION
+            os.environ["OPENAI_MODEL_NAME"] = llm_config.OAI_MODEL
+            logger.info("deepeval_azure_config_set", 
+                        endpoint=llm_config.OAI_BASE_URL,
+                        model=llm_config.OAI_MODEL,
+                        api_version=llm_config.OAI_API_VERSION)
+            
+            logger.info("deepeval_modules_imported_successfully")
 
             test_case = LLMTestCase(
                 input=user_prompt,
@@ -124,11 +157,18 @@ class ConsistencyAuditor:
                 retrieval_context=contexts,
                 context=contexts,
             )
+            logger.info("deepeval_test_case_created", answer_text_length=len(answer_text))
 
+            # Faithfulness Metric
+            logger.info("deepeval_executing_metric", metric="FaithfulnessMetric")
             faithfulness_metric = FaithfulnessMetric()
             faithfulness_metric.measure(test_case)
-            axes["faithfulness"] = float(getattr(faithfulness_metric, "score", 0.0) or 0.0)
+            faithfulness_score = float(getattr(faithfulness_metric, "score", 0.0) or 0.0)
+            axes["faithfulness"] = faithfulness_score
+            logger.info("deepeval_metric_completed", metric="FaithfulnessMetric", score=faithfulness_score)
 
+            # Groundedness Metric (GEval)
+            logger.info("deepeval_executing_metric", metric="GEval-Citations")
             groundedness_metric = GEval(
                 name="Citations",
                 criteria=(
@@ -138,12 +178,20 @@ class ConsistencyAuditor:
                 strict_mode=False,
             )
             groundedness_metric.measure(test_case)
-            axes["groundedness"] = float(getattr(groundedness_metric, "score", 0.0) or 0.0)
+            groundedness_score = float(getattr(groundedness_metric, "score", 0.0) or 0.0)
+            axes["groundedness"] = groundedness_score
+            logger.info("deepeval_metric_completed", metric="GEval-Citations", score=groundedness_score)
 
+            # Response Relevancy Metric
+            logger.info("deepeval_executing_metric", metric="AnswerRelevancyMetric")
             relevancy_metric = AnswerRelevancyMetric()
             relevancy_metric.measure(test_case)
-            axes["response_relevancy"] = float(getattr(relevancy_metric, "score", 0.0) or 0.0)
+            relevancy_score = float(getattr(relevancy_metric, "score", 0.0) or 0.0)
+            axes["response_relevancy"] = relevancy_score
+            logger.info("deepeval_metric_completed", metric="AnswerRelevancyMetric", score=relevancy_score)
 
+            # Completeness Metric (GEval)
+            logger.info("deepeval_executing_metric", metric="GEval-Completeness")
             completeness_metric = GEval(
                 name="Completeness",
                 criteria=(
@@ -153,13 +201,39 @@ class ConsistencyAuditor:
                 strict_mode=False,
             )
             completeness_metric.measure(test_case)
-            axes["completeness"] = float(getattr(completeness_metric, "score", 0.0) or 0.0)
-        except Exception:
-            # If deepeval is unavailable or errors, default to zeros
-            pass
+            completeness_score = float(getattr(completeness_metric, "score", 0.0) or 0.0)
+            axes["completeness"] = completeness_score
+            logger.info("deepeval_metric_completed", metric="GEval-Completeness", score=completeness_score)
+
+            logger.info(
+                "deepeval_evaluation_completed_successfully",
+                faithfulness=faithfulness_score,
+                groundedness=groundedness_score,
+                response_relevancy=relevancy_score,
+                completeness=completeness_score,
+            )
+
+        except ImportError as e:
+            logger.error(
+                "deepeval_import_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                message="DeepEval modules could not be imported. Check installation and dependencies.",
+            )
+            raise RuntimeError(f"DeepEval import failed: {e}. Ensure deepeval is installed in the environment.") from e
+        except Exception as e:
+            logger.error(
+                "deepeval_execution_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                current_axes=axes,
+                message="DeepEval metric execution failed. Check API keys, network connectivity, and DeepEval configuration.",
+            )
+            raise RuntimeError(f"DeepEval metric execution failed: {e}. Check logs for details.") from e
 
         for k in ("faithfulness", "groundedness", "response_relevancy", "completeness"):
             axes.setdefault(k, 0.0)
+        
         return axes
 
     def _aggregate_context(self, context: RetrievedContext) -> List[str]:

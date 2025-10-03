@@ -6,19 +6,30 @@ service health checks, and test data management.
 """
 
 import uuid
+import time
+import os
 from pathlib import Path
 from typing import Dict, Any, Generator, Optional
+import urllib3
 
 import pytest
 import redis
 import requests
 import psycopg2
 from neo4j import GraphDatabase
+from jose import jwt
 
 from config import TestConfig, TestConstants
 from services.redis_test_monitor import RedisTestMonitor
 from shared_utils import ServiceHealthChecker
 from services.workflow_assertions import WorkflowAssertions
+
+# Disable SSL warnings for development/testing with self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Disable SSL verification globally for requests in e2e tests
+# This is safe for local development with self-signed certificates
+requests.packages.urllib3.disable_warnings()  # type: ignore
 
 
 @pytest.fixture(scope="session")
@@ -70,17 +81,47 @@ def services_ready(service_urls: Dict[str, str]) -> None:
         pytest.skip(f"Skipping tests: {e}")
 
 
+def _create_local_jwt_token(oid: str = None, roles: list = None, username: str = None) -> str:
+    """
+    Create LOCAL JWT token for backend service authentication.
+    
+    Backend services validate tokens using LOCAL_JWT_SECRET (shared secret),
+    NOT Azure AD tokens. This mimics what UI service does when minting S2S tokens.
+    
+    Args:
+        oid: User object ID (defaults to test user)
+        roles: User roles (defaults to ["Admin", "User"])
+        username: Preferred username (defaults to test user email)
+        
+    Returns:
+        Signed JWT token string
+    """
+    secret = os.getenv("LOCAL_JWT_SECRET", "dev-local-jwt-secret")
+    now = int(time.time())
+    
+    claims = {
+        "oid": oid or str(uuid.uuid4()),
+        "preferred_username": username or "test.user@example.com",
+        "roles": roles or ["Admin", "User"],
+        "iss": "ui-service",
+        "iat": now,
+        "nbf": now,
+        "exp": now + 3600,  # 1 hour validity
+    }
+    
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def postgres_initialized(service_urls: Dict[str, str]) -> bool:
     """
     Initialize PostgreSQL database once before all tests.
     
-    This fixture calls the init_db_service to set up the database schema
-    and initial data before any tests run.
+    This fixture calls the init_db_service to set up the database schema.
+    Uses LOCAL JWT token (not Azure AD) for backend service authentication.
     
     Args:
         service_urls: Service URL configuration
-        services_ready: Ensures services are healthy before initialization
         
     Returns:
         True if initialization successful
@@ -89,9 +130,15 @@ def postgres_initialized(service_urls: Dict[str, str]) -> bool:
         pytest.fail: If initialization fails
     """
     try:
+        # Create LOCAL JWT token for backend service authentication
+        token = _create_local_jwt_token(roles=["Admin"])
+        auth_headers = {"Authorization": f"Bearer {token}"}
+        
         response = requests.post(
             f"{service_urls['init_db_service']}/db/init",
-            timeout=TestConstants.DEFAULT_TIMEOUT
+            headers=auth_headers,
+            timeout=TestConstants.DEFAULT_TIMEOUT,
+            verify=False
         )
 
         if response.status_code == TestConstants.HTTP_OK:
@@ -99,7 +146,7 @@ def postgres_initialized(service_urls: Dict[str, str]) -> bool:
 
         pytest.fail(
             f"Failed to initialize PostgreSQL database: "
-            f"[{service_urls['init_db_service']}/init]"
+            f"[{service_urls['init_db_service']}/db/init] "
             f"{response.status_code} - {response.text}"
         )
     except requests.RequestException as e:
@@ -107,35 +154,18 @@ def postgres_initialized(service_urls: Dict[str, str]) -> bool:
 
 
 @pytest.fixture
-def auth_headers(service_urls: Dict[str, str], auth_config: Dict[str, str]) -> Dict[str, str]:
+def auth_headers() -> Dict[str, str]:
     """
-    Get authentication headers by requesting a token from the mock auth service.
+    Get authentication headers with LOCAL JWT token for backend services.
+    
+    Backend services use LOCAL_JWT_SECRET validation (not Azure AD).
+    This token mimics what UI service mints for S2S authentication.
     
     Returns:
         Dict with Authorization header containing Bearer token
     """
-    try:
-        token_response = requests.post(
-            f"{service_urls['mock_auth']}/{auth_config['tenant_id']}/oauth2/v2.0/token",
-            data={
-                "grant_type": "client_credentials",
-                "client_id": auth_config["client_id"],
-                "client_secret": auth_config["client_secret"],
-                "scope": auth_config["scope"]
-            },
-            timeout=TestConstants.DEFAULT_TIMEOUT
-        )
-
-        if token_response.status_code == TestConstants.HTTP_OK:
-            token_data = token_response.json()
-            return {"Authorization": f"Bearer {token_data['access_token']}"}
-
-        pytest.fail(
-            f"Failed to get token from mock service: "
-            f"{token_response.status_code} - {token_response.text}"
-        )
-    except requests.RequestException as e:
-        pytest.fail(f"Error getting token from mock service: {e}")
+    token = _create_local_jwt_token(roles=["Admin", "User"])
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
@@ -253,6 +283,7 @@ class ProjectManager:
         response = requests.post(
             f"{self.service_urls['project_management']}/projects",
             json=project_data,
+            verify=False,
             headers=self.auth_headers,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
@@ -397,11 +428,19 @@ def cyphers_path() -> Path:
 
 @pytest.fixture(scope="function", autouse=True)
 def ensure_clean_session_setup(neo4j_driver, target_db_name, wa, service_urls):
+    """Clean Neo4j database before each test and recreate schema."""
     wa.reset_neo4j_database(neo4j_driver, target_db_name)
+    
     # Recreate constraints and indexes dropped by reset
+    # Create fresh token for each test to avoid expiration issues
+    token = _create_local_jwt_token(roles=["Admin"])
+    auth_headers = {"Authorization": f"Bearer {token}"}
+    
     resp = requests.post(
         f"{service_urls['neo4j_maintenance']}/init-neo4j",
-        timeout=TestConstants.DEFAULT_TIMEOUT
+        headers=auth_headers,
+        timeout=TestConstants.DEFAULT_TIMEOUT,
+        verify=False
     )
     assert resp.status_code == TestConstants.HTTP_OK, f"Neo4j init failed: {resp.text}"
     yield

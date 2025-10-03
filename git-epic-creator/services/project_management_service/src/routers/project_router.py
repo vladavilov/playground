@@ -3,10 +3,15 @@
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
-from fastapi_azure_auth.user import User
+from utils.local_auth import (
+    get_local_user_verified,
+    get_local_user_allow_expired,
+    LocalUser,
+    require_roles_local,
+)
 import structlog
 
-from middleware.azure_auth_middleware import get_current_active_user, require_roles
+ 
 from models.project_rest import (
     ProjectSet,
     ProjectResponse,
@@ -39,7 +44,7 @@ def get_project_status_publisher() -> ProjectStatusPublisher:
 )
 async def create_project(
     project: ProjectSet,
-    current_user: User = Depends(require_roles(["Admin"])),
+    current_user: LocalUser = Depends(require_roles_local(["Admin"])),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
     """Create a project (Admin only)."""
@@ -55,7 +60,7 @@ async def create_project(
 
 @router.get("", response_model=List[ProjectResponse])
 async def list_projects(
-    current_user: User = Depends(get_current_active_user),
+    current_user: LocalUser = Depends(get_local_user_verified),
     project_service: ProjectService = Depends(get_project_service)
 ) -> List[ProjectResponse]:
     """List projects available to current user (RBAC)."""
@@ -70,7 +75,7 @@ async def list_projects(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: UUID,
-    current_user: User = Depends(get_current_active_user),
+    current_user: LocalUser = Depends(get_local_user_verified),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
     """Get project by ID."""
@@ -99,7 +104,7 @@ async def get_project(
 async def update_project(
     project_id: UUID,
     project: ProjectSet,
-    current_user: User = Depends(get_current_active_user),
+    current_user: LocalUser = Depends(get_local_user_verified),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
     """Update a project."""
@@ -127,7 +132,7 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: UUID,
-    current_user: User = Depends(require_roles(["Admin"])),
+    current_user: LocalUser = Depends(require_roles_local(["Admin"])),
     project_service: ProjectService = Depends(get_project_service)
 ) -> None:
     """Delete a project (Admin only)."""
@@ -157,7 +162,7 @@ async def delete_project(
 async def add_project_member(
     project_id: UUID,
     member_data: ProjectMemberSet,
-    current_user: User = Depends(get_current_active_user),
+    current_user: LocalUser = Depends(get_local_user_verified),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectMemberResponse:
     """Add a member (Admin or PM for own projects)."""
@@ -215,7 +220,7 @@ async def add_project_member(
 @router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
 async def list_project_members(
     project_id: UUID,
-    current_user: User = Depends(get_current_active_user),
+    current_user: LocalUser = Depends(get_local_user_verified),
     project_service: ProjectService = Depends(get_project_service)
 ) -> List[ProjectMemberResponse]:
     """List project members (requires access)."""
@@ -250,7 +255,7 @@ async def list_project_members(
 async def remove_project_member(
     project_id: UUID,
     member_id: str,
-    current_user: User = Depends(require_roles(["Admin"])),
+    current_user: LocalUser = Depends(require_roles_local(["Admin"])),
     project_service: ProjectService = Depends(get_project_service)
 ) -> None:
     """Remove a member (Admin only)."""
@@ -279,7 +284,7 @@ async def remove_project_member(
 async def update_project_status(
     project_id: UUID,
     update_request: ProjectProgressUpdateRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: LocalUser = Depends(get_local_user_allow_expired),
     project_service: ProjectService = Depends(get_project_service),
     project_status_publisher: ProjectStatusPublisher = Depends(get_project_status_publisher)
 ) -> ProjectResponse:
@@ -347,7 +352,7 @@ async def update_project_status(
 async def bulk_upload_documents(
     project_id: UUID,
     files: List[UploadFile] = File(...),
-    current_user: User = Depends(get_current_active_user),
+    current_user: LocalUser = Depends(get_local_user_verified),
     document_upload_service: DocumentUploadService = Depends(get_document_upload_service),
     project_service: ProjectService = Depends(get_project_service)
 ) -> BulkUploadResponse:
@@ -383,7 +388,7 @@ async def bulk_upload_documents(
         )
 
     try:
-        result = await document_upload_service.bulk_upload_documents(project_id, files)
+        result = await document_upload_service.bulk_upload_documents(project_id, files, authorization_header=current_user.token)
         logger.info("Bulk document upload successful",
                    project_id=str(project_id),
                    file_count=len(files),

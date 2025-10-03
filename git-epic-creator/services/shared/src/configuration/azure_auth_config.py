@@ -67,6 +67,11 @@ class AzureAuthSettings(BaseConfig):
         description="Azure AD authority URL"
     )
     
+    AZURE_AD_VERIFY_SSL: bool = Field(
+        default=True,
+        description="Verify SSL certificates for Azure AD requests (set to False for local dev with self-signed certs)"
+    )
+    
     @computed_field
     @property
     def OPENID_CONFIG_URL(self) -> str:

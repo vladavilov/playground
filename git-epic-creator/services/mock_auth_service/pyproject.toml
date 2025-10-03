@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-settings",
     "python-jose[cryptography]", # Required for JWT creation and signing
     "cryptography",            # Required for key generation
+    "python-multipart",        # Required for form data parsing
 ]
 
 [project.optional-dependencies]

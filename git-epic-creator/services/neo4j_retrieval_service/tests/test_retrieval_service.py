@@ -17,13 +17,13 @@ class FakeNeo4jSession:
                 def __init__(self, nid: int):
                     self.id = nid
             return [{"node": Node(1), "score": 0.9}, {"node": Node(2), "score": 0.8}]
-        if "RETURN id(c) AS cid, collect(id(chunk)) AS chunk_ids" in query:
+        if "RETURN c.community AS cid, collect(distinct chunk.id) AS chunk_ids" in query:
             return [{"cid": 1, "chunk_ids": [10, 11, 12]}, {"cid": 2, "chunk_ids": [20, 21, 22]}]
-        if "RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30" in query:
+        if "RETURN ch.id AS cid ORDER BY score DESC LIMIT" in query:
             return [{"cid": 10}, {"cid": 11}, {"cid": 12}]
         if "OPTIONAL MATCH (n)-[:FROM_CHUNK]->(ch) RETURN cid, count(n) AS ncnt" in query:
             return [{"cid": 10, "ncnt": 1}]
-        if "MATCH (c:Community) WHERE id(c) IN $ids RETURN id(c) AS id, c.summary AS summary" in query:
+        if "MATCH (c:__Community__)-[:IN_PROJECT]->(:__Project__ {id: $projectId}) WHERE c.community IN $ids RETURN c.community AS id, c.summary AS summary" in query:
             return [{"id": 1, "summary": "community 1"}, {"id": 2, "summary": "community 2"}]
         return []
 

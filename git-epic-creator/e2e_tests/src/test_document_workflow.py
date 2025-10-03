@@ -217,6 +217,7 @@ class TestDocumentWorkflowEdgeCases:
             response = requests.post(
                 upload_url,
                 files=files,
+                verify=False,
                 headers=auth_headers,
                 timeout=30
             )

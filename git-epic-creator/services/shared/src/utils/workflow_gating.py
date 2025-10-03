@@ -128,10 +128,11 @@ async def run_with_lock(
     job_id: str,
     attempts: int,
     execute: Callable[[], Awaitable[Dict[str, Any]]],
-    schedule_retry: Callable[[str, str, int, bool, Optional[int]], Awaitable[str]],
+    schedule_retry: Callable,
     enqueue_follow_up: Optional[Callable[[str, str, int], None]] = None,
     running_ttl_seconds: int = 300,
     pending_ttl_seconds: int = 60,
+    authorization_header: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute under a per-identifier lock; set pending + backoff on contention."""
     sync_client = get_sync_redis_client()
@@ -150,7 +151,7 @@ async def run_with_lock(
             _, countdown, next_attempts = compute_retry_decision(attempts or 0)
         except Exception:
             countdown, next_attempts = 5, (attempts or 0) + 1
-        await schedule_retry(job_id, identifier, int(next_attempts), False, countdown=countdown)
+        await schedule_retry(job_id, identifier, int(next_attempts), False, countdown=countdown, authorization_header=authorization_header)
         return {"job_id": job_id, "project_id": identifier, "attempts": attempts, "skipped": True}
 
     try:

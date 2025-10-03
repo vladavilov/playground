@@ -27,6 +27,7 @@ async def schedule_ingestion_retry(
     to_dlq: bool = False,
     *,
     countdown: Optional[int] = None,
+    authorization_header: Optional[str] = None,
 ) -> str:
     """
     Schedule a retry or DLQ of the ingestion job by publishing directly to the Celery broker.
@@ -37,6 +38,7 @@ async def schedule_ingestion_retry(
         attempts: Attempts count to publish with
         to_dlq: If True, route to a DLQ queue; otherwise main queue
         countdown: Optional delay before retry execution (seconds)
+        authorization_header: Optional authentication token to pass through
 
     Returns:
         Celery task id for the scheduled retry
@@ -62,10 +64,12 @@ async def schedule_ingestion_retry(
         to_dlq=to_dlq,
         countdown=countdown,
     )
+    headers = {"Authentication": authorization_header} if authorization_header else {}
     async_result = celery_app.send_task(
         TASK_RUN_GRAPHRAG_JOB,
         args=[job_id, project_id, int(attempts) if attempts is not None else 0],
         queue=queue_name,
         countdown=countdown,
+        headers=headers,
     )
     return async_result.id

@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from utils.local_auth import get_local_user_verified, LocalUser
 from pydantic import BaseModel
 
 from ..services.clients import get_llm, get_embedder, get_neo4j_session
@@ -16,7 +17,7 @@ class RetrievalRequest(BaseModel):
     project_id: str
 
 @retrieval_router.post("")
-async def retrieve(req: RetrievalRequest) -> Dict[str, Any]:
+async def retrieve(req: RetrievalRequest, current_user: LocalUser = Depends(get_local_user_verified)) -> Dict[str, Any]:
     service = Neo4jRetrievalService(get_session=get_neo4j_session, get_llm=get_llm, get_embedder=get_embedder)
     return await service.retrieve(req.query, top_k=req.top_k, project_id=req.project_id)
 

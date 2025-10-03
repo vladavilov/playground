@@ -78,7 +78,7 @@
     const projectTitleEl = document.getElementById('chatProjectTitle');
     const projectStatusEl = document.getElementById('chatProjectStatus');
 
-    const state = { config: null, token: null, projectId: null, project: null, boxesByPromptId: {}, thinkingBoxes: [], activeBox: null, pendingBox: null };
+    const state = { config: null, projectId: null, project: null, boxesByPromptId: {}, thinkingBoxes: [], activeBox: null, pendingBox: null };
 
     function scrollToBottom() { chatOutput.scrollTop = chatOutput.scrollHeight; }
 
@@ -184,16 +184,12 @@
       const r = await fetch('/config'); state.config = await r.json();
     }
 
-    async function fetchDevToken() {
-      try { const t = await fetch('/dev-token', { method: 'POST' }).then(r=>r.json()); state.token = t.access_token || null; } catch {}
-    }
-
     async function loadProject() {
       const id = location.hash ? location.hash.substring(1) : '';
       state.projectId = id;
       if (!id) return;
       const base = state.config.projectManagementApiBase.replace(/\/$/, '');
-      const res = await fetch(`${base}/projects/${id}`, { headers: state.token ? { 'Authorization': `Bearer ${state.token}` } : {} });
+      const res = await fetch(`${base}/projects/${id}`);
       if (!res.ok) return;
       state.project = await res.json();
       projectTitleEl.textContent = state.project.name || '(untitled)';
@@ -218,12 +214,14 @@
         try {
           const base = state.config.aiWorkflowApiBase.replace(/\/$/, '');
           const headers = { 'Content-Type': 'application/json' };
-          if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
-          const res = await fetch(`${base}/requirements`, {
+          const url = `${base}/requirements`;
+          console.log('Sending requirements request to:', url);
+          const res = await fetch(url, {
             method: 'POST',
             headers,
             body: JSON.stringify({ project_id: state.projectId, prompt: text })
           });
+          console.log('Requirements response status:', res.status);
           if (res.ok) {
             const bundle = await res.json();
             state.currentBundle = bundle;
@@ -238,11 +236,17 @@
             const box = (pid && state.boxesByPromptId[pid]) ? state.boxesByPromptId[pid] : pending;
             if (box) box.finish('ok');
           } else {
-            appendModelMessage('Error: failed to generate requirements', 'System');
+            let errorMsg = `Error ${res.status}: failed to generate requirements`;
+            try {
+              const errorData = await res.json();
+              if (errorData.detail) errorMsg = `Error ${res.status}: ${errorData.detail}`;
+            } catch {}
+            appendModelMessage(errorMsg, 'System Error');
             if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
           }
         } catch (err) {
-          appendModelMessage('Network error while contacting AI workflow', 'System');
+          const errorMsg = err.message ? `Network error: ${err.message}` : 'Network error while contacting AI workflow';
+          appendModelMessage(errorMsg, 'System Error');
           if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
         }
       });
@@ -326,7 +330,7 @@
     function renderTagsHtml(bundle) {
       const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
       const actions = Number(bundle.score) > 0.7
-        ? `<button data-action="subtasks" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Create Sub-tasks</button>`
+        ? `<button data-action="confirm" class="inline-flex items-center px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 shadow-sm">✓ Confirm & Create Tasks</button>`
         : `<button data-action="answer" class="inline-flex items-center px-2 py-1 rounded-full border text-xs text-slate-700 hover:bg-slate-50">Answer Questions</button>`;
       return `<div id="actions_${esc(bundle.prompt_id)}" class="flex flex-wrap gap-2">${actions}</div>`;
     }
@@ -350,11 +354,13 @@
           const template = `Here are answers on questions to increase score:\n${lines}`;
           chatInput.value = template;
           chatInput.focus();
-        } else if (action === 'subtasks') {
-          appendModelMessage('Create Sub-tasks action triggered', 'System');
-          try {
-            document.dispatchEvent(new CustomEvent('create-subtasks', { detail: { bundle: bundle, projectId: state.projectId } }));
-          } catch {}
+        } else if (action === 'confirm') {
+          // Navigate to tasks page with confirmed requirements
+          const params = new URLSearchParams({
+            project_id: state.projectId,
+            prompt_id: bundle.prompt_id
+          });
+          window.location.href = `/tasks.html?${params.toString()}`;
         }
       });
     }
@@ -375,7 +381,6 @@
         try {
           const base = state.config.aiWorkflowApiBase.replace(/\/$/, '');
           const headers = { 'Content-Type': 'application/json' };
-          if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
           // start a pending thinking box for answers flow
           const pending = createThinkingBox(null);
           state.pendingBox = pending;
@@ -402,11 +407,17 @@
             const box = (pid && state.boxesByPromptId[pid]) ? state.boxesByPromptId[pid] : pending;
             if (box) box.finish('ok');
           } else {
-            appendModelMessage('Error: failed to submit answers', 'System');
+            let errorMsg = `Error ${res.status}: failed to submit answers`;
+            try {
+              const errorData = await res.json();
+              if (errorData.detail) errorMsg = `Error ${res.status}: ${errorData.detail}`;
+            } catch {}
+            appendModelMessage(errorMsg, 'System Error');
             if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
           }
         } catch (err) {
-          appendModelMessage('Network error while submitting answers', 'System');
+          const errorMsg = err.message ? `Network error: ${err.message}` : 'Network error while submitting answers';
+          appendModelMessage(errorMsg, 'System Error');
           if (state.pendingBox) { state.pendingBox.finish('error'); state.pendingBox = null; }
         } finally {
           btn.disabled = false; btn.classList.remove('opacity-50');
@@ -415,11 +426,14 @@
     }
 
     (async function init(){
+      console.log('Chat.html initializing...');
       await loadConfig();
-      await fetchDevToken();
+      console.log('Config loaded:', state.config);
       await loadProject();
+      console.log('Project loaded:', state.project);
       setupInputBehavior();
       subscribeSSE();
+      console.log('Chat.html initialized successfully');
     })().catch(console.error);
   </script>
 </body>

@@ -66,6 +66,8 @@ def test_get_celery_app_applies_configuration_posix(mock_get_settings, mock_cele
     assert kwargs.get('worker_max_tasks_per_child') == mock_celery_settings.CELERY_WORKER_MAX_TASKS_PER_CHILD
     assert kwargs.get('worker_concurrency') == mock_celery_settings.CELERY_WORKER_CONCURRENCY
     assert kwargs.get('task_routes') == mock_celery_settings.CELERY_TASK_ROUTES
+    # Task protocol version 2 enables access to task headers
+    assert kwargs.get('task_protocol') == 2
     # Reliability flags
     assert kwargs.get('task_reject_on_worker_lost') is True
     assert kwargs.get('task_acks_on_failure_or_timeout') is True

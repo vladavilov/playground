@@ -1,0 +1,71 @@
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field
+
+
+Kind = Literal["epic", "issue"]
+
+class GitLabWorkItem(BaseModel):
+    kind: Kind
+    id: str
+    title: str
+    title_embedding: List[float] = Field(default_factory=list)
+    description: str = ""
+    state: Literal["opened", "closed"] = "opened"
+    labels: List[str] = Field(default_factory=list)
+    web_url: str
+
+
+class Pagination(BaseModel):
+    page: int
+    per_page: int
+    next_page: Optional[int] = None
+    prev_page: Optional[int] = None
+    total: Optional[int] = None
+
+
+class ListResponse(BaseModel):
+    items: List[GitLabWorkItem]
+    pagination: Pagination
+
+
+class ApplyBacklogWorkItem(BaseModel):
+    id: Optional[str] = None
+    title: str
+    description: str = ""
+    labels: List[str] = Field(default_factory=list)
+
+class ApplyBacklogIssue(ApplyBacklogWorkItem):
+    epic_id: Optional[str] = None
+
+
+class ApplyBacklogRequest(BaseModel):
+    project_id: str
+    prompt_id: str
+    epics: List[ApplyBacklogWorkItem] = Field(default_factory=list)
+    issues: List[ApplyBacklogIssue] = Field(default_factory=list)
+
+
+class ApplyBacklogItemResult(BaseModel):
+    input_index: int
+    action: Literal["created", "updated", "unchanged"]
+    id: str
+    web_url: str
+
+
+class ApplyBacklogResults(BaseModel):
+    epics: List[ApplyBacklogItemResult] = Field(default_factory=list)
+    issues: List[ApplyBacklogItemResult] = Field(default_factory=list)
+
+
+class ApplyBacklogError(BaseModel):
+    scope: Literal["epic", "issue"]
+    input_index: int
+    message: str
+    gitlab_status: Optional[int] = None
+
+
+class ApplyBacklogResponse(BaseModel):
+    results: ApplyBacklogResults
+    errors: List[ApplyBacklogError] = Field(default_factory=list)
+
+

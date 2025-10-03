@@ -13,8 +13,13 @@ logger = structlog.get_logger(__name__)
 _thread_local_clients: dict[int, redis.Redis] = {}
 
 
-def create_redis_client() -> redis.Redis:
-    """Create a fresh asyncio Redis client from settings."""
+def create_redis_client(is_pubsub_client: bool = False) -> redis.Redis:
+    """Create a fresh asyncio Redis client from settings.
+
+    Args:
+        is_pubsub_client: When True, configures the client for long-lived pub/sub
+            consumption (infinite socket timeout, binary payloads).
+    """
     settings = get_app_settings()
     cfg: RedisSettings = settings.redis
     client = redis.from_url(
@@ -23,14 +28,17 @@ def create_redis_client() -> redis.Redis:
         db=cfg.REDIS_DB,
         max_connections=cfg.REDIS_MAX_CONNECTIONS,
         socket_connect_timeout=cfg.REDIS_SOCKET_CONNECT_TIMEOUT,
-        socket_timeout=cfg.REDIS_SOCKET_TIMEOUT,
-        decode_responses=True,
+        socket_timeout=(None if is_pubsub_client else cfg.REDIS_SOCKET_TIMEOUT),
+        decode_responses=(False if is_pubsub_client else True),
     )
-    logger.info("Redis client created", redis_url=cfg.REDIS_URL, redis_db=cfg.REDIS_DB)
+    if is_pubsub_client:
+        logger.info("Redis pub/sub client created", redis_url=cfg.REDIS_URL, redis_db=cfg.REDIS_DB)
+    else:
+        logger.info("Redis client created", redis_url=cfg.REDIS_URL, redis_db=cfg.REDIS_DB)
     return client
 
 
-def get_redis_client() -> redis.Redis:
+def get_redis_client(is_pubsub_client=False) -> redis.Redis:
     """Return a per-thread cached Redis client from settings.
 
     This avoids cross-thread/loop sharing issues by keeping one client per thread.
@@ -38,7 +46,7 @@ def get_redis_client() -> redis.Redis:
     thread_id = threading.get_ident()
     client = _thread_local_clients.get(thread_id)
     if client is None:
-        client = create_redis_client()
+        client = create_redis_client(is_pubsub_client=is_pubsub_client)
         _thread_local_clients[thread_id] = client
     return client
 

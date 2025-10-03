@@ -1,301 +1,198 @@
 """FastAPI app serving static UI and SSE bridge to Redis pubsub."""
 
-from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi import Request
-from pydantic import BaseModel, Field
-from uuid import UUID
-from typing import AsyncIterator
-import asyncio
-import json
+from fastapi import APIRouter, FastAPI
+from contextlib import asynccontextmanager
 import os
 import structlog
 import httpx
+import logging
+from starlette.middleware.sessions import SessionMiddleware
+from authlib.integrations.starlette_client import OAuth
 from configuration.common_config import get_app_settings
+from configuration.azure_auth_config import get_azure_auth_settings
+from ui_config import get_ui_settings
+from configuration.logging_config import configure_logging
 from utils.app_factory import FastAPIFactory
-from utils.redis_client import get_redis_client
-from constants.streams import UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL
+from routers.sse_router import router as sse_router
+from routers.auth_router import router as auth_router
+from routers.gitlab_auth_router import router as gitlab_auth_router
+from routers.proxy_router import router as proxy_router
 
+configure_logging()
 logger = structlog.get_logger(__name__)
 
 app = FastAPIFactory.create_app(
     title="UI Service",
     description="Serves static UI and SSE for project progress",
     version="0.1.0",
-    enable_azure_auth=False,
     enable_cors=True,
     enable_postgres=False,
     enable_redis=True,
 )
 
-# Ensure broker stops cleanly with the app
-@app.on_event("shutdown")
-async def _shutdown_broker_event():
+ui_settings = get_ui_settings()
+session_secret = (ui_settings.SESSION_SECRET_KEY or "").strip()
+if not session_secret:
+    if ui_settings.ALLOW_INSECURE_SESSION:
+        import secrets
+        session_secret = secrets.token_urlsafe(48)
+        logger.warning("SESSION_SECRET_KEY not set; generated ephemeral dev secret")
+    else:
+        raise RuntimeError("SESSION_SECRET_KEY must be set for secure sessions")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=session_secret,
+    session_cookie=ui_settings.SESSION_COOKIE_NAME,
+    max_age=int(ui_settings.SESSION_MAX_AGE),
+    same_site=ui_settings.SESSION_SAME_SITE,
+    https_only=not ui_settings.ALLOW_INSECURE_SESSION,
+)
+
+async def _startup_configure_oauth_on_app() -> None:
+    """Configure OAuth for GitLab (MSAL is configured per-request in auth_router)."""
+    oauth = OAuth()
+    app.state.oauth = oauth
+    logger.info("OAuth configured on app.state (for GitLab)")
+
+
+async def _startup_configure_msal_logging() -> None:
+    """Configure MSAL logging integration."""
     try:
-        await _broker.stop()
-    except Exception:
-        pass
+        # Configure MSAL logger
+        msal_logger = logging.getLogger("msal")
+        
+        # Set appropriate log level
+        log_level = os.getenv("MSAL_LOG_LEVEL", "INFO")
+        msal_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+        
+        # Integrate with structlog
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        ))
+        msal_logger.addHandler(handler)
+        
+        logger.info("MSAL logging configured", log_level=log_level)
+    except Exception as e:
+        logger.warning("Failed to configure MSAL logging", error=str(e))
 
-def format_sse(data: dict, event: str | None = None) -> str:
-    payload_lines = [f"data: {json.dumps(data)}"]
-    if event:
-        payload_lines.insert(0, f"event: {event}")
-    payload_lines.append("\n")
-    return "\n".join(payload_lines)
+
+async def _startup_store_azure_settings(_azure) -> None:
+    """Store Azure auth settings on app state for MSAL."""
+    app.state.azure_auth_settings = _azure
+    logger.info("Azure auth settings stored on app.state")
 
 
-class _SSEBroker:
-    """Single-process Redis pub/sub bridge to multiplex messages to many SSE clients."""
-
-    def __init__(self) -> None:
-        self._started: bool = False
-        self._pubsub = None
-        self._task: asyncio.Task | None = None
-        self._subscribers: set[asyncio.Queue[str]] = set()
-        self._start_lock: asyncio.Lock = asyncio.Lock()
-
-    async def start(self, redis_client) -> None:
-        async with self._start_lock:
-            if self._started:
-                return
-            self._pubsub = redis_client.pubsub()
-            await self._pubsub.subscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
-            self._started = True
-            self._task = asyncio.create_task(self._read_loop())
+async def _startup_load_gitlab_oauth_settings(_ui) -> None:
+    """Load GitLab OAuth settings and register OAuth client at startup."""
+    base_url = (_ui.GITLAB_BASE_URL or "").rstrip("/")
+    client_base_url = (_ui.GITLAB_CLIENT_BASE_URL or base_url or "").rstrip("/")
+    client_id = _ui.GITLAB_OAUTH_CLIENT_ID or ""
+    client_secret = _ui.GITLAB_OAUTH_CLIENT_SECRET or ""
+    redirect_uri = _ui.GITLAB_OAUTH_REDIRECT_URI or ""
+    default_scopes = _ui.GITLAB_OAUTH_SCOPES or "read_api"
+    
+    if base_url and client_id and client_secret and redirect_uri:
+        app.state.gitlab_base_url = base_url
+        app.state.gitlab_client_id = client_id
+        app.state.gitlab_client_secret = client_secret
+        app.state.gitlab_redirect_uri = redirect_uri
+        app.state.gitlab_scopes = default_scopes
+        app.state.gitlab_verify_ssl = _ui.GITLAB_VERIFY_SSL
+        
+        # Register GitLab OAuth client at startup (not on every request)
+        oauth = getattr(app.state, "oauth", None)
+        if oauth:
+            oauth.register(
+                name="gitlab",
+                client_id=client_id,
+                client_secret=client_secret,
+                access_token_url=f"{base_url}/oauth/token",
+                authorize_url=f"{client_base_url}/oauth/authorize",
+                api_base_url=f"{base_url}/api/v4/",
+                client_kwargs={
+                    "code_challenge_method": "S256",  # PKCE for security
+                },
+            )
             logger.info(
-                "SSE broker started",
-                project_channel=UI_PROJECT_PROGRESS_CHANNEL,
-                ai_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                "GitLab OAuth client registered at startup",
+                base_url=base_url,
+                client_base_url=client_base_url,
+                scopes=default_scopes
             )
+        else:
+            logger.warning("OAuth not initialized, cannot register GitLab client")
+    else:
+        logger.warning("GitLab OAuth settings not fully configured; GitLab SSO disabled")
 
-    async def stop(self) -> None:
+
+async def _startup_init_upstream_http_client(http_settings) -> None:
+    timeout = httpx.Timeout(
+        connect=http_settings.CONNECTION_TIMEOUT,
+        read=http_settings.READ_TIMEOUT,
+        write=http_settings.CONNECTION_TIMEOUT,
+        pool=http_settings.CONNECTION_TIMEOUT,
+    )
+    limits = httpx.Limits(
+        max_connections=http_settings.MAX_CONNECTIONS,
+        max_keepalive_connections=http_settings.MAX_KEEPALIVE_CONNECTIONS,
+    )
+    app.state.upstream_http_client = httpx.AsyncClient(timeout=timeout, limits=limits)
+    logger.info("Upstream HTTP client initialized")
+
+@asynccontextmanager
+async def _ui_lifespan(_app: FastAPI):
+    ui = ui_settings
+    try:
+        azure = get_azure_auth_settings()
+    except Exception as e:
+        azure = None
+        logger.warning("Failed to read Azure auth settings", error=str(e))
+
+    try:
+        http_settings = get_app_settings().http_client
+    except Exception as e:
+        http_settings = None
+        logger.warning("Failed to read HTTP client settings", error=str(e))
+
+    steps = [
+        ("configure_oauth_on_app", lambda: _startup_configure_oauth_on_app()),
+        ("configure_msal_logging", lambda: _startup_configure_msal_logging()),
+        ("store_azure_settings", (lambda: _startup_store_azure_settings(azure)) if azure else None),
+        ("load_gitlab_oauth_settings", lambda: _startup_load_gitlab_oauth_settings(ui)),
+        ("init_upstream_http_client", (lambda: _startup_init_upstream_http_client(http_settings)) if http_settings else None),
+    ]
+
+    for name, step in steps:
+        if step is None:
+            continue
         try:
-            if self._task is not None:
-                try:
-                    self._task.cancel()
-                except Exception:
-                    pass
-            if self._pubsub is not None:
-                try:
-                    await self._pubsub.unsubscribe(UI_PROJECT_PROGRESS_CHANNEL, UI_AI_WORKFLOW_PROGRESS_CHANNEL)
-                except Exception:
-                    pass
-                try:
-                    await self._pubsub.close()
-                except Exception:
-                    pass
-        finally:
-            self._started = False
-            self._pubsub = None
-            self._task = None
-            self._subscribers.clear()
-            logger.info("SSE broker stopped")
-
-    def _broadcast(self, payload: str) -> None:
-        for q in list(self._subscribers):
-            try:
-                q.put_nowait(payload)
-            except asyncio.QueueFull:
-                # Drop slow subscriber
-                self._subscribers.discard(q)
-            except Exception:
-                self._subscribers.discard(q)
-
-    async def _read_loop(self) -> None:
-        try:
-            while True:
-                msg = await self._pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                if msg and msg.get("type") == "message":
-                    channel = msg.get("channel")
-                    if isinstance(channel, (bytes, bytearray)):
-                        try:
-                            channel = channel.decode("utf-8")
-                        except Exception:
-                            channel = str(channel)
-
-                    data_field = msg.get("data")
-                    if isinstance(data_field, (bytes, bytearray)):
-                        try:
-                            data_field = data_field.decode("utf-8")
-                        except Exception:
-                            data_field = str(data_field)
-
-                    try:
-                        parsed = json.loads(data_field) if isinstance(data_field, str) else data_field
-                    except Exception:
-                        parsed = {"raw": str(data_field)}
-
-                    event_name = (
-                        "ai_workflow_progress"
-                        if channel == UI_AI_WORKFLOW_PROGRESS_CHANNEL
-                        else "project_progress"
-                    )
-                    self._broadcast(format_sse(parsed, event=event_name))
-                await asyncio.sleep(0.01)
-        except asyncio.CancelledError:
-            return
+            await step()
         except Exception as e:
-            logger.warning("SSE broker loop error", error=str(e))
+            logger.warning(f"Startup step failed: {name}", error=str(e))
 
-    def register(self) -> asyncio.Queue[str]:
-        q: asyncio.Queue[str] = asyncio.Queue(maxsize=100)
-        self._subscribers.add(q)
-        return q
-
-    def unregister(self, q: asyncio.Queue[str]) -> None:
-        self._subscribers.discard(q)
-
-
-_broker = _SSEBroker()
-
-
-async def redis_event_stream(request: Request) -> AsyncIterator[str]:
-    redis = getattr(request.app.state, "redis_client", None) or get_redis_client()
-    await _broker.start(redis)
-    queue = _broker.register()
-    logger.info("SSE subscriber connected")
     try:
-        yield format_sse({"connected": True, "channel": UI_PROJECT_PROGRESS_CHANNEL}, event="hello")
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                payload = await asyncio.wait_for(queue.get(), timeout=1.0)
-                yield payload
-            except asyncio.TimeoutError:
-                continue
+        yield
     finally:
-        _broker.unregister(queue)
-        logger.info("SSE subscriber disconnected")
-
-
-@app.get("/events")
-async def sse_events(request: Request):
-    return StreamingResponse(redis_event_stream(request), media_type="text/event-stream")
-
-
-@app.get("/config")
-async def get_ui_config():
-    # Always instruct the browser to call our same-origin proxies.
-    # The server will use service URLs internally.
-    return JSONResponse({
-        "projectManagementApiBase": "/project",
-        "aiWorkflowApiBase": "/workflow",
-        "progressChannel": UI_PROJECT_PROGRESS_CHANNEL,
-    })
-
-
-@app.post("/dev-token")
-async def get_dev_token():
-    """
-    Development helper: fetch a mock access token from mock-auth-service.
-    Uses AZURE_AD_AUTHORITY and AZURE_TENANT_ID env vars. Defaults point to mock-auth-service in compose.
-    """
-    authority = os.getenv("AZURE_AD_AUTHORITY", "http://mock-auth-service:8000")
-    tenant = os.getenv("AZURE_TENANT_ID", "e7963c3a-3b3a-43b6-9426-89e433d07e69")
-    url = f"{authority.rstrip('/')}/{tenant}/oauth2/v2.0/token"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.post(url)
-        r.raise_for_status()
-        return JSONResponse(r.json())
-
-
-@app.api_route("/project/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-async def proxy_to_project_management(path: str, request: Request):
-    """
-    Reverse proxy endpoint that forwards browser requests to the
-    Project Management Service using Docker-internal networking.
-    Only the bearer token (Authorization header) is forwarded from the
-    incoming request; all other incoming headers are dropped.
-    """
-    upstream_base = os.getenv("PROJECT_MANAGEMENT_SERVICE_URL", "http://project-management-service:8000").rstrip("/")
-    # Preserve original query string
-    target_url = f"{upstream_base}/{path}"
-    if request.url.query:
-        target_url = f"{target_url}?{request.url.query}"
-
-    # Forward only Authorization header (bearer token). All other incoming
-    # headers are intentionally not forwarded.
-    forward_headers = {}
-    auth_header = request.headers.get("authorization")
-    if auth_header:
-        forward_headers["Authorization"] = auth_header
-    # Ensure upstream can parse payloads (JSON, multipart, etc.) by
-    # explicitly setting Content-Type to match the incoming request.
-    ct = request.headers.get("content-type")
-    if ct:
-        forward_headers["Content-Type"] = ct
-
-    body = await request.body()
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                content=body if body else None,
-                headers=forward_headers,
-            )
-    except httpx.RequestError as exc:
-        return JSONResponse({"detail": f"Upstream request failed: {str(exc)}"}, status_code=502)
-
-    # Build response without passing through upstream headers.
-    content_type = resp.headers.get("content-type", "")
-    if "application/json" in content_type:
         try:
-            return JSONResponse(resp.json(), status_code=resp.status_code)
+            client = getattr(app.state, "upstream_http_client", None)
+            if client is not None:
+                await client.aclose()
+                app.state.upstream_http_client = None
+                logger.info("Upstream HTTP client closed")
         except Exception:
-            # Fallback if body isn't valid JSON
-            return Response(content=resp.content, status_code=resp.status_code)
-    return Response(content=resp.content, status_code=resp.status_code)
+            pass
 
+## Routers
+app.include_router(sse_router)
+app.include_router(auth_router)
+app.include_router(gitlab_auth_router)
+app.include_router(proxy_router)
 
-@app.api_route("/workflow/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-async def proxy_to_ai_workflow(path: str, request: Request):
-    """
-    Reverse proxy endpoint that forwards browser requests to the
-    AI Workflow Service using Docker-internal networking.
-    Only the bearer token (Authorization header) is forwarded from the
-    incoming request; all other incoming headers are dropped.
-    """
-    upstream_base = os.getenv("AI_WORKFLOW_SERVICE_URL", "http://ai-workflow-service:8000").rstrip("/")
-    target_url = f"{upstream_base}/workflow/{path}"
-    if request.url.query:
-        target_url = f"{target_url}?{request.url.query}"
-
-    forward_headers = {}
-    auth_header = request.headers.get("authorization")
-    if auth_header:
-        forward_headers["Authorization"] = auth_header
-    ct = request.headers.get("content-type")
-    if ct:
-        forward_headers["Content-Type"] = ct
-
-    body = await request.body()
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                content=body if body else None,
-                headers=forward_headers,
-            )
-    except httpx.RequestError as exc:
-        return JSONResponse({"detail": f"Upstream request failed: {str(exc)}"}, status_code=502)
-
-    content_type = resp.headers.get("content-type", "")
-    if "application/json" in content_type:
-        try:
-            return JSONResponse(resp.json(), status_code=resp.status_code)
-        except Exception:
-            return Response(content=resp.content, status_code=resp.status_code)
-    return Response(content=resp.content, status_code=resp.status_code)
-
-
-class ChatMessageRequest(BaseModel):
-    project_id: UUID = Field(..., description="Project ID for scoping the chat")
-    prompt: str = Field(..., min_length=1, description="User prompt text")
+# Register UI-specific lifespan without overriding app-level lifespan
+app.include_router(APIRouter(lifespan=_ui_lifespan))
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

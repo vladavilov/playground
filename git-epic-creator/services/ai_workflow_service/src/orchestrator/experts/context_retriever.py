@@ -6,8 +6,8 @@ from workflow_models.agent_models import PromptAnalysis, RetrievedContext
 
 
 class ContextRetriever:
-    async def retrieve(self, analysis: PromptAnalysis, project_id: Any) -> RetrievedContext:
-        data = await self._retrieve_from_provider(analysis.prompt, analysis.intents, project_id)
+    async def retrieve(self, analysis: PromptAnalysis, project_id: Any, auth_header: str) -> RetrievedContext:
+        data = await self._retrieve_from_provider(analysis.prompt, analysis.intents, project_id, auth_header=auth_header)
         key_facts = []
         citations: list[str] = []
         try:
@@ -56,7 +56,14 @@ class ContextRetriever:
             lines.append("- (none)")
         return "\n".join(lines)
 
-    async def _retrieve_from_provider(self, query: str, intents: List[str], project_id: Any):
+    async def _retrieve_from_provider(self, query: str, intents: List[str], project_id: Any, auth_header: str):
+        # Strict validation: auth_header is required for authentication to retrieval service
+        if not auth_header or not isinstance(auth_header, str):
+            raise ValueError(
+                "Authentication header is required for retrieval service. "
+                "Ensure auth_header is properly passed through the workflow state."
+            )
+        
         settings = config.get_ai_workflow_settings()
         merged = self._merge_query_with_intents(query, intents)
         payload = {"query": merged, "top_k": settings.RETRIEVAL_TOP_K, "project_id": str(project_id)}
@@ -71,7 +78,8 @@ class ContextRetriever:
         ):
             with attempt:
                 async with httpx.AsyncClient(timeout=timeout) as client:
-                    resp = await client.post(self._build_url(), json=payload)
+                    headers = {"Authorization": auth_header}
+                    resp = await client.post(self._build_url(), json=payload, headers=headers)
                 try:
                     resp.raise_for_status()
                 except Exception:

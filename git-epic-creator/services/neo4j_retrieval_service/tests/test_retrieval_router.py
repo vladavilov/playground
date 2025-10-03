@@ -25,10 +25,10 @@ class FakeNeo4jSession:
             # Return two communities with ids 1, 2
             return [{"node": Node(1), "score": 0.9}, {"node": Node(2), "score": 0.8}]
         # Sample chunks per community (primer phase)
-        if "RETURN id(c) AS cid, collect(id(chunk)) AS chunk_ids" in query:
+        if "RETURN c.community AS cid, collect(distinct chunk.id) AS chunk_ids" in query:
             return [{"cid": 1, "chunk_ids": [10, 11, 12]}, {"cid": 2, "chunk_ids": [20, 21, 22]}]
         # Scoped retrieval for followups
-        if "RETURN id(ch) AS cid ORDER BY score DESC LIMIT 30" in query:
+        if "RETURN ch.id AS cid ORDER BY score DESC LIMIT" in query:
             return [{"cid": 10}, {"cid": 11}, {"cid": 12}]
         # Neighborhood expansion
         if "OPTIONAL MATCH (n)-[:FROM_CHUNK]->(ch) RETURN cid, count(n) AS ncnt" in query:

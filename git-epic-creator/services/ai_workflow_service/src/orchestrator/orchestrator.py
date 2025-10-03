@@ -13,6 +13,7 @@ async def run_requirements_workflow(
     publisher: AiWorkflowStatusPublisher,
     answers: List[QuestionAnswer] | None = None,
     prompt_id_opt: UUID | None = None,
+    auth_header: str | None = None,
 ) -> RequirementsBundle:
     settings = config.get_ai_workflow_settings()
     target = float(settings.CLARIFICATION_SCORE_TARGET)
@@ -31,6 +32,7 @@ async def run_requirements_workflow(
         "prompt": prompt,
         "prompt_id": prompt_id_local,
         "messages": msgs,
+        "auth_header": auth_header,
     }, {"configurable": {"thread_id": f"{project_id}:{prompt_id_local}"}})
     bundle = result_state.get("result")
     if isinstance(bundle, RequirementsBundle):
@@ -45,6 +47,7 @@ async def run_answers_workflow(
     prompt: str,
     answers: List[QuestionAnswer],
     publisher: AiWorkflowStatusPublisher,
+    auth_header: str | None = None,
 ) -> RequirementsBundle:
     # Re-run the full requirements workflow with prompt augmented by answers
     rebundled = await run_requirements_workflow(
@@ -53,6 +56,7 @@ async def run_answers_workflow(
         publisher=publisher,
         answers=answers,
         prompt_id_opt=prompt_id,
+        auth_header=auth_header,
     )
 
     # Preserve original prompt_id for the Q/A thread

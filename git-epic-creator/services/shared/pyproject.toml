@@ -24,7 +24,8 @@ dependencies = [
     "redis[hiredis]",
     "celery",
     "azure-storage-blob",
-    "tenacity"
+    "tenacity",
+    "python-jose[cryptography]"
 ]
 
 [tool.pytest.ini_options]

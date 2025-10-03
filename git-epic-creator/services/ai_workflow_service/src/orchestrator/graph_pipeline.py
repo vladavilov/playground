@@ -38,6 +38,7 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         project_id: Any
         prompt: str
         prompt_id: Any
+        auth_header: str
         analysis: Any
         context: Any
         draft: Any
@@ -88,7 +89,8 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         return {"analysis": analysis}
 
     async def retrieve_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        context = await retriever.retrieve(state["analysis"], state["project_id"])
+        auth_header = state.get("auth_header")
+        context = await retriever.retrieve(state["analysis"], state["project_id"], auth_header=auth_header)
         citations = list(context.citations or [])
         # Publish interim retrieval results
         try:

@@ -21,9 +21,13 @@ echo Making request to initialize database...
 echo Endpoint: http://localhost:8001/db/init
 echo.
 
+set AUTH_HEADER=
+if not "%LOCAL_JWT_TOKEN%"=="" set AUTH_HEADER=-H "Authorization: Bearer %LOCAL_JWT_TOKEN%"
+
 curl -X POST http://localhost:8001/db/init ^
     -H "Content-Type: application/json" ^
     -H "Accept: application/json" ^
+    %AUTH_HEADER% ^
     --connect-timeout 30 ^
     --max-time 60
 

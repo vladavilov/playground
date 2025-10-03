@@ -101,7 +101,7 @@ sequenceDiagram
   - Queue: `document_processing`
 - Project Management client (shared config):
   - `PROJECT_MANAGEMENT_SERVICE_URL`
-  - `ENABLE_AZURE_AUTH` and Azure auth settings (optional)
+  - Local S2S auth uses `LOCAL_JWT_SECRET` for signing/verification
 
 ### Health
 - `GET /health/celery` returns Celery health, app name, registered tasks, routes, serializers, and task validation status.

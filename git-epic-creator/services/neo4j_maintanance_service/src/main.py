@@ -10,6 +10,7 @@ Enhanced with maintenance capabilities.
 from typing import Dict, Any
 import uvicorn
 from fastapi import APIRouter, Depends, Request
+from utils.local_auth import get_local_user_verified, LocalUser
 from fastapi.responses import JSONResponse
 import structlog
 
@@ -35,8 +36,6 @@ app = FastAPIFactory.create_app(
     description="A comprehensive microservice to initialize and maintain Neo4j Graph RAG schema "
                "for the Agentic AI Requirements Engineering System",
     version="1.0.0",
-    enable_azure_auth=False,  # Disable Azure auth for this service
-    enable_docs_auth=False,   # Disable docs auth for this service
     enable_cors=True,         # Enable CORS for API access
     enable_neo4j=True         # Enable Neo4j integration
 )
@@ -65,7 +64,8 @@ def get_maintenance_service(db_client: Neo4jClient = Depends(get_db_client)) -> 
 @neo4j_router.post("/init-neo4j")
 async def init_neo4j(
     schema_service: Neo4jSchemaService = Depends(get_schema_service),
-    maintenance_service: Neo4jIndexMaintenance = Depends(get_maintenance_service)
+    maintenance_service: Neo4jIndexMaintenance = Depends(get_maintenance_service),
+    current_user: LocalUser = Depends(get_local_user_verified),
 ) -> JSONResponse:
     """
     Initialize Neo4j Graph RAG schema.
@@ -183,7 +183,8 @@ async def get_schema_info(
 
 @neo4j_router.get("/maintenance/health")
 async def get_index_health(
-    maintenance_service: Neo4jIndexMaintenance = Depends(get_maintenance_service)
+    maintenance_service: Neo4jIndexMaintenance = Depends(get_maintenance_service),
+    current_user: LocalUser = Depends(get_local_user_verified),
 ) -> Dict[str, Any]:
     """
     Get health status of all vector indexes.
