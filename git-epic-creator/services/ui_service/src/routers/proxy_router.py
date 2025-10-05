@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, Response
 from configuration.common_config import get_app_settings
 from utils.jwt_utils import sign_jwt
 from services.gitlab_token_manager import get_gitlab_token_manager
-from services.token_store import get_session_id
+from utils.redis_client import get_redis_client
 from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
 
 logger = structlog.get_logger(__name__)
@@ -203,11 +203,12 @@ async def _forward(
         "Authorization": f"Bearer {s2s_token}"
     }
     
-    # Add GitLab token if needed
-    is_gitlab = (GITLAB_ROUTE_SEGMENT in (target_url or ""))
-    if is_gitlab:
+    is_gitlab_route = (GITLAB_ROUTE_SEGMENT in (target_url or ""))
+    is_tasks_service = (target_service == "tasks-service")
+    requires_gitlab_token = is_gitlab_route or is_tasks_service
+    
+    if requires_gitlab_token:
         try:
-            from utils.redis_client import get_redis_client
             redis_client = getattr(request.app.state, "redis_client", None) or get_redis_client()
             
             gitlab_base_url = getattr(request.app.state, "gitlab_base_url", "")
@@ -227,10 +228,12 @@ async def _forward(
             gitlab_token = await token_manager.get_valid_token()
             if gitlab_token:
                 forward_headers["X-GitLab-Access-Token"] = gitlab_token
+                logger.debug("Added GitLab token to request", target_service=target_service)
             else:
-                return JSONResponse({"detail": "GitLab access token not found"}, status_code=401)
+                logger.warning("GitLab token not found for user", session_id=session_id, target_service=target_service)
+                return JSONResponse({"detail": "GitLab access token not found. Please connect GitLab account."}, status_code=401)
         except Exception as e:
-            logger.error("Failed to get GitLab token", error=str(e))
+            logger.error("Failed to get GitLab token", error=str(e), target_service=target_service)
             return JSONResponse({"detail": "GitLab authentication error"}, status_code=500)
     
     # Preserve content headers
@@ -323,7 +326,7 @@ async def proxy_to_ai_workflow(path: str, request: Request):
 async def proxy_to_ai_tasks(path: str, request: Request):
     """Proxy requests to AI tasks/backlog generation service."""
     upstream_base = get_app_settings().http_client.AI_TASKS_SERVICE_URL.rstrip("/")
-    target_url = f"{upstream_base}/{path}"
+    target_url = f"{upstream_base}/tasks/{path}"
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"
     return await _forward(request, target_url)

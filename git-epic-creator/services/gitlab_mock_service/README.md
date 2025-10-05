@@ -4,7 +4,8 @@ Mock GitLab service for local development and testing. Simulates GitLab OAuth au
 
 ## Features
 
-- **OAuth 2.0 Flow**: Complete OAuth authorization code flow with PKCE support
+- **OAuth 2.0 Flow**: Complete OAuth authorization code flow with PKCE (S256) validation support
+- **Client Authentication**: Supports both HTTP Basic Auth and form-based client credential authentication per RFC 6749
 - **API v4 Endpoints**: Mock GitLab REST API endpoints for epics and issues
 - **Realistic Responses**: Returns properly formatted JSON responses matching GitLab API structure
 
@@ -12,8 +13,8 @@ Mock GitLab service for local development and testing. Simulates GitLab OAuth au
 
 ### OAuth Endpoints
 
-- `GET /oauth/authorize` - OAuth authorization endpoint
-- `POST /oauth/token` - Token exchange endpoint
+- `GET /oauth/authorize` - OAuth authorization endpoint (supports PKCE code_challenge)
+- `POST /oauth/token` - Token exchange endpoint (validates PKCE code_verifier, accepts credentials via HTTP Basic Auth or form data)
 
 ### API v4 Endpoints
 

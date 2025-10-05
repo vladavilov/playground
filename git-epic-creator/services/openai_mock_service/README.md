@@ -1,97 +1,292 @@
-### OpenAI Mock Service — Local Startup
+# OpenAI Mock Service
 
-Use this mock locally to support the Neo4j ingestion service with an OpenAI-compatible API.
+Local OpenAI-compatible API mock for GraphRAG and AI workflow testing.
 
-References:
-- GraphRAG caller uses an OpenAI-compatible client via fnllm; ensure request/response compatibility with Chat Completions and Embeddings as used by this provider: [fnllm OpenAI providers `models.py`](https://raw.githubusercontent.com/microsoft/graphrag/refs/heads/main/graphrag/language_model/providers/fnllm/models.py).
-- This service runs in the same Docker network as other services in `docker-compose.yml` and may be addressed by its container name.
-
-### Quick start (Windows PowerShell)
+## Quick Start
 
 ```powershell
-# From this directory
-./start-local.ps1 -Port 8010 -Key KEY -Model gpt-4.1 -EmbedModel text-embedding-3-small
+docker-compose build openai-mock-service
+docker-compose up openai-mock-service -d
 ```
 
-- The script creates a `.venv`, installs the service, sets `HF_HOME`, and runs on `http://localhost:8010/v1`.
+Runs on `http://localhost:8010/v1`
 
-### Scope
-- Expose a tiny subset of OpenAI API:
-  - GET `/v1/models`
-  - POST `/v1/chat/completions`
-  - POST `/v1/embeddings`
-- Always return predefined hardcoded payloads. No streaming support.
-- Optional static bearer auth if configured; otherwise allow all.
+---
 
-### API Contracts
-- GET `/v1/models`
-  - 200 OK (fixed): `{ object: "list", data: [{ id: <OAI_MODEL>, object: "model", owned_by: "mock" }, { id: <OAI_EMBED_MODEL>, object: "model", owned_by: "mock" }] }`.
+## Architecture
 
-- POST `/v1/chat/completions`
-  - Request: accept `{ model, messages }` and ignore all other fields and values.
-  - Response (fixed, non-stream only):
-    - 200 OK:
-      `{ id: "cmpl-mock-000", object: "chat.completion", created: 1700000000, model: <OAI_MODEL>, choices: [{ index: 0, message: { role: "assistant", content: "MOCK_RESPONSE" }, finish_reason: "stop" }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } }`.
+### Service Structure
 
-- POST `/v1/embeddings`
-  - Request: `{ model: string, input: string | string[] }` (content ignored).
-  - Response (fixed): `{ object: "list", data: [{ object: "embedding", index: i, embedding: [0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008] } ...repeated per input item...], model: <OAI_EMBED_MODEL>, usage: { prompt_tokens: 0, total_tokens: 0 } }`.
+```
+src/
+├── main.py                 # FastAPI app entry point
+├── config.py               # Environment configuration
+├── auth.py                 # Authentication logic
+├── handlers/               # Prompt-specific response generators (23 handlers)
+│   ├── base.py            # BaseHandler + HandlerRegistry
+│   ├── drift_search.py    # 6 DRIFT-search handlers
+│   ├── graphrag.py        # 3 GraphRAG handlers
+│   ├── deepeval.py        # 4 DeepEval metric handlers
+│   ├── workflow.py        # 4 AI workflow handlers
+│   ├── search.py          # 5 search/summarization handlers
+│   └── fallback.py        # 1 default graph generator
+├── embeddings/
+│   ├── loader.py          # Local Jina model loader
+│   └── service.py         # EmbeddingService
+└── routers/
+    ├── health.py          # Health check
+    ├── models.py          # Model listing
+    ├── chat.py            # Chat completions (handler orchestration)
+    ├── embeddings.py      # Embeddings generation
+    └── azure.py           # Azure OpenAI wrappers
+```
 
-### Authentication
-- If `OAI_COMPLETION/EMBEDDINGS_KEY` is set, require header `Authorization: Bearer ${OAI_*_KEY}` for all `/v1/*` endpoints.
-- Otherwise, skip auth. Health endpoint is always public.
+### Handler System
 
-### Health
-- GET `/health` → `200 { status: "ok" }`.
+**Strategy Pattern:** Each handler implements `BaseHandler` with:
+- `can_handle(messages, combined_text, lower_text) -> bool`
+- `generate_response(messages, combined_text, model) -> str`
 
-### Configuration (env)
-- `API_PORT` (default `8000`): HTTP port.
-- `OAI_COMPLETION_KEY`: Optional bearer token to require.
-- `OAI_EMBEDDINGS_KEY`: Optional bearer token to require.
-- `OAI_MODEL` (default `gpt-4.1` from `docker-compose.env`): Used in responses.
-- `OAI_EMBED_MODEL` (default `text-embedding-3-large`): Used in responses.
-- `OAI_COMPLETION_URL`: Optional completion endpoint URL (for reference only).
-- `OAI_EMBEDDINGS_URL`: Optional embeddings endpoint URL (for reference only).
+**Registry:** Handlers registered in priority order (most specific first). First matching handler processes request.
 
-Note: Use the shared env file `docker-compose.env` so values align with the test environment.
+**23 Handlers (1-1 mapping guaranteed):**
+
+| Group | Count | Handlers |
+|-------|-------|----------|
+| **DRIFT-search** | 6 | HyDE, Primer, LocalExecutor, Aggregator, SearchSystem, Reduce |
+| **GraphRAG** | 3 | Extraction, CommunityReportGraph, CommunityReportText |
+| **DeepEval** | 4 | Claims, Truths, GEval, Statements |
+| **AI Workflow** | 4 | Analyst, Engineer, Auditor, Strategist |
+| **Search/Summarization** | 5 | ExtractClaims, GlobalSearch, BasicSearch, QuestionGen, SummarizeDescriptions |
+| **Fallback** | 1 | Default graph generator |
+
+**Detection Examples:**
+- `DriftHydeHandler`: `"hyde" in text OR "hypothetical answer paragraph"`
+- `DriftPrimerHandler`: `"you are drift-search primer"`
+- `AnalystHandler`: `"senior requirements analyst" + "intents" schema`
+- `EngineerHandler`: `"requirements engineer" + BR/FR schema`
+
+**No Overlaps:** Each handler has mutually exclusive detection pattern.
+
+---
+
+## API Endpoints
+
+### Standard OpenAI API
+
+| Method | Path | Router | Description |
+|--------|------|--------|-------------|
+| GET | `/health` | health | Health check (no auth) |
+| GET | `/models` | models | List models |
+| GET | `/v1/models` | models | List models (v1) |
+| POST | `/chat/completions` | chat | Chat completions |
+| POST | `/v1/chat/completions` | chat | Chat completions (v1) |
+| POST | `/embeddings` | embeddings | Generate embeddings |
+| POST | `/v1/embeddings` | embeddings | Generate embeddings (v1) |
+
+### Azure OpenAI API
+
+| Method | Path | Router | Description |
+|--------|------|--------|-------------|
+| GET | `/openai/deployments` | azure | List deployments |
+| POST | `/openai/deployments/{deployment}/chat/completions` | azure | Chat (Azure) |
+| POST | `/v1/openai/deployments/{deployment}/chat/completions` | azure | Chat (Azure v1) |
+| POST | `/openai/deployments/{deployment}/embeddings` | azure | Embeddings (Azure) |
+| POST | `/v1/openai/deployments/{deployment}/embeddings` | azure | Embeddings (Azure v1) |
+
+**Azure Delegation:** Azure endpoints map `{deployment}` → `model` field, then delegate to standard endpoints. DRY: single `ensure_model_in_body()` helper.
+
+---
+
+## Request/Response Examples
+
+### Chat Completions
+
+**Request:**
+```json
+POST /v1/chat/completions
+{
+  "model": "gpt-4.1",
+  "messages": [{"role": "user", "content": "Hello"}]
+}
+```
+
+**Response:**
+```json
+{
+  "id": "cmpl-mock-000",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "gpt-4.1",
+  "choices": [{
+    "index": 0,
+    "message": {"role": "assistant", "content": "<handler-specific-response>"},
+    "finish_reason": "stop"
+  }],
+  "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+}
+```
+
+### Embeddings
+
+**Request:**
+```json
+POST /v1/embeddings
+{
+  "model": "text-embedding-3-large",
+  "input": ["text1", "text2"]
+}
+```
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {"object": "embedding", "index": 0, "embedding": [0.01, 0.02, ...]},
+    {"object": "embedding", "index": 1, "embedding": [0.03, 0.04, ...]}
+  ],
+  "model": "text-embedding-3-large",
+  "usage": {"prompt_tokens": 0, "total_tokens": 0}
+}
+```
+
+**Embeddings:** Local Jina model (`jina-embeddings-v2-base-en`), dimension fitting to target model.
+
+---
+
+## Authentication
+
+**Required for all endpoints except `/health`**
+
+**Methods:**
+1. Bearer token: `Authorization: Bearer {OAI_KEY}`
+2. API key header: `api-key: {OAI_KEY}` or `x-api-key: {OAI_KEY}`
+
+**Configuration:** Set `OAI_KEY` env var. If not set, auth is disabled.
+
+---
+
+## Configuration (Environment Variables)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_PORT` | `8000` | HTTP port |
+| `OAI_KEY` | - | API key (optional, enables auth) |
+| `OAI_MODEL` | `gpt-4.1` | Chat model name |
+| `OAI_EMBED_MODEL` | `text-embedding-3-large` | Embeddings model name |
+| `VECTOR_INDEX_DIMENSIONS` | `1536` | Embedding vector size |
+| `HF_HOME` | `/models/hf-cache` | Hugging Face cache directory |
+| `TRANSFORMERS_CACHE` | - | Fallback for HF_HOME |
+
+**Note:** Use `docker-compose.env` for consistent test environment.
+
+---
+
+## Error Responses
+
+| Code | Cause |
+|------|-------|
+| 400 | Bad Request (missing `model`, `messages`, or `input`) |
+| 401 | Unauthorized (invalid/missing API key) |
+| 500 | Internal Server Error (embedding model failure) |
+
+---
+
+## Handler Detection Patterns (Key Examples)
+
+### DRIFT-Search Workflow
+1. **DriftHydeHandler**: `"hyde" OR "hypothetical answer paragraph"`
+2. **DriftPrimerHandler**: `"you are drift-search primer"`
+3. **DriftLocalExecutorHandler**: `"you are drift-search local executor"` (branches by followup)
+4. **DriftAggregatorHandler**: `"you are drift-search aggregator"` (parses Q/A tree)
+5. **DriftSearchSystemHandler**: `"Format your response in JSON" + "score between 0 and 100" + "follow_up_queries"`
+6. **DriftReduceHandler**: `"---Data Reports---" + "data in the reports"`
+
+### GraphRAG
+7. **GraphRAGExtractionHandler**: `"entity_types:" + "text:" + "format each entity as"` OR continuation/loop prompts
+8. **CommunityReportGraphHandler**: `"write a comprehensive report of a community" + "findings"` (no date_range)
+9. **CommunityReportTextHandler**: `"date range" + "importance rating"` (with date_range)
+
+### DeepEval Metrics
+10. **DeepEvalClaimsHandler**: `"extract" + "claims"` OR `"list of facts"`
+11. **DeepEvalTruthsHandler**: `"truths"` OR `"verify" + "claims"`
+12. **DeepEvalGEvalHandler**: `"give a reason for the score"` OR `"score" + "reason"`
+13. **DeepEvalStatementsHandler**: `"statements"` OR `"break down" + "response"`
+
+### AI Workflow (Requirements Engineering)
+14. **AnalystHandler**: System: `"senior requirements analyst" + "intents" schema`
+15. **EngineerHandler**: System: `"requirements engineer"` OR `"business_requirements"` OR `"functional_requirements"`
+16. **AuditorHandler**: System: `"senior requirements QA reviewer"` OR `"severity" + "suggestions"`
+17. **StrategistHandler**: User: `"axis_scores"` OR `"questions"`
+
+### Search & Summarization
+18. **ExtractClaimsHandler**: `"-target activity-" + "extract all entities" + "Format each claim as ("`
+19. **GlobalSearchHandler**: `"JSON formatted as follows" + "points" + "map"`
+20. **BasicSearchHandler**: `"---Data tables---" + "data in the tables"` (different from DriftReduceHandler)
+21. **QuestionGenerationHandler**: `"generate a bulleted list of" + "Use - marks as bullet points"`
+22. **SummarizeDescriptionsHandler**: `"generating a comprehensive summary" + "Description List:"`
+
+### Fallback
+23. **FallbackGraphHandler**: Always matches (lowest priority). Returns Smallpdf-grounded graph.
+
+**Disambiguation:** DriftReduceHandler uses "**reports**", BasicSearchHandler uses "**tables**".
+
+---
+
+## Deployment
+
+**Docker:**
+- Python 3.10+
+- FastAPI + uvicorn
+- Minimal dependencies (no Azure/Postgres/Redis)
+- Listen: `0.0.0.0:${API_PORT}`
+- Network: `git_epic_creator_network`
+- Healthcheck: `GET /health`
+
+**Image Optimization:**
+- No shared service libraries (to minimize dependencies)
+- Local Jina embeddings model cached at build time
+- No persistence, metrics, or tracing
+
+---
+
+## Testing
+
+**E2E Tests:**
+- DRIFT-search workflow (HyDE → Primer → LocalExecutor → Aggregator)
+- AI workflow (Analyst → Engineer → Auditor)
+- DeepEval metrics validation
+- GraphRAG entity extraction and community reports
+
+**Test Files:**
+- `e2e_tests/src/test_neo4j_drift_search.py`
+- `e2e_tests/src/test_ui_workflow.py`
+- `e2e_tests/src/test_document_workflow.py`
+
+---
+
+## Development Notes
 
 ### Behavior Rules
-- Ignore request content entirely; always return the fixed payloads above.
-- Never call external services; all data is synthesized.
-- Return JSON with OpenAI-like shapes; `created` is the fixed value `1700000000`.
-
-### Errors
-- 401 if auth required and missing/invalid.
-- 400 for malformed JSON or missing required fields (`model`, `messages` for chat; `model`, `input` for embeddings).
-- 404 for unknown paths; 405 for wrong methods.
-
-### Deployment
-- Containerized FastAPI/uvicorn app (Python 3.10+), minimal dependencies only.
-- Listen on `0.0.0.0:${API_PORT}`; expose `${API_PORT}`.
-- Join the `git_epic_creator_network` bridge network defined in `docker-compose.yml`.
-- Healthcheck: GET `http://localhost:${API_PORT}/health` 200.
-
-### Shared Library Reuse (decision)
-- app_factory.py: Do not import. It pulls Azure/Auth/DB/Redis/Blob imports at module load, increasing dependencies. Implement a tiny FastAPI app inline with a single `/health` route.
-- error_handler.py: Do not import. It depends on `neo4j` and registers broad handlers; unnecessary for this minimal mock. Use default FastAPI error handling and explicit 401/400 where needed.
-- azure_token_provider.py: Not applicable. This service neither calls outbound services nor needs Azure tokens.
-- Outcome: No shared dependencies; smallest possible image and startup surface.
+- All responses are deterministic (no LLM calls)
+- Request content analyzed via pattern matching
+- Responses are fixed JSON/text per handler
+- No streaming support
 
 ### Non-Goals
-- No persistence, metrics backend, tracing, or rate limiting.
-- No retries/backoff logic; client-side concerns.
-- No unit/integration tests; this service exists only to unblock E2E flows.
+- ❌ Persistence, metrics, tracing, rate limiting
+- ❌ Retries/backoff (client-side concern)
+- ❌ Unit tests (service exists only for E2E unblocking)
 
-### Compatibility Notes
-- Designed to satisfy fnllm OpenAI client expectations used by GraphRAG; embeddings batch input must be supported. No streaming.
+### Compatibility
+- Satisfies fnllm OpenAI client (used by GraphRAG)
+- Supports batch embeddings input
+- No streaming (GraphRAG doesn't use it)
 
-### Minimal Example
-Request to `/v1/chat/completions`:
-```json
-{ "model": "gpt-4.1", "messages": [{ "role": "user", "content": "Hello" }] }
-```
-Response (example):
-```json
-{ "id": "cmpl-mock-000", "object": "chat.completion", "created": 1700000000, "model": "gpt-4.1", "choices": [{ "index": 0, "message": { "role": "assistant", "content": "MOCK_RESPONSE" }, "finish_reason": "stop" }], "usage": { "prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5 } }
-```
+---
 
+## References
+
+- Docker network: `git_epic_creator_network` (defined in `docker-compose.yml`)
+- Runs in Docker alongside other services, addressable by container name

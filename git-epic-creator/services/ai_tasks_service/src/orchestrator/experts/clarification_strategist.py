@@ -59,8 +59,8 @@ class ClarificationStrategist:
                 "- **specificity**: Ambiguous technical details (APIs, data models, integrations)\n"
                 "- **feasibility**: Unclear constraints, dependencies, or risks\n"
                 "- **duplication**: Ambiguous boundaries causing overlaps\n\n"
-                "Respond ONLY with JSON: {\"questions\": [{\"id\": string, \"text\": string}], "
-                "\"focus_areas\": string[]}",
+                "Respond ONLY with JSON: {{\"questions\": [{{\"id\": string, \"text\": string}}], "
+                "\"focus_areas\": string[]}}",
             ),
             (
                 "human",

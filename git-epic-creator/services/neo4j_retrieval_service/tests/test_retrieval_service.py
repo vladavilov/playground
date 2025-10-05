@@ -13,14 +13,19 @@ class FakeNeo4jSession:
         if query.strip().lower().startswith("show indexes"):
             return [{"name": "graphrag_comm_index"}, {"name": "chunk_idx"}]
         if "db.index.vector.queryNodes" in query and "graphrag_comm_index" in query:
-            class Node:
-                def __init__(self, nid: int):
-                    self.id = nid
-            return [{"node": Node(1), "score": 0.9}, {"node": Node(2), "score": 0.8}]
+            return [{"community": 1, "score": 0.9}, {"community": 2, "score": 0.8}]
         if "RETURN c.community AS cid, collect(distinct chunk.id) AS chunk_ids" in query:
             return [{"cid": 1, "chunk_ids": [10, 11, 12]}, {"cid": 2, "chunk_ids": [20, 21, 22]}]
         if "RETURN ch.id AS cid ORDER BY score DESC LIMIT" in query:
             return [{"cid": 10}, {"cid": 11}, {"cid": 12}]
+        if "RETURN cid AS chunk_id, ch.text AS text, neigh AS neighbours" in query:
+            return [
+                {
+                    "chunk_id": 10,
+                    "text": "Sample chunk text about bridges",
+                    "neighbours": [{"_id": 1, "properties": {"name": "Bridge entity", "description": "Test entity"}}]
+                }
+            ]
         if "OPTIONAL MATCH (n)-[:FROM_CHUNK]->(ch) RETURN cid, count(n) AS ncnt" in query:
             return [{"cid": 10, "ncnt": 1}]
         if "MATCH (c:__Community__)-[:IN_PROJECT]->(:__Project__ {id: $projectId}) WHERE c.community IN $ids RETURN c.community AS id, c.summary AS summary" in query:
@@ -109,5 +114,29 @@ def test_service_retrieve_returns_aggregated_json(monkeypatch):
     assert "final_answer" in result
     assert isinstance(result.get("key_facts"), list)
     assert "residual_uncertainty" in result
+
+
+def test_service_retrieve_includes_neighbours_in_citations(monkeypatch):
+    """Test that neighbours from Neo4j are included in the citations field."""
+    import importlib
+    mod = importlib.import_module("services.neo4j_retrieval_service.src.services.retrieval_service".replace("/", "."))
+
+    service = mod.Neo4jRetrievalService(
+        get_session=lambda: FakeNeo4jSession(),
+        get_oai=lambda: FakeHttpClient(),
+    )
+
+    result = pytest.run(async_fn=service.retrieve("q", top_k=2)) if hasattr(pytest, "run") else __import__("asyncio").get_event_loop().run_until_complete(service.retrieve("q", top_k=2))
+
+    assert "key_facts" in result
+    key_facts = result.get("key_facts", [])
+    assert len(key_facts) > 0, "Should have at least one key fact"
+    
+    citations = key_facts[0].get("citations")
+    assert citations is not None, "Citations should not be None"
+    
+    # Citations should be enriched with full context including neighbours
+    citations_str = str(citations)
+    assert "neighbours" in citations_str, "Citations should include neighbours from Neo4j context"
 
 

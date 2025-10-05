@@ -12,6 +12,7 @@ from deepeval.metrics import (
     AnswerRelevancyMetric,
     GEval,
 )
+from deepeval.models import LiteLLMModel
 
 logger = structlog.get_logger(__name__)
 
@@ -129,8 +130,6 @@ class ConsistencyAuditor:
         axes: Dict[str, float] = {}
 
         try:
-            # Configure OpenAI environment variables for DeepEval
-            
             llm_config = get_llm_config()
             
             if not llm_config.OAI_KEY:
@@ -139,12 +138,15 @@ class ConsistencyAuditor:
                     "DeepEval requires OpenAI API access for evaluation metrics."
                 )
             
-            os.environ["OPENAI_API_KEY"] = llm_config.OAI_KEY
-            os.environ["OPENAI_API_TYPE"] = "azure"
-            os.environ["AZURE_OPENAI_ENDPOINT"] = llm_config.OAI_BASE_URL
-            os.environ["OPENAI_API_VERSION"] = llm_config.OAI_API_VERSION
-            os.environ["OPENAI_MODEL_NAME"] = llm_config.OAI_MODEL
-            logger.info("deepeval_azure_config_set", 
+            # Create custom Azure OpenAI model for DeepEval pointing to mock service
+            custom_model = LiteLLMModel(
+                model=f"azure/{llm_config.OAI_MODEL}",
+                api_key=llm_config.OAI_KEY,
+                api_base=llm_config.OAI_BASE_URL,
+                api_version=llm_config.OAI_API_VERSION
+            )
+            
+            logger.info("deepeval_custom_model_configured", 
                         endpoint=llm_config.OAI_BASE_URL,
                         model=llm_config.OAI_MODEL,
                         api_version=llm_config.OAI_API_VERSION)
@@ -161,7 +163,7 @@ class ConsistencyAuditor:
 
             # Faithfulness Metric
             logger.info("deepeval_executing_metric", metric="FaithfulnessMetric")
-            faithfulness_metric = FaithfulnessMetric()
+            faithfulness_metric = FaithfulnessMetric(model=custom_model)
             faithfulness_metric.measure(test_case)
             faithfulness_score = float(getattr(faithfulness_metric, "score", 0.0) or 0.0)
             axes["faithfulness"] = faithfulness_score
@@ -174,8 +176,17 @@ class ConsistencyAuditor:
                 criteria=(
                     "Does the actual output cite or clearly derive from the provided context?"
                 ),
+                evaluation_steps=[
+                    "Identify all claims, facts, or statements in the actual output",
+                    "For each claim, verify if it can be traced back to or derived from the provided context",
+                    "Check if the actual output includes explicit citations or references to the context",
+                    "Evaluate whether the actual output introduces information not present in the context",
+                    "Assign a score based on how well the actual output is grounded in the provided context"
+                ],
                 evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
                 strict_mode=False,
+                verbose_mode=True,
+                model=custom_model,
             )
             groundedness_metric.measure(test_case)
             groundedness_score = float(getattr(groundedness_metric, "score", 0.0) or 0.0)
@@ -184,7 +195,7 @@ class ConsistencyAuditor:
 
             # Response Relevancy Metric
             logger.info("deepeval_executing_metric", metric="AnswerRelevancyMetric")
-            relevancy_metric = AnswerRelevancyMetric()
+            relevancy_metric = AnswerRelevancyMetric(model=custom_model)
             relevancy_metric.measure(test_case)
             relevancy_score = float(getattr(relevancy_metric, "score", 0.0) or 0.0)
             axes["response_relevancy"] = relevancy_score
@@ -197,8 +208,17 @@ class ConsistencyAuditor:
                 criteria=(
                     "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria."
                 ),
+                evaluation_steps=[
+                    "Extract all user intents, requirements, and constraints from the input",
+                    "Identify each requirement, acceptance criterion, and assumption in the actual output",
+                    "Verify that each user intent from the input is addressed in the actual output",
+                    "Check if acceptance criteria are testable and follow Given/When/Then format",
+                    "Assess if any user intent or constraint is missing or inadequately addressed",
+                    "Assign a score based on completeness of coverage and quality of testable criteria"
+                ],
                 evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
                 strict_mode=False,
+                model=custom_model,
             )
             completeness_metric.measure(test_case)
             completeness_score = float(getattr(completeness_metric, "score", 0.0) or 0.0)

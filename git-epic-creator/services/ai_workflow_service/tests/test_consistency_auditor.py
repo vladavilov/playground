@@ -141,3 +141,43 @@ async def test_audit_logs_exception_details_before_raising(sample_draft, sample_
     assert any("deepeval_metric_failed" in str(call) for call in log_calls), \
         "Expected error logging before exception propagation"
 
+
+@pytest.mark.asyncio
+async def test_audit_configures_custom_azure_openai_model_for_deepeval(sample_draft, sample_context, monkeypatch):
+    """Verify that ConsistencyAuditor creates LiteLLMModel for Azure OpenAI with correct configuration."""
+    fake_llm = make_fake_llm()
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
+    
+    # Set environment variables for Azure OpenAI mock
+    os.environ["OAI_KEY"] = "KEY"
+    os.environ["OAI_BASE_URL"] = "http://openai-mock-service:8000"
+    os.environ["OAI_MODEL"] = "gpt-4.1"
+    os.environ["OAI_API_VERSION"] = "2024-02-15-preview"
+    
+    from orchestrator.experts.consistency_auditor import ConsistencyAuditor
+    
+    # Mock LiteLLMModel to verify it's instantiated with correct args
+    mock_litellm_model = MagicMock()
+    mock_model_instance = MagicMock()
+    mock_litellm_model.return_value = mock_model_instance
+    
+    # Mock DeepEval metrics to capture the model parameter
+    mock_faithfulness = MagicMock()
+    mock_geval = MagicMock()
+    mock_relevancy = MagicMock()
+    
+    with patch("orchestrator.experts.consistency_auditor.LiteLLMModel", mock_litellm_model):
+        with patch("orchestrator.experts.consistency_auditor.FaithfulnessMetric", return_value=mock_faithfulness):
+            with patch("orchestrator.experts.consistency_auditor.GEval", return_value=mock_geval):
+                with patch("orchestrator.experts.consistency_auditor.AnswerRelevancyMetric", return_value=mock_relevancy):
+                    auditor = ConsistencyAuditor()
+                    await auditor.audit(sample_draft, sample_context, "test prompt")
+    
+    # Verify LiteLLMModel was instantiated with Azure OpenAI configuration
+    mock_litellm_model.assert_called_once()
+    call_kwargs = mock_litellm_model.call_args[1]
+    
+    assert call_kwargs["model"] == "azure/gpt-4.1", "Model should be prefixed with 'azure/'"
+    assert call_kwargs["api_key"] == "KEY", "API key should match OAI_KEY"
+    assert call_kwargs["api_base"] == "http://openai-mock-service:8000", "API base should match OAI_BASE_URL"
+    assert call_kwargs["api_version"] == "2024-02-15-preview", "API version should match OAI_API_VERSION"

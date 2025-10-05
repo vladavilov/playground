@@ -441,6 +441,62 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  gitlab-client-service:
+    <<: *service_defaults
+    build:
+      context: ./services
+      dockerfile: ./gitlab_client_service/Dockerfile
+    container_name: gitlab_client_service
+    ports:
+      - "8012:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      gitlab-mock-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  ai-tasks-service:
+    <<: *service_defaults
+    build:
+      context: ./services
+      dockerfile: ./ai_tasks_service/Dockerfile
+    container_name: ai_tasks_service
+    ports:
+      - "8013:8000"
+    environment:
+      - API_PORT=8000
+    env_file:
+      - docker-compose.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      neo4j-retrieval-service:
+        condition: service_healthy
+      gitlab-client-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   openai-mock-service:
     <<: *service_defaults
     build:
@@ -506,6 +562,9 @@ services:
       - AI_WORKFLOW_SERVICE_URL=http://ai-workflow-service:8000
       - NEO4J_RETRIEVAL_URL=http://neo4j-retrieval-service:8000
       - OPENAI_MOCK_URL=http://openai-mock-service:8000
+      - GITLAB_BASE_URL=http://gitlab-mock-service:8000
+      - GITLAB_INGESTION_BASE_URL=http://gitlab-client-service:8000
+      - AI_TASKS_SERVICE_URL=http://ai-tasks-service:8000
     env_file:
       - docker-compose.env
     depends_on:
@@ -528,6 +587,12 @@ services:
       document-processing-service:
         condition: service_healthy
       mock-auth-service:
+        condition: service_healthy
+      gitlab-mock-service:
+        condition: service_healthy
+      gitlab-client-service:
+        condition: service_healthy
+      ai-tasks-service:
         condition: service_healthy
       openai-mock-service:
         condition: service_healthy

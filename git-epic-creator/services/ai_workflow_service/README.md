@@ -218,7 +218,7 @@ Service Components
 Configuration
 
 - Env vars (examples):
-  - GRAPH_RAG_BASE_URL, GRAPH_RAG_TIMEOUT_SEC
+  - GRAPH_RAG_BASE_URL, HTTP_TIMEOUT_SEC
   - EVAL_WEIGHTS: JSON or separate vars (PRECISION_WEIGHT, GROUNDING_WEIGHT, ...)
   - CLARIFICATION_SCORE_TARGET=0.70
   - REDIS_URL (via shared config)
