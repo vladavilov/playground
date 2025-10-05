@@ -379,28 +379,6 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             state.get("requirements", ""),
         )
         
-        try:
-            issues = list(findings.issues or [])
-            suggestions = list(findings.suggestions or [])
-            md_lines: list[str] = [
-                "### Audit findings",
-                f"- Issues: **{len(issues)}**",
-                f"- Suggestions: **{len(suggestions)}**",
-            ]
-            if issues:
-                md_lines.append("- Top issues:")
-                md_lines.extend([f"  - {str(it)}" for it in issues[:3]])
-            details_md = "\n".join(md_lines)
-            await publisher.publish_backlog_update(
-                project_id=state["project_id"],
-                prompt_id=state.get("prompt_id"),
-                status="evaluating",
-                thought_summary=f"Audited draft; identified {len(issues)} issues.",
-                details_md=details_md,
-            )
-        except Exception:
-            pass
-        
         return {"findings": findings}
 
     async def supervisor_node(state: Dict[str, Any]) -> Command[Literal["finalize", "clarify", "draft"]]:

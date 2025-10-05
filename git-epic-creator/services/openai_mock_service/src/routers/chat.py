@@ -18,7 +18,8 @@ from handlers.deepeval import (
     DeepEvalTruthsHandler, 
     DeepEvalFaithfulnessReasonHandler,
     DeepEvalGEvalHandler, 
-    DeepEvalStatementsHandler, 
+    DeepEvalStatementsHandler,
+    DeepEvalAnswerRelevancyScoreHandler,
     DeepEvalVerdictsHandler
 )
 from handlers.workflow import AnalystHandler, EngineerHandler, AuditorHandler, StrategistHandler
@@ -57,6 +58,7 @@ handler_registry.register(DeepEvalTruthsHandler())                  # Truths ver
 handler_registry.register(DeepEvalFaithfulnessReasonHandler())      # Faithfulness reason summary
 handler_registry.register(DeepEvalGEvalHandler())                   # GEval scoring
 handler_registry.register(DeepEvalStatementsHandler())              # Statement extraction
+handler_registry.register(DeepEvalAnswerRelevancyScoreHandler())    # Answer relevancy scoring
 handler_registry.register(DeepEvalVerdictsHandler())                # Verdicts evaluation
 
 # AI Tasks Service handlers (backlog generation workflow)

@@ -23,7 +23,7 @@ class AiTasksStatusPublisher:
     async def _publish_message(self, message: BacklogProgressMessage) -> bool:
         try:
             target = self._channel()
-            await self.redis_client.publish(target, json.dumps(message.model_dump()))
+            await self.redis_client.publish(target, json.dumps(message.model_dump(exclude_none=True)))
             return True
         except Exception:
             return False

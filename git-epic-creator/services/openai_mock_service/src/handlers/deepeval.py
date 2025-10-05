@@ -252,6 +252,64 @@ class DeepEvalStatementsHandler(BaseHandler):
         return json.dumps(statements)
 
 
+class DeepEvalAnswerRelevancyScoreHandler(BaseHandler):
+    """Handles DeepEval AnswerRelevancyMetric scoring step."""
+
+    def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
+        # AnswerRelevancyMetric scoring step requests ONLY "reason" field (NOT "score" in JSON)
+        # Must distinguish from:
+        # 1. GEval (has "evaluation steps" and requests BOTH "score" and "reason")
+        # 2. Statements extraction (has "statements" array request)
+        # 3. FaithfulnessMetric reason (also ONLY "reason", but about "contradictions")
+        
+        # Must request ONLY "reason" field in JSON, NOT "score"
+        reason_only_request = (
+            ('"reason"' in lower_text and '"score"' not in lower_text)
+            or ("'reason'" in lower_text and "'score'" not in lower_text)
+        )
+        
+        # Must NOT be GEval (which has evaluation steps)
+        not_geval = not ("evaluation steps" in lower_text)
+        
+        # Must NOT be statements extraction
+        not_statements = not (
+            ('"statements"' in lower_text or "list of statements" in lower_text)
+            or ("break down" in lower_text and "statements" in lower_text)
+        )
+        
+        # Must NOT be other array-based extractions
+        not_array_output = not (
+            ('"claims"' in lower_text or "list of claims" in lower_text)
+            or ('"truths"' in lower_text or "list of truths" in lower_text)
+            or ('"verdicts"' in lower_text or "list of verdicts" in lower_text)
+        )
+        
+        # AnswerRelevancy-specific patterns (distinguish from FaithfulnessMetric)
+        relevancy_context = (
+            "answer relevancy score" in lower_text
+            or "irrelevant statements" in lower_text
+            or ("reasons why the score can't be higher" in lower_text and "irrelevant" in lower_text)
+        )
+        
+        # Must NOT be FaithfulnessMetric (which mentions contradictions)
+        not_faithfulness = not (
+            "contradictions" in lower_text
+            or "faithfulness" in lower_text
+        )
+        
+        return reason_only_request and not_geval and not_statements and not_array_output and relevancy_context and not_faithfulness
+
+    def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
+        logger.info("deepeval_answer_relevancy_score",
+                   message_preview=combined_text[:500] if combined_text else "")
+        
+        # AnswerRelevancyMetric expects ONLY "reason" field (score is already computed)
+        result = {
+            "reason": "The score is excellent because the actual output directly addresses all aspects of the input with relevant and focused content."
+        }
+        return json.dumps(result)
+
+
 class DeepEvalVerdictsHandler(BaseHandler):
     """Handles DeepEval ContextualRelevancyMetric verdicts evaluation."""
 

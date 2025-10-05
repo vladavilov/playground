@@ -20,7 +20,12 @@ from services.workflow_assertions import WorkflowAssertions
 from shared_utils import HTTPUtils
 
 
-def validate_workflow_progress_message(msg: Dict[str, Any], expected_status: str, expected_message_type: str = "ai_workflow_progress") -> None:
+def validate_workflow_progress_message(
+    msg: Dict[str, Any], 
+    expected_status: str, 
+    expected_message_type: str = "ai_workflow_progress",
+    expect_score: bool = False
+) -> None:
     """
     Comprehensive validation of AI workflow/tasks progress message structure.
     
@@ -34,6 +39,7 @@ def validate_workflow_progress_message(msg: Dict[str, Any], expected_status: str
         msg: Progress message to validate
         expected_status: Expected status value
         expected_message_type: Expected message type (default: "ai_workflow_progress")
+        expect_score: If True, score is required; if False, score should not be present
     """
     # 1. Required fields
     assert msg.get("message_type") == expected_message_type, \
@@ -63,13 +69,19 @@ def validate_workflow_progress_message(msg: Dict[str, Any], expected_status: str
         assert has_markdown, \
             f"details_md should contain markdown formatting: {details[:100]}"
     
-    # 4. Validate score if present
-    if "score" in msg:
+    # 4. Validate score based on expectation
+    if expect_score:
+        # Only 'evaluating' status should have score
+        assert "score" in msg, f"{expected_status} message should include score"
         score = msg["score"]
         assert isinstance(score, (int, float)), \
             f"Score should be numeric, got {type(score)}"
         assert 0.0 <= score <= 1.0, \
             f"Score {score} out of range [0,1]"
+    else:
+        # Other statuses should NOT have score
+        assert "score" not in msg, \
+            f"{expected_status} message should not include score, but got: {msg.get('score')}"
     
     # 5. Validate iteration if present
     if "iteration" in msg:
@@ -640,9 +652,8 @@ class TestUIRequirementsWorkflow:
             validate_workflow_progress_message(mapping_msg, "mapping_duplicates", "ai_tasks_progress")
             
             evaluating_msg = next(ai_seq)
-            validate_workflow_progress_message(evaluating_msg, "evaluating", "ai_tasks_progress")
-            # Evaluating should have score
-            assert "score" in evaluating_msg, "evaluating message should include score"
+            validate_workflow_progress_message(evaluating_msg, "evaluating", "ai_tasks_progress", expect_score=True)
+            # Evaluating should also have iteration
             assert "iteration" in evaluating_msg, "evaluating message should include iteration"
             eval_details = evaluating_msg.get("details_md", "")
             assert eval_details, "evaluating should have details_md"
