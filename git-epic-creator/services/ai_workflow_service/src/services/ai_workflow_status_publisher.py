@@ -23,7 +23,7 @@ class AiWorkflowStatusPublisher:
     async def _publish_message(self, message: WorkflowProgressMessage, channel: str | None = None) -> bool:
         try:
             target = self._channel(channel or self.default_name)
-            await self.redis_client.publish(target, json.dumps(message.model_dump()))
+            await self.redis_client.publish(target, json.dumps(message.model_dump(exclude_none=True)))
             return True
         except Exception:
             return False
