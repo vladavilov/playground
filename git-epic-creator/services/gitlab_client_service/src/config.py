@@ -18,8 +18,8 @@ class GitLabClientSettings(BaseSettings):
     GITLAB_BASE_URL: str = Field(default="", description="Base URL of GitLab instance")
     GITLAB_VERIFY_SSL: bool = Field(default=True, description="Verify SSL certificates for GitLab")
     HTTP_TIMEOUT_SEC: float = Field(default=30.0, description="HTTP request timeout in seconds")
-    HTTP_MAX_RETRIES: int = Field(default=3, description="Maximum number of HTTP retries")
-    HTTP_RETRY_BACKOFF_FACTOR: float = Field(default=2.0, description="Exponential backoff factor for retries")
+    RETRY_MAX_ATTEMPTS: int = Field(default=3, description="Maximum number of HTTP retries")
+    RETRY_BACKOFF_FACTOR: float = Field(default=2.0, description="Exponential backoff factor for retries")
     DEFAULT_PAGE_SIZE: int = Field(default=100, description="Default page size for GitLab API pagination")
     
     # Embedding Batch Configuration (extends LlmConfig)

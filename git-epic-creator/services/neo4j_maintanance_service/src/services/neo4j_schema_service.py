@@ -41,7 +41,7 @@ class Neo4jSchemaService:
         Returns:
             Dict[str, Any]: Execution result
         """
-        for attempt in range(self.settings.NEO4J_MAX_RETRY_ATTEMPTS):
+        for attempt in range(self.settings.RETRY_MAX_ATTEMPTS):
             try:
                 with self.neo4j_client.get_session() as session:
                     result = session.run(query)
@@ -55,7 +55,7 @@ class Neo4jSchemaService:
                 }
 
             except (Neo4jError, OSError, ConnectionError) as e:
-                if attempt == self.settings.NEO4J_MAX_RETRY_ATTEMPTS - 1:
+                if attempt == self.settings.RETRY_MAX_ATTEMPTS - 1:
                     # Last attempt failed
                     logger.error("Query failed after all retries",
                                 query=query, error=str(e), attempts=attempt + 1)
@@ -69,7 +69,7 @@ class Neo4jSchemaService:
                 # Retry with delay
                 logger.warning("Query failed, retrying",
                               query=query, error=str(e), attempt=attempt + 1)
-                await asyncio.sleep(self.settings.NEO4J_RETRY_DELAY)
+                await asyncio.sleep(self.settings.RETRY_BACKOFF_BASE_SEC)
 
     async def execute_queries_batch(self, queries: List[str]) -> Dict[str, Any]:
         """Execute a batch of queries with shared flow."""

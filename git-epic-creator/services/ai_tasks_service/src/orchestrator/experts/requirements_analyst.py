@@ -36,7 +36,7 @@ class RequirementsAnalyst:
                 "- **intents**: 1-5 concise, atomic requirement intents\n"
                 "- **entities**: domain entities (e.g., User, Order, Payment)\n"
                 "- **constraints**: SLAs, NFRs, compliance requirements\n\n"
-                "Respond ONLY with JSON: {\"intents\": string[], \"entities\": string[], \"constraints\": string[]}",
+                "Respond ONLY with JSON: {{\"intents\": string[], \"entities\": string[], \"constraints\": string[]}}",
             ),
             ("human", "{requirements}"),
         ])

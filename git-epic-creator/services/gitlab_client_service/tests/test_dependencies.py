@@ -51,7 +51,7 @@ def test_get_gitlab_client_creates_client(monkeypatch):
     settings = GitLabClientSettings(
         GITLAB_BASE_URL="http://test-gitlab.com",
         HTTP_TIMEOUT_SEC=60.0,
-        HTTP_MAX_RETRIES=5
+        RETRY_MAX_ATTEMPTS=5
     )
     
     # Mock gitlab.Gitlab to avoid actual network calls

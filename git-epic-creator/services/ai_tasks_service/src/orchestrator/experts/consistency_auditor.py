@@ -46,7 +46,7 @@ class ConsistencyAuditor:
                 "- Incomplete or untestable acceptance criteria\n"
                 "- Tasks that are too large (not following INVEST)\n"
                 "- Gaps in coverage vs. requirements\n\n"
-                "Respond ONLY with JSON: {\"issues\": string[], \"suggestions\": string[], \"overlaps\": string[]}",
+                "Respond ONLY with JSON: {{\"issues\": string[], \"suggestions\": string[], \"overlaps\": string[]}}",
             ),
             ("human", "### Requirements\n{requirements}\n\n### Backlog\n{backlog_summary}"),
         ])

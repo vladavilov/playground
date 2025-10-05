@@ -16,9 +16,9 @@ class AIWorkflowSettings(BaseConfig):
         description="Base URL for GraphRAG/retrieval service health check",
     )
 
-    GRAPH_RAG_TIMEOUT_SEC: float = Field(
+    HTTP_TIMEOUT_SEC: float = Field(
         default=30.0,
-        description="Timeout in seconds for GraphRAG HTTP calls",
+        description="Timeout in seconds for HTTP calls",
     )
 
     CLARIFICATION_SCORE_TARGET: float = Field(
@@ -42,8 +42,8 @@ class AIWorkflowSettings(BaseConfig):
         ge=1,
     )
 
-    RETRIEVAL_MAX_ATTEMPTS: int = Field(
-        default=2,
+    RETRY_MAX_ATTEMPTS: int = Field(
+        default=3,
         description="Max retry attempts for retrieval client",
     )
 

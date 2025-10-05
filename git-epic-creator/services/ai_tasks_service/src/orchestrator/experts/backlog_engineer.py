@@ -66,7 +66,7 @@ class BacklogEngineer:
                 "- Given/When/Then acceptance criteria\n"
                 "- Dependencies (task IDs)\n"
                 "- Technical specificity (APIs, data models, endpoints, configs)\n\n"
-                "Respond ONLY with JSON: {\"epics\": Epic[], \"assumptions\": string[], \"risks\": string[]}",
+                "Respond ONLY with JSON: {{\"epics\": Epic[], \"assumptions\": string[], \"risks\": string[]}}",
             ),
             ("human", "{prompt_content}"),
         ])
@@ -117,10 +117,10 @@ class BacklogEngineer:
             analysis.requirements_text,
             "",
             "### Intents",
-            *(f"- {i}" for i in analysis.intents) if analysis.intents else ["- (none)"],
+            *([f"- {i}" for i in analysis.intents] if analysis.intents else ["- (none)"]),
             "",
             "### Constraints",
-            *(f"- {c}" for c in analysis.constraints) if analysis.constraints else ["- (none)"],
+            *([f"- {c}" for c in analysis.constraints] if analysis.constraints else ["- (none)"]),
             "",
             "### Technical Context",
             context.context_answer or "(no context available)",

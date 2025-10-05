@@ -17,19 +17,14 @@ class AITasksSettings(BaseConfig):
         description="Base URL for GraphRAG/retrieval service",
     )
 
-    GRAPH_RAG_TIMEOUT_SEC: float = Field(
+    HTTP_TIMEOUT_SEC: float = Field(
         default=30.0,
-        description="Timeout in seconds for GraphRAG HTTP calls",
+        description="Timeout in seconds for HTTP calls",
     )
 
     GITLAB_INGESTION_BASE_URL: str = Field(
         default="http://gitlab-client-service:8000",
         description="Base URL for GitLab client service",
-    )
-
-    GITLAB_TIMEOUT_SEC: float = Field(
-        default=30.0,
-        description="Timeout in seconds for GitLab client HTTP calls",
     )
 
     CLARIFICATION_SCORE_TARGET: float = Field(
@@ -58,8 +53,8 @@ class AITasksSettings(BaseConfig):
         ge=1,
     )
 
-    RETRIEVAL_MAX_ATTEMPTS: int = Field(
-        default=2,
+    RETRY_MAX_ATTEMPTS: int = Field(
+        default=3,
         description="Max retry attempts for retrieval client",
     )
 

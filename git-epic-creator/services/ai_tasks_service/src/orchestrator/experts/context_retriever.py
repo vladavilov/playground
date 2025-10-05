@@ -17,8 +17,8 @@ class ContextRetriever:
         settings = get_ai_tasks_settings()
         self.client = GraphRAGClient(
             base_url=settings.GRAPH_RAG_BASE_URL,
-            timeout_sec=settings.GRAPH_RAG_TIMEOUT_SEC,
-            max_attempts=settings.RETRIEVAL_MAX_ATTEMPTS,
+            timeout_sec=settings.HTTP_TIMEOUT_SEC,
+            max_attempts=settings.RETRY_MAX_ATTEMPTS,
             backoff_base_sec=settings.RETRIEVAL_BACKOFF_BASE_SEC,
         )
         self.top_k = settings.RETRIEVAL_TOP_K
@@ -106,7 +106,7 @@ class ContextRetriever:
             analysis.requirements_text.strip(),
             "",
             "### Key Intents",
-            *(f"- {i}" for i in intents) if intents else ["- (none)"],
+            *([f"- {i}" for i in intents] if intents else ["- (none)"]),
             "",
             "### Context Needed",
             "Provide technical implementation context: APIs, services, data models, "

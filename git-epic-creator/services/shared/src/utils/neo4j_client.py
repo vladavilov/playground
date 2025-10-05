@@ -67,7 +67,7 @@ class Neo4jClient:
         retry_count = 0
         last_error = None
         
-        while retry_count < self.settings.NEO4J_MAX_RETRY_ATTEMPTS:
+        while retry_count < self.settings.RETRY_MAX_ATTEMPTS:
             try:
                 with self.get_session(database) as session:
                     result = session.run(query, parameters or {})
@@ -79,12 +79,12 @@ class Neo4jClient:
                     "Neo4j query failed, retrying",
                     error=str(e),
                     retry_count=retry_count,
-                    max_retries=self.settings.NEO4J_MAX_RETRY_ATTEMPTS
+                    max_retries=self.settings.RETRY_MAX_ATTEMPTS
                 )
                 
-                if retry_count < self.settings.NEO4J_MAX_RETRY_ATTEMPTS:
+                if retry_count < self.settings.RETRY_MAX_ATTEMPTS:
                     # Exponential backoff
-                    wait_time = self.settings.NEO4J_RETRY_DELAY * (2 ** (retry_count - 1))
+                    wait_time = self.settings.RETRY_BACKOFF_BASE_SEC * (2 ** (retry_count - 1))
                     time.sleep(wait_time)
                 else:
                     logger.error(

@@ -20,7 +20,7 @@ from orchestrator.experts.consistency_auditor import ConsistencyAuditor
 from orchestrator.experts.evaluator import Evaluator
 from orchestrator.experts.clarification_strategist import ClarificationStrategist
 from orchestrator.experts.clients.gitlab_client import GitLabClient
-
+from models.agent_models import BacklogDraft
 
 async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int):
     """Build a LangGraph StateGraph for the backlog generation workflow.
@@ -82,6 +82,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             prompt_id=state.get("prompt_id"),
             status="analyzing_requirements",
             thought_summary="Initializing backlog generation workflow.",
+            details_md="### Workflow Initialization\nStarting requirements analysis pipeline.",
         )
         incoming_msgs = state.get("messages") or []
         if incoming_msgs:
@@ -106,12 +107,50 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
     async def analyze_node(state: Dict[str, Any]) -> Dict[str, Any]:
         requirements = state.get("requirements", "")
         analysis = await analyst.analyze(requirements)
-        await publisher.publish_backlog_update(
-            project_id=state["project_id"],
-            prompt_id=state.get("prompt_id"),
-            status="analyzing_requirements",
-            thought_summary=f"Extracted {len(analysis.intents)} intents and {len(analysis.entities)} entities.",
-        )
+        
+        try:
+            md_lines: list[str] = [
+                "### Requirements Analysis",
+                "Extracted structured information from requirements:",
+                "",
+            ]
+            
+            # Intents
+            if analysis.intents:
+                md_lines.append(f"**Intents** ({len(analysis.intents)}):")
+                for intent in analysis.intents[:5]:  # Show top 5
+                    md_lines.append(f"- {intent}")
+                md_lines.append("")
+            
+            # Entities
+            if analysis.entities:
+                md_lines.append(f"**Domain Entities** ({len(analysis.entities)}):")
+                for entity in analysis.entities[:8]:  # Show top 8
+                    md_lines.append(f"- {entity}")
+                md_lines.append("")
+            
+            # Constraints
+            if analysis.constraints:
+                md_lines.append(f"**Constraints/NFRs** ({len(analysis.constraints)}):")
+                for constraint in analysis.constraints[:5]:  # Show top 5
+                    md_lines.append(f"- {constraint}")
+            
+            details_md = "\n".join(md_lines)
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="analyzing_requirements",
+                thought_summary=f"Extracted {len(analysis.intents)} intents and {len(analysis.entities)} entities.",
+                details_md=details_md,
+            )
+        except Exception:
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="analyzing_requirements",
+                thought_summary=f"Extracted {len(analysis.intents)} intents and {len(analysis.entities)} entities.",
+            )
+        
         return {"analysis": analysis}
 
     async def retrieve_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -153,7 +192,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         
         gitlab_client = GitLabClient(
             base_url=settings.GITLAB_INGESTION_BASE_URL,
-            timeout_sec=settings.GITLAB_TIMEOUT_SEC,
+            timeout_sec=settings.HTTP_TIMEOUT_SEC,
         )
         
         auth_header = state.get("auth_header")
@@ -168,12 +207,55 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         epic_count = len(gitlab_backlog.get("epics", []))
         issue_count = len(gitlab_backlog.get("issues", []))
         
-        await publisher.publish_backlog_update(
-            project_id=state["project_id"],
-            prompt_id=state.get("prompt_id"),
-            status="fetching_backlog",
-            thought_summary=f"Fetched {epic_count} epics and {issue_count} issues from GitLab.",
-        )
+        try:
+            md_lines: list[str] = [
+                "### GitLab Backlog Retrieved",
+                "Fetched existing epics and issues for duplicate detection:",
+                "",
+            ]
+            
+            # Epics
+            epics = gitlab_backlog.get("epics", [])
+            if epics:
+                md_lines.append(f"**Epics found** ({epic_count}):")
+                for epic in epics[:5]:  # Show first 5
+                    epic_id = epic.get("id", "N/A")
+                    epic_title = epic.get("title", "Untitled")
+                    epic_status = epic.get("status", "")
+                    status_str = f" [{epic_status}]" if epic_status else ""
+                    md_lines.append(f"- {epic_id}: {epic_title}{status_str}")
+                if epic_count > 5:
+                    md_lines.append(f"- ... and {epic_count - 5} more")
+                md_lines.append("")
+            
+            # Issues
+            issues = gitlab_backlog.get("issues", [])
+            if issues:
+                md_lines.append(f"**Issues found** ({issue_count}):")
+                for issue in issues[:5]:  # Show first 5
+                    issue_id = issue.get("id", "N/A")
+                    issue_title = issue.get("title", "Untitled")
+                    issue_status = issue.get("status", "")
+                    status_str = f" [{issue_status}]" if issue_status else ""
+                    md_lines.append(f"- {issue_id}: {issue_title}{status_str}")
+                if issue_count > 5:
+                    md_lines.append(f"- ... and {issue_count - 5} more")
+            
+            details_md = "\n".join(md_lines)
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="fetching_backlog",
+                thought_summary=f"Fetched {epic_count} epics and {issue_count} issues from GitLab.",
+                details_md=details_md,
+            )
+        except Exception:
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="fetching_backlog",
+                thought_summary=f"Fetched {epic_count} epics and {issue_count} issues from GitLab.",
+            )
         
         return {"gitlab_backlog": gitlab_backlog}
 
@@ -219,18 +301,81 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         )
         
         stats = mappings.stats
-        await publisher.publish_backlog_update(
-            project_id=state["project_id"],
-            prompt_id=state.get("prompt_id"),
-            status="mapping_duplicates",
-            thought_summary=f"Found {stats.get('total_matches', 0)} similar items (avg similarity: {stats.get('avg_similarity', 0.0):.2f}).",
-        )
+        
+        try:
+            md_lines: list[str] = [
+                "### Duplicate Mapping Analysis",
+                "Identified similar items between generated backlog and GitLab:",
+                "",
+            ]
+            
+            total_matches = stats.get("total_matches", 0)
+            avg_similarity = stats.get("avg_similarity", 0.0)
+            
+            md_lines.append(f"**Statistics:**")
+            md_lines.append(f"- Total matches: **{total_matches}**")
+            md_lines.append(f"- Average similarity: **{avg_similarity:.2f}**")
+            md_lines.append("")
+            
+            # Show top duplicate matches
+            if mappings.enriched_epics:
+                high_similarity_items = []
+                for epic in mappings.enriched_epics:
+                    if epic.similar:
+                        for sim in epic.similar:
+                            if sim.similarity >= 0.7:  # High similarity threshold
+                                high_similarity_items.append({
+                                    "generated": f"{epic.id}: {epic.title}",
+                                    "gitlab": f"{sim.kind} {sim.id}",
+                                    "similarity": sim.similarity
+                                })
+                    
+                    for task in epic.tasks:
+                        if task.similar:
+                            for sim in task.similar:
+                                if sim.similarity >= 0.7:
+                                    high_similarity_items.append({
+                                        "generated": f"{task.id}: {task.title}",
+                                        "gitlab": f"{sim.kind} {sim.id}",
+                                        "similarity": sim.similarity
+                                    })
+                
+                if high_similarity_items:
+                    md_lines.append(f"**High-confidence matches** (similarity ≥ 0.7):")
+                    for item in high_similarity_items[:5]:  # Show top 5
+                        md_lines.append(f"- {item['generated']} ↔ {item['gitlab']} ({item['similarity']:.2f})")
+                    if len(high_similarity_items) > 5:
+                        md_lines.append(f"- ... and {len(high_similarity_items) - 5} more")
+            
+            details_md = "\n".join(md_lines)
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="mapping_duplicates",
+                thought_summary=f"Found {total_matches} similar items (avg similarity: {avg_similarity:.2f}).",
+                details_md=details_md,
+            )
+        except Exception:
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="mapping_duplicates",
+                thought_summary=f"Found {stats.get('total_matches', 0)} similar items (avg similarity: {stats.get('avg_similarity', 0.0):.2f}).",
+            )
         
         return {"mappings": mappings}
 
     async def audit_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        audit_draft = state["draft"]
+        if state.get("mappings"):
+            audit_draft = BacklogDraft(
+                epics=state["mappings"].enriched_epics,
+                assumptions=state["draft"].assumptions,
+                risks=state["draft"].risks,
+            )
+        
         findings = await auditor.audit(
-            state["mappings"].enriched_epics if state.get("mappings") else state["draft"],
+            audit_draft,
             state.get("requirements", ""),
         )
         

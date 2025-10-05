@@ -21,6 +21,7 @@ dependencies = [
     "tenacity",
     "openai",
     "deepeval",
+    "litellm",
     "langgraph",
     "langchain-core",
     "langchain-openai",
