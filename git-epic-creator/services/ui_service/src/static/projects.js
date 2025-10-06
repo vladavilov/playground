@@ -620,14 +620,17 @@ async function init() {
     updateAuthUI(authStatus);
     
     if (!state.authenticated) {
-      // Redirect to login if not authenticated
-      window.location.href = '/auth/login';
+      // Redirect to login with current URL to return after auth
+      const returnTo = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+      window.location.href = `/auth/login?redirect_uri=${returnTo}`;
       return;
     }
   } catch (err) {
     console.error('Failed to check auth status:', err);
     updateAuthUI({ authenticated: false, username: null });
-    window.location.href = '/auth/login';
+    // Redirect to login with current URL to return after auth
+    const returnTo = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+    window.location.href = `/auth/login?redirect_uri=${returnTo}`;
     return;
   }
   

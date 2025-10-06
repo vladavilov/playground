@@ -115,7 +115,9 @@ graph TB
 ## API Endpoints
 
 ### Azure SSO
-- `GET /auth/login` - Initiate Azure AD login flow
+- `GET /auth/login?redirect_uri=<url>` - Initiate Azure AD login flow
+  - `redirect_uri` (optional): URL to redirect to after successful authentication (validated for security)
+  - If not provided, redirects to `/projects.html` by default
 - `GET /auth/callback` - Azure AD callback handler
 - `GET /auth/me` - Get current user authentication status
 - `POST /auth/logout` - Logout and clear tokens
@@ -187,10 +189,11 @@ sequenceDiagram
 
 **Key Steps**:
 
-1. **User Login**: User accesses `/auth/login`, MSAL generates authorization URL with PKCE, user redirects to Azure AD
-2. **Callback Processing**: Azure AD redirects to `/auth/callback` with authorization code, MSAL exchanges code for tokens, tokens stored in Redis-backed cache, user claims extracted and stored in session
+1. **User Login**: User accesses `/auth/login?redirect_uri=<url>`, optional redirect URI is validated and encoded in OAuth state parameter (base64-encoded JSON with CSRF token + redirect URL), MSAL generates authorization URL with PKCE, user redirects to Azure AD
+2. **Callback Processing**: Azure AD redirects to `/auth/callback` with authorization code and state parameter, state is decoded to extract CSRF token and redirect URI, MSAL exchanges code for tokens, tokens stored in Redis-backed cache, user claims extracted and stored in session, user redirected to original page (from state) or default `/projects.html`
 3. **Token Refresh**: MSAL automatically refreshes tokens via `acquire_token_silent`, refresh occurs when cached token is expired or missing
 4. **Conditional Access**: Detects `interaction_required` errors, stores claims challenge for re-authentication, prompts user for MFA when required
+5. **Security**: Redirect URI validation prevents open redirect attacks (rejects external URLs, javascript: URIs, etc.), state parameter provides both CSRF protection and return URL preservation
 
 ### 2. S2S Authentication Flow
 

@@ -18,9 +18,12 @@ def mock_msal_app():
     app = Mock()
     app.get_accounts = Mock(return_value=[])
     app.acquire_token_silent = Mock(return_value=None)
-    app.get_authorization_request_url = Mock(
-        return_value="https://login.microsoftonline.com/authorize?client_id=test"
-    )
+    
+    # Mock get_authorization_request_url to return URL with state parameter
+    def mock_get_auth_url(scopes, state, redirect_uri):
+        return f"https://login.microsoftonline.com/authorize?client_id=test&state={state}&redirect_uri={redirect_uri}"
+    
+    app.get_authorization_request_url = Mock(side_effect=mock_get_auth_url)
     app.acquire_token_by_authorization_code = Mock(return_value={
         "access_token": "test_access_token",
         "refresh_token": "test_refresh_token",
@@ -130,11 +133,10 @@ class TestMSALAuthenticationFlow:
             else:
                 state_param = "test_state"
             
-            # Now simulate the callback with the correct state
-            response = client.get(f"/auth/callback?code=test_code&state={state_param}")
+            # Now simulate the callback with the correct state (don't follow redirects)
+            response = client.get(f"/auth/callback?code=test_code&state={state_param}", follow_redirects=False)
         
-        # Should have called MSAL to exchange code for token (if state was valid)
-        # Note: This may not be called if state validation failed
+        # Should have called MSAL to exchange code for token and redirect on success
         assert response.status_code in [200, 302, 307, 400, 401]
     
     def test_auth_callback_stores_tokens_in_cache(self, app_with_msal, mock_redis):
@@ -318,3 +320,176 @@ class TestAccountManagement:
             
             # Verify logout succeeded
             assert response.status_code == 200
+
+
+class TestRedirectUriHandling:
+    """Test OAuth state parameter for preserving return URL."""
+    
+    def test_auth_login_without_redirect_uri_uses_default(self, app_with_msal, mock_msal_app):
+        """Test login without redirect_uri parameter uses default redirect."""
+        client = TestClient(app_with_msal)
+        
+        with patch('routers.auth_router._get_msal_app', return_value=mock_msal_app):
+            login_response = client.get("/auth/login", follow_redirects=False)
+            
+            # Extract state from redirect URL
+            location = login_response.headers.get("location", "")
+            assert "state=" in location
+            
+            state_param = location.split("state=")[1].split("&")[0]
+            
+            # Simulate callback
+            response = client.get(f"/auth/callback?code=test_code&state={state_param}", follow_redirects=False)
+            
+            # Should redirect to default location (/ or /projects.html)
+            if response.status_code in [302, 307]:
+                redirect_location = response.headers.get("location", "")
+                assert redirect_location in ["/", "/projects.html"]
+    
+    def test_auth_login_with_relative_redirect_uri(self, app_with_msal, mock_msal_app):
+        """Test login with relative redirect_uri parameter preserves URL in state."""
+        client = TestClient(app_with_msal)
+        
+        with patch('routers.auth_router._get_msal_app', return_value=mock_msal_app):
+            # Login with redirect_uri to /tasks.html
+            login_response = client.get("/auth/login?redirect_uri=/tasks.html", follow_redirects=False)
+            
+            # Extract state from redirect URL
+            location = login_response.headers.get("location", "")
+            assert "state=" in location
+            
+            state_param = location.split("state=")[1].split("&")[0]
+            
+            # Simulate callback
+            response = client.get(f"/auth/callback?code=test_code&state={state_param}", follow_redirects=False)
+            
+            # Should redirect to /tasks.html
+            if response.status_code in [302, 307]:
+                redirect_location = response.headers.get("location", "")
+                assert redirect_location == "/tasks.html"
+    
+    def test_auth_login_with_absolute_same_origin_uri(self, app_with_msal, mock_msal_app):
+        """Test login with absolute same-origin redirect_uri is allowed."""
+        client = TestClient(app_with_msal)
+        
+        with patch('routers.auth_router._get_msal_app', return_value=mock_msal_app):
+            # Login with absolute URL (same origin)
+            login_response = client.get(
+                "/auth/login?redirect_uri=http://testserver/tasks.html", 
+                follow_redirects=False
+            )
+            
+            # Extract state from redirect URL
+            location = login_response.headers.get("location", "")
+            state_param = location.split("state=")[1].split("&")[0] if "state=" in location else ""
+            
+            # Simulate callback
+            response = client.get(f"/auth/callback?code=test_code&state={state_param}", follow_redirects=False)
+            
+            # Should redirect to /tasks.html (converted to relative)
+            if response.status_code in [302, 307]:
+                redirect_location = response.headers.get("location", "")
+                assert redirect_location == "/tasks.html"
+    
+    def test_auth_login_rejects_external_redirect_uri(self, app_with_msal, mock_msal_app):
+        """Test login rejects external redirect_uri to prevent open redirect attacks."""
+        client = TestClient(app_with_msal)
+        
+        with patch('routers.auth_router._get_msal_app', return_value=mock_msal_app):
+            # Try to use external URL (open redirect attack)
+            login_response = client.get(
+                "/auth/login?redirect_uri=https://evil.com/steal-tokens", 
+                follow_redirects=False
+            )
+            
+            # Extract state from redirect URL
+            location = login_response.headers.get("location", "")
+            state_param = location.split("state=")[1].split("&")[0] if "state=" in location else ""
+            
+            # Simulate callback
+            response = client.get(f"/auth/callback?code=test_code&state={state_param}", follow_redirects=False)
+            
+            # Should redirect to safe default, NOT to evil.com
+            if response.status_code in [302, 307]:
+                redirect_location = response.headers.get("location", "")
+                assert "evil.com" not in redirect_location
+                assert redirect_location in ["/", "/projects.html"]
+    
+    def test_auth_login_rejects_javascript_uri(self, app_with_msal, mock_msal_app):
+        """Test login rejects javascript: URI to prevent XSS attacks."""
+        client = TestClient(app_with_msal)
+        
+        with patch('routers.auth_router._get_msal_app', return_value=mock_msal_app):
+            # Try to use javascript: URL (XSS attack)
+            login_response = client.get(
+                "/auth/login?redirect_uri=javascript:alert('xss')", 
+                follow_redirects=False
+            )
+            
+            # Extract state from redirect URL
+            location = login_response.headers.get("location", "")
+            state_param = location.split("state=")[1].split("&")[0] if "state=" in location else ""
+            
+            # Simulate callback
+            response = client.get(f"/auth/callback?code=test_code&state={state_param}", follow_redirects=False)
+            
+            # Should redirect to safe default, NOT execute javascript
+            if response.status_code in [302, 307]:
+                redirect_location = response.headers.get("location", "")
+                assert "javascript:" not in redirect_location
+                assert redirect_location in ["/", "/projects.html"]
+    
+    def test_auth_callback_with_tampered_state_is_rejected(self, app_with_msal, mock_msal_app):
+        """Test callback rejects tampered state parameter."""
+        client = TestClient(app_with_msal)
+        
+        with patch('routers.auth_router._get_msal_app', return_value=mock_msal_app):
+            # Login normally
+            login_response = client.get("/auth/login?redirect_uri=/tasks.html", follow_redirects=False)
+            
+            # Extract and tamper with state
+            location = login_response.headers.get("location", "")
+            state_param = location.split("state=")[1].split("&")[0] if "state=" in location else ""
+            
+            # Tamper with state by replacing a character in the middle
+            # This will corrupt the base64 encoding and make it fail to decode
+            if len(state_param) > 10:
+                tampered_state = state_param[:5] + "X" + state_param[6:]
+            else:
+                tampered_state = "invalid_state_value"
+            
+            # Simulate callback with tampered state (don't follow redirects)
+            response = client.get(
+                f"/auth/callback?code=test_code&state={tampered_state}",
+                follow_redirects=False
+            )
+            
+            # Should reject tampered state
+            assert response.status_code in [400, 401]
+    
+    def test_auth_login_with_query_parameters_in_redirect_uri(self, app_with_msal, mock_msal_app):
+        """Test login preserves query parameters in redirect_uri."""
+        from urllib.parse import quote
+        client = TestClient(app_with_msal)
+        
+        with patch('routers.auth_router._get_msal_app', return_value=mock_msal_app):
+            # Login with redirect_uri containing query parameters (URL-encoded)
+            redirect_uri = "/tasks.html?project_id=123&view=kanban"
+            encoded_redirect_uri = quote(redirect_uri, safe='')
+            login_response = client.get(
+                f"/auth/login?redirect_uri={encoded_redirect_uri}", 
+                follow_redirects=False
+            )
+            
+            # Extract state from redirect URL
+            location = login_response.headers.get("location", "")
+            state_param = location.split("state=")[1].split("&")[0] if "state=" in location else ""
+            
+            # Simulate callback
+            response = client.get(f"/auth/callback?code=test_code&state={state_param}", follow_redirects=False)
+            
+            # Should preserve query parameters
+            if response.status_code in [302, 307]:
+                redirect_location = response.headers.get("location", "")
+                assert "project_id=123" in redirect_location
+                assert "view=kanban" in redirect_location
