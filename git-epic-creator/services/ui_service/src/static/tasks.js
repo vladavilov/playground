@@ -1,5 +1,18 @@
 'use strict';
 
+// Import shared utilities
+import {
+  escapeHtml as esc,
+  scrollToBottom,
+  renderMarkdown,
+  getStatusBadge,
+  checkAuthStatus as sharedCheckAuthStatus,
+  fetchGitLabStatus as sharedFetchGitLabStatus,
+  startGitLabSSO as sharedStartGitLabSSO,
+  connectSSE as sharedConnectSSE,
+  fetchConfig as sharedFetchConfig
+} from './shared-ui.js';
+
 // Application State
 const state = {
   config: null,
@@ -8,130 +21,13 @@ const state = {
   authenticated: false,
   backlogBundle: null,
   rtEvents: { status: 'disconnected' },
-  tasksService: { status: 'disconnected' },
+  gitlab: { status: 'connecting', configured: false },
   evtSource: null,
   thinkingBoxes: [],
   boxesByPromptId: {},
   activeBox: null,
   pendingBox: null,
-  loadingCount: 0,
 };
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
-function showLoading() {
-  state.loadingCount += 1;
-  const overlay = document.getElementById('loadingOverlay');
-  if (overlay && state.loadingCount > 0) {
-    overlay.classList.remove('hidden');
-    overlay.classList.add('flex');
-  }
-}
-
-function hideLoading() {
-  state.loadingCount = Math.max(0, state.loadingCount - 1);
-  const overlay = document.getElementById('loadingOverlay');
-  if (overlay && state.loadingCount === 0) {
-    overlay.classList.add('hidden');
-    overlay.classList.remove('flex');
-  }
-}
-
-function scrollToBottom(element) {
-  if (element) element.scrollTop = element.scrollHeight;
-}
-
-function esc(s) {
-  return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-}
-
-function renderMarkdown(md) {
-  let html = esc(md || '');
-  html = html
-    .replace(/^###\s+(.*)$/gm, '<h3 class="text-base font-semibold mt-3 text-slate-800">$1</h3>')
-    .replace(/^##\s+(.*)$/gm, '<h2 class="text-lg font-semibold mt-4 text-slate-800">$1</h2>')
-    .replace(/^#\s+(.*)$/gm, '<h1 class="text-xl font-bold mt-5 text-slate-800">$1</h1>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono">$1</code>')
-    .replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-900 text-slate-100 p-3 rounded-lg overflow-auto text-xs font-mono mt-2"><code>$1</code></pre>')
-    .replace(/^\s*[-*]\s+(.*)$/gm, '<li class="ml-6 list-disc text-slate-700">$1</li>')
-    .replace(/\[(.+?)\]\((https?:[^\s]+)\)/g, '<a href="$2" target="_blank" class="text-sky-600 underline hover:text-sky-700">$1</a>');
-  html = html.replace(/(<li[\s\S]*?<\/li>)/g, '<ul class="space-y-1">$1</ul>');
-  return html;
-}
-
-function getStatusBadge(status) {
-  const s = (status || '').toLowerCase();
-  const base = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ';
-  let cls = 'bg-slate-100 text-slate-700';
-  if (s === 'analyzing_requirements' || s === 'analyzing') cls = 'bg-blue-100 text-blue-700';
-  else if (s === 'retrieving_context') cls = 'bg-cyan-100 text-cyan-700';
-  else if (s === 'fetching_backlog') cls = 'bg-teal-100 text-teal-700';
-  else if (s === 'drafting_backlog') cls = 'bg-indigo-100 text-indigo-700';
-  else if (s === 'mapping_duplicates') cls = 'bg-purple-100 text-purple-700';
-  else if (s === 'evaluating') cls = 'bg-amber-100 text-amber-700';
-  else if (s === 'needs_clarification') cls = 'bg-orange-100 text-orange-700';
-  else if (s === 'completed') cls = 'bg-emerald-100 text-emerald-700';
-  else if (s.includes('error') || s.includes('failed')) cls = 'bg-rose-100 text-rose-700';
-  
-  const span = document.createElement('span');
-  span.className = base + cls;
-  span.textContent = s || 'unknown';
-  return span;
-}
-
-// ============================================================================
-// Connection Status Management
-// ============================================================================
-
-function updateConnectionStatus() {
-  // Auth Indicator
-  const authIndicator = document.getElementById('authIndicator');
-  if (authIndicator) {
-    if (state.authenticated) {
-      authIndicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
-      authIndicator.title = 'Authenticated';
-    } else {
-      authIndicator.className = 'w-2 h-2 rounded-full bg-rose-500';
-      authIndicator.title = 'Not authenticated';
-    }
-  }
-
-  // Tasks Service Indicator
-  const tasksIndicator = document.getElementById('tasksServiceIndicator');
-  if (tasksIndicator) {
-    const s = state.tasksService.status;
-    if (s === 'connected') {
-      tasksIndicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
-      tasksIndicator.title = 'AI Tasks Service connected';
-    } else if (s === 'connecting') {
-      tasksIndicator.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
-      tasksIndicator.title = 'Connecting...';
-    } else {
-      tasksIndicator.className = 'w-2 h-2 rounded-full bg-slate-400';
-      tasksIndicator.title = 'Disconnected';
-    }
-  }
-
-  // RT Events Indicator
-  const rtIndicator = document.getElementById('rtEventsIndicator');
-  if (rtIndicator) {
-    const s = state.rtEvents.status;
-    if (s === 'connected') {
-      rtIndicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
-      rtIndicator.title = 'Real-time events connected';
-    } else if (s === 'connecting') {
-      rtIndicator.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
-      rtIndicator.title = 'Connecting...';
-    } else {
-      rtIndicator.className = 'w-2 h-2 rounded-full bg-slate-400';
-      rtIndicator.title = 'Disconnected';
-    }
-  }
-}
 
 // ============================================================================
 // Thinking Box (Agent Stream Visualization)
@@ -525,7 +421,118 @@ function saveEditorChanges() {
   renderBacklog(state.backlogBundle);
   closeEditorModal();
   
-  appendSystemMessage('Changes saved. Ready to submit to GitLab.');
+  appendSystemMessage('Changes saved. Submitting to GitLab...');
+  
+  // Submit to GitLab
+  submitToGitLab();
+}
+
+async function submitToGitLab() {
+  if (!state.backlogBundle || !state.projectId) {
+    appendAssistantMessage('<div class="text-sm text-rose-700">Error: No backlog or project ID available</div>', 'System Error');
+    return;
+  }
+  
+  try {
+    // Transform backlog bundle to GitLab API format
+    const payload = {
+      project_id: state.projectId,
+      prompt_id: state.promptId || state.backlogBundle.prompt_id || '',
+      epics: [],
+      issues: []
+    };
+    
+    // Process epics and flatten tasks to issues
+    state.backlogBundle.epics.forEach((epic) => {
+      // Add epic (without tasks)
+      payload.epics.push({
+        id: epic.similar && epic.similar.length > 0 ? epic.similar[0].id : null,
+        title: epic.title,
+        description: epic.description || '',
+        labels: []
+      });
+      
+      // Add tasks as issues
+      if (epic.tasks && epic.tasks.length > 0) {
+        epic.tasks.forEach((task) => {
+          payload.issues.push({
+            id: task.similar && task.similar.length > 0 ? task.similar[0].id : null,
+            title: task.title,
+            description: task.description || '',
+            labels: [],
+            epic_id: epic.similar && epic.similar.length > 0 ? epic.similar[0].id : null
+          });
+        });
+      }
+    });
+    
+    // Call GitLab client service via proxy
+    const base = state.config.gitlabApiBase.replace(/\/$/, '');
+    const url = `${base}/projects/${state.projectId}/apply-backlog`;
+    
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!res.ok) {
+      let errorMsg = `HTTP ${res.status}`;
+      try {
+        const errorData = await res.json();
+        if (errorData.detail) errorMsg += `: ${errorData.detail}`;
+      } catch {
+        const errorText = await res.text().catch(() => 'Unknown error');
+        if (errorText) errorMsg += `: ${errorText}`;
+      }
+      throw new Error(errorMsg);
+    }
+    
+    const response = await res.json();
+    
+    // Display results
+    const epicsCreated = response.results.epics.filter(e => e.action === 'created').length;
+    const epicsUpdated = response.results.epics.filter(e => e.action === 'updated').length;
+    const issuesCreated = response.results.issues.filter(i => i.action === 'created').length;
+    const issuesUpdated = response.results.issues.filter(i => i.action === 'updated').length;
+    const errorCount = response.errors.length;
+    
+    let html = `<div class="text-sm">`;
+    html += `<div class="font-semibold text-emerald-700 mb-2">✓ Backlog submitted to GitLab successfully!</div>`;
+    html += `<div class="space-y-1 text-slate-700">`;
+    html += `<div>• Epics: ${epicsCreated} created, ${epicsUpdated} updated</div>`;
+    html += `<div>• Issues: ${issuesCreated} created, ${issuesUpdated} updated</div>`;
+    if (errorCount > 0) {
+      html += `<div class="text-rose-600 mt-2">⚠ ${errorCount} error(s) occurred</div>`;
+    }
+    html += `</div>`;
+    
+    // Add links to created items
+    if (response.results.epics.length > 0 || response.results.issues.length > 0) {
+      html += `<div class="mt-3 text-xs">`;
+      if (response.results.epics.slice(0, 3).length > 0) {
+        html += `<div class="font-semibold mb-1">Sample Epics:</div>`;
+        response.results.epics.slice(0, 3).forEach(epic => {
+          html += `<div>• <a href="${esc(epic.web_url)}" target="_blank" class="text-indigo-600 hover:underline">${epic.action} #${esc(epic.id)}</a></div>`;
+        });
+      }
+      if (response.results.issues.slice(0, 3).length > 0) {
+        html += `<div class="font-semibold mb-1 mt-2">Sample Issues:</div>`;
+        response.results.issues.slice(0, 3).forEach(issue => {
+          html += `<div>• <a href="${esc(issue.web_url)}" target="_blank" class="text-indigo-600 hover:underline">${issue.action} #${esc(issue.id)}</a></div>`;
+        });
+      }
+      html += `</div>`;
+    }
+    
+    html += `</div>`;
+    appendAssistantMessage(html, 'GitLab Submission');
+    
+  } catch (e) {
+    console.error('Failed to submit to GitLab:', e);
+    const errorMsg = e.message || 'Unknown error occurred';
+    appendAssistantMessage(`<div class="text-sm text-rose-700">Failed to submit to GitLab: ${esc(errorMsg)}</div>`, 'System Error');
+  }
 }
 
 // ============================================================================
@@ -533,34 +540,11 @@ function saveEditorChanges() {
 // ============================================================================
 
 async function fetchConfig() {
-  const res = await fetch('/config');
-  state.config = await res.json();
+  state.config = await sharedFetchConfig();
 }
 
 async function checkAuthStatus() {
-  try {
-    const res = await fetch('/auth/me');
-    const data = await res.json();
-    state.authenticated = data.authenticated || false;
-    
-    // Update UI
-    const profile = document.getElementById('userProfile');
-    const avatar = document.getElementById('userAvatar');
-    if (profile) profile.textContent = data.username || 'User';
-    if (avatar) avatar.textContent = (data.username || 'U')[0].toUpperCase();
-    
-    updateConnectionStatus();
-    
-    if (!state.authenticated) {
-      window.location.href = '/auth/login';
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error('Auth check failed:', e);
-    window.location.href = '/auth/login';
-    return false;
-  }
+  return await sharedCheckAuthStatus(state);
 }
 
 async function sendMessage(message) {
@@ -576,12 +560,8 @@ async function sendMessage(message) {
   
   if (state.promptId) payload.prompt_id = state.promptId;
   
-  showLoading();
-  state.tasksService.status = 'connecting';
-  updateConnectionStatus();
-  
   try {
-    const res = await fetch(`${base}/tasks/generate`, {
+    const res = await fetch(`${base}/generate`, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -604,8 +584,14 @@ async function sendMessage(message) {
     // Update state
     state.backlogBundle = bundle;
     state.promptId = bundle.prompt_id;
-    state.tasksService.status = 'connected';
-    updateConnectionStatus();
+    
+    // Link pending box to prompt_id if it exists
+    const pid = bundle.prompt_id;
+    if (state.pendingBox && !state.pendingBox.promptId && pid) {
+      console.log('[Tasks] Linking pending box to prompt_id:', pid);
+      state.pendingBox.setPromptId(pid);
+      state.pendingBox = null; // Clear pending box after linking
+    }
     
     // Render response
     const html = `<div class="text-sm text-indigo-700">✓ Generated ${bundle.epics?.length || 0} epic(s) with ${bundle.epics?.reduce((s, e) => s + (e.tasks?.length || 0), 0) || 0} task(s)</div>`;
@@ -613,23 +599,18 @@ async function sendMessage(message) {
     
     renderBacklog(bundle);
     
-    // Finalize thinking box
-    const box = getOrCreateBoxForPromptId(bundle.prompt_id);
-    if (box) box.finish('ok');
+    // Note: Don't finish the box here - let SSE events handle it
+    // The box will be finished when status="completed" comes through SSE
     
   } catch (e) {
     console.error('Failed to generate backlog:', e);
     const errorMsg = e.message || 'Unknown error occurred';
     appendAssistantMessage(`<div class="text-sm text-rose-700">Error: ${esc(errorMsg)}</div>`, 'System Error');
-    state.tasksService.status = 'disconnected';
-    updateConnectionStatus();
     
     if (state.pendingBox) {
       state.pendingBox.finish('error');
       state.pendingBox = null;
     }
-  } finally {
-    hideLoading();
   }
 }
 
@@ -637,57 +618,74 @@ async function sendMessage(message) {
 console.log('Tasks.js loaded successfully');
 
 // ============================================================================
+// GitLab Integration
+// ============================================================================
+
+async function fetchGitLabStatus() {
+  await sharedFetchGitLabStatus(state, state.config);
+}
+
+function startGitLabSSO() {
+  sharedStartGitLabSSO(state.config);
+}
+
+// ============================================================================
 // SSE Subscription
 // ============================================================================
 
 function connectSSE() {
-  try {
-    if (state.evtSource) state.evtSource.close();
-  } catch (e) {}
-  
-  state.evtSource = new EventSource('/events');
-  
-  state.evtSource.addEventListener('open', () => {
-    state.rtEvents.status = 'connected';
-    updateConnectionStatus();
-  });
-  
-  state.evtSource.addEventListener('error', () => {
-    state.rtEvents.status = 'connecting';
-    updateConnectionStatus();
-  });
-  
-  state.evtSource.addEventListener('hello', () => {
-    state.rtEvents.status = 'connected';
-    updateConnectionStatus();
-  });
-  
-  // Listen for ai_tasks_progress events
-  state.evtSource.addEventListener('ai_tasks_progress', (evt) => {
-    try {
-      const msg = JSON.parse(evt.data);
-      
-      // Filter by project
-      if (msg.project_id && state.projectId && String(msg.project_id) !== String(state.projectId)) {
-        return;
+  sharedConnectSSE(state, {
+    'ai_tasks_progress': (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        console.log('[Tasks] SSE event received:', {
+          project_id: msg.project_id,
+          prompt_id: msg.prompt_id,
+          status: msg.status,
+          has_thought_summary: !!msg.thought_summary,
+          has_details_md: !!msg.details_md
+        });
+        
+        // Filter by project
+        if (msg.project_id && state.projectId && String(msg.project_id) !== String(state.projectId)) {
+          console.log('[Tasks] Ignoring event for different project');
+          return;
+        }
+        
+        // Update status badge
+        const statusEl = document.getElementById('taskProjectStatus');
+        if (statusEl) {
+          statusEl.innerHTML = '';
+          statusEl.appendChild(getStatusBadge(msg.status));
+        }
+        
+        // Route to thinking box
+        const promptId = msg.prompt_id || null;
+        const box = getOrCreateBoxForPromptId(promptId);
+        console.log('[Tasks] Got thinking box for prompt_id:', promptId, 'box exists:', !!box);
+        
+        if (box) {
+          // Add thought message if present
+          const thoughtText = msg.thought_summary || msg.details_md;
+          if (thoughtText) {
+            console.log('[Tasks] Adding message to box:', thoughtText.substring(0, 100));
+            box.appendMarkdown(thoughtText);
+          }
+          
+          // Finish the box when status is completed or failed
+          const status = (msg.status || '').toLowerCase();
+          if (status === 'completed') {
+            console.log('[Tasks] Finishing box with success');
+            box.finish('ok');
+          } else if (status.includes('error') || status.includes('failed')) {
+            console.log('[Tasks] Finishing box with error');
+            box.finish('error');
+          }
+        }
+        
+      } catch (e) {
+        console.error('Failed to process ai_tasks_progress event:', e);
       }
-      
-      // Update status badge
-      const statusEl = document.getElementById('taskProjectStatus');
-      if (statusEl) {
-        statusEl.innerHTML = '';
-        statusEl.appendChild(getStatusBadge(msg.status));
-      }
-      
-      // Route to thinking box
-      const promptId = msg.prompt_id || null;
-      const box = getOrCreateBoxForPromptId(promptId);
-      
-      const thoughtText = msg.thought_summary || msg.details_md || 'Processing...';
-      if (box) box.appendMarkdown(thoughtText);
-      
-    } catch (e) {
-      console.error('Failed to process ai_tasks_progress event:', e);
     }
   });
 }
@@ -733,6 +731,14 @@ function setupEventHandlers() {
     editBtn.addEventListener('click', openEditorModal);
   }
   
+  // GitLab connect button
+  const gitlabConnectBtn = document.getElementById('gitlabConnectBtn');
+  if (gitlabConnectBtn) {
+    gitlabConnectBtn.addEventListener('click', () => {
+      if (state.gitlab.configured) startGitLabSSO();
+    });
+  }
+  
   // Editor modal
   const editorClose = document.getElementById('editorModalClose');
   const editorCancel = document.getElementById('editorCancel');
@@ -766,6 +772,9 @@ async function init() {
   if (!authenticated) return;
   
   connectSSE();
+  
+  // Fetch GitLab connection status
+  try { await fetchGitLabStatus(); } catch {}
   
   // Auto-send initial message if we have a prompt_id
   if (state.promptId) {

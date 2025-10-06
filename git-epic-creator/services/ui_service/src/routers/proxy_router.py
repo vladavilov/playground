@@ -7,7 +7,7 @@ that include comprehensive claims for proper authorization and audit logging.
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict
 import time
 import structlog
 import httpx
@@ -227,7 +227,7 @@ async def _forward(
             
             gitlab_token = await token_manager.get_valid_token()
             if gitlab_token:
-                forward_headers["X-GitLab-Access-Token"] = gitlab_token
+                forward_headers["GitLab-Access-Token"] = gitlab_token
                 logger.debug("Added GitLab token to request", target_service=target_service)
             else:
                 logger.warning("GitLab token not found for user", session_id=session_id, target_service=target_service)
@@ -295,7 +295,7 @@ async def get_ui_config():
         "projectManagementApiBase": "/project",
         "aiWorkflowApiBase": "/workflow",
         "aiTasksApiBase": "/tasks",
-        "gitlabApiBase": GITLAB_ROUTE_SEGMENT,
+        "gitlabApiBase": "/gitlab",
         "gitlabAuthStatusPath": "/auth/gitlab/status",
         "gitlabAuthAuthorizePath": "/auth/gitlab/authorize",
         "progressChannel": UI_PROJECT_PROGRESS_CHANNEL,
@@ -327,6 +327,16 @@ async def proxy_to_ai_tasks(path: str, request: Request):
     """Proxy requests to AI tasks/backlog generation service."""
     upstream_base = get_app_settings().http_client.AI_TASKS_SERVICE_URL.rstrip("/")
     target_url = f"{upstream_base}/tasks/{path}"
+    if request.url.query:
+        target_url = f"{target_url}?{request.url.query}"
+    return await _forward(request, target_url)
+
+
+@router.api_route("/gitlab/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_to_gitlab_client(path: str, request: Request):
+    """Proxy requests to GitLab client service."""
+    upstream_base = get_app_settings().http_client.GITLAB_CLIENT_SERVICE_URL.rstrip("/")
+    target_url = f"{upstream_base}/gitlab/{path}"
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"
     return await _forward(request, target_url)
