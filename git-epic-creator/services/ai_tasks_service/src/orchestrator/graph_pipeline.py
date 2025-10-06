@@ -427,17 +427,10 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             return Command(goto="clarify", update={"report": report, "iteration": [current_iter]})
         return Command(goto="draft", update={"report": report, "iteration": [current_iter]})
 
-    async def finalize_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        prompt_id = state.get("prompt_id") or uuid4()
-        
-        # Use enriched epics if available
-        final_epics = state["draft"].epics
-        if state.get("mappings"):
-            final_epics = state["mappings"].enriched_epics
-        
-        # Build markdown text
+    def _build_markdown_text(epics: list) -> str:
+        """Build markdown-formatted backlog text from epics."""
         markdown_lines = ["# Generated Backlog\n"]
-        for epic in final_epics:
+        for epic in epics:
             markdown_lines.append(f"## Epic: {epic.title}")
             markdown_lines.append(f"**ID**: {epic.id}")
             markdown_lines.append(f"**Description**: {epic.description}\n")
@@ -472,6 +465,16 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             
             markdown_lines.append("---\n")
         
+        return "\n".join(markdown_lines)
+
+    async def finalize_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        prompt_id = state.get("prompt_id") or uuid4()
+        
+        # Use enriched epics if available
+        final_epics = state["draft"].epics
+        if state.get("mappings"):
+            final_epics = state["mappings"].enriched_epics
+        
         bundle = GeneratedBacklogBundle(
             prompt_id=prompt_id,
             project_id=state["project_id"],
@@ -481,7 +484,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             score=state["report"].score,
             coverage_components=state["report"].component_scores,
             clarification_questions=None,
-            markdown_text="\n".join(markdown_lines),
+            markdown_text=_build_markdown_text(final_epics),
         )
         return {"result": bundle}
 
@@ -512,6 +515,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             score=state["report"].score,
             coverage_components=state["report"].component_scores,
             clarification_questions=questions,
+            markdown_text=_build_markdown_text(final_epics),
         )
         return {"result": bundle}
 
