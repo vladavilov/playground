@@ -11,6 +11,7 @@ const state = {
   gitlab: { status: 'connecting', configured: false },
   authenticated: false,
   rtEvents: { status: 'disconnected' },
+  cachingEmbeddings: false,
 };
 
 async function loadConfig() {
@@ -160,13 +161,14 @@ function renderDetails() {
       el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_url, 'project')]),
       el('div', { class: 'text-sm' }, [renderGitRepoLine(p.gitlab_repository_url)])
     ]),
-    el('div', { class: 'mt-4 flex items-center justify-between' }, [
-      el('div', { class: 'flex items-center gap-2' }, [
-        el('button', { id: 'openChatBtn', class: 'w-32 px-3 py-2 border rounded text-slate-700 hover:bg-slate-50 text-center', title: 'Open chat to capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/chat.html#${state.selected.id}`; } }, 'Open Chat'),
+    el('div', { class: 'mt-4 flex items-center justify-between flex-wrap gap-2' }, [
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
+        el('button', { id: 'openRequirementsBtn', class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', title: 'Capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/requirements.html#${state.selected.id}`; } }, 'Requirements'),
+        el('button', { id: 'openTasksBtn', class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', title: 'Open tasks screen', onclick: () => { if (!state.selected) return; window.location.href = `/tasks.html?project_id=${state.selected.id}`; } }, 'Tasks'),
       ]),
-      el('div', { class: 'flex items-center gap-2' }, [
-        el('button', { class: 'w-32 px-3 py-2 border rounded text-slate-700 hover:bg-slate-50 text-center', onclick: () => openProjectModal(p), 'aria-label': 'Edit project' }, 'Edit'),
-        el('button', { class: 'w-32 px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700 text-center', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete')
+      el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
+        el('button', { class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', onclick: () => openProjectModal(p), 'aria-label': 'Edit project' }, 'Edit'),
+        el('button', { class: 'px-3 py-1.5 bg-rose-600 text-white rounded text-sm hover:bg-rose-700', onclick: () => openDeleteModal(p), 'aria-label': 'Delete project' }, 'Delete')
       ])
     ])
   );
@@ -181,10 +183,56 @@ async function fetchProjects() {
 // UI helpers
 function renderGitInfoLine(value, type) {
   const has = value && String(value).trim() !== '';
+  if (has && type === 'project') {
+    // For GitLab project link, include the cache embeddings button
+    return el('div', { class: 'flex items-center gap-2' }, [
+      el('a', { class: 'text-sm text-sky-600 underline', href: value, target: '_blank' }, 'GitLab Project'),
+      renderCacheEmbeddingsButton()
+    ]);
+  }
   if (has) {
-    return el('a', { class: 'text-sm text-sky-600 underline block', href: value, target: '_blank' }, type === 'project' ? 'GitLab Project' : 'Repository');
+    return el('a', { class: 'text-sm text-sky-600 underline block', href: value, target: '_blank' }, 'Repository');
   }
   return el('div', { class: 'text-sm text-slate-500' }, type === 'project' ? 'N/A project' : 'N/A repository');
+}
+
+function renderCacheEmbeddingsButton() {
+  const isLoading = state.cachingEmbeddings;
+  
+  let icon;
+  if (isLoading) {
+    icon = el('div', { class: 'animate-spin h-3.5 w-3.5 border-2 border-slate-300 border-t-indigo-600 rounded-full' });
+  } else {
+    // Create SVG element with proper namespace
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'w-3.5 h-3.5');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('d', 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15');
+    
+    svg.appendChild(path);
+    icon = svg;
+  }
+  
+  const btn = el('button', {
+    class: 'p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors',
+    disabled: isLoading,
+    title: isLoading ? 'Caching embeddings...' : 'Cache project embeddings',
+    'aria-label': 'Cache project embeddings',
+    onclick: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleCacheEmbeddings();
+    }
+  }, [icon]);
+  
+  return btn;
 }
 
 function getGitLabStatusIndicator(status, configured) {
@@ -356,21 +404,69 @@ async function uploadFiles() {
   } catch (e) { alert('Upload failed'); return; }
 }
 
+async function handleCacheEmbeddings() {
+  if (!state.selected || state.cachingEmbeddings) return;
+  
+  try {
+    state.cachingEmbeddings = true;
+    renderDetails(); // Re-render to show loading state
+    
+    const cfg = state.config || {};
+    const gitlabApiBase = (cfg.gitlabApiBase || '').replace(/\/$/, '');
+    if (!gitlabApiBase) {
+      throw new Error('GitLab API base not configured');
+    }
+    
+    const url = `${gitlabApiBase}/projects/${state.selected.id}/cache-embeddings`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to cache embeddings: ${response.status}`);
+    }
+    
+    // Success - show brief notification
+    const log = document.getElementById('progressLog');
+    if (log) {
+      const ts = new Date().toLocaleTimeString();
+      const line = document.createElement('div');
+      line.textContent = `${ts} | Embeddings caching started`;
+      line.className = 'text-emerald-600';
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+  } catch (err) {
+    console.error('Failed to cache embeddings:', err);
+    alert('Failed to cache embeddings. Please check the console for details.');
+  } finally {
+    state.cachingEmbeddings = false;
+    renderDetails(); // Re-render to hide loading state
+  }
+}
+
 function connectSSE() {
+  // Import shared SSE connection would go here if this was a module
+  // For now, replicate the shared connection logic
   try { if (state.evtSource) state.evtSource.close(); } catch {}
   state.evtSource = new EventSource('/events');
+  
   state.evtSource.addEventListener('open', () => {
     state.rtEvents.status = 'connected';
     updateConnectionsPanel();
   });
+  
   state.evtSource.addEventListener('error', () => {
     state.rtEvents.status = 'connecting';
     updateConnectionsPanel();
   });
+  
   state.evtSource.addEventListener('hello', () => {
     state.rtEvents.status = 'connected';
     updateConnectionsPanel();
   });
+  
   const handleProjectProgress = (msg) => {
     try {
       const changed = updateProjectStateFromProgress(msg);
@@ -465,10 +561,15 @@ function setupActions() {
       }
     });
   }
-  const openChatBtn = document.getElementById('openChatBtn');
-  if (openChatBtn) openChatBtn.addEventListener('click', () => {
+  const openRequirementsBtn = document.getElementById('openRequirementsBtn');
+  if (openRequirementsBtn) openRequirementsBtn.addEventListener('click', () => {
     if (!state.selected) return;
-    window.location.href = `/chat.html#${state.selected.id}`;
+    window.location.href = `/requirements.html#${state.selected.id}`;
+  });
+  const openTasksBtn = document.getElementById('openTasksBtn');
+  if (openTasksBtn) openTasksBtn.addEventListener('click', () => {
+    if (!state.selected) return;
+    window.location.href = `/tasks.html?project_id=${state.selected.id}`;
   });
   // Modal wiring
   const close = () => toggleProjectModal(false);
@@ -555,7 +656,6 @@ function openProjectModal(project) {
   document.getElementById('f_description').value = project?.description || '';
   document.getElementById('f_gitlab_url').value = project?.gitlab_url || '';
   document.getElementById('f_gitlab_repository_url').value = project?.gitlab_repository_url || '';
-  document.getElementById('f_status').value = (project?.status || 'active').toLowerCase();
   toggleProjectModal(true);
 }
 
@@ -579,7 +679,6 @@ async function submitProjectForm(ev) {
     description: valOrNull(document.getElementById('f_description').value),
     gitlab_url: emptyToNull(document.getElementById('f_gitlab_url').value),
     gitlab_repository_url: emptyToNull(document.getElementById('f_gitlab_repository_url').value),
-    status: document.getElementById('f_status').value,
   };
   if (!payload.name) { alert('Name is required'); return; }
   try {
@@ -758,6 +857,7 @@ async function handleLogout() {
 }
 
 init().catch(err => console.error(err));
+
 
 
 

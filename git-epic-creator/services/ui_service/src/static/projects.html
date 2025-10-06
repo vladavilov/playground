@@ -137,18 +137,6 @@
           <label class="block text-sm text-slate-600 mb-1">Repository URL</label>
           <input id="f_gitlab_repository_url" class="w-full border rounded px-3 py-2" placeholder="https://gitlab.com/group/project.git" />
         </div>
-        <div>
-          <label class="block text-sm text-slate-600 mb-1">Status</label>
-          <select id="f_status" class="w-full border rounded px-3 py-2">
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="archived">Archived</option>
-            <option value="processing">Processing</option>
-            <option value="rag_processing">RAG Processing</option>
-            <option value="rag_ready">RAG Ready</option>
-            <option value="rag_failed">RAG Failed</option>
-          </select>
-        </div>
         <div class="pt-2 flex gap-2 justify-end border-t">
           <button type="button" id="projectFormCancel" class="px-3 py-2 border rounded">Cancel</button>
           <button type="submit" id="projectFormSubmit" class="px-3 py-2 bg-indigo-600 text-white rounded">Save</button>
@@ -177,9 +165,11 @@
     </div>
   </div>
 
-  <script type="module" src="/ui.js"></script>
+  <script type="module" src="/projects.js"></script>
 </body>
   
 </html>
+
+
 
 

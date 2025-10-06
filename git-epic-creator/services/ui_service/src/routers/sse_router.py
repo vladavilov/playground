@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from constants.streams import (
     UI_PROJECT_PROGRESS_CHANNEL,
     UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+    UI_AI_TASKS_PROGRESS_CHANNEL,
 )
 from utils.redis_client import get_redis_client
 
@@ -44,13 +45,15 @@ class _SSEBroker:
             await self._pubsub.subscribe(
                 UI_PROJECT_PROGRESS_CHANNEL,
                 UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                UI_AI_TASKS_PROGRESS_CHANNEL,
             )
             self._started = True
             self._task = asyncio.create_task(self._read_loop())
             logger.info(
                 "SSE broker started",
                 project_channel=UI_PROJECT_PROGRESS_CHANNEL,
-                ai_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                workflow_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                tasks_channel=UI_AI_TASKS_PROGRESS_CHANNEL,
             )
 
     async def stop(self) -> None:
@@ -65,6 +68,7 @@ class _SSEBroker:
                     await self._pubsub.unsubscribe(
                         UI_PROJECT_PROGRESS_CHANNEL,
                         UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                        UI_AI_TASKS_PROGRESS_CHANNEL,
                     )
                 except Exception:
                     pass
@@ -116,11 +120,16 @@ class _SSEBroker:
                     except Exception:
                         parsed = {"raw": str(data_field)}
 
-                    event_name = (
-                        "ai_workflow_progress"
-                        if channel == UI_AI_WORKFLOW_PROGRESS_CHANNEL
-                        else "project_progress"
-                    )
+                    # Map channel to SSE event name
+                    if channel == UI_AI_WORKFLOW_PROGRESS_CHANNEL:
+                        event_name = "ai_workflow_progress"
+                    elif channel == UI_AI_TASKS_PROGRESS_CHANNEL:
+                        event_name = "ai_tasks_progress"
+                    elif channel == UI_PROJECT_PROGRESS_CHANNEL:
+                        event_name = "project_progress"
+                    else:
+                        event_name = "unknown"
+                    
                     self._broadcast(_format_sse(parsed, event=event_name))
                 await asyncio.sleep(0.01)
         except asyncio.CancelledError:
