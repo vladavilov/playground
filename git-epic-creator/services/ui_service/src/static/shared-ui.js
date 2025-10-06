@@ -207,13 +207,17 @@ export async function checkAuthStatus(state) {
     updateConnectionsPanel(state);
     
     if (!state.authenticated) {
-      window.location.href = '/auth/login';
+      // Redirect to login with current URL to return after auth
+      const returnTo = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+      window.location.href = `/auth/login?redirect_uri=${returnTo}`;
       return false;
     }
     return true;
   } catch (e) {
     console.error('Auth check failed:', e);
-    window.location.href = '/auth/login';
+    // Redirect to login with current URL to return after auth
+    const returnTo = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+    window.location.href = `/auth/login?redirect_uri=${returnTo}`;
     return false;
   }
 }

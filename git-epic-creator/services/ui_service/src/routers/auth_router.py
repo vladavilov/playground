@@ -11,8 +11,11 @@ It implements best practices including:
 
 from __future__ import annotations
 
+import base64
+import json
 import secrets
 from typing import Optional
+from urllib.parse import urlparse
 import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -29,6 +32,112 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Disable SSL warnings for development with self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def _validate_redirect_uri(redirect_uri: Optional[str], request: Request) -> str:
+    """
+    Validate and sanitize redirect URI to prevent open redirect attacks.
+    
+    Args:
+        redirect_uri: The requested redirect URI
+        request: FastAPI request object for extracting server info
+        
+    Returns:
+        Safe redirect URI (relative path) or default fallback
+    """
+    # Default fallback
+    default_redirect = "/projects.html"
+    
+    if not redirect_uri or not redirect_uri.strip():
+        return default_redirect
+    
+    redirect_uri = redirect_uri.strip()
+    
+    # Reject javascript: and data: URIs (XSS prevention)
+    if redirect_uri.lower().startswith(("javascript:", "data:", "vbscript:", "file:")):
+        logger.warning("Rejected dangerous redirect URI", uri=redirect_uri)
+        return default_redirect
+    
+    # Parse the URI
+    try:
+        parsed = urlparse(redirect_uri)
+        
+        # If absolute URL, verify it's same origin
+        if parsed.scheme or parsed.netloc:
+            # Get request origin
+            request_host = request.headers.get("host", "")
+            
+            # Check if same origin
+            if parsed.netloc and parsed.netloc != request_host:
+                logger.warning(
+                    "Rejected external redirect URI",
+                    uri=redirect_uri,
+                    request_host=request_host,
+                    target_host=parsed.netloc
+                )
+                return default_redirect
+            
+            # Convert to relative path (safe same-origin URL)
+            path = parsed.path or "/"
+            if parsed.query:
+                path += f"?{parsed.query}"
+            if parsed.fragment:
+                path += f"#{parsed.fragment}"
+            return path
+        
+        # Already relative, ensure it starts with /
+        if not redirect_uri.startswith("/"):
+            redirect_uri = "/" + redirect_uri
+        
+        return redirect_uri
+        
+    except Exception as e:
+        logger.warning("Failed to parse redirect URI", uri=redirect_uri, error=str(e))
+        return default_redirect
+
+
+def _encode_state(csrf_token: str, redirect_uri: str) -> str:
+    """
+    Encode OAuth state parameter with CSRF token and redirect URI.
+    
+    Args:
+        csrf_token: Random CSRF protection token
+        redirect_uri: Validated redirect URI
+        
+    Returns:
+        Base64-encoded state string
+    """
+    state_data = {
+        "csrf": csrf_token,
+        "redirect": redirect_uri
+    }
+    json_str = json.dumps(state_data)
+    encoded = base64.urlsafe_b64encode(json_str.encode("utf-8")).decode("utf-8")
+    return encoded
+
+
+def _decode_state(state: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Decode OAuth state parameter to extract CSRF token and redirect URI.
+    
+    Args:
+        state: Base64-encoded state string
+        
+    Returns:
+        Tuple of (csrf_token, redirect_uri) or (None, None) if invalid
+    """
+    try:
+        decoded = base64.urlsafe_b64decode(state.encode("utf-8")).decode("utf-8")
+        state_data = json.loads(decoded)
+        
+        csrf_token = state_data.get("csrf")
+        redirect_uri = state_data.get("redirect")
+        
+        return csrf_token, redirect_uri
+        
+    except Exception as e:
+        logger.warning("Failed to decode state parameter", error=str(e))
+        return None, None
 
 
 async def _get_msal_app(
@@ -97,12 +206,17 @@ async def _get_msal_app(
 
 
 @router.get("/login")
-async def auth_login(request: Request):
+async def auth_login(request: Request, redirect_uri: Optional[str] = None):
     """
     Initiate Azure AD login flow using MSAL.
     
     This endpoint generates an authorization URL and redirects the user
-    to Azure AD for authentication.
+    to Azure AD for authentication. Optionally accepts a redirect_uri
+    parameter to specify where to redirect after successful authentication.
+    
+    Args:
+        request: FastAPI request object
+        redirect_uri: Optional URL to redirect to after authentication (validated for security)
     
     Returns:
         Redirect to Azure AD authorization page
@@ -122,9 +236,17 @@ async def auth_login(request: Request):
         # Only specify the custom API scope here
         scopes = [azure_settings.SCOPE_NAME]
         
-        # Generate state for CSRF protection
-        state = secrets.token_urlsafe(32)
-        request.session["auth_state"] = state
+        # Validate and sanitize redirect URI
+        safe_redirect_uri = _validate_redirect_uri(redirect_uri, request)
+        
+        # Generate CSRF token
+        csrf_token = secrets.token_urlsafe(32)
+        
+        # Encode state with both CSRF token and redirect URI
+        state = _encode_state(csrf_token, safe_redirect_uri)
+        
+        # Store CSRF token in session for validation
+        request.session["auth_state"] = csrf_token
         
         # Build callback URL
         callback_url = str(request.url_for("auth_callback"))
@@ -136,7 +258,11 @@ async def auth_login(request: Request):
             redirect_uri=callback_url
         )
         
-        logger.info("Initiating Azure AD login", scopes=scopes)
+        logger.info(
+            "Initiating Azure AD login",
+            scopes=scopes,
+            redirect_after_auth=safe_redirect_uri
+        )
         
         return RedirectResponse(auth_url)
         
@@ -162,15 +288,37 @@ async def auth_callback(request: Request):
     - Invalid grant errors
     
     Returns:
-        Redirect to home page on success, error response on failure
+        Redirect to original page (or default) on success, error response on failure
     """
     try:
-        # Validate state for CSRF protection
-        state = request.query_params.get("state")
-        session_state = request.session.get("auth_state")
+        # Get and decode state parameter
+        encoded_state = request.query_params.get("state")
+        if not encoded_state:
+            logger.warning("Missing OAuth state parameter")
+            return JSONResponse(
+                {"detail": "Invalid state parameter"},
+                status_code=400
+            )
         
-        if not state or state != session_state:
-            logger.warning("Invalid OAuth state parameter")
+        # Decode state to extract CSRF token and redirect URI
+        csrf_token, redirect_uri = _decode_state(encoded_state)
+        
+        if not csrf_token or not redirect_uri:
+            logger.warning("Failed to decode OAuth state parameter")
+            return JSONResponse(
+                {"detail": "Invalid state parameter"},
+                status_code=400
+            )
+        
+        # Validate CSRF token matches session
+        session_csrf = request.session.get("auth_state")
+        
+        if not session_csrf or csrf_token != session_csrf:
+            logger.warning(
+                "OAuth state CSRF mismatch",
+                session_csrf=session_csrf,
+                received_csrf=csrf_token
+            )
             return JSONResponse(
                 {"detail": "Invalid state parameter"},
                 status_code=400
@@ -298,13 +446,15 @@ async def auth_callback(request: Request):
             "Azure AD authentication successful",
             username=username,
             oid=oid,
-            roles=roles
+            roles=roles,
+            redirect_to=redirect_uri
         )
         
         # Clear auth state
         request.session.pop("auth_state", None)
         
-        return RedirectResponse("/")
+        # Redirect to the original page (from decoded state)
+        return RedirectResponse(redirect_uri)
         
     except Exception as e:
         logger.error("Authentication callback failed", error=str(e))

@@ -7,7 +7,7 @@ import structlog
 
 from models.agent_models import BacklogDraft, AuditFindings, EvaluationReport
 from config import get_ai_tasks_settings
-from orchestrator.llm import get_llm
+from orchestrator.experts.clients.llm import get_llm
 from configuration.llm_config import get_llm_config
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from deepeval.metrics import (

@@ -6,7 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from models.agent_models import RequirementsAnalysis, RetrievedContext, BacklogDraft, AuditFindings
 from models.backlog_models import Epic, Task
-from orchestrator.llm import get_llm
+from orchestrator.experts.clients.llm import get_llm
 
 
 class BacklogEngineer:
