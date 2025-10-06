@@ -476,6 +476,16 @@ async function sendRequirementsRequest(text) {
       body: JSON.stringify({ project_id: state.projectId, prompt: text })
     });
     
+    // If 401 Unauthorized, refresh GitLab connection status immediately
+    if (res.status === 401) {
+      console.warn('Received 401 Unauthorized, refreshing GitLab status');
+      try {
+        await fetchGitLabStatus(state, state.config);
+      } catch (err) {
+        console.error('Failed to refresh GitLab status after 401:', err);
+      }
+    }
+    
     if (res.ok) {
       const bundle = await res.json();
       state.currentBundle = bundle;
@@ -608,6 +618,26 @@ function subscribeSSE() {
 }
 
 // ============================================================================
+// Periodic GitLab Status Check
+// ============================================================================
+
+function startPeriodicGitLabStatusCheck() {
+  // Check GitLab status every 5 minutes
+  const intervalId = setInterval(() => {
+    fetchGitLabStatus(state, state.config).catch(err => {
+      console.error('Periodic GitLab status check failed:', err);
+    });
+  }, 5 * 60 * 1000); // 5 minutes
+  
+  // Clear interval on page unload
+  window.addEventListener('beforeunload', () => {
+    clearInterval(intervalId);
+  });
+  
+  console.log('Started periodic GitLab status checks (every 5 minutes)');
+}
+
+// ============================================================================
 // Initialization
 // ============================================================================
 
@@ -635,7 +665,10 @@ async function init() {
   console.log('Project loaded:', state.project);
   
   // Fetch GitLab status
-  try { await fetchGitLabStatus(state, state.config); } catch {}
+  try { 
+    await fetchGitLabStatus(state, state.config);
+    startPeriodicGitLabStatusCheck();
+  } catch {}
   
   setupInputBehavior();
   subscribeSSE();

@@ -476,6 +476,16 @@ async function submitToGitLab() {
       body: JSON.stringify(payload)
     });
     
+    // If 401 Unauthorized, refresh GitLab connection status immediately
+    if (res.status === 401) {
+      console.warn('Received 401 Unauthorized, refreshing GitLab status');
+      try {
+        await sharedFetchGitLabStatus(state, state.config);
+      } catch (err) {
+        console.error('Failed to refresh GitLab status after 401:', err);
+      }
+    }
+    
     if (!res.ok) {
       let errorMsg = `HTTP ${res.status}`;
       try {
@@ -567,6 +577,16 @@ async function sendMessage(message) {
       body: JSON.stringify(payload),
     });
     
+    // If 401 Unauthorized, refresh GitLab connection status immediately
+    if (res.status === 401) {
+      console.warn('Received 401 Unauthorized, refreshing GitLab status');
+      try {
+        await sharedFetchGitLabStatus(state, state.config);
+      } catch (err) {
+        console.error('Failed to refresh GitLab status after 401:', err);
+      }
+    }
+    
     if (!res.ok) {
       let errorMsg = `HTTP ${res.status}`;
       try {
@@ -623,6 +643,22 @@ console.log('Tasks.js loaded successfully');
 
 async function fetchGitLabStatus() {
   await sharedFetchGitLabStatus(state, state.config);
+}
+
+function startPeriodicGitLabStatusCheck() {
+  // Check GitLab status every 5 minutes
+  const intervalId = setInterval(() => {
+    fetchGitLabStatus().catch(err => {
+      console.error('Periodic GitLab status check failed:', err);
+    });
+  }, 5 * 60 * 1000); // 5 minutes
+  
+  // Clear interval on page unload
+  window.addEventListener('beforeunload', () => {
+    clearInterval(intervalId);
+  });
+  
+  console.log('Started periodic GitLab status checks (every 5 minutes)');
 }
 
 function startGitLabSSO() {
@@ -774,7 +810,10 @@ async function init() {
   connectSSE();
   
   // Fetch GitLab connection status
-  try { await fetchGitLabStatus(); } catch {}
+  try { 
+    await fetchGitLabStatus();
+    startPeriodicGitLabStatusCheck();
+  } catch {}
   
   // Auto-send initial message if we have a prompt_id
   if (state.promptId) {

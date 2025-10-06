@@ -49,6 +49,15 @@ class ApiClient {
       hideLoading();
     }
     if (!res.ok) {
+      // If 401 Unauthorized, refresh GitLab connection status immediately
+      if (res.status === 401) {
+        console.warn('Received 401 Unauthorized, refreshing GitLab status');
+        try {
+          await fetchGitLabStatus();
+        } catch (err) {
+          console.error('Failed to refresh GitLab status after 401:', err);
+        }
+      }
       const detail = await res.text().catch(() => '');
       throw new Error(`${method} ${path} failed: ${res.status} ${detail}`);
     }
@@ -625,7 +634,10 @@ async function init() {
   connectSSE();
   await fetchProjects();
   // Fetch GitLab connection status (session-level)
-  try { await fetchGitLabStatus(); } catch {}
+  try { 
+    await fetchGitLabStatus();
+    startPeriodicGitLabStatusCheck();
+  } catch {}
 }
 
 // Loading overlay helpers
@@ -721,6 +733,22 @@ async function fetchGitLabStatus() {
   } finally {
     updateConnectionsPanel();
   }
+}
+
+function startPeriodicGitLabStatusCheck() {
+  // Check GitLab status every 5 minutes
+  const intervalId = setInterval(() => {
+    fetchGitLabStatus().catch(err => {
+      console.error('Periodic GitLab status check failed:', err);
+    });
+  }, 5 * 60 * 1000); // 5 minutes
+  
+  // Clear interval on page unload
+  window.addEventListener('beforeunload', () => {
+    clearInterval(intervalId);
+  });
+  
+  console.log('Started periodic GitLab status checks (every 5 minutes)');
 }
 
 function startGitLabSSO() {

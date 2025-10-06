@@ -348,6 +348,24 @@ async def apply_backlog(
                     "message": str(e)
                 })
         
+        # Check if any errors indicate authentication failure (401)
+        has_auth_error = any(
+            "401" in str(error.get("message", "")) or 
+            "Unauthorized" in str(error.get("message", ""))
+            for error in errors
+        )
+        
+        if has_auth_error:
+            logger.warning(
+                "Authentication error detected in backlog application",
+                project_id=project_id,
+                error_count=len(errors)
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitLab authentication failed. Please reconnect your GitLab account."
+            )
+        
         response = ApplyBacklogResponse(results=results, errors=errors)
         
         # Cache result for idempotency
