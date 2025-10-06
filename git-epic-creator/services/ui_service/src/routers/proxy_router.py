@@ -279,6 +279,32 @@ async def _forward(
         logger.error("Upstream request failed", error=str(exc), target_url=target_url)
         return JSONResponse({"detail": f"Upstream request failed: {str(exc)}"}, status_code=502)
     
+    # Handle 401 Unauthorized from GitLab-related services
+    # This indicates the GitLab token is invalid (e.g., after mock service restart)
+    if resp.status_code == 401 and requires_gitlab_token:
+        try:
+            logger.warning(
+                "Received 401 from GitLab-related service, clearing GitLab token",
+                session_id=session_id,
+                target_service=target_service
+            )
+            
+            # Clear the invalid GitLab token from Redis
+            # Note: token_manager was already initialized earlier in this function
+            await token_manager.clear_token()
+            
+            logger.info(
+                "GitLab token cleared due to 401 response",
+                session_id=session_id,
+                target_service=target_service
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to clear GitLab token after 401",
+                session_id=session_id,
+                error=str(e)
+            )
+    
     # Return response
     headers = _preserve_headers(resp)
     return Response(content=resp.content, status_code=resp.status_code, headers=headers)
