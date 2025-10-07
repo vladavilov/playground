@@ -150,30 +150,83 @@ async def _run_graphrag_job_async(
             counts = result.get("counts", {})
             processed_count = int(counts.get("documents", 0))
             total_count = max(processed_count, 1)
+            logger.info(
+                "Updating project status to rag_ready",
+                project_id=project_id,
+                processed_count=processed_count,
+                total_count=total_count,
+                has_auth=bool(authorization_header),
+            )
             async with ProjectManagementClient() as pm:
-                await pm.update_project_status(
+                update_result = await pm.update_project_status(
                     project_id=project_id,
                     processed_count=processed_count,
                     total_count=total_count,
                     status="rag_ready",
                     authorization_header=authorization_header,
                 )
-        except Exception:
-            pass
+                if update_result.success:
+                    logger.info(
+                        "Successfully updated project status to rag_ready",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                    )
+                else:
+                    logger.error(
+                        "Failed to update project status to rag_ready",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                        error_message=update_result.error_message,
+                    )
+        except Exception as e:
+            logger.error(
+                "Exception while updating project status to rag_ready",
+                project_id=project_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
 
         return result
     except Exception as exc:  # noqa: BLE001
         # On failure, publish error status (best-effort)
         try:
+            logger.error(
+                "GraphRAG job failed, updating project status to rag_failed",
+                project_id=project_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+                has_auth=bool(authorization_header),
+            )
             async with ProjectManagementClient() as pm:
-                await pm.update_project_status(
+                update_result = await pm.update_project_status(
                     project_id=project_id,
                     status="rag_failed",
                     error_message=str(exc),
                     authorization_header=authorization_header,
                 )
-        except Exception:
-            pass
+                if update_result.success:
+                    logger.info(
+                        "Successfully updated project status to rag_failed",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                    )
+                else:
+                    logger.error(
+                        "Failed to update project status to rag_failed",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                        error_message=update_result.error_message,
+                    )
+        except Exception as status_exc:
+            logger.error(
+                "Exception while updating project status to rag_failed",
+                project_id=project_id,
+                original_error=str(exc),
+                status_update_error=str(status_exc),
+                status_update_error_type=type(status_exc).__name__,
+                exc_info=True,
+            )
 
         # Compute next attempts and schedule retry or DLQ based on configured policy (shared)
         to_dlq, countdown, next_attempts = compute_retry_decision(attempts or 0)

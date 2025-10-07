@@ -5,6 +5,7 @@ from uuid import UUID
 import json
 
 from models.progress_messages import BacklogProgressMessage
+from constants.streams import UI_CHANNEL_PREFIX, UI_AI_TASKS_PROGRESS_NAME
 
 
 class AiTasksStatusPublisher:
@@ -15,10 +16,11 @@ class AiTasksStatusPublisher:
 
     def __init__(self, redis_client):
         self.redis_client = redis_client
-        self.channel_name = "ui:ai_tasks_progress"
+        self.prefix = UI_CHANNEL_PREFIX
+        self.default_name = UI_AI_TASKS_PROGRESS_NAME
 
     def _channel(self) -> str:
-        return self.channel_name
+        return f"{self.prefix}:{self.default_name}"
 
     async def _publish_message(self, message: BacklogProgressMessage) -> bool:
         try:
