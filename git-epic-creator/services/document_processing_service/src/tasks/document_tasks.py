@@ -1,19 +1,22 @@
 
 """Celery tasks for document processing."""
 
-from typing import Dict, Any
+from __future__ import annotations
+from typing import Dict, Any, TYPE_CHECKING
 import os
 import asyncio
 import structlog
 
-from services.tika_processor import TikaProcessor
-from services.docling_processor import DoclingProcessor
 from utils.blob_storage import BlobStorageClient
 from clients.project_management_client import ProjectManagementClient
 from tasks.document_core import process_project_documents_core
-from celery_worker_app import celery_app
+from celery_worker_app import celery_app, get_docling_processor, get_tika_processor
 from utils.redis_client import get_sync_redis_client
 from utils.workflow_gating import gate_and_enqueue_sync, cleanup_after_run_sync
+
+if TYPE_CHECKING:
+    from services.docling_processor import DoclingProcessor
+    from services.tika_processor import TikaProcessor
 
 logger = structlog.get_logger(__name__)
 
@@ -49,9 +52,10 @@ class _ProcessorDispatcher:
 
 
 async def _update_project_progress_via_http(
-    project_id: str, 
-    processed_count: int, 
-    total_count: int
+    project_id: str,
+    processed_count: int,
+    total_count: int,
+    authorization_header: str,
 ) -> Dict[str, Any]:
     """
     Update project processing progress via HTTP client.
@@ -74,7 +78,8 @@ async def _update_project_progress_via_http(
             result = await client.update_project_status(
                 project_id=project_id,
                 processed_count=processed_count,
-                total_count=total_count
+                total_count=total_count,
+                authorization_header=authorization_header,
             )
 
             if result.success:
@@ -132,6 +137,9 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                 worker_pid=os.getpid())
 
     try:
+        auth_header = self.request.headers.get('Authentication')
+        if not auth_header:
+            raise RuntimeError("Missing Authentication for task")
         # Acquire a per-project distributed lock to avoid concurrent processing (sync lock)
         sync_client = get_sync_redis_client()
         lock_key = f"{GATE_NS_DOCS}:lock:{project_id}"
@@ -144,12 +152,12 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                 'skipped': True
             }
         blob_client = BlobStorageClient()
-        # Choose processor based on file type at runtime within core loop via a dispatcher
-        # We pass both processors and decide per file in a thin wrapper
-        document_processor = _ProcessorDispatcher(DoclingProcessor(), TikaProcessor())
+        # Use singleton processors initialized at worker startup
+        # This avoids per-task initialization overhead and reuses pre-loaded plugins/models
+        document_processor = _ProcessorDispatcher(get_docling_processor(), get_tika_processor())
 
         def _send_progress_update(pid: str, processed: int, total: int) -> Dict[str, Any]:
-            return asyncio.run(_update_project_progress_via_http(pid, processed, total))
+            return asyncio.run(_update_project_progress_via_http(pid, processed, total, authorization_header=auth_header))
 
         result = process_project_documents_core(
             project_id=project_id,
@@ -162,10 +170,16 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
         if isinstance(result, dict):
             try:
                 def _enqueue_ingestion() -> None:
+                    logger.info("Enqueueing GraphRAG ingestion task",
+                               project_id=project_id,
+                               task_id=self.request.id,
+                               has_auth_header=bool(auth_header),
+                               auth_header_length=len(auth_header) if auth_header else 0)
                     celery_app.send_task(
                         TASK_RUN_GRAPHRAG_JOB,
                         args=[self.request.id, project_id, 0],
                         queue=QUEUE_NEO4J_INGESTION,
+                        headers={"Authentication": auth_header},
                     )
 
                 gate_and_enqueue_sync(
@@ -206,6 +220,7 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                     TASK_PROCESS_PROJECT_DOCS,
                     args=[project_id],
                     queue=QUEUE_DOCUMENT_PROCESSING,
+                    headers={"Authentication": auth_header},
                 )
 
             cleanup_after_run_sync(

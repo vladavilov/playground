@@ -109,7 +109,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         for r in rows:
             node = r.get("node")
             if node is not None:
-                communities.append(int(getattr(node, "id", node)))
+                communities.append(int(node["community"]))
         return communities
 
     def _sample_chunks(
@@ -141,12 +141,15 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         query_vec: List[float],
         k: int,
         project_id: str,
-    ) -> List[int]:
+    ) -> List[Dict[str, Any]]:
         if not (chunk_index and communities):
+            logger.warning("retrieval.scoped_chunks_empty", reason="missing_chunk_index_or_communities", chunk_index=bool(chunk_index), communities_count=len(communities or []))
             return []
         rows = repo.scoped_chunk_ids(communities, chunk_index, query_vec, k, project_id)
-        chunks = [int(x) for x in rows]
+        chunks = rows
+        logger.info("retrieval.scoped_chunks", chunk_ids_found=len(chunks), communities_count=len(communities or []))
         if not chunks:
+            logger.warning("retrieval.scoped_chunks_empty", reason="no_chunks_found_for_communities", communities=communities[:5])
             return []
         return repo.expand_neighborhood_minimal(chunks, project_id)
 

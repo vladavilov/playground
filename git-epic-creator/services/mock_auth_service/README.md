@@ -21,8 +21,8 @@ The service can be configured using the following environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AZURE_AD_TENANT_ID` | `e7963c3a-3b3a-43b6-9426-89e433d07e69` | Azure AD tenant ID used in token claims and endpoints |
-| `AZURE_AD_CLIENT_ID` | `a9e304a9-5b6c-4ef7-9b37-23a579a6d7be` | Client ID (audience) for issued tokens |
+| `AZURE_AD_TENANT_ID` / `AZURE_TENANT_ID` | `e7963c3a-3b3a-43b6-9426-89e433d07e69` | Azure AD tenant ID used in token claims and endpoints |
+| `AZURE_AD_CLIENT_ID` / `AZURE_CLIENT_ID` | `a9e304a9-5b6c-4ef7-9b37-23a579a6d7be` | Client ID (audience) for issued tokens |
 | `AZURE_AD_AUTHORITY` | `http://mock-auth-service:8005` | Base URL for the mock service endpoints |
 | `API_PORT` | `8000` | Port on which the service runs |
 
@@ -32,6 +32,7 @@ The service can be configured using the following environment variables:
 |----------|---------|-------------|
 | `MOCK_AUTH_PRIVATE_KEY` | `""` | RSA private key in PEM format for JWT signing |
 | `MOCK_AUTH_KEY_ID` | `""` | Key ID (kid) for JWT header |
+| `AZURE_CLIENT_SECRET` / `MOCK_CLIENT_SECRET` | `""` | Optional client secret check at token endpoint |
 
 ### Configuration Examples
 
@@ -163,14 +164,22 @@ services:
 | `/health` | GET | Health check endpoint |
 | `/{tenant_id}/v2.0/.well-known/openid-configuration` | GET | OIDC discovery document |
 | `/{tenant_id}/discovery/v2.0/keys` | GET | JWKS endpoint (public keys) |
-| `/{tenant_id}/oauth2/v2.0/token` | POST | Token endpoint (issues JWT) |
-| `/{tenant_id}/oauth2/v2.0/authorize` | GET | Authorization endpoint (mock) |
+| `/{tenant_id}/oauth2/v2.0/token` | POST | Token endpoint: supports `authorization_code` and `refresh_token` |
+| `/{tenant_id}/oauth2/v2.0/authorize` | GET | Authorization endpoint (issues code; supports PKCE S256/plain) |
 
 ### Example Token Request
+Authorization code exchange:
 ```bash
 curl -X POST "http://localhost:8005/e7963c3a-3b3a-43b6-9426-89e433d07e69/oauth2/v2.0/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=your-client-id&client_secret=your-secret"
+  -d "grant_type=authorization_code&client_id=$AZURE_CLIENT_ID&client_secret=$AZURE_CLIENT_SECRET&code=$CODE&redirect_uri=http://localhost/callback&code_verifier=$VERIFIER"
+```
+
+Refresh grant:
+```bash
+curl -X POST "http://localhost:8005/e7963c3a-3b3a-43b6-9426-89e433d07e69/oauth2/v2.0/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token&client_id=$AZURE_CLIENT_ID&client_secret=$AZURE_CLIENT_SECRET&refresh_token=$RTOKEN"
 ```
 
 ## Troubleshooting

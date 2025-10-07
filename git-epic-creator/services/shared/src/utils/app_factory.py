@@ -4,8 +4,6 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from middleware.azure_auth_middleware import AzureAuthMiddleware, get_current_user, create_azure_scheme, set_azure_scheme
-from configuration.azure_auth_config import get_azure_auth_settings
 from utils.postgres_client import get_postgres_client, PostgresHealthChecker, PostgresClient
 from utils.neo4j_client import get_neo4j_client, Neo4jHealthChecker, Neo4jClient
 from utils.redis_client import get_redis_client
@@ -70,8 +68,6 @@ class FastAPIFactory:
         title: str,
         description: str,
         version: str,
-        enable_azure_auth: bool = True,
-        enable_docs_auth: bool = True,
         enable_cors: bool = True,
         enable_postgres: bool = False,
         enable_neo4j: bool = False,
@@ -82,46 +78,14 @@ class FastAPIFactory:
         redoc_url: str = "/redoc"
     ) -> FastAPI:
         """Create a FastAPI application with standard configuration."""
-        # Configure Azure AD authentication if enabled
-        azure_middleware = None
-        azure_settings = None
         postgres_client: PostgresClient = get_postgres_client() if enable_postgres else None
         neo4j_client: Neo4jClient = get_neo4j_client() if enable_neo4j else None
         redis_client: redis.Redis = get_redis_client() if enable_redis else None
         blob_storage_client: BlobStorageClient = get_blob_storage_client() if enable_blob_storage else None
 
-        if enable_azure_auth:
-            azure_settings = get_azure_auth_settings()
-
-            # Configure Azure AD authentication scheme
-            azure_scheme = create_azure_scheme(
-                app_client_id=azure_settings.AZURE_CLIENT_ID,
-                tenant_id=azure_settings.AZURE_TENANT_ID,
-                scopes=azure_settings.SCOPES,
-                openapi_authorization_url=azure_settings.OPENAPI_AUTHORIZATION_URL,
-                openapi_token_url=azure_settings.OPENAPI_TOKEN_URL,
-                openid_config_url=azure_settings.OPENID_CONFIG_URL
-            )
-
-            set_azure_scheme(azure_scheme)
-
-            azure_middleware = AzureAuthMiddleware(azure_scheme)
-
         # Create lifespan context manager
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            # Startup logic
-            if azure_middleware:
-                try:
-                    await azure_middleware.load_openid_config()
-                    logger.info("OpenID configuration loaded on startup")
-                except Exception as e:
-                    logger.error(
-                        "Failed to load OpenID configuration during startup. ",
-                        error=str(e),
-                        tenant_id=azure_settings.AZURE_TENANT_ID
-                    )
-                    raise
             yield
 
             # Shutdown logic
@@ -167,20 +131,12 @@ class FastAPIFactory:
             app.state.blob_storage_client = blob_storage_client
             logger.info("Blob storage client attached to app.state")
 
-        # Configure Swagger UI authentication if enabled
-        if enable_azure_auth and enable_docs_auth and azure_settings:
-            app.swagger_ui_init_oauth = {
-                "clientId": azure_settings.OPENAPI_CLIENT_ID,
-                "appName": title,
-                "usePkceWithAuthorizationCodeGrant": True,
-                "scopes": list(azure_settings.SCOPES.keys())
-            }
 
-        # Configure CORS if enabled
-        if enable_cors and azure_settings:
+        # Configure CORS if enabled (allow all by default or restrict via proxy)
+        if enable_cors:
             app.add_middleware(
                 CORSMiddleware,
-                allow_origins=azure_settings.BACKEND_CORS_ORIGINS,
+                allow_origins=["*"],
                 allow_credentials=True,
                 allow_methods=["*"],
                 allow_headers=["*"],
@@ -197,23 +153,6 @@ class FastAPIFactory:
             """
             return {"status": "ok"}
 
-        if enable_azure_auth:
-            @app.get("/me", tags=["User"])
-            async def get_user_info(current_user = Depends(get_current_user)):
-                """
-                Get current user information.
-                
-                Args:
-                    current_user: Current authenticated user
-                    
-                Returns:
-                    dict: User information
-                """
-                return {
-                    "id": current_user.oid,
-                    "username": current_user.preferred_username,
-                    "roles": current_user.roles
-                }
 
         if enable_postgres:
             @app.get("/health/postgres", tags=["Health"])
@@ -272,8 +211,6 @@ class FastAPIFactory:
             "FastAPI application created",
             title=title,
             version=version,
-            azure_auth=enable_azure_auth,
-            docs_auth=enable_docs_auth,
             cors=enable_cors,
             postgres=enable_postgres,
             neo4j=enable_neo4j,

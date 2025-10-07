@@ -22,11 +22,7 @@ RUN pip install --no-cache-dir \
     tenacity
 
 # 2) Copy sources and install local packages (quick when deps unchanged)
-COPY ./shared/ ./shared/
 COPY ./openai_mock_service/ ./openai_mock_service/
-
-WORKDIR /app/shared
-RUN pip install --no-cache-dir .
 
 WORKDIR /app/openai_mock_service
 RUN pip install --no-cache-dir .
