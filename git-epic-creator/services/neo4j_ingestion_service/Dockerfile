@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim AS builder-with-tools
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -13,16 +13,16 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
-# Ensure modern packaging tools and be resilient to slow networks
 RUN pip install --retries 10 --timeout 120 --upgrade pip setuptools wheel
 
 WORKDIR /app
 
 COPY ./shared/ ./shared/
-COPY ./neo4j_ingestion_service/ ./neo4j_ingestion_service/
-
 WORKDIR /app/shared
 RUN pip install --retries 10 --prefer-binary --timeout 120 .
+
+WORKDIR /app
+COPY ./neo4j_ingestion_service/ ./neo4j_ingestion_service/
 
 WORKDIR /app/neo4j_ingestion_service
 RUN pip install --retries 10 --prefer-binary --timeout 120 .
@@ -40,13 +40,15 @@ RUN apt-get update \
     libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/venv /opt/venv
+RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-ENV PYTHONPATH=/app/src
 
 WORKDIR /app
 
-COPY --from=builder /app/neo4j_ingestion_service/src/ ./src/
+COPY --from=builder-with-tools /opt/venv /opt/venv
+ENV PYTHONPATH=/app/src
+
+COPY --from=builder-with-tools /app/neo4j_ingestion_service/src/ ./src/
 
 # Pre-create the GraphRAG workspace root so CLI has a place to initialize
 ENV RAG_WORKSPACE_ROOT=/workspace/graphrag

@@ -3,6 +3,16 @@ x-service-defaults: &service_defaults
     - "host.docker.internal:host-gateway"
 
 services:
+  # Base image - builds automatically, never runs
+  python-base:
+    build:
+      context: ./services/base
+      dockerfile: Dockerfile
+    image: python-service-base:latest
+    command: ["true"]  # Exits immediately, only used for building
+    restart: "no"
+
+
   postgres:
     <<: *service_defaults
     image: postgres:16-alpine
@@ -70,6 +80,7 @@ services:
     build:
       context: ./services
       dockerfile: ./db_init_service/Dockerfile
+    image: db_init_service:latest
     container_name: db_init_service
     ports:
       - "8001:8000"
@@ -78,6 +89,8 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
+      python-base:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     networks:
@@ -126,6 +139,7 @@ services:
     build:
       context: ./services
       dockerfile: ./neo4j_maintanance_service/Dockerfile
+    image: neo4j_maintenance_service:latest
     container_name: neo4j_maintenance_service
     ports:
       - "8002:8000"
@@ -134,6 +148,8 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
+      python-base:
+        condition: service_completed_successfully
       neo4j:
         condition: service_healthy
     networks:
@@ -212,6 +228,7 @@ services:
     build:
       context: ./services
       dockerfile: ./project_management_service/Dockerfile
+    image: project_management_service:latest
     container_name: project_management_service
     ports:
       - "8003:8000"
@@ -220,6 +237,8 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
+      python-base:
+        condition: service_completed_successfully
       db-init-service:
         condition: service_healthy
       postgresdb-schema-init:
@@ -241,6 +260,7 @@ services:
     build:
       context: ./services
       dockerfile: ./ui_service/Dockerfile
+    image: ui_service:latest
     container_name: ui_service
     ports:
       - "8007:8000"
@@ -249,6 +269,8 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
+      python-base:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       project-management-service:
@@ -297,7 +319,11 @@ services:
     build:
       context: ./services
       dockerfile: ./neo4j_retrieval_service/Dockerfile
+    image: neo4j_retrieval_service:latest
     container_name: neo4j_retrieval_service
+    depends_on:
+      python-base:
+        condition: service_completed_successfully
     ports:
       - "8008:8000"
     environment:
@@ -319,6 +345,7 @@ services:
     build:
       context: ./services
       dockerfile: ./ai_requirements_service/Dockerfile
+    image: ai_requirements_service:latest
     container_name: ai_requirements_service
     ports:
       - "8009:8000"
@@ -327,6 +354,8 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
+      python-base:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       neo4j-retrieval-service:
@@ -400,6 +429,10 @@ services:
     build:
       context: ./services
       dockerfile: ./mock_auth_service/Dockerfile
+    image: mock_auth_service:latest
+    depends_on:
+      python-base:
+        condition: service_completed_successfully
     environment:
       - API_PORT=8000
       - ENABLE_HTTPS=true
@@ -424,6 +457,10 @@ services:
     build:
       context: ./services
       dockerfile: ./gitlab_mock_service/Dockerfile
+    image: gitlab_mock_service:latest
+    depends_on:
+      python-base:
+        condition: service_completed_successfully
     environment:
       - API_PORT=8000
     env_file:
@@ -446,6 +483,7 @@ services:
     build:
       context: ./services
       dockerfile: ./gitlab_client_service/Dockerfile
+    image: gitlab_client_service:latest
     container_name: gitlab_client_service
     ports:
       - "8012:8000"
@@ -454,6 +492,8 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
+      python-base:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       gitlab-mock-service:
@@ -473,6 +513,7 @@ services:
     build:
       context: ./services
       dockerfile: ./ai_tasks_service/Dockerfile
+    image: ai_tasks_service:latest
     container_name: ai_tasks_service
     ports:
       - "8013:8000"
@@ -481,6 +522,8 @@ services:
     env_file:
       - docker-compose.env
     depends_on:
+      python-base:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       neo4j-retrieval-service:

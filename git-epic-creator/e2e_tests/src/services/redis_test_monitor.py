@@ -47,6 +47,7 @@ class RedisTestMonitor:
         self.ui_project_id = None
         self._listener_thread: threading.Thread | None = None
         self._listener_running: bool = False
+        self._listener_ready: threading.Event = threading.Event()
         self._msg_cond: threading.Condition = threading.Condition()
         self._test_start_time: float | None = None
 
@@ -57,6 +58,7 @@ class RedisTestMonitor:
         self.ai_project_id = None
         self._ai_listener_thread: threading.Thread | None = None
         self._ai_listener_running: bool = False
+        self._ai_listener_ready: threading.Event = threading.Event()
         self._ai_msg_cond: threading.Condition = threading.Condition()
         
         # AI tasks progress monitoring state
@@ -66,6 +68,7 @@ class RedisTestMonitor:
         self.ai_tasks_project_id = None
         self._ai_tasks_listener_thread: threading.Thread | None = None
         self._ai_tasks_listener_running: bool = False
+        self._ai_tasks_listener_ready: threading.Event = threading.Event()
         self._ai_tasks_msg_cond: threading.Condition = threading.Condition()
     
     def get_current_task_count(self) -> int:
@@ -174,8 +177,14 @@ class RedisTestMonitor:
         This method starts listening BEFORE processing begins to capture
         all pub/sub messages published during the workflow.
         
+        CRITICAL: Waits for listener thread to be ready before returning to prevent
+        race conditions where messages are published before subscription is active.
+        
         Args:
             project_id: Project ID to monitor
+            
+        Raises:
+            RuntimeError: If listener thread fails to start within timeout
         """
         if self.ui_monitoring_active and self.ui_project_id == project_id:
             return
@@ -188,6 +197,9 @@ class RedisTestMonitor:
         self.ui_messages_received = []
         self._test_start_time = time.time()
         
+        # Clear the ready event before starting
+        self._listener_ready.clear()
+        
         # Create pubsub connection (ignore subscribe messages to simplify listener)
         self.pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
         self.pubsub.subscribe(self.ui_progress_channel)
@@ -197,6 +209,10 @@ class RedisTestMonitor:
 
         def _listen_loop() -> None:
             try:
+                # Signal that listener is ready BEFORE entering the blocking listen() loop
+                # This ensures subscription is active before any messages are published
+                self._listener_ready.set()
+                
                 for message in self.pubsub.listen():  # blocking
                     if not self._listener_running:
                         break
@@ -229,6 +245,13 @@ class RedisTestMonitor:
 
         self._listener_thread = threading.Thread(target=_listen_loop, daemon=True)
         self._listener_thread.start()
+        
+        # CRITICAL FIX: Wait for listener thread to be ready before returning
+        # This prevents race condition where messages are published before subscription is active
+        if not self._listener_ready.wait(timeout=5.0):
+            self.stop_ui_progress_monitoring()
+            raise RuntimeError(f"UI progress listener thread failed to start within 5 seconds for project {project_id}")
+        
         self.ui_monitoring_active = True
     
     def stop_ui_progress_monitoring(self) -> None:
@@ -260,12 +283,25 @@ class RedisTestMonitor:
     def start_ai_requirements_monitoring(self, project_id: str) -> None:
         """
         Start monitoring the AI requirements progress channel for a project.
+        
+        CRITICAL: Waits for listener thread to be ready before returning to prevent
+        race conditions where messages are published before subscription is active.
+        
+        Args:
+            project_id: Project ID to monitor
+            
+        Raises:
+            RuntimeError: If listener thread fails to start within timeout
         """
         if self.ai_monitoring_active and self.ai_project_id == project_id:
             return
         self.stop_ai_requirements_monitoring()
         self.ai_project_id = project_id
         self.ai_messages_received = []
+        
+        # Clear the ready event before starting
+        self._ai_listener_ready.clear()
+        
         self.ai_pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
         self.ai_pubsub.subscribe(self.ai_progress_channel)
 
@@ -273,6 +309,9 @@ class RedisTestMonitor:
 
         def _ai_listen_loop() -> None:
             try:
+                # Signal that listener is ready BEFORE entering the blocking listen() loop
+                self._ai_listener_ready.set()
+                
                 for message in self.ai_pubsub.listen():
                     if not self._ai_listener_running:
                         break
@@ -303,6 +342,12 @@ class RedisTestMonitor:
 
         self._ai_listener_thread = threading.Thread(target=_ai_listen_loop, daemon=True)
         self._ai_listener_thread.start()
+        
+        # CRITICAL FIX: Wait for listener thread to be ready before returning
+        if not self._ai_listener_ready.wait(timeout=5.0):
+            self.stop_ai_requirements_monitoring()
+            raise RuntimeError(f"AI requirements listener thread failed to start within 5 seconds for project {project_id}")
+        
         self.ai_monitoring_active = True
 
     def stop_ai_requirements_monitoring(self) -> None:
@@ -373,12 +418,25 @@ class RedisTestMonitor:
     def start_ai_tasks_monitoring(self, project_id: str) -> None:
         """
         Start monitoring the AI tasks progress channel for backlog generation.
+        
+        CRITICAL: Waits for listener thread to be ready before returning to prevent
+        race conditions where messages are published before subscription is active.
+        
+        Args:
+            project_id: Project ID to monitor
+            
+        Raises:
+            RuntimeError: If listener thread fails to start within timeout
         """
         if self.ai_tasks_monitoring_active and self.ai_tasks_project_id == project_id:
             return
         self.stop_ai_tasks_monitoring()
         self.ai_tasks_project_id = project_id
         self.ai_tasks_messages_received = []
+        
+        # Clear the ready event before starting
+        self._ai_tasks_listener_ready.clear()
+        
         self.ai_tasks_pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
         self.ai_tasks_pubsub.subscribe(self.ai_tasks_progress_channel)
 
@@ -386,6 +444,9 @@ class RedisTestMonitor:
 
         def _ai_tasks_listen_loop() -> None:
             try:
+                # Signal that listener is ready BEFORE entering the blocking listen() loop
+                self._ai_tasks_listener_ready.set()
+                
                 for message in self.ai_tasks_pubsub.listen():
                     if not self._ai_tasks_listener_running:
                         break
@@ -416,6 +477,12 @@ class RedisTestMonitor:
 
         self._ai_tasks_listener_thread = threading.Thread(target=_ai_tasks_listen_loop, daemon=True)
         self._ai_tasks_listener_thread.start()
+        
+        # CRITICAL FIX: Wait for listener thread to be ready before returning
+        if not self._ai_tasks_listener_ready.wait(timeout=5.0):
+            self.stop_ai_tasks_monitoring()
+            raise RuntimeError(f"AI tasks listener thread failed to start within 5 seconds for project {project_id}")
+        
         self.ai_tasks_monitoring_active = True
 
     def stop_ai_tasks_monitoring(self) -> None:

@@ -21,6 +21,7 @@ dependencies = [
     "redis[hiredis]",
     "azure-storage-blob",
     "python-multipart",
+    "tenacity>=8.0.0",
     "shared @ file:../shared"
 ]
 
