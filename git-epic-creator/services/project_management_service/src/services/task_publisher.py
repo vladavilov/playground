@@ -23,7 +23,7 @@ class TaskRequestPublisher:
     def __init__(self) -> None:
         self.celery_app = get_celery_app(APP_NAME_PROJECT_MANAGEMENT)
 
-    async def request_document_processing(self, project_id: UUID) -> bool:
+    async def request_document_processing(self, project_id: UUID, authorization_header: str) -> bool:
         try:
             # Gate per project using unified lock-aware gating
             redis_client = get_redis_client()
@@ -34,6 +34,7 @@ class TaskRequestPublisher:
                     TASK_PROCESS_PROJECT_DOCS,
                     args=[str(project_id)],
                     queue=QUEUE_DOCUMENT_PROCESSING,
+                    headers={"Authentication": authorization_header},
                 )
                 task_id_holder["id"] = getattr(result, "id", None)
 

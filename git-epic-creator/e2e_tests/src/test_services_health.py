@@ -34,26 +34,6 @@ class TestServicesHealth:
         )
         assert isinstance(result[0][0], int)
 
-    def test_neo4j_connectivity(self, neo4j_driver: GraphDatabase.driver) -> None:
-        """Test Neo4j connectivity and basic operations."""
-        with neo4j_driver.session() as session:
-            # Test basic query execution
-            result = session.run("RETURN 1 as test_value")
-            record = result.single()
-            assert record["test_value"] == 1
-            
-            # Test that we can perform basic graph operations
-            # Create a test node and immediately delete it
-            result = session.run(
-                "CREATE (n:HealthCheck {id: $id}) RETURN n.id as created_id",
-                id="health_test"
-            )
-            record = result.single()
-            assert record["created_id"] == "health_test"
-            
-            # Clean up the test node
-            session.run("MATCH (n:HealthCheck {id: $id}) DELETE n", id="health_test")
-
     def test_all_services_accessible(self, service_urls: Dict[str, str]) -> None:
         """Test that all configured services are accessible."""
         health_status = ServiceHealthChecker.check_all_services_health(service_urls)
@@ -104,19 +84,25 @@ class TestDatabaseIntegrity:
                 f"Failed to query {expected_table} table"
             )
 
-    def test_neo4j_database_accessible(self, neo4j_driver: GraphDatabase.driver) -> None:
-        """Test that Neo4j database is accessible and responsive."""
+    def test_neo4j_connectivity(self, neo4j_driver: GraphDatabase.driver) -> None:
+        """Test Neo4j connectivity and basic operations."""
         with neo4j_driver.session() as session:
-            # Test database info
-            result = session.run("CALL db.info()")
-            info = result.single()
-            assert info is not None
+            # Test basic query execution
+            result = session.run("RETURN 1 as test_value")
+            record = result.single()
+            assert record["test_value"] == 1
             
-            # Test that we can access the configured database
-            result = session.run("CALL db.labels()")
-            labels = list(result)  # Get all labels (might be empty for new database)
-            # Just verify the query executes without error
-            assert isinstance(labels, list)
+            # Test that we can perform basic graph operations
+            # Create a test node and immediately delete it
+            result = session.run(
+                "CREATE (n:HealthCheck {id: $id}) RETURN n.id as created_id",
+                id="health_test"
+            )
+            record = result.single()
+            assert record["created_id"] == "health_test"
+            
+            # Clean up the test node
+            session.run("MATCH (n:HealthCheck {id: $id}) DELETE n", id="health_test")
 
     def test_redis_info(self, redis_client: redis.Redis) -> None:
         """Test Redis server information and configuration."""

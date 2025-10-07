@@ -17,7 +17,6 @@ from tenacity import (
 )
 
 from configuration.common_config import get_app_settings
-from utils.azure_token_provider import AzureTokenProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -37,11 +36,9 @@ class ProjectManagementClient:
         settings = get_app_settings()
         self.config = settings.http_client
         self._client: Optional[httpx.AsyncClient] = None
-        self._token_provider: Optional[AzureTokenProvider] = None
 
     async def __aenter__(self) -> "ProjectManagementClient":
         await self._ensure_client()
-        await self._ensure_token_provider()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -65,26 +62,16 @@ class ProjectManagementClient:
                 base_url=self.config.PROJECT_MANAGEMENT_SERVICE_URL,
             )
 
-    async def _ensure_token_provider(self) -> None:
-        if self.config.ENABLE_AZURE_AUTH and self._token_provider is None:
-            self._token_provider = AzureTokenProvider()
-            await self._token_provider.__aenter__()
-
     async def close(self) -> None:
         if self._client:
             await self._client.aclose()
             self._client = None
-        if self._token_provider:
-            await self._token_provider.close()
-            self._token_provider = None
 
     def _should_retry_on_result(self, result: httpx.Response) -> bool:
         return result.status_code >= 500
 
     async def _make_request_with_retry(self, method: str, endpoint: str, **kwargs) -> httpx.Response:
         await self._ensure_client()
-        # Ensure token provider is available even when not using context manager
-        await self._ensure_token_provider()
 
         @retry(
             stop=stop_after_attempt(self.config.MAX_RETRIES + 1),
@@ -97,12 +84,6 @@ class ProjectManagementClient:
         )
         async def _make_request():
             request_kwargs = kwargs.copy()
-            if self.config.ENABLE_AZURE_AUTH and self._token_provider:
-                auth_headers = await self._token_provider.get_authorization_header()
-                if "headers" in request_kwargs:
-                    request_kwargs["headers"].update(auth_headers)
-                else:
-                    request_kwargs["headers"] = auth_headers
 
             logger.info(
                 "Making HTTP request",
@@ -112,10 +93,6 @@ class ProjectManagementClient:
             )
 
             response = await self._client.request(method, endpoint, **request_kwargs)
-
-            if response.status_code == 401 and self.config.ENABLE_AZURE_AUTH and self._token_provider:
-                logger.warning("Received 401, invalidating cached token", method=method, endpoint=endpoint)
-                self._token_provider.invalidate_token()
 
             logger.info("HTTP request completed", method=method, endpoint=endpoint, status_code=response.status_code)
             return response
@@ -130,6 +107,7 @@ class ProjectManagementClient:
         status: Optional[str] = None,
         error_message: Optional[str] = None,
         process_step: Optional[str] = None,
+        authorization_header: Optional[str] = None,
     ) -> UpdateProjectStatusResult:
         # Validate project_id
         try:
@@ -172,8 +150,15 @@ class ProjectManagementClient:
             payload["process_step"] = process_step
 
         endpoint = f"/projects/{project_id}/status"
+        headers = {}
+        if authorization_header:
+            # Ensure Authorization header has Bearer prefix
+            if authorization_header.startswith("Bearer "):
+                headers["Authorization"] = authorization_header
+            else:
+                headers["Authorization"] = f"Bearer {authorization_header}"
         try:
-            response = await self._make_request_with_retry("PUT", endpoint, json=payload)
+            response = await self._make_request_with_retry("PUT", endpoint, json=payload, headers=headers or None)
             if 200 <= response.status_code < 300:
                 return UpdateProjectStatusResult(
                     success=True, status_code=response.status_code,

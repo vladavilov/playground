@@ -24,8 +24,8 @@ class TestNeo4jSettings:
         assert settings.NEO4J_PASSWORD == "neo4j123"
         assert settings.NEO4J_DATABASE == "neo4j"
         assert settings.NEO4J_CONNECTION_TIMEOUT == 30.0
-        assert settings.NEO4J_MAX_RETRY_ATTEMPTS == 3
-        assert settings.NEO4J_RETRY_DELAY == 2.0
+        assert settings.RETRY_MAX_ATTEMPTS == 3
+        assert settings.RETRY_BACKOFF_BASE_SEC == 2.0
         assert settings.NEO4J_MAX_CONNECTION_POOL_SIZE == 50
         assert settings.NEO4J_MAX_TRANSACTION_RETRY_TIME == 30.0
     
@@ -62,8 +62,8 @@ class TestNeo4jSettings:
         assert settings.NEO4J_PASSWORD is not None
         assert settings.NEO4J_DATABASE is not None
         assert isinstance(settings.NEO4J_CONNECTION_TIMEOUT, float)
-        assert isinstance(settings.NEO4J_MAX_RETRY_ATTEMPTS, int)
-        assert isinstance(settings.NEO4J_RETRY_DELAY, float)
+        assert isinstance(settings.RETRY_MAX_ATTEMPTS, int)
+        assert isinstance(settings.RETRY_BACKOFF_BASE_SEC, float)
     
     def test_neo4j_settings_timeout_validation(self):
         """Test Neo4j timeout validation."""
@@ -71,7 +71,7 @@ class TestNeo4jSettings:
             Neo4jSettings(NEO4J_CONNECTION_TIMEOUT=0)
         
         with pytest.raises(ValueError):
-            Neo4jSettings(NEO4J_RETRY_DELAY=-1.0)
+            Neo4jSettings(RETRY_BACKOFF_BASE_SEC=-1.0)
         
         with pytest.raises(ValueError):
             Neo4jSettings(NEO4J_MAX_TRANSACTION_RETRY_TIME=0)
@@ -79,7 +79,7 @@ class TestNeo4jSettings:
     def test_neo4j_settings_positive_int_validation(self):
         """Test Neo4j positive integer validation."""
         with pytest.raises(ValueError):
-            Neo4jSettings(NEO4J_MAX_RETRY_ATTEMPTS=0)
+            Neo4jSettings(RETRY_MAX_ATTEMPTS=0)
         
         with pytest.raises(ValueError):
             Neo4jSettings(NEO4J_MAX_CONNECTION_POOL_SIZE=-1)

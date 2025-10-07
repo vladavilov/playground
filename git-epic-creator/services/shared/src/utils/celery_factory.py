@@ -38,6 +38,8 @@ def get_celery_app(name: str) -> Celery:
         "worker_max_tasks_per_child": settings.CELERY_WORKER_MAX_TASKS_PER_CHILD,
         "worker_concurrency": settings.CELERY_WORKER_CONCURRENCY,
         "task_routes": settings.CELERY_TASK_ROUTES,
+        # Task protocol version 2 enables access to task headers via self.request.headers
+        "task_protocol": 2,
         # Logging controls to preserve structlog config and correct stdout level
         "worker_hijack_root_logger": False,
         "worker_redirect_stdouts": True,

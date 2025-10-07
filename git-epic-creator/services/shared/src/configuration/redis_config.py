@@ -22,8 +22,8 @@ class RedisSettings(BaseConfig):
     REDIS_PUBSUB_CHANNEL_PREFIX: str = Field(default="project_progress", description="Channel prefix for pub/sub messages")
     REDIS_PUBSUB_MAX_CONNECTIONS: int = Field(default=5, description="Maximum pub/sub connections")
     REDIS_PUBSUB_CONNECTION_TIMEOUT: float = Field(default=10.0, description="Pub/sub connection timeout in seconds")
-    REDIS_PUBSUB_RETRY_ATTEMPTS: int = Field(default=3, description="Number of retry attempts for pub/sub operations")
-    REDIS_PUBSUB_RETRY_DELAY: float = Field(default=2.0, description="Delay between pub/sub retry attempts in seconds")
+    RETRY_MAX_ATTEMPTS: int = Field(default=3, description="Number of retry attempts for pub/sub operations")
+    RETRY_BACKOFF_BASE_SEC: float = Field(default=2.0, description="Delay between pub/sub retry attempts in seconds")
 
 @lru_cache()
 def get_redis_settings() -> RedisSettings:

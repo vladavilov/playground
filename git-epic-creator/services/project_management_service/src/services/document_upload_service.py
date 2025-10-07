@@ -24,7 +24,8 @@ class DocumentUploadService:
     async def bulk_upload_documents(
         self,
         project_id: UUID,
-        files: List[UploadFile]
+        files: List[UploadFile],
+        authorization_header: str,
     ) -> BulkUploadResponse:
         """Upload multiple documents and request processing if any succeed."""
         logger.info("Processing bulk document upload",
@@ -90,7 +91,7 @@ class DocumentUploadService:
         if successful_uploads > 0:
             try:
                 task_publisher = TaskRequestPublisher()
-                task_request_success = await task_publisher.request_document_processing(project_id)
+                task_request_success = await task_publisher.request_document_processing(project_id, authorization_header=authorization_header)
                 
                 if task_request_success:
                     logger.info("Background processing requested", project_id=str(project_id), file_count=successful_uploads)

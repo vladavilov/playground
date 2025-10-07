@@ -55,15 +55,40 @@ def run_graphrag_job(
     if not isinstance(project_id, str) or not project_id.strip():
         raise ValueError("project_id must be a non-empty string")
 
+    # Extract and validate authentication token
+    logger.info("Checking task headers", 
+                has_headers=self.request.headers is not None,
+                headers_type=type(self.request.headers).__name__ if self.request.headers else "None",
+                task_id=self.request.id)
+    
+    if not self.request.headers:
+        error_msg = (
+            "Task headers are None - Authentication token required. "
+            "Ensure task_protocol=2 is set in Celery config and worker is restarted."
+        )
+        logger.error(error_msg, task_id=self.request.id, project_id=project_id)
+        raise RuntimeError(error_msg)
+    
+    auth_token = self.request.headers.get('Authentication')
+    if not auth_token:
+        logger.error("Missing Authentication header", 
+                    headers=dict(self.request.headers) if self.request.headers else {},
+                    task_id=self.request.id,
+                    project_id=project_id)
+        raise RuntimeError("Missing Authentication header in task")
+    
+    logger.info("Authentication token found", token_length=len(auth_token), task_id=self.request.id)
+
     def _enqueue_follow_up(job_id_: str, project_id_: str, attempts_: int) -> None:
         celery_app.send_task(
             TASK_RUN_GRAPHRAG_JOB,
             args=[job_id_, project_id_, int(attempts_)],
             queue=QUEUE_NEO4J_INGESTION,
+            headers={"Authentication": auth_token},
         )
 
     async def _execute() -> Dict[str, Any]:
-        return await _run_graphrag_job_async(job_id, project_id, attempts, start)
+        return await _run_graphrag_job_async(job_id, project_id, attempts, start, authorization_header=auth_token)
 
     # Centralized lock/pending/retry handling using persistent event loop
     return run_async(
@@ -84,6 +109,7 @@ async def _run_graphrag_job_async(
     project_id: str,
     attempts: int,
     start_time: float,
+    authorization_header: str | None = None,
 ) -> Dict[str, Any]:
     """Single-event-loop orchestration for the GraphRAG job."""
     # Debug: log the active event loop id to verify persistence across tasks
@@ -100,6 +126,7 @@ async def _run_graphrag_job_async(
                 await pm.update_project_status(
                     project_id=project_id,
                     status="rag_processing",
+                    authorization_header=authorization_header,
                 )
         except Exception:
             logger.error("Failed to mark project as rag_processing", project_id=project_id)
@@ -123,28 +150,83 @@ async def _run_graphrag_job_async(
             counts = result.get("counts", {})
             processed_count = int(counts.get("documents", 0))
             total_count = max(processed_count, 1)
+            logger.info(
+                "Updating project status to rag_ready",
+                project_id=project_id,
+                processed_count=processed_count,
+                total_count=total_count,
+                has_auth=bool(authorization_header),
+            )
             async with ProjectManagementClient() as pm:
-                await pm.update_project_status(
+                update_result = await pm.update_project_status(
                     project_id=project_id,
                     processed_count=processed_count,
                     total_count=total_count,
                     status="rag_ready",
+                    authorization_header=authorization_header,
                 )
-        except Exception:
-            pass
+                if update_result.success:
+                    logger.info(
+                        "Successfully updated project status to rag_ready",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                    )
+                else:
+                    logger.error(
+                        "Failed to update project status to rag_ready",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                        error_message=update_result.error_message,
+                    )
+        except Exception as e:
+            logger.error(
+                "Exception while updating project status to rag_ready",
+                project_id=project_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
 
         return result
     except Exception as exc:  # noqa: BLE001
         # On failure, publish error status (best-effort)
         try:
+            logger.error(
+                "GraphRAG job failed, updating project status to rag_failed",
+                project_id=project_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+                has_auth=bool(authorization_header),
+            )
             async with ProjectManagementClient() as pm:
-                await pm.update_project_status(
+                update_result = await pm.update_project_status(
                     project_id=project_id,
                     status="rag_failed",
                     error_message=str(exc),
+                    authorization_header=authorization_header,
                 )
-        except Exception:
-            pass
+                if update_result.success:
+                    logger.info(
+                        "Successfully updated project status to rag_failed",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                    )
+                else:
+                    logger.error(
+                        "Failed to update project status to rag_failed",
+                        project_id=project_id,
+                        status_code=update_result.status_code,
+                        error_message=update_result.error_message,
+                    )
+        except Exception as status_exc:
+            logger.error(
+                "Exception while updating project status to rag_failed",
+                project_id=project_id,
+                original_error=str(exc),
+                status_update_error=str(status_exc),
+                status_update_error_type=type(status_exc).__name__,
+                exc_info=True,
+            )
 
         # Compute next attempts and schedule retry or DLQ based on configured policy (shared)
         to_dlq, countdown, next_attempts = compute_retry_decision(attempts or 0)

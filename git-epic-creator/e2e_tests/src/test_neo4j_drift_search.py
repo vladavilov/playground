@@ -1,9 +1,19 @@
+"""
+Neo4j drift search and retrieval service end-to-end tests.
+
+Tests the complete retrieval pipeline including:
+- Neo4j graph data seeding
+- Query execution
+- Response validation
+- DRIFT tree structure validation
+"""
+
 from __future__ import annotations
 
 import pytest
-from uuid import uuid4
 
 from shared_utils import HTTPUtils
+from services.validators import ContentValidators
 from config import TestConstants
 
 
@@ -12,9 +22,29 @@ def test_retrieval_service(
     target_db_name,
     cyphers_path,
     service_urls,
+    auth_headers,
     services_ready,
     wa,
 ):
+    """
+    Test Neo4j retrieval service with comprehensive response validation.
+    
+    This test:
+    1. Seeds Neo4j with test data
+    2. Sends retrieval query
+    3. Validates response structure and content quality
+    4. Validates embedded DRIFT JSON tree structure
+    
+    Args:
+        neo4j_driver: Neo4j driver fixture
+        target_db_name: Target Neo4j database name
+        cyphers_path: Path to cypher script for seeding
+        service_urls: Service URL configuration
+        auth_headers: Authentication headers
+        services_ready: Service health check fixture
+        wa: WorkflowAssertions facade
+    """
+    # Seed Neo4j graph for deterministic retrieval behavior
     wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)
 
     # Ensure retrieval service is healthy
@@ -22,43 +52,37 @@ def test_retrieval_service(
         "neo4j_retrieval service is not healthy"
     )
 
+    # Test query and expected project
     question = "what are the main components of the bridge?"
+    project_id = "11111111-1111-1111-1111-111111111111"  # Fixed ID from cypher script
 
-    # Use fixed project id created by cypher script
-    project_id = "11111111-1111-1111-1111-111111111111"
-
+    # Execute retrieval query
     resp = HTTPUtils.make_request_with_retry(
         method="POST",
         url=service_urls['neo4j_retrieval'].rstrip('/') + "/retrieve",
         timeout=TestConstants.DEFAULT_TIMEOUT,
+        headers=auth_headers,
         json_data={"query": question, "project_id": project_id},
     )
 
-    assert resp.status_code == 200, f"retrieval status {resp.status_code}, body={resp.text[:200]}"
+    # Validate HTTP response
+    assert resp.status_code == 200, (
+        f"retrieval status {resp.status_code}, body={resp.text[:200]}"
+    )
 
+    # Parse JSON response
     try:
         body = resp.json()
     except Exception:
         pytest.fail(f"Retrieval service returned non-JSON: {resp.text[:200]}")
 
-    assert "final_answer" in body
-    assert "key_facts" in body
-    assert "residual_uncertainty" in body
+    # Validate response structure (top-level keys)
+    assert "final_answer" in body, "Response missing 'final_answer' field"
+    assert "key_facts" in body, "Response missing 'key_facts' field"
+    assert "residual_uncertainty" in body, "Response missing 'residual_uncertainty' field"
 
-    assert "Bridges comprise the deck, supports, and load-bearing structures such as arches or cables." in body['final_answer']
-
-    citations = body['key_facts'][0]['citations']
-
-    assert "citations" in citations
-    assert "neighbours" in citations
-    assert "4. Types of Bridges:" in citations
-    assert "1. Introduction:" in citations
-    assert "Clarify deck materials and structural role." in citations
-    assert "Explain arch mechanics in load distribution." in citations
-    assert "List common deck materials and how they influence load distribution." in citations
-
-    assert "Arches carry deck loads p" in citations
-    assert "Bridge decks are commonly built from reinforced" in citations
-    assert "Reinforced concrete decks spread loa" not in citations # no answers for follow-ups of the second level
-
-    assert "ERROR FETCHING LOCAL EXECUTOR" not in citations # no errors
+    # Comprehensive content quality validation (delegates to ContentValidators)
+    ContentValidators.validate_retrieval_response_quality(body)
+    
+    # Validate embedded DRIFT JSON tree structure (optional deep validation)
+    ContentValidators.validate_drift_json_tree(body)

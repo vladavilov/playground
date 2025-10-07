@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Requirements | AI Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+      50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+    }
+    .thinking-indicator { animation: pulse-glow 2s infinite; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900 h-screen overflow-hidden">
+  <div class="flex flex-col h-screen">
+    <!-- Header with Status Bar -->
+    <header class="bg-white border-b border-slate-200 shadow-sm">
+      <div class="px-4 py-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <a href="/projects.html" class="text-sky-600 hover:text-sky-700 font-medium text-sm">← Back</a>
+            <div class="h-5 w-px bg-slate-200"></div>
+            <h1 id="chatProjectTitle" class="text-lg font-semibold text-slate-800">Requirements</h1>
+            <span id="chatProjectStatus" class="ml-2"></span>
+          </div>
+          <div class="flex items-center gap-4">
+            <!-- User Profile -->
+            <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg">
+              <div class="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold" id="userAvatar">U</div>
+              <span class="text-sm font-medium text-slate-700" id="userProfile">Loading...</span>
+            </div>
+            <!-- Connections Panel -->
+            <div class="flex items-center gap-3 pl-3 border-l border-slate-200">
+              <!-- Authentication Connection -->
+              <div class="flex items-center gap-1.5" title="Authentication status">
+                <div class="w-2 h-2 rounded-full bg-slate-400" id="authIndicator"></div>
+                <span class="text-xs text-slate-600">Authentication</span>
+              </div>
+              
+              <!-- GitLab Connection -->
+              <div class="flex items-center gap-1.5">
+                <div class="w-2 h-2 rounded-full bg-slate-400" id="gitlabIndicator" title="GitLab connection status"></div>
+                <span class="text-xs text-slate-600">GitLab</span>
+                <button id="gitlabConnectBtn" class="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed" title="Connect to GitLab" aria-label="Connect to GitLab">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                  </svg>
+                </button>
+              </div>
+              
+              <!-- RT Events Connection -->
+              <div class="flex items-center gap-1.5" title="Real-time events connection">
+                <div class="w-2 h-2 rounded-full bg-slate-400" id="rtEventsIndicator"></div>
+                <span class="text-xs text-slate-600">RT Events</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area: Split View -->
+    <main class="flex-1 flex min-h-0 overflow-hidden">
+      <!-- Left: Chat/Agent Interaction -->
+      <section class="w-1/2 flex flex-col border-r border-slate-200 bg-white">
+        <div class="p-4 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-purple-50">
+          <h2 class="text-sm font-semibold text-slate-700">Agent Workspace</h2>
+          <p class="text-xs text-slate-500 mt-0.5">Refine requirements with AI assistance</p>
+        </div>
+        
+        <!-- Chat Output -->
+        <div id="chatOutput" class="flex-1 overflow-y-auto p-4 space-y-3" role="log" aria-live="polite" aria-atomic="false"></div>
+
+        <!-- Input Area -->
+        <div class="border-t border-slate-200 bg-slate-50 p-4">
+          <form id="chatForm" class="space-y-2">
+            <textarea 
+              id="chatInput" 
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none" 
+              rows="2" 
+              placeholder="Ask about requirements or propose changes..."
+            ></textarea>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-slate-500">Shift+Enter for newline, Enter to send</span>
+              <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-colors">
+                Send
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Right: Requirements Panel -->
+      <section class="w-1/2 flex flex-col bg-slate-50">
+        <div class="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-700">Requirements Bundle</h2>
+            <p class="text-xs text-slate-500 mt-0.5" id="requirementsSummary">No requirements yet</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="editRequirementsBtn" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium border border-slate-300 transition-colors hidden">
+              ✎ Edit All
+            </button>
+            <button id="confirmRequirementsBtn" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors hidden">
+              ✓ Confirm & Create Tasks
+            </button>
+          </div>
+        </div>
+
+        <!-- Requirements Content -->
+        <div id="requirementsContent" class="flex-1 overflow-y-auto p-4">
+          <div class="flex flex-col items-center justify-center h-full text-center">
+            <div class="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center mb-4">
+              <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+            </div>
+            <p class="text-slate-600 font-medium">Waiting for requirements</p>
+            <p class="text-xs text-slate-500 mt-1">Start a conversation to generate requirements</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Requirements Editor Modal -->
+  <div id="editorModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-semibold text-slate-800">Edit Requirements</h3>
+          <p class="text-sm text-slate-500 mt-0.5">Review and modify business & functional requirements</p>
+        </div>
+        <button id="editorModalClose" class="p-2 hover:bg-slate-100 rounded-lg transition-colors" aria-label="Close">
+          <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Content -->
+      <div id="editorContent" class="flex-1 overflow-y-auto p-6 space-y-6">
+        <!-- Dynamic content inserted here -->
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-4 border-t border-slate-200 flex items-center justify-between">
+        <button id="editorCancel" class="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button id="editorSave" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors">
+          Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/requirements.js"></script>
+</body>
+</html>
