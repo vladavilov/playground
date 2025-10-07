@@ -6,7 +6,7 @@ Flow:
 - Upload dummy.pdf using `/project/projects/{id}/documents/upload`
 - Wait for UI pub/sub statuses up to 'rag_ready'
 - Trigger AI workflow via `/workflow/requirements`
-- Track `ai_workflow_progress` pub/sub messages and assert final response
+- Track `ai_requirements_progress` pub/sub messages and assert final response
 """
 
 from typing import Dict, Any
@@ -23,7 +23,7 @@ from shared_utils import HTTPUtils
 def validate_workflow_progress_message(
     msg: Dict[str, Any], 
     expected_status: str, 
-    expected_message_type: str = "ai_workflow_progress",
+    expected_message_type: str = "ai_requirements_progress",
     expect_score: bool = False
 ) -> None:
     """
@@ -38,7 +38,7 @@ def validate_workflow_progress_message(
     Args:
         msg: Progress message to validate
         expected_status: Expected status value
-        expected_message_type: Expected message type (default: "ai_workflow_progress")
+        expected_message_type: Expected message type (default: "ai_requirements_progress")
         expect_score: If True, score is required; if False, score should not be present
     """
     # 1. Required fields
@@ -92,7 +92,7 @@ def validate_workflow_progress_message(
             f"Iteration should be >=1, got {iteration}"
 
 
-def validate_retrieving_context_message(msg: Dict[str, Any], expected_message_type: str = "ai_workflow_progress") -> None:
+def validate_retrieving_context_message(msg: Dict[str, Any], expected_message_type: str = "ai_requirements_progress") -> None:
     """
     Specific validation for retrieving_context status messages.
     
@@ -102,7 +102,7 @@ def validate_retrieving_context_message(msg: Dict[str, Any], expected_message_ty
     
     Args:
         msg: Progress message to validate
-        expected_message_type: Expected message type (default: "ai_workflow_progress")
+        expected_message_type: Expected message type (default: "ai_requirements_progress")
     """
     validate_workflow_progress_message(msg, "retrieving_context", expected_message_type)
     
@@ -404,10 +404,10 @@ class TestUIRequirementsWorkflow:
         # Pre-fetch retrieval result for the target question to compare later
         question = "what are the main components of the bridge?"
         
-        # 3) Trigger AI workflow via UI proxy and track ai_workflow_progress messages
-        # Begin AI workflow monitoring for the same project
-        # (requires RedisTestMonitor to support ai_workflow_progress)
-        redis_monitor.start_ai_workflow_monitoring(project_id)  # type: ignore[attr-defined]
+        # 3) Trigger AI requirements via UI proxy and track ai_requirements_progress messages
+        # Begin AI requirements monitoring for the same project
+        # (requires RedisTestMonitor to support ai_requirements_progress)
+        redis_monitor.start_ai_requirements_monitoring(project_id)  # type: ignore[attr-defined]
         try:
             req_payload = {
                 "project_id": project_id,
@@ -484,7 +484,7 @@ class TestUIRequirementsWorkflow:
                     f"Requirements should contain mock response content (Smallpdf features), found: {found_keywords}"
         finally:
             try:
-                redis_monitor.stop_ai_workflow_monitoring()  # type: ignore[attr-defined]
+                redis_monitor.stop_ai_requirements_monitoring()  # type: ignore[attr-defined]
             except Exception:
                 pass
     

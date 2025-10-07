@@ -25,8 +25,8 @@ class WorkflowStatus(str, Enum):
 class WorkflowProgressMessage(BaseModel):
     """User-visible step updates for AI workflow progress."""
 
-    message_type: Literal["ai_workflow_progress"] = Field(
-        default="ai_workflow_progress",
+    message_type: Literal["ai_requirements_progress"] = Field(
+        default="ai_requirements_progress",
         description="Fixed message type identifier",
     )
     project_id: UUID = Field(..., description="Project ID", json_schema_extra={"format": "uuid"})

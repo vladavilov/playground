@@ -15,7 +15,7 @@ async def run_requirements_workflow(
     prompt_id_opt: UUID | None = None,
     auth_header: str | None = None,
 ) -> RequirementsBundle:
-    settings = config.get_ai_workflow_settings()
+    settings = config.get_ai_requirements_settings()
     target = float(settings.CLARIFICATION_SCORE_TARGET)
     max_iters = int(settings.MAX_AGENT_ITERS)
 

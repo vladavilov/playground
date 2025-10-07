@@ -19,9 +19,9 @@ class HTTPClientSettings(BaseSettings):
         default="http://localhost:8001",
         description="URL for the project management service"
     )
-    AI_WORKFLOW_SERVICE_URL: str = Field(
+    AI_REQUIREMENTS_SERVICE_URL: str = Field(
         default="http://localhost:8000",
-        description="URL for the AI workflow service"
+        description="URL for the AI requirements service"
     )
     AI_TASKS_SERVICE_URL: str = Field(
         default="http://localhost:8003",
@@ -79,7 +79,7 @@ class HTTPClientSettings(BaseSettings):
             raise ValueError('URL must start with http:// or https://')
         return v
 
-    @field_validator('AI_WORKFLOW_SERVICE_URL')
+    @field_validator('AI_REQUIREMENTS_SERVICE_URL')
     @classmethod
     def validate_ai_url(cls, v: str) -> str:
         """Validate that the URL is properly formatted."""

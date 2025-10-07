@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from constants.streams import (
     UI_PROJECT_PROGRESS_CHANNEL,
-    UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+    UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
     UI_AI_TASKS_PROGRESS_CHANNEL,
 )
 from utils.redis_client import get_redis_client
@@ -44,7 +44,7 @@ class _SSEBroker:
             self._pubsub = redis_client.pubsub()
             await self._pubsub.subscribe(
                 UI_PROJECT_PROGRESS_CHANNEL,
-                UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
                 UI_AI_TASKS_PROGRESS_CHANNEL,
             )
             self._started = True
@@ -52,7 +52,7 @@ class _SSEBroker:
             logger.info(
                 "SSE broker started",
                 project_channel=UI_PROJECT_PROGRESS_CHANNEL,
-                workflow_channel=UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                workflow_channel=UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
                 tasks_channel=UI_AI_TASKS_PROGRESS_CHANNEL,
             )
 
@@ -67,7 +67,7 @@ class _SSEBroker:
                 try:
                     await self._pubsub.unsubscribe(
                         UI_PROJECT_PROGRESS_CHANNEL,
-                        UI_AI_WORKFLOW_PROGRESS_CHANNEL,
+                        UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
                         UI_AI_TASKS_PROGRESS_CHANNEL,
                     )
                 except Exception:
@@ -121,8 +121,8 @@ class _SSEBroker:
                         parsed = {"raw": str(data_field)}
 
                     # Map channel to SSE event name
-                    if channel == UI_AI_WORKFLOW_PROGRESS_CHANNEL:
-                        event_name = "ai_workflow_progress"
+                    if channel == UI_AI_REQUIREMENTS_PROGRESS_CHANNEL:
+                        event_name = "ai_requirements_progress"
                     elif channel == UI_AI_TASKS_PROGRESS_CHANNEL:
                         event_name = "ai_tasks_progress"
                     elif channel == UI_PROJECT_PROGRESS_CHANNEL:

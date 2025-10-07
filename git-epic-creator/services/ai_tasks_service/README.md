@@ -809,7 +809,7 @@ flowchart TD
 
 ## Contributing
 
-This service follows the architecture patterns established by `ai_workflow_service`. When adding new experts:
+This service follows the architecture patterns established by `ai_requirements_service`. When adding new experts:
 
 1. Create expert class in `src/orchestrator/experts/`
 2. Implement structured I/O (Pydantic models for input/output)

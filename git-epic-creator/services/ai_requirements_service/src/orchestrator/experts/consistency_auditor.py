@@ -2,7 +2,7 @@ from workflow_models.agent_models import DraftRequirements, RetrievedContext, Au
 from typing import List, Set, Dict
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
-from orchestrator.llm import get_llm
+from orchestrator.experts.clients.llm import get_llm
 import structlog
 import os
 from configuration.llm_config import get_llm_config

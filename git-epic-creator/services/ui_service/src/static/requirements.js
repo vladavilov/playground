@@ -598,7 +598,7 @@ function setupInputBehavior() {
 
 function subscribeSSE() {
   sharedConnectSSE(state, {
-    'ai_workflow_progress': (evt) => {
+    'ai_requirements_progress': (evt) => {
       try {
         const msg = JSON.parse(evt.data);
         if (!state.projectId || String(state.projectId) !== String(msg.project_id)) return;
@@ -611,7 +611,7 @@ function subscribeSSE() {
         const box = getOrCreateBoxForPromptId(pid);
         if (box) box.appendMarkdown(md);
       } catch (err) {
-        console.error('Failed to process ai_workflow_progress event:', err);
+        console.error('Failed to process ai_requirements_progress event:', err);
       }
     }
   });

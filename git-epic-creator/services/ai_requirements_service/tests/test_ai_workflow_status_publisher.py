@@ -27,13 +27,13 @@ class TestAiWorkflowStatusPublisher:
         assert hasattr(publisher, "_channel")
 
     def test_default_channel_name(self):
-        """Default channel resolves to ui:ai_workflow_progress."""
+        """Default channel resolves to ui:ai_requirements_progress."""
         mock_redis_client = AsyncMock()
         from services.ai_workflow_status_publisher import AiWorkflowStatusPublisher  # type: ignore
 
         publisher = AiWorkflowStatusPublisher(mock_redis_client)
         channel = publisher._channel(publisher.default_name)
-        assert channel == "ui:ai_workflow_progress"
+        assert channel == "ui:ai_requirements_progress"
 
     @pytest.mark.asyncio
     async def test_publish_workflow_update_success(self):
@@ -57,10 +57,10 @@ class TestAiWorkflowStatusPublisher:
         assert ok is True
         mock_redis_client.publish.assert_called_once()
         args, kwargs = mock_redis_client.publish.call_args
-        assert args[0] == "ui:ai_workflow_progress"
+        assert args[0] == "ui:ai_requirements_progress"
         # Ensure payload is JSON serializable and has required fields
         payload = json.loads(args[1])
-        assert payload["message_type"] == "ai_workflow_progress"
+        assert payload["message_type"] == "ai_requirements_progress"
         assert payload["status"] == "evaluating"
         assert "project_id" in payload and isinstance(payload["project_id"], str)
         assert "message_id" in payload and isinstance(payload["message_id"], str)

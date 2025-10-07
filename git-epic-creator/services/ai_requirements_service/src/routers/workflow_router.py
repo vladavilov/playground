@@ -64,7 +64,7 @@ async def answer_clarifications(
         bundle = await run_answers_workflow(
             project_id=request.project_id,
             prompt_id=request.prompt_id,
-            prompt=request.prompt or "",
+            prompt=request.prompt,
             answers=request.answers,
             publisher=publisher,
             auth_header=(f"Bearer {current_user.token}"),

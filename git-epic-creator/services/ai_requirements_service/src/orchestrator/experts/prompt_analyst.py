@@ -2,7 +2,7 @@ from typing import List
 from pydantic import BaseModel, Field
 from workflow_models.agent_models import PromptAnalysis
 from langchain_core.prompts import ChatPromptTemplate
-from orchestrator.llm import get_llm
+from orchestrator.experts.clients.llm import get_llm
 
 class PromptAnalyst:
     def __init__(self) -> None:

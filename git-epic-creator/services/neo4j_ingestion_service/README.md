@@ -28,12 +28,12 @@ sequenceDiagram
     participant N as Neo4j
 
     P->>D: Publish task request to task_streams:document_processing {task_type, project_id}
-    Note over D: Document Processing writes output/*.json and publishes ingestion.trigger
+    Note right of D: Document Processing writes output/*.json and publishes ingestion.trigger
     Q-->>W: XREADGROUP stream=ingestion.trigger {job_id, project_id, attempts}
     W->>C: apply_async run_graphrag_job(job_id, project_id, attempts)
-    C->>B: List prefix "output/"; download *.json → RAG_WORKSPACE_ROOT/{project_id}/input/
+    C->>B: List prefix "output/" and download *.json into RAG_WORKSPACE_ROOT/{project_id}/input/
     C->>G: run_documents(driver, documents) with schema + LLM/embeddings
-    G->>N: Writes nodes/relationships + embeddings; ensures vector index
+    G->>N: Writes nodes/relationships + embeddings and ensures vector index
     C->>P: PUT /projects/{project_id}/status: rag_processing → rag_ready | rag_failed
     W-->>Q: XACK message
 ```
@@ -138,20 +138,20 @@ graph TB
     end
     
     subgraph Chunks
-        C[__Chunk__<br/>id, text, n_tokens, chunk_index<br/>document_ids, embedding[1536]<br/>project_id]
+        C[__Chunk__<br/>id, text, n_tokens, chunk_index<br/>document_ids, embedding-1536<br/>project_id]
     end
     
     subgraph Entities
-        E[__Entity__<br/>id, title, norm_title, type<br/>description, text_unit_ids<br/>relationship_ids, embedding[1536]<br/>project_id]
+        E[__Entity__<br/>id, title, norm_title, type<br/>description, text_unit_ids<br/>relationship_ids, embedding-1536<br/>project_id]
     end
     
     subgraph Communities
-        CM[__Community__<br/>community, level, title, summary<br/>full_content, full_content_json<br/>rank, entity_ids, text_unit_ids<br/>embedding[1536], project_id]
+        CM[__Community__<br/>community, level, title, summary<br/>full_content, full_content_json<br/>rank, entity_ids, text_unit_ids<br/>embedding-1536, project_id]
     end
     
     D -->|HAS_CHUNK| C
     C -->|HAS_ENTITY| E
-    E -->|RELATED<br/>id, source, target, description<br/>weight, combined_degree<br/>text_unit_ids| E
+    E -->|RELATED| E
     E -->|IN_COMMUNITY| CM
     C -->|IN_COMMUNITY| CM
     D -->|IN_PROJECT| P

@@ -30,8 +30,8 @@ def mock_external(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_loop_terminates_on_threshold_and_publishes_iterations(mock_external, monkeypatch):
-    from config import get_ai_workflow_settings
-    get_ai_workflow_settings.cache_clear()
+    from config import get_ai_requirements_settings
+    get_ai_requirements_settings.cache_clear()
 
     from orchestrator.orchestrator import run_requirements_workflow
     from services.ai_workflow_status_publisher import AiWorkflowStatusPublisher
@@ -53,7 +53,7 @@ async def test_loop_terminates_on_threshold_and_publishes_iterations(mock_extern
     )
 
     assert 0.0 <= bundle.score <= 1.0
-    settings = get_ai_workflow_settings()
+    settings = get_ai_requirements_settings()
     assert bundle.score >= float(settings.CLARIFICATION_SCORE_TARGET)
     # Success path should not request clarifications
     assert bundle.clarification_questions is None
@@ -70,8 +70,8 @@ async def test_max_iters_caps_iterations_if_threshold_not_met(mock_external, mon
     os.environ["CLARIFICATION_SCORE_TARGET"] = "0.99"
     os.environ["MAX_AGENT_ITERS"] = "3"
 
-    from config import get_ai_workflow_settings
-    get_ai_workflow_settings.cache_clear()
+    from config import get_ai_requirements_settings
+    get_ai_requirements_settings.cache_clear()
 
     from orchestrator.orchestrator import run_requirements_workflow
     from services.ai_workflow_status_publisher import AiWorkflowStatusPublisher
@@ -89,7 +89,7 @@ async def test_max_iters_caps_iterations_if_threshold_not_met(mock_external, mon
         publisher=publisher,
     )
 
-    settings = get_ai_workflow_settings()
+    settings = get_ai_requirements_settings()
     assert bundle.score < float(settings.CLARIFICATION_SCORE_TARGET)
     # Clarification path should contain questions
     assert bundle.clarification_questions is not None

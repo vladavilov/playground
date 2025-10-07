@@ -8,8 +8,8 @@ from configuration.base_config import BaseConfig
 from configuration.llm_config import LlmConfig
 
 
-class AIWorkflowSettings(BaseConfig):
-    """Settings specific to the AI workflow orchestration."""
+class AIRequirementsSettings(BaseConfig):
+    """Settings specific to the AI requirements generation."""
 
     GRAPH_RAG_BASE_URL: str = Field(
         default="http://neo4j-retrieval-service:8000",
@@ -66,8 +66,8 @@ class AIWorkflowSettings(BaseConfig):
     )
 
 @lru_cache()
-def get_ai_workflow_settings() -> AIWorkflowSettings:
+def get_ai_requirements_settings() -> AIRequirementsSettings:
     """Get cached service settings."""
-    return AIWorkflowSettings()
+    return AIRequirementsSettings()
 
 
