@@ -1,8 +1,8 @@
-AI Workflow Service — Agentic Requirements Generation (Design and Requirements)
+AI Requirements Service — Agentic Requirements Generation (Design and Requirements)
 
 Overview
 
-The AI Workflow Service orchestrates an agentic, high‑precision pipeline that converts a user prompt into structured business and functional requirements. It augments context via a GraphRAG Retrieval microservice (separate service, out of scope here) backed by Neo4j and uses an ensemble‑of‑experts (EoE) strategy. The workflow performs self‑evaluation; if confidence (score) < 0.70, it generates targeted clarification questions so that user answers are expected to raise the score ≥ 0.70. The service publishes stepwise workflow updates to the UI via Redis Pub/Sub on the same channel convention used by project_management_service → ui_service.
+The AI Requirements Service orchestrates an agentic, high‑precision pipeline that converts a user prompt into structured business and functional requirements. It augments context via a GraphRAG Retrieval microservice (separate service, out of scope here) backed by Neo4j and uses an ensemble‑of‑experts (EoE) strategy. The workflow performs self‑evaluation; if confidence (score) < 0.70, it generates targeted clarification questions so that user answers are expected to raise the score ≥ 0.70. The service publishes stepwise workflow updates to the UI via Redis Pub/Sub on the same channel convention used by project_management_service → ui_service.
 
 Non‑Goals
 
@@ -33,7 +33,7 @@ Interfaces
 Message Schemas
 
 - WorkflowProgressMessage (user-visible step updates):
-  - message_type: "ai_workflow_progress"
+  - message_type: "ai_requirements_progress"
   - project_id: string (UUID)
   - iteration?: integer (>=1)
   - status: string (e.g., "analyzing_prompt", "retrieving_context", "drafting_requirements", "evaluating", "needs_clarification", "completed", "error")
@@ -45,7 +45,7 @@ Message Schemas
 
 Redis Pub/Sub
 
-- Channel: "ui:ai_workflow_progress"
+- Channel: "ui:ai_requirements_progress"
 - Publisher sends only `WorkflowProgressMessage` for user-visible updates.
 
 Data Models (local Pydantic)
@@ -249,7 +249,7 @@ Prompt Decomposition Details (brief)
 Example Progress Messages
 
 {
-  "message_type": "ai_workflow_progress",
+  "message_type": "ai_requirements_progress",
   "project_id": "<uuid>",
   "status": "evaluating",
   "score": 0.62,
@@ -261,7 +261,7 @@ Example Progress Messages
 Acceptance Criteria
 
 - Exposes the two endpoints with schemas above
-- Publishes Redis updates compatible with UI SSE listener on ui:ai_workflow_progress
+- Publishes Redis updates compatible with UI SSE listener on ui:ai_requirements_progress
 - Produces RequirementsBundle with scoring (no step traces)
 - Enters clarification loop when score < 0.70 and returns questions that target rubric deficiencies
 - Configuration‑driven thresholds/weights

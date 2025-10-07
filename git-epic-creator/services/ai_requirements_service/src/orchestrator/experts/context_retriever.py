@@ -43,7 +43,7 @@ class ContextRetriever:
         )
 
     def _build_url(self) -> str:
-        settings = config.get_ai_workflow_settings()
+        settings = config.get_ai_requirements_settings()
         base = settings.GRAPH_RAG_BASE_URL.rstrip("/")
         return f"{base}/retrieve"
 
@@ -64,7 +64,7 @@ class ContextRetriever:
                 "Ensure auth_header is properly passed through the workflow state."
             )
         
-        settings = config.get_ai_workflow_settings()
+        settings = config.get_ai_requirements_settings()
         merged = self._merge_query_with_intents(query, intents)
         payload = {"query": merged, "top_k": settings.RETRIEVAL_TOP_K, "project_id": str(project_id)}
 

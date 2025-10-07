@@ -314,12 +314,12 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  ai-workflow-service:
+  ai-requirements-service:
     <<: *service_defaults
     build:
       context: ./services
-      dockerfile: ./ai_workflow_service/Dockerfile
-    container_name: ai_workflow_service
+      dockerfile: ./ai_requirements_service/Dockerfile
+    container_name: ai_requirements_service
     ports:
       - "8009:8000"
     environment:
@@ -559,7 +559,7 @@ services:
       - INIT_DB_SERVICE_URL=http://db-init-service:8000
       - NEO4J_MAINTENANCE_URL=http://neo4j-maintenance-service:8000
       - UI_SERVICE_URL=http://ui-service:8000
-      - AI_WORKFLOW_SERVICE_URL=http://ai-workflow-service:8000
+      - AI_REQUIREMENTS_SERVICE_URL=http://ai-requirements-service:8000
       - NEO4J_RETRIEVAL_URL=http://neo4j-retrieval-service:8000
       - OPENAI_MOCK_URL=http://openai-mock-service:8000
       - GITLAB_BASE_URL=http://gitlab-mock-service:8000

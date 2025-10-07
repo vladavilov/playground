@@ -91,7 +91,7 @@ def test_workflow_progress_message_defaults_and_validation():
         score=0.62,
     )
 
-    assert msg.message_type == "ai_workflow_progress"
+    assert msg.message_type == "ai_requirements_progress"
     # visibility removed; all messages are user-visible by default
     assert msg.message_id is not None
     assert isinstance(msg.timestamp, datetime)

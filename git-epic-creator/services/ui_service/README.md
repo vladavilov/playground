@@ -465,7 +465,7 @@ sequenceDiagram
 
 Channels:
 - `ui:project_progress` - General project updates
-- `ui:ai_workflow_progress` - Requirements gathering
+- `ui:ai_requirements_progress` - Requirements gathering
 - `ui:ai_tasks_progress` - Task generation
 
 Event types:
@@ -634,7 +634,7 @@ response = requests.get("http://project-service:8000/api/projects", headers=head
 
 **Backend Services Using LOCAL JWT**:
 - `project_management_service`
-- `ai_workflow_service`
+- `ai_requirements_service`
 - `ai_tasks_service`
 - `neo4j_retrieval_service`
 - `neo4j_maintenance_service`

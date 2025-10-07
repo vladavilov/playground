@@ -33,7 +33,7 @@ class TestAIWorkflowService:
         import main  # type: ignore
 
         # Patch settings and httpx client used by the endpoint
-        with patch("main.get_ai_workflow_settings") as mock_get_settings, \
+        with patch("main.get_ai_requirements_settings") as mock_get_settings, \
              patch("httpx.AsyncClient") as mock_async_client:
 
             mock_get_settings.return_value = SimpleNamespace(
@@ -61,7 +61,7 @@ class TestAIWorkflowService:
         """GET /health/graphrag reports unhealthy on exceptions/timeouts."""
         import main  # type: ignore
 
-        with patch("main.get_ai_workflow_settings") as mock_get_settings, \
+        with patch("main.get_ai_requirements_settings") as mock_get_settings, \
              patch("httpx.AsyncClient") as mock_async_client:
 
             mock_get_settings.return_value = SimpleNamespace(
@@ -91,7 +91,7 @@ class TestAIWorkflowService:
         client = TestClient(main.app)
 
         # Healthy case
-        with patch("main.get_ai_workflow_settings") as mock_get_settings, \
+        with patch("main.get_ai_requirements_settings") as mock_get_settings, \
              patch("httpx.AsyncClient") as mock_async_client:
 
             # Override redis dependency to a healthy mock
@@ -120,7 +120,7 @@ class TestAIWorkflowService:
             assert body["components"]["graphrag"]["healthy"] is True
 
         # Unhealthy GraphRAG -> 503
-        with patch("main.get_ai_workflow_settings") as mock_get_settings, \
+        with patch("main.get_ai_requirements_settings") as mock_get_settings, \
              patch("httpx.AsyncClient") as mock_async_client:
 
             unhealthy_redis = AsyncMock()

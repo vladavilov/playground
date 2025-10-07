@@ -7,7 +7,7 @@ class Evaluator:
         axes: Dict[str, float] = dict(getattr(findings, "component_scores", {}) or {})
 
         severity = getattr(findings, "llm_critique_severity", 0.0)
-        settings = config.get_ai_workflow_settings()
+        settings = config.get_ai_requirements_settings()
         weights: Dict[str, float] = getattr(settings, "EVAL_WEIGHTS", {})
 
         # Weighted aggregation across available axes per weights

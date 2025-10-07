@@ -339,9 +339,9 @@ async def proxy_to_project_management(path: str, request: Request):
 
 
 @router.api_route("/workflow/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-async def proxy_to_ai_workflow(path: str, request: Request):
-    """Proxy requests to AI workflow service."""
-    upstream_base = get_app_settings().http_client.AI_WORKFLOW_SERVICE_URL.rstrip("/")
+async def proxy_to_ai_requirements(path: str, request: Request):
+    """Proxy requests to AI requirements service."""
+    upstream_base = get_app_settings().http_client.AI_REQUIREMENTS_SERVICE_URL.rstrip("/")
     target_url = f"{upstream_base}/workflow/{path}"
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"

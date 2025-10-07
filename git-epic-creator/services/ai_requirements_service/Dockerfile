@@ -9,12 +9,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 
 COPY ./shared/ ./shared/
-COPY ./ai_workflow_service/ ./ai_workflow_service/
+COPY ./ai_requirements_service/ ./ai_requirements_service/
 
 WORKDIR /app/shared
 RUN pip install --no-cache-dir .
 
-WORKDIR /app/ai_workflow_service
+WORKDIR /app/ai_requirements_service
 RUN pip install --no-cache-dir .
 
 FROM python:3.13-slim-bookworm AS final
@@ -31,7 +31,7 @@ ENV PYTHONPATH=/app/src
 
 WORKDIR /app
 
-COPY --from=builder /app/ai_workflow_service/src/ ./src/
+COPY --from=builder /app/ai_requirements_service/src/ ./src/
 
 ENV API_PORT=8000
 EXPOSE $API_PORT

@@ -1,4 +1,4 @@
-"""AI Workflow Service FastAPI application.
+"""AI Requirements Service FastAPI application.
 
 Provides health endpoints including Redis (via FastAPIFactory) and GraphRAG connectivity,
 plus an aggregated readiness endpoint.
@@ -10,7 +10,7 @@ from utils.app_factory import FastAPIFactory
 
 from configuration.logging_config import configure_logging
 from configuration.common_config import get_app_settings
-from config import get_ai_workflow_settings
+from config import get_ai_requirements_settings
 
 
 # Initialize logging before creating the app
@@ -19,8 +19,8 @@ logger = structlog.get_logger(__name__)
 
 
 app: FastAPI = FastAPIFactory.create_app(
-    title="AI Workflow Service",
-    description="Agentic AI workflow orchestration and health endpoints",
+    title="AI Requirements Service",
+    description="Agentic AI requirements generation and health endpoints",
     version="1.0.0",
     enable_cors=True,
     enable_postgres=False,

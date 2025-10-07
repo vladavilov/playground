@@ -36,7 +36,7 @@ class RedisTestMonitor:
         self.redis_client = redis.Redis(**redis_config)
         self.queue_name = queue_name
         self.ui_progress_channel = "ui:project_progress"  # Unified UI progress channel
-        self.ai_progress_channel = "ui:ai_workflow_progress"  # AI workflow progress channel
+        self.ai_progress_channel = "ui:ai_requirements_progress"  # AI requirements progress channel
         self.ai_tasks_progress_channel = "ui:ai_tasks_progress"  # AI tasks/backlog generation progress channel
         self.tracked_task_ids = set()  # Track Celery task IDs for verification
         
@@ -257,13 +257,13 @@ class RedisTestMonitor:
         self._test_start_time = None
 
     # ---- AI Workflow progress monitoring ----
-    def start_ai_workflow_monitoring(self, project_id: str) -> None:
+    def start_ai_requirements_monitoring(self, project_id: str) -> None:
         """
-        Start monitoring the AI workflow progress channel for a project.
+        Start monitoring the AI requirements progress channel for a project.
         """
         if self.ai_monitoring_active and self.ai_project_id == project_id:
             return
-        self.stop_ai_workflow_monitoring()
+        self.stop_ai_requirements_monitoring()
         self.ai_project_id = project_id
         self.ai_messages_received = []
         self.ai_pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
@@ -305,8 +305,8 @@ class RedisTestMonitor:
         self._ai_listener_thread.start()
         self.ai_monitoring_active = True
 
-    def stop_ai_workflow_monitoring(self) -> None:
-        """Stop AI workflow monitoring and clean up resources."""
+    def stop_ai_requirements_monitoring(self) -> None:
+        """Stop AI requirements monitoring and clean up resources."""
         self._ai_listener_running = False
         if self.ai_pubsub:
             try:
@@ -363,7 +363,7 @@ class RedisTestMonitor:
             yield found_msg
 
     def _is_ai_message_for_current_test(self, data: Dict[str, Any]) -> bool:
-        if data.get('message_type') != 'ai_workflow_progress':
+        if data.get('message_type') != 'ai_requirements_progress':
             return False
         if data.get('project_id') != self.ai_project_id:
             return False

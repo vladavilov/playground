@@ -1,7 +1,7 @@
 from functools import lru_cache
 from langchain_openai import ChatOpenAI
 
-from config import get_ai_workflow_settings
+from config import get_ai_requirements_settings
 
 
 @lru_cache(maxsize=16)
@@ -17,7 +17,7 @@ def get_llm(temperature: float = None) -> ChatOpenAI:
     Returns:
         Configured ChatOpenAI instance.
     """
-    settings = get_ai_workflow_settings()
+    settings = get_ai_requirements_settings()
     
     # Build constructor arguments
     kwargs = {
