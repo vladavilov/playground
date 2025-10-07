@@ -4,7 +4,7 @@ from uuid import UUID
 import json
 
 from constants import UI_CHANNEL_PREFIX
-from constants.streams import UI_AI_WORKFLOW_PROGRESS_NAME
+from constants.streams import UI_AI_REQUIREMENTS_PROGRESS_NAME
 from workflow_models.progress_messages import WorkflowProgressMessage
 
 
@@ -15,7 +15,7 @@ class AiWorkflowStatusPublisher:
         self.redis_client = redis_client
         self.prefix = UI_CHANNEL_PREFIX
         # Use shared constant for the default progress stream name
-        self.default_name = UI_AI_WORKFLOW_PROGRESS_NAME
+        self.default_name = UI_AI_REQUIREMENTS_PROGRESS_NAME
 
     def _channel(self, name: str) -> str:
         return f"{self.prefix}:{name}"

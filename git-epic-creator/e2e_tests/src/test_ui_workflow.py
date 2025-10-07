@@ -263,7 +263,7 @@ class TestUIRequirementsWorkflow:
         # which will immediately redirect back with an auth code
         response = session.get(
             f"{ui_base}/auth/gitlab/authorize",
-            params={"redirect_uri": "/"},
+            params={"redirect_uri": "/projects.html"},
             allow_redirects=True,
             timeout=TestConstants.DEFAULT_TIMEOUT
         )
