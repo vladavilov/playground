@@ -360,7 +360,7 @@ class WorkflowAssertions:
                     if (rec.get("entityType") == "NODE"
                         and label in (rec.get("labelsOrTypes") or [])
                         and "id" in (rec.get("properties") or [])
-                        and "UNIQUE" in (rec.get("type") or "")):
+                        and "UNIQUENESS" in (rec.get("type") or "")):
                         return True
                 return False
             assert has_node_unique("__Entity__"), "Missing unique constraint on __Entity__(id)"
