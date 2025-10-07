@@ -3,6 +3,13 @@
 from typing import List, Optional
 from uuid import UUID
 import structlog
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+from sqlalchemy.exc import OperationalError
 
 from models.project_db import Project, ProjectMember
 from utils.postgres_client import PostgresClient
@@ -36,7 +43,7 @@ class ProjectService:
 
             # Save to database
             session.add(project)
-            session.commit()
+            session.flush()  # Flush to get the generated ID before commit
             session.refresh(project)
 
             logger.info("Project created", project_id=str(project.id), project_name=project.name)
@@ -101,7 +108,6 @@ class ProjectService:
                 logger.error("Invalid update data", error=str(e), project_id=str(project_id))
                 raise ValueError(f"Invalid update data: {str(e)}") from e
 
-            session.commit()
             session.refresh(project)
 
             logger.info("Project updated", project_id=str(project_id), project_name=project.name)
@@ -118,7 +124,6 @@ class ProjectService:
                 return False
 
             session.delete(project)
-            session.commit()
 
             logger.info("Project deleted", project_id=str(project_id))
             return True
@@ -149,7 +154,7 @@ class ProjectService:
             )
 
             session.add(project_member)
-            session.commit()
+            session.flush()  # Flush to get the generated ID before commit
             session.refresh(project_member)
 
             logger.info("Project member added", project_id=str(project_id), user_id=member_data.user_id, member_id=str(project_member.id))
@@ -178,7 +183,6 @@ class ProjectService:
                 return False
 
             session.delete(member)
-            session.commit()
 
             logger.info("Project member removed", project_id=str(project_id), member_id=member_id)
             return True
@@ -208,6 +212,12 @@ class ProjectService:
             logger.warning("User access denied", project_id=str(project_id), user_id=user_id)
             return False
 
+    @retry(
+        retry=retry_if_exception_type((OperationalError,)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, max=2),
+        reraise=True,
+    )
     def update_project_progress(self, project_id: UUID, processed_count: Optional[int], total_count: Optional[int], status: ProjectStatus, processed_pct: Optional[float] = None) -> Optional[Project]:
         logger.info(
             "Updating project progress",
@@ -218,7 +228,9 @@ class ProjectService:
         )
 
         with self.postgres_client.get_sync_session() as session:
-            project = session.query(Project).filter(Project.id == project_id).first()
+            project = session.query(Project).filter(
+                Project.id == project_id
+            ).with_for_update().first()
 
             if not project:
                 logger.warning(
@@ -239,9 +251,6 @@ class ProjectService:
             else:
                 # leave processed_pct unchanged when counts are omitted
                 project.processed_pct = project.processed_pct
-
-            session.commit()
-            session.refresh(project)
 
             logger.info("Project progress updated", project_id=str(project_id), new_status=project.status, processed_pct=project.processed_pct)
             return project

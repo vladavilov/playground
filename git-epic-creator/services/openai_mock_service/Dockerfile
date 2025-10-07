@@ -8,8 +8,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
-# 1) Pre-install runtime dependencies to leverage Docker layer caching.
-#    If only source code changes but dependencies stay the same, this step is reused.
+# Pre-install runtime dependencies to leverage Docker layer caching
 RUN pip install --no-cache-dir \
     fastapi \
     uvicorn \
@@ -21,16 +20,16 @@ RUN pip install --no-cache-dir \
     python-dotenv \
     tenacity
 
-# 2) Copy sources and install local packages (quick when deps unchanged)
+# Copy sources and install local packages
 COPY ./openai_mock_service/ ./openai_mock_service/
 
 WORKDIR /app/openai_mock_service
 RUN pip install --no-cache-dir .
 
-# Ensure model directories exist so the final stage COPY always succeeds
+# Ensure model directories exist
 RUN mkdir -p /models/hf-cache /models/embeddings/jina-embeddings-v2-base-en
 
-# Pre-cache embeddings into a local cache to speed up runtime (optional)
+# Pre-cache embeddings (optional)
 ARG PRECACHE_MODELS=false
 ENV HF_HOME=/models/hf-cache \
     TRANSFORMERS_CACHE=/models/hf-cache \
@@ -44,13 +43,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/venv /opt/venv
+RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
 ENV PYTHONPATH=/app/src
 ENV HF_HOME=/app/models/hf-cache \
     TRANSFORMERS_CACHE=/app/models/hf-cache
-
-WORKDIR /app
 
 COPY --from=builder /app/openai_mock_service/src/ ./src/
 COPY --from=builder /models /app/models

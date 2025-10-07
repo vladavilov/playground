@@ -1,6 +1,8 @@
 """PostgreSQL client utilities and health checks."""
 
 from functools import lru_cache
+from contextlib import contextmanager
+from typing import Generator
 import structlog
 from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -63,18 +65,8 @@ class PostgresClientFactory:
         return sessionmaker(
             autocommit=False,
             autoflush=False,
-            bind=engine
-        )
-    
-    @staticmethod
-    def create_async_session_factory(engine):
-        """Create asynchronous session factory from engine."""
-        return async_sessionmaker(
-            autocommit=False,
-            autoflush=False,
             bind=engine,
-            expire_on_commit=False,
-            class_=AsyncSession
+            expire_on_commit=False  # Keep objects accessible after commit
         )
 
 class PostgresClient:
@@ -91,18 +83,40 @@ class PostgresClient:
         self.sync_engine = PostgresClientFactory.create_sync_engine(settings)
         self.async_engine = PostgresClientFactory.create_async_engine(settings)
         self.sync_session_factory = PostgresClientFactory.create_sync_session_factory(self.sync_engine)
-        self.async_session_factory = PostgresClientFactory.create_async_session_factory(self.async_engine)
         self.metadata = MetaData(schema=self.settings.POSTGRES_SCHEMA)
         
         logger.info("PostgreSQL client initialized")
     
-    def get_sync_session(self) -> Session:
-        """Get a synchronous session."""
-        return self.sync_session_factory()
-    
-    def get_async_session(self):
-        """Get an asynchronous session."""
-        return self.async_session_factory()
+    @contextmanager
+    def get_sync_session(self) -> Generator[Session, None, None]:
+        """
+        Get a synchronous session with automatic transaction management.
+        
+        The session will automatically:
+        - Commit on successful completion
+        - Rollback on any exception
+        - Close in all cases
+        
+        Example:
+            with postgres_client.get_sync_session() as session:
+                project = session.query(Project).filter(...).first()
+                project.status = "active"
+                # Commit happens automatically here
+        
+        Yields:
+            Session: SQLAlchemy session with active transaction
+        """
+        session = self.sync_session_factory()
+        try:
+            yield session
+            session.commit()
+            logger.debug("Database transaction committed successfully")
+        except Exception as e:
+            session.rollback()
+            logger.warning("Database transaction rolled back", error=str(e))
+            raise
+        finally:
+            session.close()
 
 @lru_cache()
 def get_postgres_client() -> PostgresClient:

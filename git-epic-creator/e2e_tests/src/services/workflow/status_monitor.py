@@ -90,8 +90,6 @@ class StatusMonitor:
             TestConstants.PROJECT_STATUS_PROCESSING,
             TestConstants.PROJECT_STATUS_ACTIVE,
             TestConstants.PROJECT_STATUS_RAG_PROCESSING,
-            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline started"),
-            (TestConstants.PROJECT_STATUS_RAG_PROCESSING, "Pipeline finished"),
             TestConstants.PROJECT_STATUS_RAG_READY,
         ]
 

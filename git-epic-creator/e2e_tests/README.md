@@ -253,6 +253,7 @@ Sophisticated Redis pub/sub monitoring for workflow progress tracking:
 - **AI Tasks Monitoring**: Track backlog generation stages
 - **Sequence Validation**: Ensure correct status sequence with timeouts
 - **Message Capture**: Store all messages for post-test analysis
+- **Synchronization Barrier**: Uses `threading.Event` to guarantee listener thread is ready before processing starts, preventing race conditions where early messages are lost
 
 ### Workflow Assertions Facade (`services/workflow_assertions.py`)
 
@@ -657,10 +658,16 @@ Verify `docker-compose.env` configuration matches your setup.
 ```python
 # Add debug logging
 redis_monitor.start_ui_progress_monitoring(project_id)
-print(redis_monitor.captured_messages)  # Inspect captured messages
+print(redis_monitor.ui_messages_received)  # Inspect captured messages
 ```
 
 Verify that services are actually publishing messages to Redis channels.
+
+**Note**: The monitoring methods use synchronization barriers to prevent race conditions. If tests still hang:
+- Verify Redis is accessible and pub/sub is working: `redis-cli ping`
+- Check that publisher services are running and healthy
+- Ensure no firewall blocking Redis port 6379
+- See `PUBSUB_RACE_CONDITION_FIX.md` for detailed technical analysis
 
 ### Neo4j Tests Fail
 
@@ -700,6 +707,7 @@ docker-compose build --no-cache e2e-tests
 - **Timeouts**: Configurable timeouts in `TestConstants` (default: 30s, processing: 60s)
 - **Retry Logic**: HTTP requests and database queries use retry logic for reliability
 - **Resource Cleanup**: ProjectManager ensures cleanup even on test failure
+- **Pub/Sub Synchronization**: Monitoring startup adds ~3-5ms overhead per test to ensure reliable message capture (prevents race conditions)
 
 ## Contributing
 
@@ -711,6 +719,7 @@ When contributing tests:
 4. **Update this README**: Document new tests and features
 5. **Validate locally**: Run full test suite before committing
 6. **Check linting**: Ensure code follows project style (PEP 8)
+7. **Avoid timing assumptions**: Use synchronization barriers for thread coordination, never assume pub/sub subscriptions are instant
 
 ## License
 

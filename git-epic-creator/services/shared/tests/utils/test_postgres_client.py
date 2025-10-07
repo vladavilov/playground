@@ -59,7 +59,6 @@ def test_postgres_client_init(
     assert client.sync_engine == mock_sync_engine
     assert client.async_engine == mock_async_engine
     assert client.sync_session_factory == mock_sync_session_factory
-    assert client.async_session_factory == mock_async_session_factory
     assert client.metadata.schema == mock_app_settings.postgres.POSTGRES_SCHEMA
 
 def test_get_sync_session():
@@ -70,16 +69,6 @@ def test_get_sync_session():
     client.get_sync_session()
     
     client.sync_session_factory.assert_called_once()
-
-def test_get_async_session():
-    """Test get_async_session method."""
-    client = PostgresClient.__new__(PostgresClient)
-    client.async_session_factory = Mock()
-    
-    session = client.get_async_session()
-    
-    client.async_session_factory.assert_called_once()
-    assert isinstance(session, Mock)
 
 @patch('utils.postgres_client.PostgresClient')
 @patch('utils.postgres_client.get_app_settings')

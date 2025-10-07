@@ -17,20 +17,9 @@ RUN pip install --no-cache-dir .
 WORKDIR /app/ai_requirements_service
 RUN pip install --no-cache-dir .
 
-FROM python:3.13-slim-bookworm AS final
+FROM python-service-base:latest
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-ENV PYTHONPATH=/app/src
-
-WORKDIR /app
-
 COPY --from=builder /app/ai_requirements_service/src/ ./src/
 
 ENV API_PORT=8000

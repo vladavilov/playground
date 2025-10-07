@@ -13,19 +13,9 @@ COPY ./mock_auth_service/ ./mock_auth_service/
 WORKDIR /app/mock_auth_service
 RUN pip install --no-cache-dir .
 
-FROM python:3.13-slim-bookworm AS final
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+FROM python-service-base:latest
 
 COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-ENV PYTHONPATH=/app/src
-
-WORKDIR /app
-
 COPY --from=builder /app/mock_auth_service/src/ ./src/
 COPY --from=builder /app/mock_auth_service/certs/generate_certs.py ./certs/generate_certs.py
 

@@ -1,0 +1,7 @@
+# Ignore everything by default
+*
+
+# Allow only what we need
+!shared/
+!base/
+
