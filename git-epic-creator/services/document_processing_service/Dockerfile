@@ -54,9 +54,12 @@ RUN mkdir -p ${TIKA_LOG_PATH} && \
     echo "Tika log directory and initial log file prepared: ${TIKA_LOG_PATH}/tika.log"
 
 # Note: Tika environment variables are now configured via docker-compose.env or environments
-# Note: PATH, PYTHONPATH, and WORKDIR already configured by base image
+# Note: PATH and PYTHONPATH already configured by base image
 
 COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+
 COPY --from=builder /app/document_processing_service/src/ ./src/
 
 # Hugging Face caches and predownload
