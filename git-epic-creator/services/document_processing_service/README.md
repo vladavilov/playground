@@ -22,14 +22,14 @@ sequenceDiagram
     participant T as Apache Tika
     participant G as Neo4j Ingestion Service
 
-    P->>R: XADD stream=task_streams:document_processing {task_type, project_id, correlation_id}
+    P->>R: XADD stream=task_streams:document_processing<br/>{task_type, project_id, correlation_id}
     S->>C: apply_async process_project_documents_task(project_id)
-    C->>B: List prefix "input/"; download files
-    C->>T: extract_text_with_result(path) → { text, metadata }
-    C->>B: Upload JSON → prefix "output/"
-    C->>P: PUT /projects/{project_id}/status (progress/final)
-    C->>R: XADD stream=ingestion.trigger {job_id, project_id, attempts=0}
-    Note over G,R: Neo4j Ingestion Service consumes ingestion.trigger
+    C->>B: List prefix "input/"<br/>download files
+    C->>T: extract_text_with_result(path)<br/>→ {text, metadata}
+    C->>B: Upload JSON<br/>→ prefix "output/"
+    C->>P: PUT /projects/{project_id}/status<br/>(progress/final)
+    C->>R: XADD stream=ingestion.trigger<br/>{job_id, project_id, attempts=0}
+    R->>G: Consume ingestion.trigger
 ```
 
 ### Message contracts
