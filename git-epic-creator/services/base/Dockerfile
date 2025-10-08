@@ -1,6 +1,19 @@
-# Common runtime base for Python 3.13 services
-# Services handle their own dependency installation
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-bookworm AS base-builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Pre-create venv for services to use
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+FROM python:3.13-slim-bookworm AS base-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,4 +25,3 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
