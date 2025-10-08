@@ -1,4 +1,10 @@
-FROM python-service-base:latest AS builder
+FROM python:3.13-slim-bookworm AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 

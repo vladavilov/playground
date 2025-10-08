@@ -1,4 +1,10 @@
-FROM python-service-base:latest AS builder
+FROM python:3.13-slim-bookworm AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
@@ -11,11 +17,16 @@ RUN pip install --no-cache-dir .
 WORKDIR /app/document_processing_service
 RUN pip install --no-cache-dir .
 
-FROM python-service-base:latest AS final
+FROM python:3.13-slim-bookworm AS final
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Install Java Runtime Environment, wget for Tika download, curl for healthchecks, and git for HF downloads
 RUN apt-get update && apt-get install -y \
     openjdk-17-jre-headless \
     wget \
+    curl \
     git \
     && rm -rf /var/lib/apt/lists/* && \
     java -version
@@ -54,9 +65,10 @@ RUN mkdir -p ${TIKA_LOG_PATH} && \
     echo "Tika log directory and initial log file prepared: ${TIKA_LOG_PATH}/tika.log"
 
 # Note: Tika environment variables are now configured via docker-compose.env or environments
-# Note: PATH and PYTHONPATH already configured by base image
 
 COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH=/app/src
 
 WORKDIR /app
 
