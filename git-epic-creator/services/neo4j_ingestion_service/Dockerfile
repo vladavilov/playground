@@ -1,12 +1,15 @@
-FROM python-service-base:latest AS builder-with-tools
+FROM python:3.12-slim AS builder-with-tools
 
-# Add build tools for compiling native extensions (e.g., GraphRAG dependencies)
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
  && rm -rf /var/lib/apt/lists/*
 
-# Special pip settings for large/slow packages
-ENV PIP_DEFAULT_TIMEOUT=120 \
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" \
+    PIP_DEFAULT_TIMEOUT=120 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
@@ -24,20 +27,26 @@ COPY ./neo4j_ingestion_service/ ./neo4j_ingestion_service/
 WORKDIR /app/neo4j_ingestion_service
 RUN pip install --retries 10 --prefer-binary --timeout 120 .
 
-FROM python-service-base:latest AS final
+FROM python:3.12-slim AS final
 
-# Install runtime libraries for compiled C/C++ extensions
-# Note: curl and ca-certificates already provided by base image
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+    curl \
     libstdc++6 \
     libgcc-s1 \
     libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
-# Note: PATH, PYTHONPATH, and WORKDIR already configured by base image
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
 
 COPY --from=builder-with-tools /opt/venv /opt/venv
+ENV PYTHONPATH=/app/src
 
 COPY --from=builder-with-tools /app/neo4j_ingestion_service/src/ ./src/
 
