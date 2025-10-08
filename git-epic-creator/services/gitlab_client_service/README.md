@@ -216,11 +216,6 @@ sequenceDiagram
     GitLabAPI->>GitLabClient: Return Data
     GitLabClient->>UIService: Normalized Response
     UIService->>Browser: Response
-    
-    style AzureAD fill:#e3f2fd
-    style GitLabOAuth fill:#e8f5e9
-    style GitLabClient fill:#fff3e0
-    style GitLabAPI fill:#fff3e0
 ```
 
 ## Data Models
@@ -242,7 +237,7 @@ Normalized models are shared; JSON field names must match exactly.
 }
 ```
 
-### ListResponse\<T\>
+### ListResponse<T>
 
 ```json
 {
@@ -459,11 +454,7 @@ sequenceDiagram
         PubSub->>Redis: PUBLISH "completed"
     end
     
-    Note over Client,Redis: Client subscribes to<br/>embeddings:projects:123<br/>for progress updates
-    
-    style BG fill:#e8f5e9
-    style Redis fill:#fff3e0
-    style Embed fill:#e3f2fd
+    Client->>Redis: SUBSCRIBE embeddings:projects:123
 ```
 
 ### POST /gitlab/projects/{project_id}/apply-backlog
