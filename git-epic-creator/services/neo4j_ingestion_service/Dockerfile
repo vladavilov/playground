@@ -1,4 +1,5 @@
-FROM python:3.13-slim-bookworm AS builder-with-tools
+# Python 3.12 required: graphrag==2.5.0 dependency requires Python >=3.10,<3.13
+FROM python:3.12-slim-bookworm AS builder-with-tools
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -34,7 +35,8 @@ COPY ./neo4j_ingestion_service/ ./neo4j_ingestion_service/
 WORKDIR /app/neo4j_ingestion_service
 RUN pip install --retries 10 --prefer-binary --timeout 120 .
 
-FROM python:3.13-slim-bookworm AS final
+# Python 3.12 required: graphrag==2.5.0 dependency requires Python >=3.10,<3.13
+FROM python:3.12-slim-bookworm AS final
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
