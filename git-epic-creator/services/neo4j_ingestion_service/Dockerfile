@@ -1,11 +1,18 @@
-FROM python:3.12-slim AS builder-with-tools
+FROM python:3.13-slim-bookworm AS builder-with-tools
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential \
- && rm -rf /var/lib/apt/lists/*
+# Install build tools with retry logic and better error handling
+RUN for i in 1 2 3 4 5; do \
+        apt-get update && \
+        apt-get install -y --no-install-recommends --fix-missing \
+            build-essential && \
+        rm -rf /var/lib/apt/lists/* && \
+        break || \
+        (echo "Retry $i/5 failed, waiting..." && sleep 5); \
+    done && \
+    gcc --version
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" \
@@ -27,18 +34,24 @@ COPY ./neo4j_ingestion_service/ ./neo4j_ingestion_service/
 WORKDIR /app/neo4j_ingestion_service
 RUN pip install --retries 10 --prefer-binary --timeout 120 .
 
-FROM python:3.12-slim AS final
+FROM python:3.13-slim-bookworm AS final
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-    curl \
-    libstdc++6 \
-    libgcc-s1 \
-    libgomp1 \
- && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies with retry logic
+RUN for i in 1 2 3 4 5; do \
+        apt-get update && \
+        apt-get install -y --no-install-recommends --fix-missing \
+            curl \
+            libstdc++6 \
+            libgcc-s1 \
+            libgomp1 && \
+        rm -rf /var/lib/apt/lists/* && \
+        break || \
+        (echo "Retry $i/5 failed, waiting..." && sleep 5); \
+    done && \
+    curl --version
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
