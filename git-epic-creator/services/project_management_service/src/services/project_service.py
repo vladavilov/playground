@@ -252,5 +252,7 @@ class ProjectService:
                 # leave processed_pct unchanged when counts are omitted
                 project.processed_pct = project.processed_pct
 
+            session.refresh(project)
+
             logger.info("Project progress updated", project_id=str(project_id), new_status=project.status, processed_pct=project.processed_pct)
             return project
