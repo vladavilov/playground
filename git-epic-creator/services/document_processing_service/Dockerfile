@@ -1,7 +1,21 @@
+# Document Processing Service Dockerfile
+# 
+# This Dockerfile supports conditional VLM (Vision Language Model) configuration:
+# - DOCLING_VLM_MODE=local: Downloads and caches SmolVLM model locally, pre-warms docling plugins
+# - DOCLING_VLM_MODE=remote: Skips local model download and pre-warming, uses remote VLM APIs
+#
+# Build with custom VLM mode:
+# docker build --build-arg DOCLING_VLM_MODE=remote -t document-processing-service .
+#
 FROM python:3.13-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+# Set DOCLING_VLM_MODE early to control conditional build steps
+# Default to 'local' if not provided, but can be overridden via build args
+ARG DOCLING_VLM_MODE=local
+ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE}
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
@@ -21,6 +35,10 @@ FROM python:3.13-slim-bookworm AS final
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+# Set DOCLING_VLM_MODE in final stage for runtime use
+ARG DOCLING_VLM_MODE=local
+ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE}
 
 # Install Java Runtime Environment, wget for Tika download, curl for healthchecks, and git for HF downloads
 RUN apt-get update && apt-get install -y \
@@ -74,19 +92,35 @@ WORKDIR /app
 
 COPY --from=builder /app/document_processing_service/src/ ./src/
 
-# Hugging Face caches and predownload
+# Hugging Face caches (only create directories for local VLM mode)
 ENV HF_HOME=/opt/hf-cache \
     HUGGINGFACE_HUB_CACHE=/opt/hf-cache/hub \
     TRANSFORMERS_CACHE=/opt/hf-cache/transformers \
     HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct
 
-RUN mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-cache/models
+# Conditionally create HF cache directories only when DOCLING_VLM_MODE=local
+RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
+        echo "DOCLING_VLM_MODE=local: Creating Hugging Face cache directories..." && \
+        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-cache/models; \
+    else \
+        echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping Hugging Face cache directory creation (using remote VLM)"; \
+    fi
 
-# Predownload local ungated VLM to bake into the image layer
-RUN python -m src.scripts.download_hf_model
+# Conditionally predownload local ungated VLM only when DOCLING_VLM_MODE=local
+RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
+        echo "DOCLING_VLM_MODE=local: Downloading and caching Hugging Face model..." && \
+        python -m src.scripts.download_hf_model; \
+    else \
+        echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping Hugging Face model download (using remote VLM)"; \
+    fi
 
-# Pre-warm docling plugins and models at build time to avoid lazy loading at runtime
-RUN python -m src.scripts.build_init
+# Conditionally pre-warm docling plugins and models only when DOCLING_VLM_MODE=local
+RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
+        echo "DOCLING_VLM_MODE=local: Pre-warming docling plugins and models..." && \
+        python -m src.scripts.build_init; \
+    else \
+        echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping docling pre-warm (using remote VLM)"; \
+    fi
 
 ENV API_PORT=8000
 EXPOSE $API_PORT
