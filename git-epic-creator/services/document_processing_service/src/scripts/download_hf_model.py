@@ -19,8 +19,8 @@ def main() -> int:
         print(f"Model '{repo_id}' downloaded to '{local_dir}'")
         return 0
     except Exception as exc:
-        print(f"Warning: failed to predownload model '{repo_id}': {exc}")
-        return 0
+        print(f"Error: failed to predownload model '{repo_id}': {exc}")
+        return 1
 
 
 if __name__ == "__main__":
