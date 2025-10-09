@@ -24,7 +24,7 @@ def main() -> int:
     - Cache all necessary components in the Docker image layer
     
     Returns:
-        0 on success, 0 on controlled failure (we don't fail builds)
+        0 on success, 1 on failure (build will fail)
     """
     try:
         # Import here to ensure all dependencies are available
@@ -97,19 +97,20 @@ startxref
                            message="Docling plugins and models pre-loaded successfully",
                            extracted_text_length=len(result.extracted_text or ""))
             else:
-                logger.warning("build_init_partial", 
-                              message="Warmup completed with warnings",
-                              error=result.error_message)
+                logger.error("build_init_failed", 
+                            message="Warmup failed - docling processing unsuccessful",
+                            error=result.error_message)
+                return 1
         
         logger.info("build_init_completed", step="docling_plugin_preload")
         return 0
         
     except Exception as exc:
-        # Don't fail the build, but log the warning
-        logger.warning("build_init_failed", 
-                      error=str(exc),
-                      message="Plugin preload failed; plugins will load at runtime")
-        return 0
+        # Fail the build if docling initialization fails
+        logger.error("build_init_failed", 
+                   error=str(exc),
+                   message="Plugin preload failed - build cannot continue")
+        return 1
 
 
 if __name__ == "__main__":

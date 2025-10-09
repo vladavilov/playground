@@ -19,8 +19,12 @@ from docling.document_converter import (
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
+    VlmPipelineOptions,
     smolvlm_picture_description,
 )
+from docling.datamodel.pipeline_options_vlm_model import ApiVlmOptions, ResponseFormat
+from docling.pipeline.vlm_pipeline import VlmPipeline
+import requests
 
 # Markdown serialization with picture descriptions
 from docling_core.transforms.serializer.base import (
@@ -90,6 +94,220 @@ class DoclingProcessor:
         # Docling supports PDFs and images only
         return self._is_pdf(file_path) or self._is_image(file_path)
 
+    def _create_azure_openai_vlm_options(self) -> ApiVlmOptions:
+        """Create Azure OpenAI VLM options for Llama 3.2 Vision or GPT-4o (PRIMARY remote provider)."""
+        
+        if not self.settings.AZURE_OPENAI_ENDPOINT:
+            raise ValueError("AZURE_OPENAI_ENDPOINT is required for azure_openai provider")
+        if not self.settings.AZURE_OPENAI_DEPLOYMENT_NAME:
+            raise ValueError("AZURE_OPENAI_DEPLOYMENT_NAME is required for azure_openai provider")
+        if not self.settings.AZURE_OPENAI_API_KEY:
+            raise ValueError("AZURE_OPENAI_API_KEY is required for azure_openai provider")
+        
+        # Azure OpenAI endpoint format
+        base_url = self.settings.AZURE_OPENAI_ENDPOINT.rstrip('/')
+        deployment = self.settings.AZURE_OPENAI_DEPLOYMENT_NAME
+        api_version = self.settings.AZURE_OPENAI_API_VERSION
+        
+        url = f"{base_url}/openai/deployments/{deployment}/chat/completions?api-version={api_version}"
+        
+        # Azure uses api-key header, not Authorization Bearer
+        headers = {
+            "api-key": self.settings.AZURE_OPENAI_API_KEY
+        }
+        
+        # Map response format string to enum
+        response_format = (
+            ResponseFormat.DOCTAGS 
+            if self.settings.DOCLING_VLM_RESPONSE_FORMAT.upper() == "DOCTAGS"
+            else ResponseFormat.MARKDOWN
+        )
+        
+        logger.info("AZURE_OPENAI_VLM_CONFIGURED",
+                   endpoint=base_url,
+                   deployment=deployment,
+                   api_version=api_version,
+                   response_format=response_format)
+        
+        options = ApiVlmOptions(
+            url=url,
+            params=dict(
+                max_tokens=self.settings.DOCLING_VLM_MAX_TOKENS,
+                temperature=self.settings.DOCLING_VLM_TEMPERATURE,
+            ),
+            headers=headers,
+            prompt=self.settings.DOCLING_VLM_PROMPT,
+            timeout=self.settings.DOCLING_VLM_TIMEOUT,
+            scale=float(self.settings.DOCLING_IMAGES_SCALE),
+            response_format=response_format,
+        )
+        
+        return options
+
+    def _create_lm_studio_vlm_options(self) -> ApiVlmOptions:
+        """Create LM Studio VLM options (OpenAI-compatible local API)."""
+        
+        headers = {}
+        if self.settings.DOCLING_VLM_API_KEY:
+            headers["Authorization"] = f"Bearer {self.settings.DOCLING_VLM_API_KEY}"
+        
+        response_format = (
+            ResponseFormat.DOCTAGS 
+            if self.settings.DOCLING_VLM_RESPONSE_FORMAT.upper() == "DOCTAGS"
+            else ResponseFormat.MARKDOWN
+        )
+        
+        logger.info("LM_STUDIO_VLM_CONFIGURED",
+                   endpoint=self.settings.DOCLING_VLM_ENDPOINT,
+                   model=self.settings.DOCLING_VLM_MODEL)
+        
+        options = ApiVlmOptions(
+            url=f"{self.settings.DOCLING_VLM_ENDPOINT.rstrip('/')}/v1/chat/completions",
+            params=dict(
+                model=self.settings.DOCLING_VLM_MODEL,
+                max_tokens=self.settings.DOCLING_VLM_MAX_TOKENS,
+            ),
+            headers=headers,
+            prompt=self.settings.DOCLING_VLM_PROMPT,
+            timeout=self.settings.DOCLING_VLM_TIMEOUT,
+            scale=float(self.settings.DOCLING_IMAGES_SCALE),
+            temperature=self.settings.DOCLING_VLM_TEMPERATURE,
+            response_format=response_format,
+        )
+        
+        return options
+
+    def _create_ollama_vlm_options(self) -> ApiVlmOptions:
+        """Create Ollama VLM options."""
+        
+        response_format = (
+            ResponseFormat.DOCTAGS 
+            if self.settings.DOCLING_VLM_RESPONSE_FORMAT.upper() == "DOCTAGS"
+            else ResponseFormat.MARKDOWN
+        )
+        
+        logger.info("OLLAMA_VLM_CONFIGURED",
+                   endpoint=self.settings.DOCLING_VLM_ENDPOINT,
+                   model=self.settings.DOCLING_VLM_MODEL)
+        
+        options = ApiVlmOptions(
+            url=f"{self.settings.DOCLING_VLM_ENDPOINT.rstrip('/')}/v1/chat/completions",
+            params=dict(
+                model=self.settings.DOCLING_VLM_MODEL,
+            ),
+            prompt=self.settings.DOCLING_VLM_PROMPT,
+            timeout=self.settings.DOCLING_VLM_TIMEOUT,
+            scale=1.0,
+            response_format=response_format,
+        )
+        
+        return options
+
+    def _create_watsonx_vlm_options(self) -> ApiVlmOptions:
+        """Create watsonx.ai VLM options."""
+        
+        if not self.settings.WX_API_KEY:
+            raise ValueError("WX_API_KEY is required for watsonx provider")
+        if not self.settings.WX_PROJECT_ID:
+            raise ValueError("WX_PROJECT_ID is required for watsonx provider")
+        
+        def _get_iam_access_token(api_key: str) -> str:
+            """Get IBM Cloud IAM access token."""
+            res = requests.post(
+                url="https://iam.cloud.ibm.com/identity/token",
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data=f"grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey={api_key}",
+                timeout=30,
+            )
+            res.raise_for_status()
+            api_out = res.json()
+            return api_out["access_token"]
+        
+        response_format = (
+            ResponseFormat.DOCTAGS 
+            if self.settings.DOCLING_VLM_RESPONSE_FORMAT.upper() == "DOCTAGS"
+            else ResponseFormat.MARKDOWN
+        )
+        
+        logger.info("WATSONX_VLM_CONFIGURED",
+                   model=self.settings.DOCLING_VLM_MODEL,
+                   project_id=self.settings.WX_PROJECT_ID)
+        
+        options = ApiVlmOptions(
+            url="https://us-south.ml.cloud.ibm.com/ml/v1/text/chat?version=2023-05-29",
+            params=dict(
+                model_id=self.settings.DOCLING_VLM_MODEL,
+                project_id=self.settings.WX_PROJECT_ID,
+                parameters=dict(
+                    max_new_tokens=self.settings.DOCLING_VLM_MAX_TOKENS,
+                ),
+            ),
+            headers={
+                "Authorization": "Bearer " + _get_iam_access_token(api_key=self.settings.WX_API_KEY),
+            },
+            prompt=self.settings.DOCLING_VLM_PROMPT,
+            timeout=self.settings.DOCLING_VLM_TIMEOUT,
+            response_format=response_format,
+        )
+        
+        return options
+
+    def _create_openai_compatible_vlm_options(self) -> ApiVlmOptions:
+        """Create generic OpenAI-compatible VLM options."""
+        
+        headers = {}
+        if self.settings.DOCLING_VLM_API_KEY:
+            headers["Authorization"] = f"Bearer {self.settings.DOCLING_VLM_API_KEY}"
+        
+        response_format = (
+            ResponseFormat.DOCTAGS 
+            if self.settings.DOCLING_VLM_RESPONSE_FORMAT.upper() == "DOCTAGS"
+            else ResponseFormat.MARKDOWN
+        )
+        
+        logger.info("OPENAI_COMPATIBLE_VLM_CONFIGURED",
+                   endpoint=self.settings.DOCLING_VLM_ENDPOINT,
+                   model=self.settings.DOCLING_VLM_MODEL)
+        
+        options = ApiVlmOptions(
+            url=f"{self.settings.DOCLING_VLM_ENDPOINT.rstrip('/')}/v1/chat/completions",
+            params=dict(
+                model=self.settings.DOCLING_VLM_MODEL,
+                max_tokens=self.settings.DOCLING_VLM_MAX_TOKENS,
+            ),
+            headers=headers,
+            prompt=self.settings.DOCLING_VLM_PROMPT,
+            timeout=self.settings.DOCLING_VLM_TIMEOUT,
+            scale=float(self.settings.DOCLING_IMAGES_SCALE),
+            temperature=self.settings.DOCLING_VLM_TEMPERATURE,
+            response_format=response_format,
+        )
+        
+        return options
+
+    def _get_remote_vlm_options(self) -> ApiVlmOptions:
+        """Factory method to get VLM options based on configured provider."""
+        
+        provider = self.settings.DOCLING_VLM_PROVIDER.lower()
+        
+        if provider == "azure_openai":
+            return self._create_azure_openai_vlm_options()
+        elif provider == "lm_studio":
+            return self._create_lm_studio_vlm_options()
+        elif provider == "ollama":
+            return self._create_ollama_vlm_options()
+        elif provider == "watsonx":
+            return self._create_watsonx_vlm_options()
+        elif provider == "openai_compatible":
+            return self._create_openai_compatible_vlm_options()
+        else:
+            raise ValueError(
+                f"Unsupported VLM provider: {provider}. "
+                f"Supported providers: azure_openai, lm_studio, ollama, watsonx, openai_compatible"
+            )
+
     def extract_text(self, file_path: str) -> str:
         result = self.extract_text_with_result(file_path)
         if not result.success:
@@ -154,26 +372,67 @@ class DoclingProcessor:
             return DocumentProcessingResult(success=False, error_message=f"Docling failed: {exc}")
 
     def _build_converter(self) -> DocumentConverter:
-        """Create a converter configured for PDFs and images with OCR and SmolVLM picture descriptions."""
-        pdf_opts = PdfPipelineOptions()
-        # Always enable OCR and picture descriptions for PDFs
-        pdf_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
-        pdf_opts.do_picture_description = True
-        pdf_opts.picture_description_options = smolvlm_picture_description
-        # Scale images for better VLM performance and export pictures
-        images_scale = float(self.settings.DOCLING_IMAGES_SCALE)
-        pdf_opts.images_scale = images_scale
-        pdf_opts.generate_picture_images = True
-        ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
-        pdf_opts.ocr_options.lang = [lang.strip() for lang in ocr_langs.split(",") if lang.strip()]
+        """Create a converter configured for PDFs and images with local or remote VLM support."""
+        
+        vlm_mode = self.settings.DOCLING_VLM_MODE.lower()
+        
+        if vlm_mode == "local":
+            # LOCAL MODE: Use SmolVLM (current implementation)
+            logger.info("DOCLING_VLM_MODE_LOCAL", provider="SmolVLM")
+            
+            pdf_opts = PdfPipelineOptions()
+            pdf_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
+            pdf_opts.do_picture_description = True
+            pdf_opts.picture_description_options = smolvlm_picture_description
+            
+            # Scale images for better VLM performance
+            images_scale = float(self.settings.DOCLING_IMAGES_SCALE)
+            pdf_opts.images_scale = images_scale
+            pdf_opts.generate_picture_images = True
+            
+            # Configure OCR languages
+            ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
+            pdf_opts.ocr_options.lang = [lang.strip() for lang in ocr_langs.split(",") if lang.strip()]
 
-        converter = DocumentConverter(
-            allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts),
-                InputFormat.IMAGE: ImageFormatOption(),
-            },
-        )
+            converter = DocumentConverter(
+                allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts),
+                    InputFormat.IMAGE: ImageFormatOption(),
+                },
+            )
+            
+        elif vlm_mode == "remote":
+            # REMOTE MODE: Use API-based VLM via provider factory
+            logger.info("DOCLING_VLM_MODE_REMOTE", provider=self.settings.DOCLING_VLM_PROVIDER)
+            
+            # Get provider-specific VLM options
+            vlm_options = self._get_remote_vlm_options()
+            
+            # Configure VLM pipeline options
+            vlm_pipeline_opts = VlmPipelineOptions(
+                enable_remote_services=True,
+                vlm_options=vlm_options
+            )
+            
+            # Create converter with VLM pipeline
+            converter = DocumentConverter(
+                allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(
+                        pipeline_cls=VlmPipeline,
+                        pipeline_options=vlm_pipeline_opts
+                    ),
+                    InputFormat.IMAGE: ImageFormatOption(),
+                },
+            )
+            
+        else:
+            raise ValueError(
+                f"Unsupported VLM mode: {vlm_mode}. "
+                f"Supported modes: 'local' (SmolVLM), 'remote' (API-based)"
+            )
+        
         return converter
 
     def _export_markdown_with_descriptions(self, doc: DoclingDocument) -> str:

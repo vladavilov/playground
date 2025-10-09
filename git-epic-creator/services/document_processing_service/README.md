@@ -86,22 +86,94 @@ sequenceDiagram
 6) Publish Redis Streams trigger to `ingestion.trigger` for Neo4j ingestion.
 
 ### Environment configuration
-- Tika (`service_configuration.tika_config.TikaSettings`):
-  - `TIKA_SERVER_JAR` (default `/opt/tika-server/tika-server.jar`)
-  - `TIKA_SERVER_ENDPOINT` (default `http://localhost:9998`)
-  - `TIKA_LOG_PATH` (default `/tmp/tika-logs`)
-  - `TIKA_SERVER_TIMEOUT`, `TIKA_CLIENT_TIMEOUT`, `TIKA_VERSION`, `TIKA_CLIENT_ONLY`, `TIKA_SERVER_AUTO_START`, `TIKA_SERVER_STARTUP_TIMEOUT`
-- Azure Blob (shared config):
-  - `AZURE_STORAGE_CONNECTION_STRING`
-  - `AZURE_STORAGE_CONTAINER_NAME`
-  - Optional: `AZURE_STORAGE_BLOB_ENDPOINT`
-- Messaging / Celery:
-  - `REDIS_URL` (via shared Redis client)
-  - `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
-  - Queue: `document_processing`
-- Project Management client (shared config):
-  - `PROJECT_MANAGEMENT_SERVICE_URL`
-  - Local S2S auth uses `LOCAL_JWT_SECRET` for signing/verification
+
+#### Docling VLM Configuration (`service_configuration.docling_config.DoclingSettings`)
+- **VLM Mode Selection**:
+  - `DOCLING_VLM_MODE` (default `local`) - VLM mode: `local` (SmolVLM) or `remote` (API-based)
+  - `DOCLING_VLM_PROVIDER` (default `azure_openai`) - Remote VLM provider when mode is `remote`
+    - Supported providers: `azure_openai`, `lm_studio`, `ollama`, `watsonx`, `openai_compatible`
+
+- **Azure OpenAI Configuration** (PRIMARY remote provider):
+  - `AZURE_OPENAI_ENDPOINT` - Azure OpenAI endpoint URL (e.g., `https://myresource.openai.azure.com`)
+  - `AZURE_OPENAI_DEPLOYMENT_NAME` - Deployment name (e.g., `llama-32-vision`)
+  - `AZURE_OPENAI_API_KEY` - Azure OpenAI API key
+  - `AZURE_OPENAI_API_VERSION` (default `2024-02-15-preview`) - API version
+
+- **Generic Remote VLM Configuration** (for non-Azure providers):
+  - `DOCLING_VLM_ENDPOINT` (default `http://localhost:1234`) - API endpoint for LM Studio/Ollama/custom
+  - `DOCLING_VLM_MODEL` (default `granite-docling-258m-mlx`) - Model name/ID
+  - `DOCLING_VLM_API_KEY` - API key if required
+
+- **watsonx.ai Configuration**:
+  - `WX_API_KEY` - IBM Cloud API key
+  - `WX_PROJECT_ID` - watsonx.ai project ID
+
+- **Common VLM Parameters**:
+  - `DOCLING_VLM_PROMPT` (default `Convert this page to docling format with detailed descriptions.`)
+  - `DOCLING_VLM_TIMEOUT` (default `90`) - Timeout in seconds
+  - `DOCLING_VLM_TEMPERATURE` (default `0.7`) - Generation temperature
+  - `DOCLING_VLM_MAX_TOKENS` (default `4096`) - Maximum tokens
+  - `DOCLING_VLM_RESPONSE_FORMAT` (default `DOCTAGS`) - Response format: `DOCTAGS` or `MARKDOWN`
+
+- **Local VLM Configuration**:
+  - `DOCLING_USE_OCR` (default `True`) - Enable OCR
+  - `DOCLING_OCR_LANGS` (default `en`) - OCR languages (comma-separated)
+  - `DOCLING_IMAGES_SCALE` (default `2.0`) - Image scaling factor
+
+#### Example Configurations
+
+**Local VLM (SmolVLM - Default)**:
+```bash
+DOCLING_VLM_MODE=local
+DOCLING_USE_OCR=true
+DOCLING_IMAGES_SCALE=2.0
+```
+
+**Remote VLM with Azure OpenAI (Llama 3.2 Vision)**:
+```bash
+DOCLING_VLM_MODE=remote
+DOCLING_VLM_PROVIDER=azure_openai
+AZURE_OPENAI_ENDPOINT=https://myresource.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT_NAME=llama-32-vision
+AZURE_OPENAI_API_KEY=your-api-key
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+```
+
+**Remote VLM with LM Studio**:
+```bash
+DOCLING_VLM_MODE=remote
+DOCLING_VLM_PROVIDER=lm_studio
+DOCLING_VLM_ENDPOINT=http://localhost:1234
+DOCLING_VLM_MODEL=granite-docling-258m-mlx
+```
+
+**Remote VLM with Ollama**:
+```bash
+DOCLING_VLM_MODE=remote
+DOCLING_VLM_PROVIDER=ollama
+DOCLING_VLM_ENDPOINT=http://localhost:11434
+DOCLING_VLM_MODEL=llama3.2-vision:11b
+```
+
+#### Tika Configuration (`service_configuration.tika_config.TikaSettings`)
+- `TIKA_SERVER_JAR` (default `/opt/tika-server/tika-server.jar`)
+- `TIKA_SERVER_ENDPOINT` (default `http://localhost:9998`)
+- `TIKA_LOG_PATH` (default `/tmp/tika-logs`)
+- `TIKA_SERVER_TIMEOUT`, `TIKA_CLIENT_TIMEOUT`, `TIKA_VERSION`, `TIKA_CLIENT_ONLY`, `TIKA_SERVER_AUTO_START`, `TIKA_SERVER_STARTUP_TIMEOUT`
+
+#### Azure Blob (shared config)
+- `AZURE_STORAGE_CONNECTION_STRING`
+- `AZURE_STORAGE_CONTAINER_NAME`
+- Optional: `AZURE_STORAGE_BLOB_ENDPOINT`
+
+#### Messaging / Celery
+- `REDIS_URL` (via shared Redis client)
+- `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
+- Queue: `document_processing`
+
+#### Project Management client (shared config)
+- `PROJECT_MANAGEMENT_SERVICE_URL`
+- Local S2S auth uses `LOCAL_JWT_SECRET` for signing/verification
 
 ### Health
 - `GET /health/celery` returns Celery health, app name, registered tasks, routes, serializers, and task validation status.
