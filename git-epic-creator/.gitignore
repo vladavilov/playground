@@ -22,7 +22,6 @@ docker-compose.env.production
 # =============================================================================
 
 # Docker volumes (if using host bind mounts)
-neo4j/
 postgres/
 pgadmin/
 
