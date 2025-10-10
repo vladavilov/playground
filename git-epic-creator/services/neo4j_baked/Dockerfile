@@ -1,6 +1,6 @@
 # Neo4j Community Edition with Pre-baked APOC and GDS Plugins
 # Base image: Latest Neo4j Community Edition
-FROM neo4j:5.26.0-community
+FROM neo4j:5.26.8-community
 
 # Copy pre-downloaded plugin JAR files into the plugins directory
 # Plugins must be manually placed in ./plugins/ before building
