@@ -248,9 +248,6 @@ class ProjectService:
                 project.processed_pct = round((processed_count / total_count) * 100, 2)
             elif status == ProjectStatus.RAG_READY:
                 project.processed_pct = 100.0
-            else:
-                # leave processed_pct unchanged when counts are omitted
-                project.processed_pct = project.processed_pct
 
             session.refresh(project)
 

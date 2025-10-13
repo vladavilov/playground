@@ -78,12 +78,20 @@ sequenceDiagram
 - Ingestion trigger publisher: `src/services/ingestion_job_publisher.py`
 
 ### Processing steps (Celery task)
-1) List project container with prefix `input/` and collect files.
-2) For each file: download to temp path, run Tika to extract text and metadata.
-3) Filter metadata to required fields and upload structured JSON to `output/<stem>.json`.
-4) Send progress update to Project Management via HTTP after each file.
-5) Delete processed input blobs.
-6) Publish Redis Streams trigger to `ingestion.trigger` for Neo4j ingestion.
+1) **Initial status update**: Publish `status='processing'` with `processed_count=0` to ensure UI observability before document processing begins.
+2) List project container with prefix `input/` and collect files.
+3) For each file: download to temp path, run Tika/Docling to extract text and metadata.
+4) Validate extracted text content:
+   - If text is empty or contains only whitespace, skip JSON creation and mark as empty document
+   - Empty documents are tracked separately but not uploaded to output
+5) Filter metadata to required fields and upload structured JSON to `output/<stem>.json` for valid documents.
+6) Send progress update to Project Management via HTTP after each file.
+7) Delete processed input blobs (including empty documents).
+8) Conditionally trigger Neo4j ingestion:
+   - If at least one valid document exists → publish trigger to `ingestion.trigger`
+   - If all documents are empty → skip ingestion and update project status to `processing_failed`
+
+**Note on async-to-sync bridge**: Progress updates use a persistent event loop pattern (consistent with neo4j_ingestion_service) via `utils.asyncio_runner.run_async()`. The persistent loop runs in a dedicated thread for the worker's lifetime, preventing event loop conflicts and ensuring reliable async HTTP calls. This approach is initialized via Celery worker signals (`worker_process_init`/`worker_process_shutdown`).
 
 ### Environment configuration
 
@@ -94,10 +102,10 @@ sequenceDiagram
     - Supported providers: `azure_openai`, `lm_studio`, `ollama`, `watsonx`, `openai_compatible`
 
 - **Azure OpenAI Configuration** (PRIMARY remote provider):
-  - `AZURE_OPENAI_ENDPOINT` - Azure OpenAI endpoint URL (e.g., `https://myresource.openai.azure.com`)
-  - `AZURE_OPENAI_DEPLOYMENT_NAME` - Deployment name (e.g., `llama-32-vision`)
-  - `AZURE_OPENAI_API_KEY` - Azure OpenAI API key
-  - `AZURE_OPENAI_API_VERSION` (default `2024-02-15-preview`) - API version
+  - `DOCLING_AZURE_OPENAI_ENDPOINT` - Azure OpenAI endpoint URL (e.g., `https://myresource.openai.azure.com`)
+  - `DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME` - Deployment name (e.g., `llama-32-vision`)
+  - `DOCLING_AZURE_OPENAI_API_KEY` - Azure OpenAI API key
+  - `DOCLING_AZURE_OPENAI_API_VERSION` (default `2024-02-15-preview`) - API version
 
 - **Generic Remote VLM Configuration** (for non-Azure providers):
   - `DOCLING_VLM_ENDPOINT` (default `http://localhost:1234`) - API endpoint for LM Studio/Ollama/custom
@@ -133,10 +141,10 @@ DOCLING_IMAGES_SCALE=2.0
 ```bash
 DOCLING_VLM_MODE=remote
 DOCLING_VLM_PROVIDER=azure_openai
-AZURE_OPENAI_ENDPOINT=https://myresource.openai.azure.com
-AZURE_OPENAI_DEPLOYMENT_NAME=llama-32-vision
-AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_API_VERSION=2024-02-15-preview
+DOCLING_AZURE_OPENAI_ENDPOINT=https://myresource.openai.azure.com
+DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME=llama-32-vision
+DOCLING_AZURE_OPENAI_API_KEY=your-api-key
+DOCLING_AZURE_OPENAI_API_VERSION=2024-02-15-preview
 ```
 
 **Remote VLM with LM Studio**:
@@ -189,6 +197,11 @@ DOCLING_VLM_MODEL=llama3.2-vision:11b
 - Run a dedicated Celery worker for queue `document_processing`; on Windows, prefer `--pool=solo`.
 - Healthcheck: probe `/health/celery` and `/health/tika`.
 
+#### Build Configuration
+The service supports two VLM modes affecting build time and resources:
+- **Local VLM (default)**: Downloads and caches ML models during build (~30-40 min, 6-8GB RAM)
+- **Remote VLM**: Skips model downloads, uses external APIs (~5-10 min, 2-4GB RAM)
+
 ### Local development quickstart
 1) Start dependent services (from `playground/git-epic-creator`):
    - Suggested: `redis azurite project-management-service openai-mock-service mock-auth-service`
@@ -215,8 +228,20 @@ DOCLING_VLM_MODEL=llama3.2-vision:11b
    ```
 5) Publish a test task request (fields shown below) to `task_streams:document_processing` or use the e2e helper.
 
+### Empty document handling
+The service implements validation to prevent downstream errors in Neo4j ingestion:
+- **Detection**: After text extraction, documents with empty or whitespace-only content are identified
+- **Tracking**: Empty documents are counted separately (`empty_documents` field in result)
+- **No upload**: Empty documents do not generate output JSON files
+- **Cleanup**: Empty document input files are still deleted from blob storage
+- **Ingestion gating**: If all documents are empty, Neo4j ingestion is skipped and project status is set to `processing_failed`
+- **Mixed scenarios**: Projects with both valid and empty documents will process successfully with only valid documents sent to ingestion
+
+**Why this matters**: Empty documents cause pandas DataFrame errors in GraphRAG's `create_base_text_units` workflow. This validation prevents those errors by filtering empty content before it reaches the ingestion pipeline.
+
 ### Acceptance criteria
-- Given documents in `input/`, the task produces one JSON per input in `output/` with required schema, updates project status during processing, deletes inputs, and publishes an ingestion trigger to `ingestion.trigger`.
+- Given documents in `input/`, the task produces one JSON per valid input in `output/` with required schema, updates project status during processing, deletes inputs, and publishes an ingestion trigger to `ingestion.trigger` only if valid documents exist.
+- Documents with empty or whitespace-only text are tracked but not uploaded, and do not trigger ingestion if they are the only documents.
 
 ### Inter-service integration
 - Upstream: Project Management Service publishes a task request to `task_streams:document_processing` when a project moves to processing.

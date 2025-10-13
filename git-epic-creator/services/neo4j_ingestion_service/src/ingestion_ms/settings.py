@@ -62,10 +62,6 @@ def configure_settings_for_json() -> Dict[str, Any]:
 
     settings["models"] = models
 
-    settings["cache"] = {
-        "type": "memory"
-    }
-
     # Input configuration: configure JSON ingestion per GraphRAG docs (merge, don't clobber)
     input_cfg = settings.get("input", {}) or {}
     storage_cfg = input_cfg.get("storage", {}) or {}

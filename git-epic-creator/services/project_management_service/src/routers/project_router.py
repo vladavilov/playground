@@ -334,6 +334,13 @@ async def update_project_status(
                 project_id=str(project_id),
                 status=project.status
             )
+        else:
+            logger.info(
+                "Successfully published project status to Redis",
+                project_id=str(project_id),
+                status=project.status,
+                processed_pct=project.processed_pct
+            )
 
     except Exception as e:
         logger.error(

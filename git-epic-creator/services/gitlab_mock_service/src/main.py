@@ -14,7 +14,10 @@ import structlog
 import uvicorn
 
 from config import settings
+from shared.src.configuration.logging_config import configure_logging
 
+# Configure shared JSON logging
+configure_logging()
 logger = structlog.get_logger(__name__)
 
 app = FastAPI(

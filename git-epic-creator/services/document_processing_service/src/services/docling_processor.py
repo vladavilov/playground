@@ -97,23 +97,23 @@ class DoclingProcessor:
     def _create_azure_openai_vlm_options(self) -> ApiVlmOptions:
         """Create Azure OpenAI VLM options for Llama 3.2 Vision or GPT-4o (PRIMARY remote provider)."""
         
-        if not self.settings.AZURE_OPENAI_ENDPOINT:
-            raise ValueError("AZURE_OPENAI_ENDPOINT is required for azure_openai provider")
-        if not self.settings.AZURE_OPENAI_DEPLOYMENT_NAME:
-            raise ValueError("AZURE_OPENAI_DEPLOYMENT_NAME is required for azure_openai provider")
-        if not self.settings.AZURE_OPENAI_API_KEY:
-            raise ValueError("AZURE_OPENAI_API_KEY is required for azure_openai provider")
+        if not self.settings.DOCLING_AZURE_OPENAI_ENDPOINT:
+            raise ValueError("DOCLING_AZURE_OPENAI_ENDPOINT is required for azure_openai provider")
+        if not self.settings.DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME:
+            raise ValueError("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME is required for azure_openai provider")
+        if not self.settings.DOCLING_AZURE_OPENAI_API_KEY:
+            raise ValueError("DOCLING_AZURE_OPENAI_API_KEY is required for azure_openai provider")
         
         # Azure OpenAI endpoint format
-        base_url = self.settings.AZURE_OPENAI_ENDPOINT.rstrip('/')
-        deployment = self.settings.AZURE_OPENAI_DEPLOYMENT_NAME
-        api_version = self.settings.AZURE_OPENAI_API_VERSION
+        base_url = self.settings.DOCLING_AZURE_OPENAI_ENDPOINT.rstrip('/')
+        deployment = self.settings.DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME
+        api_version = self.settings.DOCLING_AZURE_OPENAI_API_VERSION
         
         url = f"{base_url}/openai/deployments/{deployment}/chat/completions?api-version={api_version}"
         
         # Azure uses api-key header, not Authorization Bearer
         headers = {
-            "api-key": self.settings.AZURE_OPENAI_API_KEY
+            "api-key": self.settings.DOCLING_AZURE_OPENAI_API_KEY
         }
         
         # Map response format string to enum
@@ -367,8 +367,57 @@ class DoclingProcessor:
                 success=True,
                 processing_time=processing_time,
             )
+        except requests.exceptions.Timeout as timeout_exc:
+            # Remote VLM API timeout
+            error_msg = f"VLM API timeout after {self.settings.DOCLING_VLM_TIMEOUT}s: {timeout_exc}"
+            logger.error("DOCLING_VLM_API_TIMEOUT",
+                        file_path=file_path,
+                        timeout=self.settings.DOCLING_VLM_TIMEOUT,
+                        vlm_mode=self.settings.DOCLING_VLM_MODE,
+                        vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
+                        error=str(timeout_exc))
+            return DocumentProcessingResult(success=False, error_message=error_msg)
+        except requests.exceptions.HTTPError as http_exc:
+            # Remote VLM API HTTP error (401, 403, 429, 500, etc.)
+            status_code = getattr(http_exc.response, 'status_code', 'unknown') if hasattr(http_exc, 'response') else 'unknown'
+            error_msg = f"VLM API HTTP error (status {status_code}): {http_exc}"
+            logger.error("DOCLING_VLM_API_HTTP_ERROR",
+                        file_path=file_path,
+                        status_code=status_code,
+                        vlm_mode=self.settings.DOCLING_VLM_MODE,
+                        vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
+                        error=str(http_exc),
+                        exc_info=True)
+            return DocumentProcessingResult(success=False, error_message=error_msg)
+        except requests.exceptions.ConnectionError as conn_exc:
+            # Remote VLM API connection error (network issues, DNS resolution, etc.)
+            error_msg = f"VLM API connection error: {conn_exc}"
+            logger.error("DOCLING_VLM_API_CONNECTION_ERROR",
+                        file_path=file_path,
+                        vlm_mode=self.settings.DOCLING_VLM_MODE,
+                        vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
+                        endpoint=self.settings.DOCLING_AZURE_OPENAI_ENDPOINT,
+                        error=str(conn_exc))
+            return DocumentProcessingResult(success=False, error_message=error_msg)
+        except requests.exceptions.RequestException as req_exc:
+            # Any other requests-related error
+            error_msg = f"VLM API request error: {req_exc}"
+            logger.error("DOCLING_VLM_API_REQUEST_ERROR",
+                        file_path=file_path,
+                        vlm_mode=self.settings.DOCLING_VLM_MODE,
+                        vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
+                        error=str(req_exc),
+                        exc_info=True)
+            return DocumentProcessingResult(success=False, error_message=error_msg)
         except Exception as exc:
-            logger.warning("Docling processing failed", file_path=file_path, error=str(exc))
+            # Catch-all for unexpected errors
+            logger.error("DOCLING_PROCESSING_FAILED",
+                        file_path=file_path,
+                        vlm_mode=self.settings.DOCLING_VLM_MODE,
+                        vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                        exc_info=True)
             return DocumentProcessingResult(success=False, error_message=f"Docling failed: {exc}")
 
     def _build_converter(self) -> DocumentConverter:

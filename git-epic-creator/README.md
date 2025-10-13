@@ -739,17 +739,37 @@ cp docker-compose.env.example docker-compose.env
 # Edit docker-compose.env with your Azure credentials
 ```
 
-3. **Start Core Services**:
-```bash
-docker-compose up -d
+3. **Build Services** (using helper script with provenance fix):
+```powershell
+# Windows PowerShell (Recommended - automatically applies fix)
+.\docker-build.ps1
+
+# Or manually set environment variable before building:
+$env:BUILDX_NO_DEFAULT_ATTESTATIONS="1"
+docker compose build
 ```
 
-4. **Initialize openai-mock-service**:
 ```bash
-docker-compose up openai-mock-service -d
+# Linux/Mac (Recommended - automatically applies fix)
+chmod +x docker-build.sh
+./docker-build.sh
+
+# Or manually set environment variable before building:
+export BUILDX_NO_DEFAULT_ATTESTATIONS=1
+docker compose build
 ```
 
-5. **Access Application**:
+4. **Start Core Services**:
+```bash
+docker compose up -d
+```
+
+5. **Initialize openai-mock-service**:
+```bash
+docker compose up openai-mock-service -d
+```
+
+6. **Access Application**:
 - UI: http://localhost:8000
 - API Docs: http://localhost:8000/docs
 

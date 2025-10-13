@@ -12,9 +12,11 @@ from fastapi import FastAPI, Response, Request, status
 from fastapi.responses import RedirectResponse, JSONResponse
 from jose import jwt
 import uvicorn
+import structlog
 
 from config import settings
 from key_manager import KeyManager
+from shared.src.configuration.logging_config import configure_logging
 
 # Initialize persistent key management
 key_manager = KeyManager()
@@ -23,6 +25,9 @@ MOCK_TENANT_ID: str = settings.AZURE_AD_TENANT_ID
 MOCK_CLIENT_ID: str = settings.AZURE_AD_CLIENT_ID
 MOCK_CLIENT_SECRET: str = settings.AZURE_CLIENT_SECRET or ""
 BASE_URL: str = str(settings.AZURE_AD_AUTHORITY).rstrip('/')
+
+# Configure shared logging for consistent JSON logs
+configure_logging()
 
 app = FastAPI(
     title="Mock Azure AD OIDC Server",
