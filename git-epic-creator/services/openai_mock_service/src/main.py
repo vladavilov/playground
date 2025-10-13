@@ -1,10 +1,12 @@
 import os
-from fastapi import FastAPI, Request
-from fastapi.responses import ORJSONResponse
-from fastapi.exceptions import RequestValidationError
 import structlog
 import uvicorn
+from fastapi import FastAPI
+from fastapi.responses import ORJSONResponse
 
+from configuration.logging_config import configure_logging
+from configuration.common_config import get_app_settings
+from utils.app_factory import FastAPIFactory
 from config import get_config
 from routers import health, models, chat, embeddings, azure
 
@@ -14,29 +16,21 @@ if os.getenv("HF_HOME") is None:
     os.environ.setdefault("HF_HOME", os.getenv("TRANSFORMERS_CACHE", "/models/hf-cache"))
 
 
-def configure_logging() -> None:
-    """Minimal structlog setup compatible with other services."""
-    structlog.configure(
-        processors=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.JSONRenderer(),
-        ],
-    )
-
-
+# Configure shared logging
 configure_logging()
 logger = structlog.get_logger(__name__)
 
-app = FastAPI(default_response_class=ORJSONResponse)
 
+# Create app via shared factory (uses shared ErrorHandler and lifespan)
+app: FastAPI = FastAPIFactory.create_app(
+    title="OpenAI Mock Service",
+    description="Mock of OpenAI endpoints for local development and tests",
+    version="1.0.0",
+    enable_cors=True,
+)
 
-@app.exception_handler(RequestValidationError)
-async def request_validation_exception_handler(
-    request: Request, exc: RequestValidationError
-) -> ORJSONResponse:
-    return ORJSONResponse(status_code=400, content={"detail": "Bad Request"})
-
+# Default ORJSON response class for performance
+app.default_response_class = ORJSONResponse
 
 # Include routers
 app.include_router(health.router)
@@ -47,6 +41,12 @@ app.include_router(azure.router)
 
 
 if __name__ == "__main__":
-    cfg = get_config()
-    uvicorn.run(app, host="0.0.0.0", port=int(cfg["API_PORT"]))
+    # Prefer shared app settings, fallback to local config for compatibility
+    try:
+        settings = get_app_settings()
+        port = int(settings.API_PORT)
+    except Exception:
+        cfg = get_config()
+        port = int(cfg["API_PORT"])  # type: ignore[index]
+    uvicorn.run(app, host="0.0.0.0", port=port)
 

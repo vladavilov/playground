@@ -5,7 +5,7 @@ import json
 
 from constants import UI_CHANNEL_PREFIX
 from constants.streams import UI_AI_REQUIREMENTS_PROGRESS_NAME
-from workflow_models.progress_messages import WorkflowProgressMessage
+from models.progress_messages import WorkflowProgressMessage
 
 
 class AiWorkflowStatusPublisher:

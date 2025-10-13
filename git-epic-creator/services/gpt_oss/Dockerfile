@@ -20,7 +20,7 @@ ENV HF_HOME=/models/hf-cache \
     EMBED_MODEL_DIR=/models/embeddings/jina-embeddings-v2-base-en
 RUN python -m src.build_init || true
 
-FROM ollama/ollama:latest AS final
+FROM ollama/ollama:0.3.14 AS final
 
 ENV DEBIAN_FRONTEND=noninteractive \
     OLLAMA_HOST=127.0.0.1:11435 \

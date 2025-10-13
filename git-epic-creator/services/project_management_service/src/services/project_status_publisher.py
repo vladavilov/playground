@@ -4,6 +4,9 @@ from uuid import UUID
 from utils.unified_redis_messages import ProjectProgressMessage
 from constants import UI_CHANNEL_PREFIX, UI_PROJECT_PROGRESS_NAME
 import json
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class ProjectStatusPublisher:
@@ -42,4 +45,30 @@ class ProjectStatusPublisher:
             total_count=total_count,
             processed_pct=processed_pct,
         )
-        return await self._publish_message(message)
+        
+        logger.info(
+            "Publishing project status to Redis",
+            project_id=str(project_id),
+            status=status,
+            processed_pct=processed_pct,
+            channel=self._channel(self.default_name)
+        )
+        
+        result = await self._publish_message(message)
+        
+        if result:
+            logger.info(
+                "Successfully published project status to Redis",
+                project_id=str(project_id),
+                status=status,
+                channel=self._channel(self.default_name)
+            )
+        else:
+            logger.error(
+                "Failed to publish project status to Redis",
+                project_id=str(project_id),
+                status=status,
+                channel=self._channel(self.default_name)
+            )
+        
+        return result

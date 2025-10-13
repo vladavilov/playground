@@ -5,15 +5,7 @@ FROM neo4j:5.26.8-community
 # Copy pre-downloaded plugin JAR files into the plugins directory
 # Plugins must be manually placed in ./plugins/ before building
 # Path is relative to build context (./services from docker-compose.yml)
-COPY neo4j_baked/plugins/*.jar /var/lib/neo4j/plugins/
-
-# Set proper ownership and permissions for plugin files
-USER root
-RUN chown neo4j:neo4j /var/lib/neo4j/plugins/*.jar && \
-    chmod 644 /var/lib/neo4j/plugins/*.jar
-
-# Switch back to neo4j user for security
-USER neo4j
+COPY --chown=neo4j:neo4j --chmod=0644 neo4j_baked/plugins/*.jar /var/lib/neo4j/plugins/
 
 # Environment variables for plugin configuration
 # These enable unrestricted and allowlisted procedures

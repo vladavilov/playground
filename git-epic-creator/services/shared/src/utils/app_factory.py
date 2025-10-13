@@ -96,8 +96,26 @@ class FastAPIFactory:
                 except Exception as e:
                     logger.warning("Failed to close Neo4j client on shutdown", error=str(e))
             if hasattr(app.state, 'redis_client'):
-                await app.state.redis_client.close()
-                logger.info("Redis client closed on shutdown")
+                try:
+                    client = app.state.redis_client
+                    # Prefer aclose() if available (redis-py >=5), otherwise fallback to close()
+                    aclose = getattr(client, "aclose", None)
+                    if callable(aclose):
+                        await aclose()
+                    else:
+                        close = getattr(client, "close", None)
+                        if callable(close):
+                            res = close()
+                            # Close may return a coroutine in some versions
+                            try:
+                                import asyncio as _asyncio
+                                if _asyncio.iscoroutine(res):
+                                    await res
+                            except Exception:
+                                pass
+                    logger.info("Redis client closed on shutdown")
+                except Exception as e:
+                    logger.warning("Failed to close Redis client on shutdown", error=str(e))
             logger.info("Application shutting down")
 
         app = FastAPI(

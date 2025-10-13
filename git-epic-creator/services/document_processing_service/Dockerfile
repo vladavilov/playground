@@ -7,18 +7,16 @@
 # Build with custom VLM mode:
 # docker build --build-arg DOCLING_VLM_MODE=remote -t document-processing-service .
 #
-FROM python:3.13-slim-bookworm AS builder
+FROM python-service-base:latest
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/document_processing_service/src
 
 # Set DOCLING_VLM_MODE early to control conditional build steps
 # Default to 'local' if not provided, but can be overridden via build args
 ARG DOCLING_VLM_MODE=local
 ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE}
-
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
@@ -31,17 +29,8 @@ RUN pip install --no-cache-dir .
 WORKDIR /app/document_processing_service
 RUN pip install --no-cache-dir .
 
-FROM python:3.13-slim-bookworm AS final
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# Set DOCLING_VLM_MODE in final stage for runtime use
-ARG DOCLING_VLM_MODE=local
-ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE}
-
 # Install Java Runtime Environment, wget for Tika download, curl for healthchecks, and git for HF downloads
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     wget \
     curl \
@@ -84,13 +73,7 @@ RUN mkdir -p ${TIKA_LOG_PATH} && \
 
 # Note: Tika environment variables are now configured via docker-compose.env or environments
 
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-ENV PYTHONPATH=/app/src
-
 WORKDIR /app
-
-COPY --from=builder /app/document_processing_service/src/ ./src/
 
 # Hugging Face caches (only create directories for local VLM mode)
 ENV HF_HOME=/opt/hf-cache \
@@ -109,7 +92,7 @@ RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
 # Conditionally predownload local ungated VLM only when DOCLING_VLM_MODE=local
 RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
         echo "DOCLING_VLM_MODE=local: Downloading and caching Hugging Face model..." && \
-        python -m src.scripts.download_hf_model; \
+        python -m scripts.download_hf_model; \
     else \
         echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping Hugging Face model download (using remote VLM)"; \
     fi
@@ -117,7 +100,7 @@ RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
 # Conditionally pre-warm docling plugins and models only when DOCLING_VLM_MODE=local
 RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
         echo "DOCLING_VLM_MODE=local: Pre-warming docling plugins and models..." && \
-        python -m src.scripts.build_init; \
+        python -m scripts.build_init; \
     else \
         echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping docling pre-warm (using remote VLM)"; \
     fi
@@ -129,4 +112,4 @@ EXPOSE $API_PORT
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${API_PORT}/health/tika && curl -f http://localhost:${API_PORT}/health/celery || exit 1
 
-CMD ["python", "-m", "src.main"] 
+CMD ["python", "-m", "main"] 

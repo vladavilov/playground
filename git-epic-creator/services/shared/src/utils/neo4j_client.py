@@ -117,7 +117,7 @@ class Neo4jHealthChecker:
     """A class to check the health of the Neo4j database."""
 
     @staticmethod
-    async def check_health(client: Neo4jClient) -> dict:
+    async def check_health(client: Neo4jClient) -> bool:
         """
         Check Neo4j connection health.
         

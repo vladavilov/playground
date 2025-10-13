@@ -231,8 +231,8 @@ async def _run_graphrag_job_async(
         # Compute next attempts and schedule retry or DLQ based on configured policy (shared)
         to_dlq, countdown, next_attempts = compute_retry_decision(attempts or 0)
         if to_dlq:
-            await schedule_ingestion_retry(job_id, project_id, next_attempts, True)
+            await schedule_ingestion_retry(job_id, project_id, next_attempts, True, authorization_header=authorization_header)
         else:
-            await schedule_ingestion_retry(job_id, project_id, next_attempts, False, countdown=countdown)
+            await schedule_ingestion_retry(job_id, project_id, next_attempts, False, countdown=countdown, authorization_header=authorization_header)
         # Re-raise to surface failure to Celery for visibility
         raise

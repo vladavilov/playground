@@ -120,10 +120,10 @@ def test_azure_openai_provider_configuration(monkeypatch):
     """Test Azure OpenAI provider configuration."""
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
     
     settings = DoclingSettings()
     processor = DoclingProcessor(settings=settings)
@@ -196,9 +196,9 @@ def test_provider_factory_azure_openai(monkeypatch):
     """Test provider factory returns correct provider for azure_openai."""
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "test-key")
     
     settings = DoclingSettings()
     processor = DoclingProcessor(settings=settings)
@@ -231,9 +231,9 @@ def test_provider_switching(monkeypatch):
     # First: Azure OpenAI
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "test-key")
     
     settings1 = DoclingSettings()
     processor1 = DoclingProcessor(settings=settings1)
@@ -259,9 +259,9 @@ def test_azure_openai_missing_endpoint(monkeypatch):
     """Test error when Azure OpenAI endpoint is missing."""
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "test-key")
     
     settings = DoclingSettings()
     
@@ -269,16 +269,16 @@ def test_azure_openai_missing_endpoint(monkeypatch):
     with pytest.raises(ValueError) as exc_info:
         DoclingProcessor(settings=settings)
     
-    assert "AZURE_OPENAI_ENDPOINT is required" in str(exc_info.value)
+    assert "DOCLING_AZURE_OPENAI_ENDPOINT is required" in str(exc_info.value)
 
 
 def test_azure_openai_missing_deployment_name(monkeypatch):
     """Test error when Azure OpenAI deployment name is missing."""
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "test-key")
     
     settings = DoclingSettings()
     
@@ -286,16 +286,16 @@ def test_azure_openai_missing_deployment_name(monkeypatch):
     with pytest.raises(ValueError) as exc_info:
         DoclingProcessor(settings=settings)
     
-    assert "AZURE_OPENAI_DEPLOYMENT_NAME is required" in str(exc_info.value)
+    assert "DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME is required" in str(exc_info.value)
 
 
 def test_azure_openai_missing_api_key(monkeypatch):
     """Test error when Azure OpenAI API key is missing."""
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "")
     
     settings = DoclingSettings()
     
@@ -303,7 +303,7 @@ def test_azure_openai_missing_api_key(monkeypatch):
     with pytest.raises(ValueError) as exc_info:
         DoclingProcessor(settings=settings)
     
-    assert "AZURE_OPENAI_API_KEY is required" in str(exc_info.value)
+    assert "DOCLING_AZURE_OPENAI_API_KEY is required" in str(exc_info.value)
 
 
 def test_watsonx_missing_api_key(monkeypatch):
@@ -370,9 +370,9 @@ def test_response_format_doctags(monkeypatch):
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
     monkeypatch.setenv("DOCLING_VLM_RESPONSE_FORMAT", "DOCTAGS")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "test-key")
     
     settings = DoclingSettings()
     processor = DoclingProcessor(settings=settings)
@@ -388,9 +388,9 @@ def test_response_format_markdown(monkeypatch):
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
     monkeypatch.setenv("DOCLING_VLM_PROVIDER", "azure_openai")
     monkeypatch.setenv("DOCLING_VLM_RESPONSE_FORMAT", "MARKDOWN")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME", "test-deployment")
+    monkeypatch.setenv("DOCLING_AZURE_OPENAI_API_KEY", "test-key")
     
     settings = DoclingSettings()
     processor = DoclingProcessor(settings=settings)
