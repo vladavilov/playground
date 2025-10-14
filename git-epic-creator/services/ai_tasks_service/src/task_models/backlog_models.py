@@ -1,7 +1,6 @@
-"""Backlog data models for AI Tasks Service."""
+"""Backlog data models for AI Tasks Service (moved from local models)."""
 
 from typing import List, Optional
-from uuid import UUID
 from pydantic import BaseModel, Field
 
 
@@ -46,5 +45,6 @@ class Epic(BaseModel):
         None,
         description="Similar epics found in GitLab",
     )
+
 
 

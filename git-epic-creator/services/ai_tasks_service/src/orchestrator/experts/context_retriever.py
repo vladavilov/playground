@@ -3,7 +3,7 @@
 from typing import Any, List
 import structlog
 
-from models.agent_models import RequirementsAnalysis, RetrievedContext
+from task_models.agent_models import RequirementsAnalysis, RetrievedContext
 from orchestrator.experts.clients.graphrag_client import GraphRAGClient
 from config import get_ai_tasks_settings
 

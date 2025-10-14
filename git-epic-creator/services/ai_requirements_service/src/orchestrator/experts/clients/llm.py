@@ -19,24 +19,15 @@ def get_llm(temperature: float = None) -> ChatOpenAI:
     """
     settings = get_ai_requirements_settings()
     
-    # Build constructor arguments
     kwargs = {
         "model": settings.llm.OAI_MODEL,
+        "base_url": settings.llm.OAI_BASE_URL,
+        "api_key": settings.llm.OAI_KEY,
         "timeout": settings.LLM_TIMEOUT_SEC,
         # Azure OpenAI requires api-version query parameter. Prefer configured version when present.
         "default_query": {"api-version": settings.llm.OAI_API_VERSION or "2024-02-15-preview"},
+        "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE,
     }
-    
-    # Add base_url if provided
-    if settings.llm.OAI_BASE_URL:
-        kwargs["base_url"] = settings.llm.OAI_BASE_URL
-    
-    # Add API key if provided
-    if settings.llm.OAI_KEY:
-        kwargs["api_key"] = settings.llm.OAI_KEY
-    
-    # Use provided temperature or default from config
-    kwargs["temperature"] = temperature if temperature is not None else settings.LLM_TEMPERATURE
     
     return ChatOpenAI(**kwargs)
 

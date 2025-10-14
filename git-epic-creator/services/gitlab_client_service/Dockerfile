@@ -1,10 +1,8 @@
-FROM python:3.13-slim-bookworm AS builder
+FROM python-service-base:latest
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/gitlab_client_service/src
 
 WORKDIR /app
 
@@ -17,10 +15,7 @@ RUN pip install --no-cache-dir .
 WORKDIR /app/gitlab_client_service
 RUN pip install --no-cache-dir .
 
-FROM python-service-base:latest
-
-COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /app/gitlab_client_service/src/ ./src/
+WORKDIR /app
 
 ENV API_PORT=8000
 EXPOSE $API_PORT
@@ -28,4 +23,4 @@ EXPOSE $API_PORT
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${API_PORT}/health || exit 1
 
-CMD ["python", "-m", "src.main"] 
+CMD ["python", "-m", "main"] 

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 import structlog
 
 from utils.app_factory import get_redis_client_from_state
-from workflow_models.workflow_models import RequirementsBundle, QuestionAnswer
+from workflow_models.requirements_models import RequirementsBundle, QuestionAnswer
 from services.ai_workflow_status_publisher import AiWorkflowStatusPublisher
 from orchestrator.orchestrator import (
     run_requirements_workflow,

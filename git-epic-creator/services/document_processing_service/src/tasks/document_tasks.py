@@ -4,7 +4,6 @@
 from __future__ import annotations
 from typing import Dict, Any, TYPE_CHECKING
 import os
-import asyncio
 import structlog
 
 from utils.blob_storage import BlobStorageClient
@@ -13,6 +12,7 @@ from tasks.document_core import process_project_documents_core
 from celery_worker_app import celery_app, get_docling_processor, get_tika_processor
 from utils.redis_client import get_sync_redis_client
 from utils.workflow_gating import gate_and_enqueue_sync, cleanup_after_run_sync
+from utils.asyncio_runner import run_async
 
 if TYPE_CHECKING:
     from services.docling_processor import DoclingProcessor
@@ -157,7 +157,37 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
         document_processor = _ProcessorDispatcher(get_docling_processor(), get_tika_processor())
 
         def _send_progress_update(pid: str, processed: int, total: int) -> Dict[str, Any]:
-            return asyncio.run(_update_project_progress_via_http(pid, processed, total, authorization_header=auth_header))
+            """Synchronous wrapper for async progress update using persistent event loop."""
+            logger.info("PROGRESS_UPDATE_CALL",
+                       project_id=pid,
+                       processed_count=processed,
+                       total_count=total,
+                       expected_status="processing" if processed == 0 else ("active" if processed >= total else "processing"))
+            
+            try:
+                # Use persistent event loop runner (consistent with neo4j_ingestion_service)
+                result = run_async(_update_project_progress_via_http(pid, processed, total, authorization_header=auth_header))
+                
+                logger.info("PROGRESS_UPDATE_COMPLETED",
+                          project_id=pid,
+                          processed=processed,
+                          total=total,
+                          success=result.get('success'))
+                return result
+                    
+            except Exception as progress_error:
+                logger.error("PROGRESS_UPDATE_EXCEPTION",
+                           project_id=pid,
+                           processed=processed,
+                           total=total,
+                           error=str(progress_error),
+                           error_type=type(progress_error).__name__,
+                           exc_info=True)
+                return {
+                    'success': False,
+                    'project_id': pid,
+                    'error_message': f"Progress update failed: {str(progress_error)}"
+                }
 
         result = process_project_documents_core(
             project_id=project_id,
@@ -168,28 +198,59 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
         )
 
         if isinstance(result, dict):
-            try:
-                def _enqueue_ingestion() -> None:
-                    logger.info("Enqueueing GraphRAG ingestion task",
-                               project_id=project_id,
-                               task_id=self.request.id,
-                               has_auth_header=bool(auth_header),
-                               auth_header_length=len(auth_header) if auth_header else 0)
-                    celery_app.send_task(
-                        TASK_RUN_GRAPHRAG_JOB,
-                        args=[self.request.id, project_id, 0],
-                        queue=QUEUE_NEO4J_INGESTION,
-                        headers={"Authentication": auth_header},
-                    )
+            # Only trigger ingestion if there are valid documents with content
+            processed_count = result.get("processed_documents", 0)
+            empty_count = result.get("empty_documents", 0)
+            
+            if processed_count > 0:
+                # We have valid documents with content - trigger ingestion
+                try:
+                    def _enqueue_ingestion() -> None:
+                        logger.info("Enqueueing GraphRAG ingestion task",
+                                   project_id=project_id,
+                                   task_id=self.request.id,
+                                   processed_documents=processed_count,
+                                   has_auth_header=bool(auth_header),
+                                   auth_header_length=len(auth_header) if auth_header else 0)
+                        celery_app.send_task(
+                            TASK_RUN_GRAPHRAG_JOB,
+                            args=[self.request.id, project_id, 0],
+                            queue=QUEUE_NEO4J_INGESTION,
+                            headers={"Authentication": auth_header},
+                        )
 
-                gate_and_enqueue_sync(
-                    GATE_NS_INGESTION,
-                    project_id,
-                    client=sync_client,
-                    enqueue=_enqueue_ingestion,
+                    gate_and_enqueue_sync(
+                        GATE_NS_INGESTION,
+                        project_id,
+                        client=sync_client,
+                        enqueue=_enqueue_ingestion,
+                    )
+                except Exception as pub_error:
+                    logger.error('Failed to enqueue ingestion task', error=str(pub_error))
+            else:
+                # No valid documents to ingest - update project status but don't trigger ingestion
+                logger.warning(
+                    "Skipping ingestion trigger - no valid documents with content",
+                    project_id=project_id,
+                    empty_documents=empty_count,
+                    failed_documents=result.get("failed_documents", 0),
+                    total_documents=result.get("total_documents", 0)
                 )
-            except Exception as pub_error:
-                logger.error('Failed to enqueue ingestion task', error=str(pub_error))
+                
+                # Update project status to indicate empty content issue
+                try:
+                    error_message = f"All documents ({empty_count}) have empty or whitespace-only content"
+                    async def _update_status():
+                        async with ProjectManagementClient() as client:
+                            await client.update_project_status(
+                                project_id=project_id,
+                                status="processing_failed",
+                                error_message=error_message,
+                                authorization_header=auth_header,
+                            )
+                    run_async(_update_status())
+                except Exception as status_error:
+                    logger.error('Failed to update project status for empty documents', error=str(status_error))
         return result
 
     except Exception as e:

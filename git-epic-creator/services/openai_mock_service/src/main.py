@@ -1,42 +1,33 @@
 import os
-from fastapi import FastAPI, Request
-from fastapi.responses import ORJSONResponse
-from fastapi.exceptions import RequestValidationError
 import structlog
 import uvicorn
+from fastapi import FastAPI
+from fastapi.responses import ORJSONResponse
 
-from config import get_config
+from configuration.logging_config import configure_logging
+from configuration.common_config import get_app_settings
+from utils.app_factory import FastAPIFactory
 from routers import health, models, chat, embeddings, azure
+from embeddings.service import EmbeddingService
 
 
-# Ensure Hugging Face cache dir uses HF_HOME to avoid deprecation warning
-if os.getenv("HF_HOME") is None:
-    os.environ.setdefault("HF_HOME", os.getenv("TRANSFORMERS_CACHE", "/models/hf-cache"))
 
 
-def configure_logging() -> None:
-    """Minimal structlog setup compatible with other services."""
-    structlog.configure(
-        processors=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.JSONRenderer(),
-        ],
-    )
-
-
+# Configure shared logging
 configure_logging()
 logger = structlog.get_logger(__name__)
 
-app = FastAPI(default_response_class=ORJSONResponse)
 
+# Create app via shared factory (uses shared ErrorHandler and lifespan)
+app: FastAPI = FastAPIFactory.create_app(
+    title="OpenAI Mock Service",
+    description="Mock of OpenAI endpoints for local development and tests",
+    version="1.0.0",
+    enable_cors=True,
+)
 
-@app.exception_handler(RequestValidationError)
-async def request_validation_exception_handler(
-    request: Request, exc: RequestValidationError
-) -> ORJSONResponse:
-    return ORJSONResponse(status_code=400, content={"detail": "Bad Request"})
-
+# Default ORJSON response class for performance
+app.default_response_class = ORJSONResponse
 
 # Include routers
 app.include_router(health.router)
@@ -46,7 +37,19 @@ app.include_router(embeddings.router)
 app.include_router(azure.router)
 
 
+# Warm up embeddings model at startup to ensure quick first request
+@app.on_event("startup")
+async def _warmup_embeddings() -> None:
+    try:
+        service = EmbeddingService()
+        _ = service.embed_texts(["warmup"])  # single short input, cached model init
+        logger.info("embeddings_warmup_complete")
+    except Exception as exc:
+        # Do not crash app; embeddings endpoint will surface error if invoked
+        logger.warning("embeddings_warmup_failed", error=str(exc))
+
 if __name__ == "__main__":
-    cfg = get_config()
-    uvicorn.run(app, host="0.0.0.0", port=int(cfg["API_PORT"]))
+    settings = get_app_settings()
+    port = int(settings.API_PORT)
+    uvicorn.run(app, host="0.0.0.0", port=port)
 

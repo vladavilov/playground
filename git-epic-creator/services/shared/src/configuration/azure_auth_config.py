@@ -63,7 +63,7 @@ class AzureAuthSettings(BaseConfig):
         description="Azure AD scope description"
     )
     AZURE_AD_AUTHORITY: str = Field(
-        default="https://login.mock.com",
+        default="https://localhost:8005",
         description="Azure AD authority URL"
     )
     

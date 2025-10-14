@@ -130,6 +130,7 @@ def process_project_documents_core(
     total_documents = len(file_list)
     processed_documents = 0
     failed_documents = 0
+    empty_documents = 0
     documents_for_ingestion: List[Dict[str, Any]] = []
 
     if total_documents == 0:
@@ -159,12 +160,15 @@ def process_project_documents_core(
                 "Initial progress update failed, continuing processing",
                 project_id=project_id,
                 error=init_progress_result.get("error_message"),
+                status_code=init_progress_result.get("status_code")
             )
     except Exception as init_progress_error:  # pragma: no cover - side-effect logging only
         log.error(
             "Initial progress update failed with exception, continuing processing",
             project_id=project_id,
             error=str(init_progress_error),
+            error_type=type(init_progress_error).__name__,
+            exc_info=True
         )
 
     # Process each file
@@ -182,11 +186,24 @@ def process_project_documents_core(
 
             processing_result = document_processor.extract_text_with_result(temp_file_path)
             if getattr(processing_result, "success", False):
+                extracted_text = getattr(processing_result, "extracted_text", None) or ""
+                
+                # Check if extracted text is empty or only whitespace
+                if not extracted_text.strip():
+                    empty_documents += 1
+                    log.warning(
+                        "Document has empty or whitespace-only text content - skipping upload",
+                        blob_name=blob_name,
+                        text_length=len(extracted_text)
+                    )
+                    # Skip JSON creation and upload for empty documents
+                    continue
+                
                 # Map to ingestion document schema fields (creation_date unknown upstream)
                 documents_for_ingestion.append({
                     "id": None,
                     "title": os.path.basename(blob_name),
-                    "text": getattr(processing_result, "extracted_text", None) or "",
+                    "text": extracted_text,
                     "creation_date": None,
                     "metadata": getattr(processing_result, "metadata", None),
                 })
@@ -201,7 +218,7 @@ def process_project_documents_core(
 
                     output_payload = {
                         "title": os.path.basename(blob_name),
-                        "text": getattr(processing_result, "extracted_text", None) or "",
+                        "text": extracted_text,
                         "metadata": filtered_metadata
                     }
                     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as json_tmp:
@@ -222,7 +239,7 @@ def process_project_documents_core(
             try:
                 progress_result = send_progress_update(
                     project_id,
-                    processed_documents + failed_documents,
+                    processed_documents + failed_documents + empty_documents,
                     total_documents,
                 )
                 if not progress_result.get("success"):
@@ -280,6 +297,7 @@ def process_project_documents_core(
         project_id=project_id,
         processed_documents=processed_documents,
         failed_documents=failed_documents,
+        empty_documents=empty_documents,
         deleted_count=deleted_count,
         already_deleted_count=already_deleted_count,
     )
@@ -290,6 +308,7 @@ def process_project_documents_core(
         "total_documents": total_documents,
         "processed_documents": processed_documents,
         "failed_documents": failed_documents,
+        "empty_documents": empty_documents,
         "documents_for_ingestion": documents_for_ingestion,
         "cleanup": {
             "deleted_count": deleted_count,

@@ -11,6 +11,8 @@ docker-compose up openai-mock-service -d
 
 Runs on `http://localhost:8010/v1`
 
+Note: Embeddings are mocked deterministically; no model download is required.
+
 ---
 
 ## Architecture
@@ -20,7 +22,6 @@ Runs on `http://localhost:8010/v1`
 ```
 src/
 ├── main.py                 # FastAPI app entry point
-├── config.py               # Environment configuration
 ├── auth.py                 # Authentication logic
 ├── handlers/               # Prompt-specific response generators (23 handlers)
 │   ├── base.py            # BaseHandler + HandlerRegistry
@@ -31,8 +32,7 @@ src/
 │   ├── search.py          # 5 search/summarization handlers
 │   └── fallback.py        # 1 default graph generator
 ├── embeddings/
-│   ├── loader.py          # Local Jina model loader
-│   └── service.py         # EmbeddingService
+│   └── service.py         # EmbeddingService (deterministic mock vectors)
 └── routers/
     ├── health.py          # Health check
     ├── models.py          # Model listing
@@ -151,7 +151,7 @@ POST /v1/embeddings
 }
 ```
 
-**Embeddings:** Local Jina model (`jina-embeddings-v2-base-en`), dimension fitting to target model.
+**Embeddings:** Deterministic pseudo-random vectors sized to `VECTOR_INDEX_DIMENSIONS`.
 
 ---
 
@@ -167,17 +167,23 @@ POST /v1/embeddings
 
 ---
 
-## Configuration (Environment Variables)
+## Configuration
+
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `API_PORT` | `8000` | HTTP port |
-| `OAI_KEY` | - | API key (optional, enables auth) |
-| `OAI_MODEL` | `gpt-4.1` | Chat model name |
-| `OAI_EMBED_MODEL` | `text-embedding-3-large` | Embeddings model name |
-| `VECTOR_INDEX_DIMENSIONS` | `1536` | Embedding vector size |
-| `HF_HOME` | `/models/hf-cache` | Hugging Face cache directory |
-| `TRANSFORMERS_CACHE` | - | Fallback for HF_HOME |
+| `API_PORT` | `8000` | HTTP port (from shared `AppSettings.API_PORT`) |
+| `OAI_KEY` | - | API key (optional, enables auth) (from shared `LlmConfig.OAI_KEY`) |
+| `OAI_MODEL` | `gpt-4o-mini` | Chat model name (from shared `LlmConfig.OAI_MODEL`) |
+| `OAI_EMBED_MODEL` | `text-embedding-3-small` | Embeddings model name (from shared `LlmConfig.OAI_EMBED_MODEL`) |
+| `VECTOR_INDEX_DIMENSIONS` | `1536` | Embedding vector size (from shared `VectorIndexEnv.VECTOR_INDEX_DIMENSIONS`) |
+
+### Build Arguments
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PRECACHE_MODELS` | `true` | Download embeddings model during build (set to `false` to skip) |
 
 **Note:** Use `docker-compose.env` for consistent test environment.
 
@@ -237,17 +243,15 @@ POST /v1/embeddings
 ## Deployment
 
 **Docker:**
-- Python 3.10+
+- Python 3.12+ slim-bookworm
 - FastAPI + uvicorn
 - Minimal dependencies (no Azure/Postgres/Redis)
 - Listen: `0.0.0.0:${API_PORT}`
 - Network: `git_epic_creator_network`
 - Healthcheck: `GET /health`
 
-**Image Optimization:**
-- No shared service libraries (to minimize dependencies)
-- Local Jina embeddings model cached at build time
-- No persistence, metrics, or tracing
+**Image:** Minimal; no model downloads; no persistence, metrics, or tracing
+
 
 ---
 

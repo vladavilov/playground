@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends
 from utils.local_auth import get_local_user_verified, LocalUser
 from pydantic import BaseModel
 
-from ..services.clients import get_llm, get_embedder, get_neo4j_session
-from ..services.retrieval_service import Neo4jRetrievalService
+from services.clients import get_llm, get_embedder, get_neo4j_session
+from services.retrieval_service import Neo4jRetrievalService
 
 
 retrieval_router = APIRouter()

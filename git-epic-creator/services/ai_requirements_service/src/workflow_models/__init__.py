@@ -1,12 +1,12 @@
 """AI Workflow Service models export package."""
 
-from .workflow_models import (
+from workflow_models.requirements_models import (
     Requirement,
     ClarificationQuestion,
     QuestionAnswer,
     RequirementsBundle,
 )
-from .progress_messages import (
+from models.progress_messages import (
     WorkflowStatus,
     WorkflowProgressMessage,
 )

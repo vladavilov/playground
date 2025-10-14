@@ -1,9 +1,9 @@
-"""Internal agent/expert data models for backlog generation workflow."""
+"""Internal agent/expert data models for backlog generation workflow (moved)."""
 
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
-from .backlog_models import Epic, Task
+from .backlog_models import Epic
 
 
 class RequirementsAnalysis(BaseModel):
@@ -75,5 +75,6 @@ class ClarificationPlan(BaseModel):
         default_factory=list,
         description="Areas needing clarification: coverage/specificity/feasibility/duplication",
     )
+
 
 
