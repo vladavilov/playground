@@ -25,11 +25,13 @@ class EmbeddingService:
         target_dim = int(get_config()["EMBEDDINGS_SIZE"] or "1536")
         
         # Return plain python lists to avoid numpy dependency overhead
+        # Use conservative batch size to avoid memory spikes
         embeddings = self._embedder.encode(  # type: ignore[attr-defined]
             texts,
             show_progress_bar=False,
             convert_to_numpy=False,
             normalize_embeddings=False,
+            batch_size=1,
         )
         
         # Ensure primitives and fit to target dimension
