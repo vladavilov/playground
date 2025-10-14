@@ -8,6 +8,7 @@ any custom code dependencies required at runtime (offline).
 
 import os
 from pathlib import Path
+import json
 import structlog
 from huggingface_hub import snapshot_download  # type: ignore
 logger = structlog.get_logger(__name__)
@@ -35,9 +36,21 @@ def main() -> None:
         )
 
         # 2) Warm cache for the custom implementation repo referenced by trust_remote_code
-        #    so runtime can operate fully offline
-        logger.info("snapshot_download_impl_repo", repo=IMPL_REPO)
-        snapshot_download(repo_id=IMPL_REPO, local_dir_use_symlinks=False)
+        #    so runtime can operate fully offline. Pin to the revision referenced by the model config if available
+        #    to avoid unexpected remote code updates.
+        try:
+            cfg_path = target_dir / "config.json"
+            code_rev = None
+            if cfg_path.exists():
+                with cfg_path.open("r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                code_rev = cfg.get("code_revision") or cfg.get("auto_map", {}).get("code_revision")
+            logger.info("snapshot_download_impl_repo", repo=IMPL_REPO, revision=str(code_rev))
+            snapshot_download(repo_id=IMPL_REPO, revision=code_rev, local_dir_use_symlinks=False)
+        except Exception:
+            # Fallback to latest if parsing fails; runtime is still offline thanks to cache
+            logger.info("snapshot_download_impl_repo_fallback_latest", repo=IMPL_REPO)
+            snapshot_download(repo_id=IMPL_REPO, local_dir_use_symlinks=False)
 
         # 3) Verify the model directory contains essential files
         config_file = target_dir / "config.json"
