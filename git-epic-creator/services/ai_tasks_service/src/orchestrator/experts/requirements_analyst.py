@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 
-from models.agent_models import RequirementsAnalysis
+from task_models.agent_models import RequirementsAnalysis
 from orchestrator.experts.clients.llm import get_llm
 
 

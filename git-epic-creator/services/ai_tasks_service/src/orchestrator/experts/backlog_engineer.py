@@ -4,8 +4,8 @@ from typing import List
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 
-from models.agent_models import RequirementsAnalysis, RetrievedContext, BacklogDraft, AuditFindings
-from models.backlog_models import Epic, Task
+from task_models.agent_models import RequirementsAnalysis, RetrievedContext, BacklogDraft, AuditFindings
+from task_models.backlog_models import Epic, Task
 from orchestrator.experts.clients.llm import get_llm
 
 

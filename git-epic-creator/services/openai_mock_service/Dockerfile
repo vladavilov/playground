@@ -1,5 +1,8 @@
 FROM python:3.12-slim-bookworm
 
+# Build argument to control model precaching
+ARG PRECACHE_MODELS=true
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/openai_mock_service/src \
@@ -25,6 +28,15 @@ WORKDIR /app/openai_mock_service
 RUN pip install --retries 2 --prefer-binary --timeout 30 --no-cache-dir .
 
 WORKDIR /app
+
+# Download and cache embeddings model during build if PRECACHE_MODELS is true
+# This ensures the model is available offline at runtime
+RUN if [ "$PRECACHE_MODELS" = "true" ]; then \
+        echo "Downloading and caching embeddings model..."; \
+        python -m build_init || exit 1; \
+    else \
+        echo "Skipping model precaching (PRECACHE_MODELS=$PRECACHE_MODELS)"; \
+    fi
 
 ENV API_PORT=8000
 EXPOSE $API_PORT

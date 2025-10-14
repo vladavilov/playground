@@ -12,11 +12,10 @@ from fastapi import FastAPI, Response, Request, status
 from fastapi.responses import RedirectResponse, JSONResponse
 from jose import jwt
 import uvicorn
-import structlog
 
 from config import settings
 from key_manager import KeyManager
-from shared.src.configuration.logging_config import configure_logging
+from configuration.logging_config import configure_logging
 
 # Initialize persistent key management
 key_manager = KeyManager()

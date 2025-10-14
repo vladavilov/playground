@@ -3,7 +3,7 @@
 from uuid import UUID, uuid4
 from typing import List
 
-from models.request_models import GeneratedBacklogBundle
+from task_models.request_models import GeneratedBacklogBundle
 from services.ai_tasks_status_publisher import AiTasksStatusPublisher
 from config import get_ai_tasks_settings
 from orchestrator import graph_pipeline as lg_pipeline

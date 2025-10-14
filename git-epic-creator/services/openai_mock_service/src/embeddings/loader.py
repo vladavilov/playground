@@ -16,6 +16,15 @@ def load_embedder():
     model_dir = os.path.join(os.getcwd(), "models", "embeddings", "jina-embeddings-v2-base-en")
     if not os.path.isdir(model_dir):
         raise RuntimeError(f"Embedding model directory not found: {model_dir}")
+    
+    # Check for essential model files
+    config_path = os.path.join(model_dir, "config.json")
+    if not os.path.isfile(config_path):
+        raise RuntimeError(
+            f"Embedding model directory exists but config.json not found: {model_dir}. "
+            "The model may not have been properly downloaded during build. "
+            "Rebuild the image with PRECACHE_MODELS=true."
+        )
 
     # Attempt Sentence-Transformers loading path
     try:
@@ -24,13 +33,14 @@ def load_embedder():
         st_model = SentenceTransformer(
             model_dir,
             model_kwargs={"attn_implementation": "eager"},
+            trust_remote_code=True,
         )
         # Truncate long inputs to speed up and avoid OOM
         st_model.max_seq_length = 10000
         logger.info("embedder_loaded", backend="sentence-transformers", path=model_dir)
         return st_model
     except Exception as exc:
-        logger.warning("embedder_st_load_failed", error=str(exc))
+        logger.warning("embedder_st_load_failed", error=str(exc), model_dir=model_dir)
 
     # Fallback: load with raw Transformers and implement mean pooling
     try:

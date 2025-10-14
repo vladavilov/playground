@@ -7,13 +7,13 @@ plus an aggregated readiness endpoint.
 import structlog
 from fastapi import FastAPI
 from utils.app_factory import FastAPIFactory
-from .routers.retrieval_router import retrieval_router
+from routers.retrieval_router import retrieval_router
 
 from configuration.logging_config import configure_logging
 from configuration.common_config import get_app_settings
 
 # Backward-compatibility for tests expecting this symbol at module scope
-from .services.clients import get_neo4j_session as get_neo4j_session  # noqa: E402,F401
+from services.clients import get_neo4j_session as get_neo4j_session  # noqa: E402,F401
 
 # Initialize logging before creating the app
 configure_logging()

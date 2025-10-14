@@ -30,13 +30,18 @@ WORKDIR /app/document_processing_service
 RUN pip install --no-cache-dir .
 
 # Install Java Runtime Environment, wget for Tika download, curl for healthchecks, and git for HF downloads
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jre-headless \
-    wget \
-    curl \
-    git \
-    && rm -rf /var/lib/apt/lists/* && \
-    java -version
+RUN for i in 1 2 3 4 5; do \
+    find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) -print0 | xargs -0 sed -i 's|http://|https://|g'; \
+    apt-get update && \
+    apt-get install -y --no-install-recommends --fix-missing \
+        openjdk-17-jre-headless \
+        wget \
+        libgl1 \
+        git && \
+    rm -rf /var/lib/apt/lists/* && \
+    java -version && \
+    break || (echo "Retry $i/5 failed, waiting..." && sleep 5); \
+  done
 
 # Set JAVA_HOME and update PATH to include Java
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64

@@ -1,9 +1,7 @@
-from typing import Iterator
-
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from neo4j import GraphDatabase, Session
 
-from ..config import get_retrieval_settings
+from config import get_retrieval_settings
 
 
 def get_llm(temperature: float | None = None) -> ChatOpenAI:

@@ -13,7 +13,6 @@ RUN for i in 1 2 3 4 5; do \
         apt-get update && \
         apt-get install -y --no-install-recommends --fix-missing \
             ca-certificates \
-            build-essential \
             curl \
             libstdc++6 \
             libgcc-s1 \
@@ -22,8 +21,7 @@ RUN for i in 1 2 3 4 5; do \
         break || \
         (echo "Retry $i/5 failed, waiting..." && sleep 5); \
     done && \
-    update-ca-certificates && \
-    gcc --version && curl --version
+    update-ca-certificates && curl --version
 
 WORKDIR /app
 

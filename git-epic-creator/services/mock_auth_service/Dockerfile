@@ -6,7 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+COPY ./shared/ ./shared/
 COPY ./mock_auth_service/ ./mock_auth_service/
+
+WORKDIR /app/shared
+RUN pip install --no-cache-dir .
 
 WORKDIR /app/mock_auth_service
 RUN pip install --no-cache-dir .

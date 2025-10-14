@@ -11,6 +11,8 @@ docker-compose up openai-mock-service -d
 
 Runs on `http://localhost:8010/v1`
 
+**Important:** The service downloads the `jina-embeddings-v2-base-en` model during build time (controlled by `PRECACHE_MODELS` build arg). First build may take several minutes depending on network speed.
+
 ---
 
 ## Architecture
@@ -22,6 +24,7 @@ src/
 ├── main.py                 # FastAPI app entry point
 ├── config.py               # Environment configuration
 ├── auth.py                 # Authentication logic
+├── build_init.py          # Build-time model downloader
 ├── handlers/               # Prompt-specific response generators (23 handlers)
 │   ├── base.py            # BaseHandler + HandlerRegistry
 │   ├── drift_search.py    # 6 DRIFT-search handlers
@@ -167,7 +170,9 @@ POST /v1/embeddings
 
 ---
 
-## Configuration (Environment Variables)
+## Configuration
+
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -176,8 +181,15 @@ POST /v1/embeddings
 | `OAI_MODEL` | `gpt-4.1` | Chat model name |
 | `OAI_EMBED_MODEL` | `text-embedding-3-large` | Embeddings model name |
 | `VECTOR_INDEX_DIMENSIONS` | `1536` | Embedding vector size |
-| `HF_HOME` | `/models/hf-cache` | Hugging Face cache directory |
-| `TRANSFORMERS_CACHE` | - | Fallback for HF_HOME |
+| `HF_HOME` | `/app/models/hf-cache` | Hugging Face cache directory |
+| `TRANSFORMERS_CACHE` | `/app/models/hf-cache` | Fallback for HF_HOME |
+| `EMBED_MODEL_DIR` | `/app/models/embeddings/jina-embeddings-v2-base-en` | Local embeddings model path |
+
+### Build Arguments
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PRECACHE_MODELS` | `true` | Download embeddings model during build (set to `false` to skip) |
 
 **Note:** Use `docker-compose.env` for consistent test environment.
 
@@ -237,7 +249,7 @@ POST /v1/embeddings
 ## Deployment
 
 **Docker:**
-- Python 3.10+
+- Python 3.12+ slim-bookworm
 - FastAPI + uvicorn
 - Minimal dependencies (no Azure/Postgres/Redis)
 - Listen: `0.0.0.0:${API_PORT}`
@@ -246,8 +258,17 @@ POST /v1/embeddings
 
 **Image Optimization:**
 - No shared service libraries (to minimize dependencies)
-- Local Jina embeddings model cached at build time
+- Local Jina embeddings model (`jinaai/jina-embeddings-v2-base-en`) cached at build time using `build_init.py`
+- Model saved with `save_pretrained()` to ensure proper Hugging Face format with `config.json` and all required files
 - No persistence, metrics, or tracing
+
+**Build Process:**
+1. Install dependencies (shared + openai_mock_service)
+2. Run `python -m build_init` (if `PRECACHE_MODELS=true`)
+   - Downloads `jinaai/jina-embeddings-v2-base-en` from Hugging Face
+   - Saves to `/app/models/embeddings/jina-embeddings-v2-base-en` using `save_pretrained()`
+   - Verifies `config.json` exists
+3. Runtime loads model from local directory (offline mode)
 
 ---
 
