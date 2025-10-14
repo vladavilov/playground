@@ -249,6 +249,9 @@ class ProjectService:
             elif status == ProjectStatus.RAG_READY:
                 project.processed_pct = 100.0
 
+            # Ensure pending changes are visible to subsequent refresh and publishers
+            # Flush before refresh so the in-memory object reflects the latest DB values.
+            session.flush()
             session.refresh(project)
 
             logger.info("Project progress updated", project_id=str(project_id), new_status=project.status, processed_pct=project.processed_pct)

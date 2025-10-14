@@ -8,7 +8,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 
-from workflow_models.workflow_models import RequirementsBundle
+from workflow_models.requirements_models import RequirementsBundle
 from workflow_models.agent_models import AuditFindings
 from orchestrator.experts.prompt_analyst import PromptAnalyst
 from orchestrator.experts.context_retriever import ContextRetriever

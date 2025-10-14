@@ -1,7 +1,7 @@
 from typing import List
 from pydantic import BaseModel, Field
 
-from workflow_models.workflow_models import Requirement, ClarificationQuestion
+from workflow_models.requirements_models import Requirement, ClarificationQuestion
 
 
 class PromptAnalysis(BaseModel):

@@ -10,15 +10,15 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from fastapi import HTTPException
 
-from ..config import get_retrieval_settings
-from ..retrieval_ms.prompts import (
+from config import get_retrieval_settings
+from retrieval_ms.prompts import (
     hyde_prompt,
     build_hyde_embed_text,
     primer_prompt,
     local_executor_prompt,
     aggregator_prompt,
 )
-from ..retrieval_ms.repositories.neo4j_repository import Neo4jRepository
+from retrieval_ms.repositories.neo4j_repository import Neo4jRepository
 
 
 GetSessionFn = Callable[[], Any]

@@ -6,8 +6,8 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from openai import AzureOpenAI
 
-from models.agent_models import BacklogDraft, DuplicateMappings
-from models.backlog_models import Epic, Task, SimilarMatch
+from task_models.agent_models import BacklogDraft, DuplicateMappings
+from task_models.backlog_models import Epic, Task, SimilarMatch
 from config import get_ai_tasks_settings
 
 logger = structlog.get_logger(__name__)

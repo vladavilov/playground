@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID, uuid4
 
-from workflow_models.workflow_models import RequirementsBundle, QuestionAnswer
+from workflow_models.requirements_models import RequirementsBundle, QuestionAnswer
 from services.ai_workflow_status_publisher import AiWorkflowStatusPublisher
 import config
 from orchestrator import graph_pipeline as lg_pipeline

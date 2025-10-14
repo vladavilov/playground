@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from workflow_models.workflow_models import Requirement
+from workflow_models.requirements_models import Requirement
 from workflow_models.agent_models import DraftRequirements, PromptAnalysis, RetrievedContext, AuditFindings
 from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm

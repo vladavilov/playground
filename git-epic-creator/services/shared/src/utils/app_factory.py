@@ -10,6 +10,7 @@ from utils.redis_client import get_redis_client
 from utils.blob_storage import get_blob_storage_client, BlobStorageClient
 from utils.error_handler import ErrorHandler
 import redis.asyncio as redis
+import asyncio as _asyncio
 
 logger = structlog.get_logger(__name__)
 
@@ -108,7 +109,6 @@ class FastAPIFactory:
                             res = close()
                             # Close may return a coroutine in some versions
                             try:
-                                import asyncio as _asyncio
                                 if _asyncio.iscoroutine(res):
                                     await res
                             except Exception:

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Header
 from utils.local_auth import get_local_user_verified, LocalUser
 from utils.app_factory import get_redis_client_from_state
 
-from models.request_models import TasksChatRequest, GeneratedBacklogBundle
+from task_models.request_models import TasksChatRequest, GeneratedBacklogBundle
 from services.ai_tasks_status_publisher import AiTasksStatusPublisher
 from orchestrator.orchestrator import run_backlog_workflow
 
