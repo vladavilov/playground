@@ -11,7 +11,7 @@ docker-compose up openai-mock-service -d
 
 Runs on `http://localhost:8010/v1`
 
-**Important:** The service downloads the `jina-embeddings-v2-base-en` model during build time (controlled by `PRECACHE_MODELS` build arg). First build may take several minutes depending on network speed.
+Note: Embeddings are mocked deterministically; no model download is required.
 
 ---
 
@@ -22,9 +22,7 @@ Runs on `http://localhost:8010/v1`
 ```
 src/
 ├── main.py                 # FastAPI app entry point
-├── config.py               # Environment configuration
 ├── auth.py                 # Authentication logic
-├── build_init.py          # Build-time model downloader
 ├── handlers/               # Prompt-specific response generators (23 handlers)
 │   ├── base.py            # BaseHandler + HandlerRegistry
 │   ├── drift_search.py    # 6 DRIFT-search handlers
@@ -34,8 +32,7 @@ src/
 │   ├── search.py          # 5 search/summarization handlers
 │   └── fallback.py        # 1 default graph generator
 ├── embeddings/
-│   ├── loader.py          # Local Jina model loader
-│   └── service.py         # EmbeddingService
+│   └── service.py         # EmbeddingService (deterministic mock vectors)
 └── routers/
     ├── health.py          # Health check
     ├── models.py          # Model listing
@@ -154,7 +151,7 @@ POST /v1/embeddings
 }
 ```
 
-**Embeddings:** Local Jina model (`jina-embeddings-v2-base-en`), dimension fitting to target model.
+**Embeddings:** Deterministic pseudo-random vectors sized to `VECTOR_INDEX_DIMENSIONS`.
 
 ---
 
@@ -176,14 +173,11 @@ POST /v1/embeddings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `API_PORT` | `8000` | HTTP port |
-| `OAI_KEY` | - | API key (optional, enables auth) |
-| `OAI_MODEL` | `gpt-4.1` | Chat model name |
-| `OAI_EMBED_MODEL` | `text-embedding-3-large` | Embeddings model name |
-| `VECTOR_INDEX_DIMENSIONS` | `1536` | Embedding vector size |
-| `HF_HOME` | `/app/models/hf-cache` | Hugging Face cache directory |
-| `TRANSFORMERS_CACHE` | `/app/models/hf-cache` | Fallback for HF_HOME |
-| `EMBED_MODEL_DIR` | `/app/models/embeddings/jina-embeddings-v2-base-en` | Local embeddings model path |
+| `API_PORT` | `8000` | HTTP port (from shared `AppSettings.API_PORT`) |
+| `OAI_KEY` | - | API key (optional, enables auth) (from shared `LlmConfig.OAI_KEY`) |
+| `OAI_MODEL` | `gpt-4o-mini` | Chat model name (from shared `LlmConfig.OAI_MODEL`) |
+| `OAI_EMBED_MODEL` | `text-embedding-3-small` | Embeddings model name (from shared `LlmConfig.OAI_EMBED_MODEL`) |
+| `VECTOR_INDEX_DIMENSIONS` | `1536` | Embedding vector size (from shared `VectorIndexEnv.VECTOR_INDEX_DIMENSIONS`) |
 
 ### Build Arguments
 
@@ -256,19 +250,8 @@ POST /v1/embeddings
 - Network: `git_epic_creator_network`
 - Healthcheck: `GET /health`
 
-**Image Optimization:**
-- No shared service libraries (to minimize dependencies)
-- Local Jina embeddings model (`jinaai/jina-embeddings-v2-base-en`) cached at build time using `build_init.py`
-- Model saved with `save_pretrained()` to ensure proper Hugging Face format with `config.json` and all required files
-- No persistence, metrics, or tracing
+**Image:** Minimal; no model downloads; no persistence, metrics, or tracing
 
-**Build Process:**
-1. Install dependencies (shared + openai_mock_service)
-2. Run `python -m build_init` (if `PRECACHE_MODELS=true`)
-   - Downloads `jinaai/jina-embeddings-v2-base-en` from Hugging Face
-   - Saves to `/app/models/embeddings/jina-embeddings-v2-base-en` using `save_pretrained()`
-   - Verifies `config.json` exists
-3. Runtime loads model from local directory (offline mode)
 
 ---
 

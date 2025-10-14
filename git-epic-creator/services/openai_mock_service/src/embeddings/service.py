@@ -1,49 +1,33 @@
 from typing import List, Optional
-from config import get_config
-from embeddings.loader import load_embedder
+import hashlib
+import random
+from configuration.vector_index_config import get_vector_index_env
 
 
 class EmbeddingService:
-    """Service for generating embeddings using local Jina model."""
+    """Service for generating deterministic mock embeddings."""
 
     def __init__(self):
-        self._embedder = None
+        pass
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """
-        Generate embeddings for a list of texts.
-        
-        Args:
-            texts: List of text strings to embed
-            
-        Returns:
-            List of embedding vectors (list of floats)
+        Generate deterministic pseudo-random embeddings for a list of texts.
+
+        Returns vectors of length VectorIndexEnv.VECTOR_INDEX_DIMENSIONS using a
+        stable seed derived from the input text to make outputs reproducible.
         """
-        if self._embedder is None:
-            self._embedder = load_embedder()
-        
-        target_dim = int(get_config()["EMBEDDINGS_SIZE"] or "1536")
-        
-        # Return plain python lists to avoid numpy dependency overhead
-        # Use conservative batch size to avoid memory spikes
-        embeddings = self._embedder.encode(  # type: ignore[attr-defined]
-            texts,
-            show_progress_bar=False,
-            convert_to_numpy=False,
-            normalize_embeddings=False,
-            batch_size=1,
-        )
-        
-        # Ensure primitives and fit to target dimension
+        vector_env = get_vector_index_env()
+        target_dim = int(vector_env.VECTOR_INDEX_DIMENSIONS)
+
         vectors: List[List[float]] = []
-        for vec in embeddings:
-            lst = [float(x) for x in vec]
-            # Pad or truncate to target_dim
-            if len(lst) < target_dim:
-                lst = lst + [0.0] * (target_dim - len(lst))
-            elif len(lst) > target_dim:
-                lst = lst[:target_dim]
-            vectors.append(lst)
+        for text in texts:
+            seed_bytes = hashlib.md5(str(text).encode("utf-8")).digest()
+            seed_int = int.from_bytes(seed_bytes, byteorder="big", signed=False)
+            rng = random.Random(seed_int)
+            # Generate small float values centered near 0.0
+            vec = [rng.uniform(-0.01, 0.01) for _ in range(target_dim)]
+            vectors.append(vec)
         return vectors
 
     @staticmethod

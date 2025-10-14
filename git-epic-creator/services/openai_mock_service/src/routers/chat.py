@@ -2,7 +2,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 import structlog
 from auth import require_authentication
-from config import get_config
+from configuration.common_config import get_app_settings
 from handlers.base import HandlerRegistry
 from handlers.drift_search import (
     DriftHydeHandler, 
@@ -89,7 +89,7 @@ handler_registry.register(FallbackGraphHandler())
 @router.post("/chat/completions", dependencies=[Depends(require_authentication)])
 @router.post("/v1/chat/completions", dependencies=[Depends(require_authentication)])
 async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
-    config = get_config()
+    settings = get_app_settings()
     model = body.get("model")
     messages = body.get("messages")
     response_format = body.get("response_format", {})
@@ -129,7 +129,7 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
         "id": "cmpl-mock-000",
         "object": "chat.completion",
         "created": 1700000000,
-        "model": config["OAI_MODEL"],
+        "model": settings.llm.OAI_MODEL,
         "choices": [
             {
                 "index": 0,
