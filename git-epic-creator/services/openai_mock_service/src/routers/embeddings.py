@@ -2,7 +2,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException
 import structlog
 from auth import require_authentication
-from config import get_config
+from configuration.common_config import get_app_settings
 from embeddings.service import EmbeddingService
 
 logger = structlog.get_logger(__name__)
@@ -15,17 +15,36 @@ embedding_service = EmbeddingService()
 @router.post("/embeddings", dependencies=[Depends(require_authentication)])
 @router.post("/v1/embeddings", dependencies=[Depends(require_authentication)])
 async def embeddings(body: Dict[str, Any]) -> Dict[str, Any]:
-    config = get_config()
+    settings = get_app_settings()
     model = body.get("model")
     input_value = body.get("input")
     if not model or input_value is None:
         raise HTTPException(status_code=400, detail="Bad Request")
 
     items: List[str]
+    # Normalize various input shapes to a list of strings, per OpenAI spec:
+    # - str → [str]
+    # - list[str] → list[str]
+    # - list[list[str]] (pretokenized) → join tokens with space
+    # - dict with "text" → [str(text)]
+    # - any other types → coerced with str()
+    def _coerce_to_str(x: Any) -> str:
+        if isinstance(x, str):
+            return x
+        if isinstance(x, dict) and "text" in x:
+            return str(x.get("text"))
+        if isinstance(x, list):
+            # Pre-tokenized or nested list: join tokens/items as text
+            try:
+                return " ".join(str(t) for t in x)
+            except Exception:
+                return str(x)
+        return str(x)
+
     if isinstance(input_value, list):
-        items = input_value
+        items = [_coerce_to_str(v) for v in input_value]
     else:
-        items = [input_value]
+        items = [_coerce_to_str(input_value)]
     
     try:
         vectors = embedding_service.embed_texts(items)
@@ -45,7 +64,7 @@ async def embeddings(body: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "object": "list",
         "data": data,
-        "model": config["OAI_EMBED_MODEL"],
+        "model": settings.llm.OAI_EMBED_MODEL,
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
 

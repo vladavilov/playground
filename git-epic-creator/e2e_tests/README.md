@@ -422,15 +422,47 @@ UI workflow tests simulate the full SSO flow with mock Azure AD for end-user aut
    - Neo4j constraints and indexes created
    - All microservices responding to health checks
 
+### Environment Configuration for Local Runs
+
+**IMPORTANT**: When running tests locally (outside Docker), you must configure environment variables to use `localhost` instead of `host.docker.internal`.
+
+#### Option 1: Create Local .env File (Recommended)
+
+Use the helper script to automatically create a `.env` file:
+
+```bash
+cd e2e_tests
+
+# Windows
+create-local-env.bat
+
+#### Option 2: Set Environment Variables
+
+Export environment variables before running tests:
+
+```bash
+export AZURE_AD_AUTHORITY=https://localhost:8005
+export AZURE_AD_VERIFY_SSL=false
+export UI_SERVICE_URL=http://localhost:8007
+# ... set other variables as needed
+```
+
+#### Why This Matters
+
+- **`host.docker.internal`**: Only resolves from inside Docker containers to the host machine
+- **`localhost`**: Used when running tests directly on your host machine
+- **`docker-compose.env`**: Contains Docker-specific settings; Python's `load_dotenv()` will load it if no `.env` file exists locally
+
 ### Run All Tests
 
 ```bash
-# In docker-compose (recommended)
+# In docker-compose (recommended for CI/CD)
 docker-compose --profile e2e-tests up e2e-tests
 
-# Local development
+# Local development (requires .env file with localhost URLs)
 cd e2e_tests
 python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e .[dev]
 pytest -s
 ```

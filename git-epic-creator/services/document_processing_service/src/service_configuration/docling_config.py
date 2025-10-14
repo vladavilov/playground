@@ -54,22 +54,22 @@ class DoclingSettings(BaseSettings):
     )
 
     # ===== Azure OpenAI Configuration (PRIMARY Remote Provider) =====
-    AZURE_OPENAI_ENDPOINT: str = Field(
+    DOCLING_AZURE_OPENAI_ENDPOINT: str = Field(
         default="",
         description="Azure OpenAI endpoint URL (e.g., https://myresource.openai.azure.com)"
     )
 
-    AZURE_OPENAI_DEPLOYMENT_NAME: str = Field(
+    DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME: str = Field(
         default="",
         description="Azure OpenAI deployment name (e.g., llama-32-vision)"
     )
 
-    AZURE_OPENAI_API_KEY: str = Field(
+    DOCLING_AZURE_OPENAI_API_KEY: str = Field(
         default="",
         description="Azure OpenAI API key"
     )
 
-    AZURE_OPENAI_API_VERSION: str = Field(
+    DOCLING_AZURE_OPENAI_API_VERSION: str = Field(
         default="2024-02-15-preview",
         description="Azure OpenAI API version"
     )

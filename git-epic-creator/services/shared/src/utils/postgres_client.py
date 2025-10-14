@@ -138,7 +138,7 @@ class PostgresHealthChecker:
         """Check PostgreSQL connection health."""
         try:
             with client.get_sync_session() as session:
-                session.execute("SELECT 1")
+                session.execute(text("SELECT 1"))
             logger.info("PostgreSQL health check passed")
             return True
         except Exception as e:
@@ -151,10 +151,10 @@ class PostgresHealthChecker:
         try:
             # Test basic connectivity
             with client.get_sync_session() as session:
-                result = session.execute("SELECT version()")
+                result = session.execute(text("SELECT version()"))
                 version = result.scalar()
                 
-                result = session.execute("SELECT count(*) FROM pg_stat_activity")
+                result = session.execute(text("SELECT count(*) FROM pg_stat_activity"))
                 connections = result.scalar()
             
             result = {

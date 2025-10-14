@@ -1,27 +1,27 @@
-# Python 3.12 required: graphrag==2.5.0 dependency requires Python >=3.10,<3.13
-FROM python:3.12-slim-bookworm AS builder-with-tools
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app/neo4j_ingestion_service/src
 
-# Install build tools with retry logic and better error handling
+# Install build/runtime deps with retry logic
 RUN for i in 1 2 3 4 5; do \
+        find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) -print0 | xargs -0 sed -i 's|http://|https://|g'; \
         apt-get update && \
         apt-get install -y --no-install-recommends --fix-missing \
-            build-essential && \
+            ca-certificates \
+            curl \
+            libstdc++6 \
+            libgcc-s1 \
+            libgomp1 && \
         rm -rf /var/lib/apt/lists/* && \
         break || \
         (echo "Retry $i/5 failed, waiting..." && sleep 5); \
     done && \
-    gcc --version
-
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH" \
-    PIP_DEFAULT_TIMEOUT=120 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
-
-RUN pip install --retries 10 --timeout 120 --upgrade pip setuptools wheel
+    update-ca-certificates && curl --version
 
 WORKDIR /app
 
@@ -35,39 +35,7 @@ COPY ./neo4j_ingestion_service/ ./neo4j_ingestion_service/
 WORKDIR /app/neo4j_ingestion_service
 RUN pip install --retries 10 --prefer-binary --timeout 120 .
 
-# Python 3.12 required: graphrag==2.5.0 dependency requires Python >=3.10,<3.13
-FROM python:3.12-slim-bookworm AS final
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# Install runtime dependencies with retry logic
-RUN for i in 1 2 3 4 5; do \
-        apt-get update && \
-        apt-get install -y --no-install-recommends --fix-missing \
-            curl \
-            libstdc++6 \
-            libgcc-s1 \
-            libgomp1 && \
-        rm -rf /var/lib/apt/lists/* && \
-        break || \
-        (echo "Retry $i/5 failed, waiting..." && sleep 5); \
-    done && \
-    curl --version
-
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
 WORKDIR /app
-
-COPY --from=builder-with-tools /opt/venv /opt/venv
-ENV PYTHONPATH=/app/src
-
-COPY --from=builder-with-tools /app/neo4j_ingestion_service/src/ ./src/
-
-# Pre-create the GraphRAG workspace root so CLI has a place to initialize
-ENV RAG_WORKSPACE_ROOT=/workspace/graphrag
-RUN mkdir -p ${RAG_WORKSPACE_ROOT}
 
 ENV API_PORT=8000
 EXPOSE $API_PORT
@@ -75,4 +43,4 @@ EXPOSE $API_PORT
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${API_PORT}/health || exit 1
 
-CMD ["python", "-m", "src.main"] 
+CMD ["python", "-m", "main"] 

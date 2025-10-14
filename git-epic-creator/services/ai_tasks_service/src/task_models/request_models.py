@@ -1,4 +1,4 @@
-"""Request and response models for AI Tasks Service API."""
+"""Request and response models for AI Tasks Service API (moved)."""
 
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -47,5 +47,6 @@ class GeneratedBacklogBundle(BaseModel):
         None,
         description="Markdown-formatted backlog for display",
     )
+
 
 

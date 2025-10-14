@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 import structlog
 
-from models.agent_models import BacklogDraft, AuditFindings, EvaluationReport
+from task_models.agent_models import BacklogDraft, AuditFindings, EvaluationReport
 from config import get_ai_tasks_settings
 from orchestrator.experts.clients.llm import get_llm
 from configuration.llm_config import get_llm_config

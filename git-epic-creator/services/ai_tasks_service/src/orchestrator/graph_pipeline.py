@@ -10,8 +10,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 
-from models.request_models import GeneratedBacklogBundle
-from models.agent_models import AuditFindings
+from task_models.request_models import GeneratedBacklogBundle
+from task_models.agent_models import AuditFindings
 from orchestrator.experts.requirements_analyst import RequirementsAnalyst
 from orchestrator.experts.context_retriever import ContextRetriever
 from orchestrator.experts.backlog_engineer import BacklogEngineer
@@ -20,7 +20,7 @@ from orchestrator.experts.consistency_auditor import ConsistencyAuditor
 from orchestrator.experts.evaluator import Evaluator
 from orchestrator.experts.clarification_strategist import ClarificationStrategist
 from orchestrator.experts.clients.gitlab_client import GitLabClient
-from models.agent_models import BacklogDraft
+from task_models.agent_models import BacklogDraft
 
 async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int):
     """Build a LangGraph StateGraph for the backlog generation workflow.
@@ -386,7 +386,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         eval_draft = state["draft"]
         if state.get("mappings"):
             # Create a draft with enriched epics
-            from models.agent_models import BacklogDraft
+            from task_models.agent_models import BacklogDraft
             eval_draft = BacklogDraft(
                 epics=state["mappings"].enriched_epics,
                 assumptions=state["draft"].assumptions,
@@ -503,7 +503,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         if state.get("mappings"):
             final_epics = state["mappings"].enriched_epics
         
-        from models.request_models import ClarificationQuestion
+        from task_models.request_models import ClarificationQuestion
         questions = [ClarificationQuestion(id=q["id"], text=q["text"]) for q in plan.questions]
         
         bundle = GeneratedBacklogBundle(

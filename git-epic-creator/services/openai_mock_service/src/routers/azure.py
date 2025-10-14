@@ -2,7 +2,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends
 import structlog
 from auth import require_authentication
-from config import get_config
+from configuration.common_config import get_app_settings
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -18,12 +18,12 @@ def ensure_model_in_body(deployment: str, body: Dict[str, Any]) -> Dict[str, Any
 @router.get("/openai/deployments", dependencies=[Depends(require_authentication)])
 async def list_deployments() -> Dict[str, Any]:
     """List Azure OpenAI deployments (compatible with models listing)."""
-    config = get_config()
-    logger.info("list_deployments", oai_model=config["OAI_MODEL"], oai_embed_model=config["OAI_EMBED_MODEL"])
+    settings = get_app_settings()
+    logger.info("list_deployments", oai_model=settings.llm.OAI_MODEL, oai_embed_model=settings.llm.OAI_EMBED_MODEL)
     return {
         "data": [
-            {"id": config["OAI_MODEL"], "model": config["OAI_MODEL"], "object": "deployment"},
-            {"id": config["OAI_EMBED_MODEL"], "model": config["OAI_EMBED_MODEL"], "object": "deployment"},
+            {"id": settings.llm.OAI_MODEL, "model": settings.llm.OAI_MODEL, "object": "deployment"},
+            {"id": settings.llm.OAI_EMBED_MODEL, "model": settings.llm.OAI_EMBED_MODEL, "object": "deployment"},
         ]
     }
 

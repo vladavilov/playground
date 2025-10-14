@@ -7,6 +7,8 @@ from fastapi import APIRouter
 from configuration.logging_config import configure_logging
 from utils.app_factory import FastAPIFactory
 from worker.celery_app import celery_app, get_task_validation_status
+from shared.src.utils.celery_factory import CeleryHealthChecker  # reuse shared checker
+from configuration.common_config import get_app_settings
 
 # Force spawn to avoid fork with LanceDB
 try:
@@ -32,12 +34,13 @@ router = APIRouter(prefix="/health", tags=["Health"])
 @router.get("/celery")
 def celery_health():
     try:
+        details = CeleryHealthChecker.check_health_with_details(celery_app)
         status = get_task_validation_status()
-        return {
-            "healthy": bool(status.get("all_tasks_registered")),
+        details.update({
             "service": "neo4j_ingestion_service",
-            **status,
-        }
+            "task_validation_status": status,
+        })
+        return details
     except Exception as e:
         logger.error("Celery health check failed", error=str(e))
         return {
@@ -80,13 +83,9 @@ def start_worker() -> None:
 
 def start_fastapi_server() -> None:
     try:
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=8000,
-            log_config=None,
-            access_log=False,
-        )
+        
+        settings = get_app_settings()
+        uvicorn.run(app, host="0.0.0.0", port=settings.API_PORT, log_config=None, access_log=False)
     except Exception as e:
         logger.error("Failed to start FastAPI server", error=str(e))
         raise
