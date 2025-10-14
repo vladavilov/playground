@@ -16,7 +16,6 @@ dependencies = [
     "uvicorn",
     "pydantic",
     "structlog",
-    "sentence-transformers",
     "orjson",
     "shared @ file:../shared"
 ]

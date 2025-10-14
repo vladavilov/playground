@@ -1,10 +1,10 @@
 from fastapi import HTTPException, Request
-from config import get_config
+from configuration.common_config import get_app_settings
 
 
 def require_authentication(request: Request) -> None:
-    config = get_config()
-    required_key = config["OAI_KEY"]
+    settings = get_app_settings()
+    required_key = settings.llm.OAI_KEY
     if not required_key:
         return
     auth_header = request.headers.get("authorization")
