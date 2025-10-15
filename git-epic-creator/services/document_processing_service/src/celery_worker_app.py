@@ -11,6 +11,7 @@ and reused across all task executions.
 """
 
 import structlog
+from datetime import datetime, timezone
 from utils.celery_factory import get_celery_app
 from constants import APP_NAME_DOCUMENT_PROCESSING, EXPECTED_TASKS_DOCUMENT
 from services.docling_processor import DoclingProcessor
@@ -49,24 +50,56 @@ def _on_worker_process_shutdown(**kwargs):
 _docling_processor = None
 _tika_processor = None
 
+# Initialization status tracking for health checks
+_initialization_status = {
+    "initialized": False,
+    "healthy": False,
+    "error": None,
+    "error_type": None,
+    "timestamp": None
+}
+
+def get_initialization_status():
+    """Get the current initialization status for health checks."""
+    return _initialization_status.copy()
+
 def _initialize_processors_eagerly():
     """
     Eagerly initialize both singleton processors at worker startup.
     This ensures configuration errors are caught immediately rather than
-    during first task execution, preventing worker crashes.
+    during first task execution.
     
-    Raises:
-        RuntimeError: If processor initialization fails due to configuration errors
+    NOTE: This function does NOT raise exceptions. Instead, it sets the
+    initialization status so health checks can report the failure.
+    This allows the service to stay running and report unhealthy status.
     """
-    global _docling_processor, _tika_processor
+    global _docling_processor, _tika_processor, _initialization_status
+    
+    
     
     try:
+        logger.info("PROCESSOR_INITIALIZATION_STARTED",
+                   message="Starting eager processor initialization")
+        
         _docling_processor = DoclingProcessor()
         logger.info("docling_processor_initialized_successfully",
                    vlm_mode=_docling_processor.settings.DOCLING_VLM_MODE,
                    vlm_provider=_docling_processor.settings.DOCLING_VLM_PROVIDER)
+        
         _tika_processor = TikaProcessor()
         logger.info("tika_processor_initialized_successfully")
+        
+        # Mark as successfully initialized
+        _initialization_status = {
+            "initialized": True,
+            "healthy": True,
+            "error": None,
+            "error_type": None,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.info("PROCESSOR_INITIALIZATION_SUCCESSFUL",
+                   message="All processors initialized successfully")
         
     except ValueError as ve:
         # Configuration validation errors (e.g., missing Azure OpenAI credentials)
@@ -75,7 +108,19 @@ def _initialize_processors_eagerly():
                     error=error_msg,
                     error_type="configuration_error",
                     exc_info=True)
-        raise RuntimeError(error_msg) from ve
+        
+        _initialization_status = {
+            "initialized": True,
+            "healthy": False,
+            "error": error_msg,
+            "error_type": "configuration_error",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.critical("SERVICE_UNHEALTHY",
+                       message="Service will report unhealthy status due to initialization failure",
+                       error=error_msg)
+        
     except Exception as e:
         # Unexpected initialization errors
         error_msg = f"Processor initialization failed: {e}"
@@ -83,7 +128,18 @@ def _initialize_processors_eagerly():
                     error=error_msg,
                     error_type="unexpected_error",
                     exc_info=True)
-        raise RuntimeError(error_msg) from e
+        
+        _initialization_status = {
+            "initialized": True,
+            "healthy": False,
+            "error": error_msg,
+            "error_type": "unexpected_error",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.critical("SERVICE_UNHEALTHY",
+                       message="Service will report unhealthy status due to initialization failure",
+                       error=error_msg)
 
 def get_docling_processor():
     """
@@ -93,8 +149,13 @@ def get_docling_processor():
         DoclingProcessor: Singleton processor instance with pre-loaded plugins
         
     Raises:
-        RuntimeError: If processor was not initialized at startup
+        RuntimeError: If processor was not initialized successfully
     """
+    if not _initialization_status["healthy"]:
+        error_msg = _initialization_status.get("error", "Processor initialization failed")
+        raise RuntimeError(
+            f"DoclingProcessor not available: {error_msg}"
+        )
     if _docling_processor is None:
         raise RuntimeError(
             "DoclingProcessor not initialized. This indicates worker startup failed."
@@ -109,8 +170,13 @@ def get_tika_processor():
         TikaProcessor: Singleton processor instance
         
     Raises:
-        RuntimeError: If processor was not initialized at startup
+        RuntimeError: If processor was not initialized successfully
     """
+    if not _initialization_status["healthy"]:
+        error_msg = _initialization_status.get("error", "Processor initialization failed")
+        raise RuntimeError(
+            f"TikaProcessor not available: {error_msg}"
+        )
     if _tika_processor is None:
         raise RuntimeError(
             "TikaProcessor not initialized. This indicates worker startup failed."
@@ -118,15 +184,24 @@ def get_tika_processor():
     return _tika_processor
 
 # Eagerly initialize processors at module load time (worker startup)
-# This will fail fast if configuration is invalid, preventing silent worker crashes
+# This captures initialization status for health check reporting
 _initialize_processors_eagerly()
 
 # Explicitly import task modules to ensure Celery registers them at worker startup
-try:
-    from tasks import document_tasks as _document_tasks  # noqa: F401
-    logger.info("Document tasks module imported for registration")
-except Exception as e:
-    logger.error("Failed to import document tasks module", error=str(e))
+# Only import tasks if initialization was successful
+if _initialization_status["healthy"]:
+    try:
+        from tasks import document_tasks as _document_tasks  # noqa: F401
+        logger.info("Document tasks module imported for registration")
+    except Exception as e:
+        logger.error("Failed to import document tasks module", error=str(e))
+        _initialization_status["healthy"] = False
+        _initialization_status["error"] = f"Task import failed: {e}"
+        _initialization_status["error_type"] = "task_import_error"
+else:
+    logger.critical("TASKS_NOT_IMPORTED",
+                   message="Skipping task import due to processor initialization failure",
+                   error=_initialization_status.get("error"))
 
 def get_task_validation_status():
     """
@@ -169,5 +244,5 @@ def get_task_validation_status():
             'error': str(e)
         }
 
-# Export the configured app, validation function, and singleton processor getters
-__all__ = ['celery_app', 'get_task_validation_status', 'get_docling_processor', 'get_tika_processor']
+# Export the configured app, validation function, singleton processor getters, and initialization status
+__all__ = ['celery_app', 'get_task_validation_status', 'get_docling_processor', 'get_tika_processor', 'get_initialization_status']

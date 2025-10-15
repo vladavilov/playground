@@ -2,11 +2,11 @@
 
 import threading
 import uvicorn
-import asyncio
 import structlog
 from typing import Dict, Any
 from fastapi import Depends, Request, APIRouter
 from celery import Celery
+from celery_worker_app import celery_app, get_task_validation_status, get_initialization_status
 
 from configuration.logging_config import configure_logging
 
@@ -20,16 +20,6 @@ from services.tika_processor import TikaProcessor
 logger = structlog.get_logger(__name__)
 settings = get_app_settings()
 
-try:
-    # Import the Celery app from the worker entrypoint
-    # This ensures tasks are registered and validated
-    from celery_worker_app import celery_app, get_task_validation_status
-
-    logger.debug("Celery app imported successfully")
-
-except Exception as e:
-    logger.error("Failed to import Celery app", error=str(e))
-    raise
 
 app = FastAPIFactory.create_app(
     title="Document Processing Service",
@@ -63,20 +53,31 @@ def celery_health_check(
     """
     Celery health check endpoint that returns detailed health information.
     
+    Checks both Celery worker status AND processor initialization status.
+    The service is considered unhealthy if processor initialization failed.
+    
     Args:
         scoped_celery_app: Celery application instance from dependency injection
         
     Returns:
-        Dict[str, Any]: Health check response with Celery status
+        Dict[str, Any]: Health check response with Celery and processor status
     """
     try:
-        health_checker = CeleryHealthChecker()
+        # Check processor initialization status first
+        init_status = get_initialization_status()
         
+        health_checker = CeleryHealthChecker()
         health_status = health_checker.check_health_with_details(scoped_celery_app)
+        
+        # Override healthy status if processors failed to initialize
+        if not init_status["healthy"]:
+            health_status["healthy"] = False
+            health_status["processor_initialization_failed"] = True
         
         health_status.update({
             "service": "Document Processing Service",
             "celery_app_name": scoped_celery_app.main,
+            "processor_initialization": init_status,
             "task_validation_status": get_task_validation_status(),
             "active_tasks": list(scoped_celery_app.tasks.keys()),
             "registered_tasks_count": len(scoped_celery_app.tasks),
@@ -88,7 +89,9 @@ def celery_health_check(
             "result_serializer": scoped_celery_app.conf.result_serializer
         })
         
-        logger.debug("Celery health check completed", status=health_status.get("healthy"))
+        logger.debug("Celery health check completed", 
+                    status=health_status.get("healthy"),
+                    processor_healthy=init_status["healthy"])
         return health_status
         
     except Exception as e:
@@ -105,17 +108,34 @@ def tika_health_check() -> Dict[str, Any]:
     """
     Tika health check endpoint that returns Tika processor status.
     
+    Also checks processor initialization status.
+    
     Returns:
         Dict[str, Any]: Health check response with Tika status
     """
     try:
+        # Check processor initialization status first
+        init_status = get_initialization_status()
+        
+        # If initialization failed, return unhealthy immediately
+        if not init_status["healthy"]:
+            return {
+                "healthy": False,
+                "service": "Document Processing Service",
+                "component": "Tika Processor",
+                "processor_initialization_failed": True,
+                "initialization_error": init_status.get("error"),
+                "error_type": init_status.get("error_type")
+            }
+        
         tika_processor = TikaProcessor()
         
         health_status = tika_processor.check_health()
         
         health_status.update({
             "service": "Document Processing Service",
-            "component": "Tika Processor"
+            "component": "Tika Processor",
+            "processor_initialization": init_status
         })
         
         logger.debug("Tika health check completed", status=health_status.get("healthy"))
