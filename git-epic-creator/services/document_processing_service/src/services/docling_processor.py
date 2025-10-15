@@ -375,7 +375,10 @@ class DoclingProcessor:
                         timeout=self.settings.DOCLING_VLM_TIMEOUT,
                         vlm_mode=self.settings.DOCLING_VLM_MODE,
                         vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
-                        error=str(timeout_exc))
+                        endpoint=self.settings.DOCLING_AZURE_OPENAI_ENDPOINT if self.settings.DOCLING_VLM_PROVIDER == "azure_openai" else self.settings.DOCLING_VLM_ENDPOINT,
+                        deployment=self.settings.DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME if self.settings.DOCLING_VLM_PROVIDER == "azure_openai" else None,
+                        error=str(timeout_exc),
+                        exc_info=True)
             return DocumentProcessingResult(success=False, error_message=error_msg)
         except requests.exceptions.HTTPError as http_exc:
             # Remote VLM API HTTP error (401, 403, 429, 500, etc.)
@@ -396,8 +399,10 @@ class DoclingProcessor:
                         file_path=file_path,
                         vlm_mode=self.settings.DOCLING_VLM_MODE,
                         vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
-                        endpoint=self.settings.DOCLING_AZURE_OPENAI_ENDPOINT,
-                        error=str(conn_exc))
+                        endpoint=self.settings.DOCLING_AZURE_OPENAI_ENDPOINT if self.settings.DOCLING_VLM_PROVIDER == "azure_openai" else self.settings.DOCLING_VLM_ENDPOINT,
+                        deployment=self.settings.DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME if self.settings.DOCLING_VLM_PROVIDER == "azure_openai" else None,
+                        error=str(conn_exc),
+                        exc_info=True)
             return DocumentProcessingResult(success=False, error_message=error_msg)
         except requests.exceptions.RequestException as req_exc:
             # Any other requests-related error
@@ -410,15 +415,21 @@ class DoclingProcessor:
                         exc_info=True)
             return DocumentProcessingResult(success=False, error_message=error_msg)
         except Exception as exc:
-            # Catch-all for unexpected errors
+            # Catch-all for unexpected errors (threading issues, C library crashes, memory errors, etc.)
+            error_msg = f"Docling processing failed: {type(exc).__name__}: {exc}"
             logger.error("DOCLING_PROCESSING_FAILED",
                         file_path=file_path,
+                        file_size_bytes=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
                         vlm_mode=self.settings.DOCLING_VLM_MODE,
                         vlm_provider=self.settings.DOCLING_VLM_PROVIDER,
+                        endpoint=self.settings.DOCLING_AZURE_OPENAI_ENDPOINT if self.settings.DOCLING_VLM_PROVIDER == "azure_openai" else self.settings.DOCLING_VLM_ENDPOINT,
+                        deployment=self.settings.DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME if self.settings.DOCLING_VLM_PROVIDER == "azure_openai" else None,
+                        timeout_config=self.settings.DOCLING_VLM_TIMEOUT,
                         error=str(exc),
                         error_type=type(exc).__name__,
+                        error_module=type(exc).__module__,
                         exc_info=True)
-            return DocumentProcessingResult(success=False, error_message=f"Docling failed: {exc}")
+            return DocumentProcessingResult(success=False, error_message=error_msg)
 
     def _build_converter(self) -> DocumentConverter:
         """Create a converter configured for PDFs and images with local or remote VLM support."""

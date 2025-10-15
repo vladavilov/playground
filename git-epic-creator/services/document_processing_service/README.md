@@ -89,7 +89,7 @@ sequenceDiagram
 7) Delete processed input blobs (including empty documents).
 8) Conditionally trigger Neo4j ingestion:
    - If at least one valid document exists → publish trigger to `ingestion.trigger`
-   - If all documents are empty → skip ingestion and update project status to `processing_failed`
+   - If all documents are empty → skip ingestion and update project status to `rag_failed`
 
 **Note on async-to-sync bridge**: Progress updates use a persistent event loop pattern (consistent with neo4j_ingestion_service) via `utils.asyncio_runner.run_async()`. The persistent loop runs in a dedicated thread for the worker's lifetime, preventing event loop conflicts and ensuring reliable async HTTP calls. This approach is initialized via Celery worker signals (`worker_process_init`/`worker_process_shutdown`).
 
@@ -187,10 +187,52 @@ DOCLING_VLM_MODEL=llama3.2-vision:11b
 - `GET /health/celery` returns Celery health, app name, registered tasks, routes, serializers, and task validation status.
 - `GET /health/tika` returns Tika status and configuration endpoint checks.
 
+### Exception handling and timeout configuration
+The service implements comprehensive exception handling to prevent silent task failures:
+
+#### Multi-layer Exception Handling
+1. **Document Core Layer** (`document_core.py`):
+   - Defensive logging brackets around `extract_text_with_result()` calls
+   - Explicit try-except wrapper catches all processor exceptions
+   - Failed documents are tracked separately and processing continues for remaining documents
+   - Full exception context logged with `exc_info=True` for stack traces
+
+2. **Docling Processor Layer** (`docling_processor.py`):
+   - Specific handlers for `requests.exceptions.Timeout`, `ConnectionError`, `HTTPError`, `RequestException`
+   - Generic catch-all for unexpected errors (threading issues, C library crashes, memory errors)
+   - Enhanced logging with VLM configuration details (endpoint, deployment, timeout, provider)
+   - Returns structured `DocumentProcessingResult` with error details instead of raising exceptions
+
+3. **Task Layer** (`document_tasks.py`):
+   - Celery soft time limit: 3300s (55 minutes) for graceful cleanup
+   - Celery hard time limit: 3600s (1 hour) prevents indefinite hangs
+   - `SoftTimeLimitExceeded` exception handled explicitly
+   - Generic exception handler logs full context
+
+#### Timeout Configuration
+- **VLM API Timeout**: `DOCLING_VLM_TIMEOUT` (default 90s) - Controls remote VLM API call timeout
+- **Celery Soft Timeout**: 3300s (55 minutes) - Allows graceful cleanup before hard kill
+- **Celery Hard Timeout**: 3600s (1 hour) - Forcefully terminates hung tasks
+
+#### Debugging Capabilities
+When investigating failures, look for these log events:
+- `DOCUMENT_PROCESSING_START` - Document processing begins
+- `DOCUMENT_PROCESSING_COMPLETED` - Processing finished (success or failure)
+- `DOCUMENT_PROCESSING_EXCEPTION` - Processor threw an exception
+- `DOCLING_VLM_API_TIMEOUT` - Remote VLM API call timed out
+- `DOCLING_VLM_API_CONNECTION_ERROR` - Network/DNS issues
+- `DOCLING_VLM_API_HTTP_ERROR` - HTTP errors (401, 403, 429, 500)
+- `DOCLING_PROCESSING_FAILED` - Unexpected processor failure
+- `TASK_SOFT_TIMEOUT` - Task exceeded 55-minute soft limit
+- `TASK EXECUTION FAILED` - Task-level exception
+
+All error logs include full exception details (`exc_info=True`) with stack traces and VLM configuration context.
+
 ### Operational notes
 - Subscriber uses consumer group `document_processors` on `task_streams:document_processing` and enqueues Celery with `process_project_documents_task(project_id)`.
 - Celery worker runs with queue `document_processing` and prefetch multiplier 1; tune concurrency via worker flags.
-- Observability: structured logs across blob I/O, Tika processing, progress updates, and trigger publishing.
+- Task timeout: soft limit 55 minutes, hard limit 1 hour (configurable via task decorator).
+- Observability: structured logs across blob I/O, Tika processing, progress updates, and trigger publishing with comprehensive exception tracking.
 
 ### Docker and Compose
 - Image should include `tika` client and place Tika server JAR at `TIKA_SERVER_JAR` path if `TIKA_SERVER_AUTO_START` is true.
@@ -234,7 +276,7 @@ The service implements validation to prevent downstream errors in Neo4j ingestio
 - **Tracking**: Empty documents are counted separately (`empty_documents` field in result)
 - **No upload**: Empty documents do not generate output JSON files
 - **Cleanup**: Empty document input files are still deleted from blob storage
-- **Ingestion gating**: If all documents are empty, Neo4j ingestion is skipped and project status is set to `processing_failed`
+- **Ingestion gating**: If all documents are empty, Neo4j ingestion is skipped and project status is set to `rag_failed`
 - **Mixed scenarios**: Projects with both valid and empty documents will process successfully with only valid documents sent to ingestion
 
 **Why this matters**: Empty documents cause pandas DataFrame errors in GraphRAG's `create_base_text_units` workflow. This validation prevents those errors by filtering empty content before it reaches the ingestion pipeline.

@@ -184,7 +184,55 @@ def process_project_documents_core(
                 log.error("Failed to download file", blob_name=blob_name, error=getattr(download_result, "error_message", None))
                 continue
 
-            processing_result = document_processor.extract_text_with_result(temp_file_path)
+            # Defensive logging: Start document processing
+            log.info(
+                "DOCUMENT_PROCESSING_START",
+                blob_name=blob_name,
+                temp_file_path=temp_file_path,
+                file_size_bytes=os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0,
+                project_id=project_id
+            )
+            
+            # Explicit exception handling to prevent silent failures
+            try:
+                processing_result = document_processor.extract_text_with_result(temp_file_path)
+            except Exception as proc_exc:
+                # Catch ANY exception from the processor to prevent silent task loss
+                failed_documents += 1
+                log.error(
+                    "DOCUMENT_PROCESSING_EXCEPTION",
+                    blob_name=blob_name,
+                    temp_file_path=temp_file_path,
+                    error=str(proc_exc),
+                    error_type=type(proc_exc).__name__,
+                    project_id=project_id,
+                    exc_info=True
+                )
+                # Create a failed result to continue processing other documents
+                from dataclasses import dataclass
+                @dataclass
+                class FailedResult:
+                    success: bool = False
+                    error_message: str = ""
+                    extracted_text: str = ""
+                    metadata: dict = None
+                
+                processing_result = FailedResult(
+                    success=False,
+                    error_message=f"Processor exception: {type(proc_exc).__name__}: {str(proc_exc)}"
+                )
+                continue
+            
+            # Defensive logging: Processing completed (success or failure)
+            log.info(
+                "DOCUMENT_PROCESSING_COMPLETED",
+                blob_name=blob_name,
+                success=getattr(processing_result, "success", False),
+                has_text=bool(getattr(processing_result, "extracted_text", None)),
+                text_length=len(getattr(processing_result, "extracted_text", "") or ""),
+                error_message=getattr(processing_result, "error_message", None)
+            )
+            
             if getattr(processing_result, "success", False):
                 extracted_text = getattr(processing_result, "extracted_text", None) or ""
                 
