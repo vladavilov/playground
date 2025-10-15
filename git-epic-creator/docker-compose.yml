@@ -1,6 +1,7 @@
 x-service-defaults: &service_defaults
   extra_hosts:
     - "host.docker.internal:host-gateway"
+  network_mode: host
 
 services:
   # Base image - builds automatically, never runs
@@ -21,12 +22,8 @@ services:
       POSTGRES_DB: requirementsdb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - microservices_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d requirementsdb"]
       interval: 10s
@@ -59,16 +56,11 @@ services:
       NEO4J_db_transaction_timeout: 60s
       OAI_KEY: ${OAI_KEY:-key}
       OAI_MODEL: ${OAI_MODEL:-gpt-4o}
-    ports:
-      - "7474:7474"
-      - "7687:7687"
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
       - neo4j_config:/conf
       - ./e2e_tests/test_drift_search/infra:/import:ro
-    networks:
-      - microservices_network
     healthcheck:
       test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p ${NEO4J_PASSWORD:-neo4j123} 'RETURN 1;'"]
       interval: 10s
@@ -83,10 +75,8 @@ services:
       dockerfile: ./db_init_service/Dockerfile
     image: db_init_service:latest
     container_name: db_init_service
-    ports:
-      - "8001:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8001
     env_file:
       - docker-compose.env
     depends_on:
@@ -94,10 +84,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -113,8 +101,6 @@ services:
         condition: service_healthy
     env_file:
       - docker-compose.env
-    networks:
-      - microservices_network
     # Run once: initialize PostgreSQL schema via db-init-service endpoint
     command:
       - python
@@ -129,7 +115,7 @@ services:
           seg=b'.'.join([b64url(json.dumps(header,separators=(',',':')).encode()), b64url(json.dumps(payload,separators=(',',':')).encode())])
           sig=b64url(hmac.new(secret.encode(), seg, hashlib.sha256).digest())
           token=(seg+b'.'+sig).decode()
-          req=urllib.request.Request('http://db-init-service:8000/db/init', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
+          req=urllib.request.Request('http://localhost:8001/db/init', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
           print('POST /db/init with Authorization header')
           with urllib.request.urlopen(req, timeout=60) as resp:
               print(resp.status, resp.read().decode())
@@ -142,10 +128,8 @@ services:
       dockerfile: ./neo4j_maintanance_service/Dockerfile
     image: neo4j_maintenance_service:latest
     container_name: neo4j_maintenance_service
-    ports:
-      - "8002:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8002
     env_file:
       - docker-compose.env
     depends_on:
@@ -153,10 +137,8 @@ services:
         condition: service_completed_successfully
       neo4j:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -172,8 +154,6 @@ services:
         condition: service_healthy
     env_file:
       - docker-compose.env
-    networks:
-      - microservices_network
     # Run once: initialize Neo4j schema via maintenance service endpoint
     command:
       - python
@@ -188,7 +168,7 @@ services:
           seg=b'.'.join([b64url(json.dumps(header,separators=(',',':')).encode()), b64url(json.dumps(payload,separators=(',',':')).encode())])
           sig=b64url(hmac.new(secret.encode(), seg, hashlib.sha256).digest())
           token=(seg+b'.'+sig).decode()
-          req=urllib.request.Request('http://neo4j-maintenance-service:8000/init-neo4j', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
+          req=urllib.request.Request('http://localhost:8002/init-neo4j', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
           print('POST /init-neo4j with Authorization header')
           with urllib.request.urlopen(req, timeout=60) as resp:
               print(resp.status, resp.read().decode())
@@ -200,10 +180,8 @@ services:
       context: ./services
       dockerfile: ./neo4j_ingestion_service/Dockerfile
     container_name: neo4j_ingestion_service
-    ports:
-      - "8006:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8006
       - RAG_WORKSPACE_ROOT=/workspace/graphrag
     env_file:
       - docker-compose.env
@@ -212,12 +190,10 @@ services:
         condition: service_healthy
       neo4j-schema-init:
         condition: service_completed_successfully
-    networks:
-      - microservices_network
     volumes:
       - graphrag_workspace:/workspace
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8006/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -231,10 +207,8 @@ services:
       dockerfile: ./project_management_service/Dockerfile
     image: project_management_service:latest
     container_name: project_management_service
-    ports:
-      - "8003:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8003
     env_file:
       - docker-compose.env
     depends_on:
@@ -246,10 +220,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -263,10 +235,8 @@ services:
       dockerfile: ./ui_service/Dockerfile
     image: ui_service:latest
     container_name: ui_service
-    ports:
-      - "8007:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8007
     env_file:
       - docker-compose.env
     depends_on:
@@ -280,10 +250,8 @@ services:
         condition: service_healthy
       gitlab-mock-service:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -296,19 +264,15 @@ services:
       context: ./services
       dockerfile: ./document_processing_service/Dockerfile
     container_name: document_processing_service
-    ports:
-      - "8004:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8004
     env_file:
       - docker-compose.env
     depends_on:
       redis:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/celery"]
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health/celery"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -325,16 +289,12 @@ services:
     depends_on:
       python-base:
         condition: service_completed_successfully
-    ports:
-      - "8008:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8008
     env_file:
       - docker-compose.env
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -348,10 +308,8 @@ services:
       dockerfile: ./ai_requirements_service/Dockerfile
     image: ai_requirements_service:latest
     container_name: ai_requirements_service
-    ports:
-      - "8009:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8009
     env_file:
       - docker-compose.env
     depends_on:
@@ -361,10 +319,8 @@ services:
         condition: service_healthy
       neo4j-retrieval-service:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -377,33 +333,23 @@ services:
     image: redis:7-alpine
     container_name: redis_cache
     restart: always
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
-    networks:
-      - microservices_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --bind 0.0.0.0 --port 6379 --maxmemory 256mb --maxmemory-policy allkeys-lru
 
   # Azurite for Azure Blob Storage emulation
   azurite:
     <<: *service_defaults
     image: mcr.microsoft.com/azure-storage/azurite:latest
     container_name: azurite_storage
-    ports:
-      - "10000:10000"  # Blob storage
-      - "10001:10001"  # Queue storage
-      - "10002:10002"  # Table storage
     command: "azurite --skipApiVersionCheck --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --blobPort 10000 --queuePort 10001 --tablePort 10002 --loose --debug /workspace/debug.log"
     volumes:
       - azurite_data:/workspace
-    networks:
-      - microservices_network
     restart: unless-stopped
   
   # Optional: Admin tools for database management
@@ -415,12 +361,10 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin123
       PGADMIN_CONFIG_SERVER_MODE: 'False'
-    ports:
-      - "8080:80"
+      PGADMIN_LISTEN_ADDRESS: 0.0.0.0
+      PGADMIN_LISTEN_PORT: 8080
     depends_on:
       - postgres
-    networks:
-      - microservices_network
     profiles:
       - admin-tools
   
@@ -435,17 +379,15 @@ services:
       python-base:
         condition: service_completed_successfully
     environment:
-      - API_PORT=8000
+      - API_PORT=8005
       - ENABLE_HTTPS=true
+      - SSL_CERT_FILE=/app/certs/server.crt
+      - SSL_KEY_FILE=/app/certs/server.key
     env_file:
       - docker-compose.env
     container_name: mock_auth_service
-    ports:
-      - "8005:8000"
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "-k", "https://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8005/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -463,16 +405,12 @@ services:
       python-base:
         condition: service_completed_successfully
     environment:
-      - API_PORT=8000
+      - API_PORT=8011
     env_file:
       - docker-compose.env
     container_name: gitlab_mock_service
-    ports:
-      - "8011:8000"
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -486,10 +424,8 @@ services:
       dockerfile: ./gitlab_client_service/Dockerfile
     image: gitlab_client_service:latest
     container_name: gitlab_client_service
-    ports:
-      - "8012:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8012
     env_file:
       - docker-compose.env
     depends_on:
@@ -499,10 +435,8 @@ services:
         condition: service_healthy
       gitlab-mock-service:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -516,10 +450,8 @@ services:
       dockerfile: ./ai_tasks_service/Dockerfile
     image: ai_tasks_service:latest
     container_name: ai_tasks_service
-    ports:
-      - "8013:8000"
     environment:
-      - API_PORT=8000
+      - API_PORT=8013
     env_file:
       - docker-compose.env
     depends_on:
@@ -531,10 +463,8 @@ services:
         condition: service_healthy
       gitlab-client-service:
         condition: service_healthy
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8013/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -549,14 +479,12 @@ services:
       args:
         - PRECACHE_MODELS=true # Set to true if it's the first time running the service
     container_name: openai_mock_service
-    ports:
-      - "8010:8000"
+    environment:
+      - API_PORT=8010
     env_file:
       - docker-compose.env
-    networks:
-      - microservices_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
       interval: 30s
       timeout: 10s
       retries: 2
@@ -571,12 +499,8 @@ services:
       context: ./services
       dockerfile: ./gpt_oss/Dockerfile
     container_name: gpt_oss_service
-    ports:
-      - "8010:11434"
     env_file:
       - docker-compose.env
-    networks:
-      - microservices_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/v1/models"]
       interval: 30s
@@ -596,19 +520,19 @@ services:
     container_name: e2e_tests_runner
     environment:
       # Override service URLs to use internal docker network hostnames
-      - PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
-      - DOCUMENT_PROCESSING_URL=http://document-processing-service:8000
-      - NEO4J_INGESTION_URL=http://neo4j-ingestion-service:8000
-      - AZURE_AD_AUTHORITY=https://host.docker.internal:8005
-      - INIT_DB_SERVICE_URL=http://db-init-service:8000
-      - NEO4J_MAINTENANCE_URL=http://neo4j-maintenance-service:8000
-      - UI_SERVICE_URL=http://ui-service:8000
-      - AI_REQUIREMENTS_SERVICE_URL=http://ai-requirements-service:8000
-      - NEO4J_RETRIEVAL_URL=http://neo4j-retrieval-service:8000
-      - OPENAI_MOCK_URL=http://openai-mock-service:8000
-      - GITLAB_BASE_URL=http://gitlab-mock-service:8000
-      - GITLAB_INGESTION_BASE_URL=http://gitlab-client-service:8000
-      - AI_TASKS_SERVICE_URL=http://ai-tasks-service:8000
+      - PROJECT_MANAGEMENT_SERVICE_URL=http://localhost:8003
+      - DOCUMENT_PROCESSING_URL=http://localhost:8004
+      - NEO4J_INGESTION_URL=http://localhost:8006
+      - AZURE_AD_AUTHORITY=https://localhost:8005
+      - INIT_DB_SERVICE_URL=http://localhost:8001
+      - NEO4J_MAINTENANCE_URL=http://localhost:8002
+      - UI_SERVICE_URL=http://localhost:8007
+      - AI_REQUIREMENTS_SERVICE_URL=http://localhost:8009
+      - NEO4J_RETRIEVAL_URL=http://localhost:8008
+      - OPENAI_MOCK_URL=http://localhost:8010
+      - GITLAB_BASE_URL=http://localhost:8011
+      - GITLAB_INGESTION_BASE_URL=http://localhost:8012
+      - AI_TASKS_SERVICE_URL=http://localhost:8013
     env_file:
       - docker-compose.env
     depends_on:
@@ -640,8 +564,6 @@ services:
         condition: service_healthy
       openai-mock-service:
         condition: service_healthy
-    networks:
-      - microservices_network
     volumes:
       # Mount test results and logs for external access
       - ./e2e_tests/test-results:/e2e-tests/test-results
@@ -649,10 +571,7 @@ services:
     profiles:
       - e2e-tests  # Optional profile to run tests on demand
 
-networks:
-  microservices_network:
-    driver: bridge
-    name: git_epic_creator_network
+ 
 
 volumes:
   postgres_data:
