@@ -184,8 +184,42 @@ DOCLING_VLM_MODEL=llama3.2-vision:11b
 - Local S2S auth uses `LOCAL_JWT_SECRET` for signing/verification
 
 ### Health
-- `GET /health/celery` returns Celery health, app name, registered tasks, routes, serializers, and task validation status.
-- `GET /health/tika` returns Tika status and configuration endpoint checks.
+- `GET /health/celery` returns Celery health, app name, registered tasks, routes, serializers, task validation status, **and processor initialization status**.
+- `GET /health/tika` returns Tika status, configuration endpoint checks, **and processor initialization status**.
+
+#### Processor Initialization Health Check
+The service implements fail-fast initialization with health status reporting:
+- **Healthy**: Processors (`DoclingProcessor`, `TikaProcessor`) initialized successfully
+- **Unhealthy**: Processor initialization failed (e.g., invalid Azure OpenAI credentials, missing configuration)
+
+When processor initialization fails:
+- Service stays running (doesn't crash)
+- Health endpoints return `"healthy": false`
+- Response includes `processor_initialization` with error details:
+  - `initialized`: Whether initialization was attempted
+  - `healthy`: Whether initialization succeeded
+  - `error`: Error message if initialization failed
+  - `error_type`: Category of error (`configuration_error`, `unexpected_error`, `task_import_error`)
+  - `timestamp`: When initialization was attempted
+- Celery tasks are **not imported** (prevents task execution with broken processors)
+- Logs show `SERVICE_UNHEALTHY` and `TASKS_NOT_IMPORTED` messages
+
+Example unhealthy response:
+```json
+{
+  "healthy": false,
+  "processor_initialization_failed": true,
+  "processor_initialization": {
+    "initialized": true,
+    "healthy": false,
+    "error": "Configuration validation failed: DOCLING_AZURE_OPENAI_API_KEY is required for azure_openai provider",
+    "error_type": "configuration_error",
+    "timestamp": "2025-10-15T20:30:00.000Z"
+  }
+}
+```
+
+This design ensures that configuration errors are immediately visible via health checks rather than causing silent worker crashes.
 
 ### Exception handling and timeout configuration
 The service implements comprehensive exception handling to prevent silent task failures:
