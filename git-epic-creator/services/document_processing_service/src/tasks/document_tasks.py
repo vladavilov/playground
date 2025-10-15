@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Dict, Any, TYPE_CHECKING
 import os
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from utils.blob_storage import BlobStorageClient
 from clients.project_management_client import ProjectManagementClient
@@ -118,7 +119,12 @@ async def _update_project_progress_via_http(
         }
 
 
-@celery_app.task(bind=True, name=TASK_PROCESS_PROJECT_DOCS)
+@celery_app.task(
+    bind=True, 
+    name=TASK_PROCESS_PROJECT_DOCS,
+    time_limit=3600,  # Hard timeout: 1 hour (prevents indefinite hangs)
+    soft_time_limit=3300,  # Soft timeout: 55 minutes (allows graceful cleanup)
+)
 def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
     """
     Process all documents for a project from blob storage.
@@ -134,7 +140,9 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                 project_id=project_id,
                 task_id=self.request.id,
                 correlation_id=getattr(self.request, 'correlation_id', 'unknown'),
-                worker_pid=os.getpid())
+                worker_pid=os.getpid(),
+                soft_time_limit=3300,
+                hard_time_limit=3600)
 
     try:
         auth_header = self.request.headers.get('Authentication')
@@ -253,6 +261,19 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                     logger.error('Failed to update project status for empty documents', error=str(status_error))
         return result
 
+    except SoftTimeLimitExceeded:
+        error_msg = "Task soft time limit exceeded (55 minutes) - processing took too long"
+        logger.error("TASK_SOFT_TIMEOUT",
+                    project_id=project_id,
+                    task_id=self.request.id,
+                    error=error_msg)
+        return {
+            'success': False,
+            'project_id': project_id,
+            'task_id': self.request.id,
+            'error_message': error_msg,
+            'timeout': True
+        }
     except Exception as e:
         error_msg = str(e)
         logger.error("TASK EXECUTION FAILED - document collection processing failed",
