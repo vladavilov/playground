@@ -15,8 +15,7 @@ RUN for i in 1 2 3 4 5; do \
             ca-certificates \
             curl \
             libstdc++6 \
-            libgcc-s1 \
-            libgomp1 && \
+            libgcc-s1 && \
         rm -rf /var/lib/apt/lists/* && \
         break || \
         (echo "Retry $i/5 failed, waiting..." && sleep 5); \

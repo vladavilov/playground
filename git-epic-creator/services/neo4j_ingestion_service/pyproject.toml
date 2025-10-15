@@ -23,6 +23,7 @@ dependencies = [
     "python-dotenv",
     "pydantic-settings",
     "pandas",
+    "pyarrow",
     "pyyaml",
     "azure-storage-blob",
     "celery",
