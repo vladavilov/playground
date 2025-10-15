@@ -244,7 +244,7 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                         async with ProjectManagementClient() as client:
                             await client.update_project_status(
                                 project_id=project_id,
-                                status="processing_failed",
+                                status="rag_failed",
                                 error_message=error_message,
                                 authorization_header=auth_header,
                             )

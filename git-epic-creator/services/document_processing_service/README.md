@@ -89,7 +89,7 @@ sequenceDiagram
 7) Delete processed input blobs (including empty documents).
 8) Conditionally trigger Neo4j ingestion:
    - If at least one valid document exists → publish trigger to `ingestion.trigger`
-   - If all documents are empty → skip ingestion and update project status to `processing_failed`
+   - If all documents are empty → skip ingestion and update project status to `rag_failed`
 
 **Note on async-to-sync bridge**: Progress updates use a persistent event loop pattern (consistent with neo4j_ingestion_service) via `utils.asyncio_runner.run_async()`. The persistent loop runs in a dedicated thread for the worker's lifetime, preventing event loop conflicts and ensuring reliable async HTTP calls. This approach is initialized via Celery worker signals (`worker_process_init`/`worker_process_shutdown`).
 
@@ -234,7 +234,7 @@ The service implements validation to prevent downstream errors in Neo4j ingestio
 - **Tracking**: Empty documents are counted separately (`empty_documents` field in result)
 - **No upload**: Empty documents do not generate output JSON files
 - **Cleanup**: Empty document input files are still deleted from blob storage
-- **Ingestion gating**: If all documents are empty, Neo4j ingestion is skipped and project status is set to `processing_failed`
+- **Ingestion gating**: If all documents are empty, Neo4j ingestion is skipped and project status is set to `rag_failed`
 - **Mixed scenarios**: Projects with both valid and empty documents will process successfully with only valid documents sent to ingestion
 
 **Why this matters**: Empty documents cause pandas DataFrame errors in GraphRAG's `create_base_text_units` workflow. This validation prevents those errors by filtering empty content before it reaches the ingestion pipeline.
