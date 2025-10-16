@@ -88,28 +88,19 @@ ENV HF_HOME=/opt/hf-cache \
     TRANSFORMERS_CACHE=/opt/hf-cache/transformers \
     HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct
 
-# Conditionally create HF cache directories only when DOCLING_VLM_MODE=local
+# Conditionally prepare local VLM environment (cache dirs, model download, docling pre-warm)
+# Only executed when DOCLING_VLM_MODE=local, otherwise uses remote VLM APIs
 RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
-        echo "DOCLING_VLM_MODE=local: Creating Hugging Face cache directories..." && \
-        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-cache/models; \
+        echo "DOCLING_VLM_MODE=local: Initializing local VLM environment..." && \
+        echo "Step 1/3: Creating Hugging Face cache directories..." && \
+        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-cache/models && \
+        echo "Step 2/3: Downloading and caching Hugging Face model (${HF_REPO_ID})..." && \
+        python -m scripts.download_hf_model && \
+        echo "Step 3/3: Pre-warming docling plugins and models..." && \
+        python -m scripts.build_init && \
+        echo "Local VLM environment initialized successfully."; \
     else \
-        echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping Hugging Face cache directory creation (using remote VLM)"; \
-    fi
-
-# Conditionally predownload local ungated VLM only when DOCLING_VLM_MODE=local
-RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
-        echo "DOCLING_VLM_MODE=local: Downloading and caching Hugging Face model..." && \
-        python -m scripts.download_hf_model; \
-    else \
-        echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping Hugging Face model download (using remote VLM)"; \
-    fi
-
-# Conditionally pre-warm docling plugins and models only when DOCLING_VLM_MODE=local
-RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
-        echo "DOCLING_VLM_MODE=local: Pre-warming docling plugins and models..." && \
-        python -m scripts.build_init; \
-    else \
-        echo "DOCLING_VLM_MODE=$DOCLING_VLM_MODE: Skipping docling pre-warm (using remote VLM)"; \
+        echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping local VLM setup (using remote VLM APIs)"; \
     fi
 
 ENV API_PORT=8000
