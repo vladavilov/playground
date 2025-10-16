@@ -69,7 +69,7 @@ sequenceDiagram
 ```
 
 ### Runtime components and modules
-- FastAPI app and health: `src/main.py` (`/health/celery`, `/health/tika`)
+- FastAPI app and health: `src/main.py` (`/health/celery` - comprehensive health endpoint)
 - Celery worker app: `src/celery_worker_app.py` (task discovery/validation)
 - Task subscriber: `src/task_subscriber.py` (wraps shared `TaskStreamSubscriber`)
 - Celery task: `src/tasks/document_tasks.py` (`tasks.document_tasks.process_project_documents_task`)
@@ -184,8 +184,13 @@ DOCLING_VLM_MODEL=llama3.2-vision:11b
 - Local S2S auth uses `LOCAL_JWT_SECRET` for signing/verification
 
 ### Health
-- `GET /health/celery` returns Celery health, app name, registered tasks, routes, serializers, task validation status, **and processor initialization status**.
-- `GET /health/tika` returns Tika status, configuration endpoint checks, **and processor initialization status**.
+- `GET /health/celery` - Comprehensive health endpoint that returns:
+  - Basic service health
+  - Celery worker status (app name, registered tasks, routes, serializers, task validation status)
+  - Processor initialization status (DoclingProcessor and TikaProcessor)
+  - Tika server availability and configuration
+  - All components organized under `components` object with individual `healthy` status
+  - Overall `healthy` flag that is `false` if any critical component fails
 
 #### Processor Initialization Health Check
 The service implements fail-fast initialization with health status reporting:
@@ -271,7 +276,7 @@ All error logs include full exception details (`exc_info=True`) with stack trace
 ### Docker and Compose
 - Image should include `tika` client and place Tika server JAR at `TIKA_SERVER_JAR` path if `TIKA_SERVER_AUTO_START` is true.
 - Run a dedicated Celery worker for queue `document_processing`; on Windows, prefer `--pool=solo`.
-- Healthcheck: probe `/health/celery` and `/health/tika`.
+- Healthcheck: probe `/health/celery` (comprehensive health check for all components).
 
 #### Build Configuration
 The service supports two VLM modes affecting build time and resources:
@@ -300,7 +305,6 @@ The service supports two VLM modes affecting build time and resources:
 4) Validate health:
    ```bash
    curl http://localhost:8000/health/celery
-   curl http://localhost:8000/health/tika
    ```
 5) Publish a test task request (fields shown below) to `task_streams:document_processing` or use the e2e helper.
 
