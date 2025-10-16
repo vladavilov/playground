@@ -7,7 +7,7 @@ import os
 from typing import Dict, Any
 from fastapi import Depends, Request, APIRouter
 from celery import Celery
-from celery_worker_app import celery_app, get_task_validation_status, get_initialization_status
+from celery_worker_app import celery_app, get_task_validation_status, get_initialization_status, get_processors_health
 
 from configuration.logging_config import configure_logging
 
@@ -16,7 +16,6 @@ configure_logging()
 from configuration.common_config import get_app_settings
 from utils.celery_factory import CeleryHealthChecker
 from utils.app_factory import FastAPIFactory
-from services.tika_processor import TikaProcessor
 
 logger = structlog.get_logger(__name__)
 settings = get_app_settings()
@@ -57,16 +56,22 @@ def celery_health_check(
     Checks:
     - Basic service health
     - Celery worker status
-    - Processor initialization status (Docling and Tika)
-    - Tika server availability
+    - Docling processor initialization and runtime health (VLM mode, OCR, RapidOCR models)
+    - Tika processor initialization and runtime health (server availability, version)
     
     The service is considered unhealthy if any critical component fails.
+    Each processor (Docling and Tika) is checked independently and reported separately.
     
     Args:
         scoped_celery_app: Celery application instance from dependency injection
         
     Returns:
-        Dict[str, Any]: Comprehensive health check response with all component statuses
+        Dict[str, Any]: Comprehensive health check response with separate component statuses:
+            - components.docling_initialization: Docling startup status
+            - components.docling: Docling runtime health check
+            - components.tika_initialization: Tika startup status
+            - components.tika: Tika runtime health check
+            - components.celery: Celery worker status
     """
     overall_healthy = True
     health_response = {
@@ -84,9 +89,12 @@ def celery_health_check(
         
         # 2. Check processor initialization status
         init_status = get_initialization_status()
-        health_response["components"]["processor_initialization"] = init_status
         
-        if not init_status["healthy"]:
+        # Report separate Docling and Tika initialization status
+        health_response["components"]["docling_initialization"] = init_status.get("docling", {})
+        health_response["components"]["tika_initialization"] = init_status.get("tika", {})
+        
+        if not init_status.get("healthy", False):
             overall_healthy = False
             health_response["processor_initialization_failed"] = True
         
@@ -109,37 +117,25 @@ def celery_health_check(
         if not celery_status.get("healthy", False):
             overall_healthy = False
         
-        # 4. Check Tika processor health (only if initialization was successful)
-        if init_status["healthy"]:
-            try:
-                tika_processor = TikaProcessor()
-                tika_status = tika_processor.check_health()
-                health_response["components"]["tika"] = tika_status
-                
-                if not tika_status.get("healthy", False):
-                    overall_healthy = False
-                    
-            except Exception as tika_error:
-                health_response["components"]["tika"] = {
-                    "healthy": False,
-                    "error": f"Tika health check failed: {str(tika_error)}"
-                }
-                overall_healthy = False
-        else:
-            # If processors failed to initialize, Tika is unavailable
-            health_response["components"]["tika"] = {
-                "healthy": False,
-                "error": "Tika unavailable due to processor initialization failure",
-                "initialization_error": init_status.get("error")
-            }
+        # 4. Check Docling and Tika processor runtime health (uses singleton instances)
+        processors_health = get_processors_health()
+        
+        health_response["components"]["docling"] = processors_health["docling"]
+        health_response["components"]["tika"] = processors_health["tika"]
+        
+        # Update overall health based on processor health
+        if not processors_health["docling"].get("healthy", False):
+            overall_healthy = False
+        if not processors_health["tika"].get("healthy", False):
             overall_healthy = False
         
         # Set overall health status
         health_response["healthy"] = overall_healthy
         
-        logger.debug("Comprehensive health check completed", 
+        logger.info("Comprehensive health check completed", 
                     overall_healthy=overall_healthy,
-                    processor_healthy=init_status["healthy"])
+                    docling_healthy=processors_health["docling"].get("healthy", False),
+                    tika_healthy=processors_health["tika"].get("healthy", False))
         return health_response
         
     except Exception as e:

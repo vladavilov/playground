@@ -82,6 +82,48 @@ RUN mkdir -p ${TIKA_LOG_PATH} && \
 
 WORKDIR /app
 
+# RapidOCR models directory (pre-downloaded OCR models for offline operation)
+ENV RAPIDOCR_MODELS_PATH=/opt/rapidocr-models
+
+# Copy RapidOCR models from plugins/ directory
+# REQUIRED: The following models MUST exist in plugins/rapidocr/models/:
+#   - ch_PP-OCRv3_det_infer.onnx
+#   - ch_PP-OCRv3_rec_infer.onnx
+#   - ch_ppocr_mobile_v2.0_cls_infer.onnx
+# The build will FAIL if models are not found
+RUN mkdir -p "$RAPIDOCR_MODELS_PATH"
+COPY ./document_processing_service/plugins/rapidocr/ ${RAPIDOCR_MODELS_PATH}/
+
+# Verify required model files exist - FAIL BUILD if missing
+RUN set -e; \
+    echo "Verifying RapidOCR models..."; \
+    REQUIRED_MODELS="ch_PP-OCRv3_det_infer.onnx ch_PP-OCRv3_rec_infer.onnx ch_ppocr_mobile_v2.0_cls_infer.onnx"; \
+    MISSING_MODELS=""; \
+    for MODEL in $REQUIRED_MODELS; do \
+        MODEL_PATH="${RAPIDOCR_MODELS_PATH}/models/${MODEL}"; \
+        if [ ! -f "$MODEL_PATH" ]; then \
+            MISSING_MODELS="${MISSING_MODELS}\n  - ${MODEL}"; \
+        fi; \
+    done; \
+    if [ -n "$MISSING_MODELS" ]; then \
+        echo ""; \
+        echo "╔════════════════════════════════════════════════════════════════╗"; \
+        echo "║  ✗ ERROR: Required RapidOCR models NOT FOUND                  ║"; \
+        echo "╚════════════════════════════════════════════════════════════════╝"; \
+        echo ""; \
+        echo "Missing models:"; \
+        printf "$MISSING_MODELS\n"; \
+        echo ""; \
+        echo "Expected in: plugins/rapidocr/models/"; \
+        echo "  - ch_PP-OCRv3_det_infer.onnx"; \
+        echo "  - ch_PP-OCRv3_rec_infer.onnx"; \
+        echo "  - ch_ppocr_mobile_v2.0_cls_infer.onnx"; \
+        echo ""; \
+        exit 1; \
+    fi; \
+    echo "✓ All required RapidOCR models found"; \
+    ls -lh ${RAPIDOCR_MODELS_PATH}/models/*.onnx
+
 # Hugging Face caches (only create directories for local VLM mode)
 ENV HF_HOME=/opt/hf-cache \
     HUGGINGFACE_HUB_CACHE=/opt/hf-cache/hub \

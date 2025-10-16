@@ -455,3 +455,56 @@ class TikaProcessor:
                         file_path=file_path,
                         error=str(e))
             raise DocumentProcessingError(f"Error processing document {file_path}: {str(e)}") from e
+
+    def check_health(self) -> Dict[str, Any]:
+        """
+        Check health of Tika processor and server.
+        
+        Returns:
+            Dict with health status including:
+            - healthy: bool indicating if Tika server is accessible
+            - server_endpoint: configured Tika server endpoint
+            - server_version: Tika server version (if accessible)
+            - server_healthy: whether the server responds to health checks
+            - client_only_mode: whether Tika is in client-only mode
+            - supported_formats: list of supported file extensions
+        """
+        try:
+            health_info = {
+                "healthy": False,
+                "server_endpoint": self.settings.TIKA_SERVER_ENDPOINT,
+                "client_only_mode": self.settings.TIKA_CLIENT_ONLY,
+                "auto_start": self.settings.TIKA_SERVER_AUTO_START,
+                "supported_formats": list(self.supported_formats),
+                "tika_version": self.settings.TIKA_VERSION
+            }
+            
+            # Check if Tika server is healthy
+            server_healthy = self._is_server_healthy()
+            health_info["server_healthy"] = server_healthy
+            
+            if server_healthy:
+                health_info["healthy"] = True
+                # Try to get server version
+                try:
+                    response = requests.get(
+                        f"{self.settings.TIKA_SERVER_ENDPOINT}/version",
+                        timeout=5
+                    )
+                    if response.status_code == 200:
+                        health_info["server_version"] = response.text.strip()
+                except Exception as version_error:
+                    logger.debug("Could not retrieve Tika server version", error=str(version_error))
+            else:
+                health_info["error"] = "Tika server is not responding"
+            
+            logger.debug("Tika health check completed", **health_info)
+            return health_info
+            
+        except Exception as e:
+            error_msg = f"Tika health check failed: {str(e)}"
+            logger.error("Tika health check error", error=error_msg, exc_info=True)
+            return {
+                "healthy": False,
+                "error": error_msg
+            }

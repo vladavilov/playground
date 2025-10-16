@@ -138,4 +138,10 @@ class DoclingSettings(BaseSettings):
         description="Minimum text length (chars) to consider extraction successful. Below this triggers fallback if enabled."
     )
 
+    # ===== RapidOCR Model Configuration =====
+    RAPIDOCR_MODELS_PATH: str = Field(
+        default="/opt/rapidocr-models",
+        description="Path to pre-downloaded RapidOCR ONNX model files for offline OCR operation"
+    )
+
 
