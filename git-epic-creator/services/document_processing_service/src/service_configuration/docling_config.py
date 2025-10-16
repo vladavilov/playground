@@ -127,4 +127,15 @@ class DoclingSettings(BaseSettings):
         description="Response format: DOCTAGS or MARKDOWN"
     )
 
+    # ===== Fallback Configuration =====
+    DOCLING_ENABLE_EMPTY_FALLBACK: bool = Field(
+        default=True,
+        description="Enable automatic fallback to Tika if Docling extraction returns empty or minimal text"
+    )
+
+    DOCLING_MIN_TEXT_LENGTH: int = Field(
+        default=50,
+        description="Minimum text length (chars) to consider extraction successful. Below this triggers fallback if enabled."
+    )
+
 

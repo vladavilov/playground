@@ -69,7 +69,7 @@ sequenceDiagram
 ```
 
 ### Runtime components and modules
-- FastAPI app and health: `src/main.py` (`/health/celery`, `/health/tika`)
+- FastAPI app and health: `src/main.py` (`/health/celery` - comprehensive health endpoint)
 - Celery worker app: `src/celery_worker_app.py` (task discovery/validation)
 - Task subscriber: `src/task_subscriber.py` (wraps shared `TaskStreamSubscriber`)
 - Celery task: `src/tasks/document_tasks.py` (`tasks.document_tasks.process_project_documents_task`)
@@ -128,6 +128,34 @@ sequenceDiagram
   - `DOCLING_OCR_LANGS` (default `en`) - OCR languages (comma-separated)
   - `DOCLING_IMAGES_SCALE` (default `2.0`) - Image scaling factor
 
+- **Fallback Configuration**:
+  - `DOCLING_ENABLE_EMPTY_FALLBACK` (default `True`) - Enable automatic fallback to Tika if Docling returns empty/minimal text
+  - `DOCLING_MIN_TEXT_LENGTH` (default `50`) - Minimum text length (chars) to consider extraction successful. Below this triggers fallback if enabled.
+
+#### Pipeline Architecture
+
+**Hybrid Text + Vision Pipeline (Remote Mode)**:
+When `DOCLING_VLM_MODE=remote`, the service uses a hybrid approach that preserves PDF text extraction while adding remote vision capabilities:
+
+- **PdfPipelineOptions** handles standard PDF processing: text layer extraction, OCR, table detection
+- **PictureDescriptionApiOptions** handles remote API calls for picture/image description
+- Result: **Both** PDF text content AND remote vision-based picture descriptions
+
+This fixes the empty text issue where VlmPipeline alone would skip PDF text extraction and only perform vision processing.
+
+**Local Mode**:
+When `DOCLING_VLM_MODE=local`, the service uses SmolVLM for local picture description while preserving all standard PDF extraction features.
+
+**Fallback Mechanism**:
+If Docling extraction returns text below `DOCLING_MIN_TEXT_LENGTH` threshold:
+1. Logs `EMPTY_EXTRACTION_DETECTED` warning with file stats
+2. Attempts Tika fallback extraction
+3. If Tika succeeds, uses Tika text and logs `FALLBACK_TIKA_SUCCESS`
+4. If Tika also fails, continues with original empty result
+5. Metadata includes `fallback_used: "tika"` when fallback succeeds
+
+Fallback conditions: text below threshold AND file is PDF AND size > 4KB AND `DOCLING_ENABLE_EMPTY_FALLBACK=true`
+
 #### Example Configurations
 
 **Local VLM (SmolVLM - Default)**:
@@ -137,7 +165,7 @@ DOCLING_USE_OCR=true
 DOCLING_IMAGES_SCALE=2.0
 ```
 
-**Remote VLM with Azure OpenAI (Llama 3.2 Vision)**:
+**Remote VLM with Azure OpenAI (Llama 3.2 Vision)** - Hybrid text + vision:
 ```bash
 DOCLING_VLM_MODE=remote
 DOCLING_VLM_PROVIDER=azure_openai
@@ -145,6 +173,9 @@ DOCLING_AZURE_OPENAI_ENDPOINT=https://myresource.openai.azure.com
 DOCLING_AZURE_OPENAI_DEPLOYMENT_NAME=llama-32-vision
 DOCLING_AZURE_OPENAI_API_KEY=your-api-key
 DOCLING_AZURE_OPENAI_API_VERSION=2024-02-15-preview
+# Fallback configuration
+DOCLING_ENABLE_EMPTY_FALLBACK=true
+DOCLING_MIN_TEXT_LENGTH=50
 ```
 
 **Remote VLM with LM Studio**:
@@ -184,8 +215,13 @@ DOCLING_VLM_MODEL=llama3.2-vision:11b
 - Local S2S auth uses `LOCAL_JWT_SECRET` for signing/verification
 
 ### Health
-- `GET /health/celery` returns Celery health, app name, registered tasks, routes, serializers, task validation status, **and processor initialization status**.
-- `GET /health/tika` returns Tika status, configuration endpoint checks, **and processor initialization status**.
+- `GET /health/celery` - Comprehensive health endpoint that returns:
+  - Basic service health
+  - Celery worker status (app name, registered tasks, routes, serializers, task validation status)
+  - Processor initialization status (DoclingProcessor and TikaProcessor)
+  - Tika server availability and configuration
+  - All components organized under `components` object with individual `healthy` status
+  - Overall `healthy` flag that is `false` if any critical component fails
 
 #### Processor Initialization Health Check
 The service implements fail-fast initialization with health status reporting:
@@ -250,15 +286,22 @@ The service implements comprehensive exception handling to prevent silent task f
 
 #### Debugging Capabilities
 When investigating failures, look for these log events:
-- `DOCUMENT_PROCESSING_START` - Document processing begins
-- `DOCUMENT_PROCESSING_COMPLETED` - Processing finished (success or failure)
+- `DOCLING_PIPELINE_CONFIGURED` - Pipeline strategy selected (local_pdf_with_smolvlm, pdf_with_remote_vision)
+- `DOCLING_PROCESSING_START` - Document processing begins (includes file size, VLM mode, provider)
+- `DOCLING_PROCESSING_COMPLETED` - Processing finished with text length and page count
+- `DOCUMENT_PROCESSING_START` / `DOCUMENT_PROCESSING_COMPLETED` - Core layer processing events
 - `DOCUMENT_PROCESSING_EXCEPTION` - Processor threw an exception
+- `EMPTY_EXTRACTION_DETECTED` - Extracted text below threshold, triggering fallback
+- `FALLBACK_TIKA_TRIGGERED` - Tika fallback started
+- `FALLBACK_TIKA_SUCCESS` - Tika fallback succeeded with improved text
+- `FALLBACK_TIKA_ALSO_EMPTY` - Tika fallback also returned minimal text
+- `FALLBACK_TIKA_FAILED` / `FALLBACK_TIKA_EXCEPTION` - Tika fallback error
 - `DOCLING_VLM_API_TIMEOUT` - Remote VLM API call timed out
 - `DOCLING_VLM_API_CONNECTION_ERROR` - Network/DNS issues
 - `DOCLING_VLM_API_HTTP_ERROR` - HTTP errors (401, 403, 429, 500)
 - `DOCLING_PROCESSING_FAILED` - Unexpected processor failure
 - `TASK_SOFT_TIMEOUT` - Task exceeded 55-minute soft limit
-- `TASK EXECUTION FAILED` - Task-level exception
+- `TASK_EXECUTION_FAILED` - Task-level exception
 
 All error logs include full exception details (`exc_info=True`) with stack traces and VLM configuration context.
 
@@ -271,7 +314,7 @@ All error logs include full exception details (`exc_info=True`) with stack trace
 ### Docker and Compose
 - Image should include `tika` client and place Tika server JAR at `TIKA_SERVER_JAR` path if `TIKA_SERVER_AUTO_START` is true.
 - Run a dedicated Celery worker for queue `document_processing`; on Windows, prefer `--pool=solo`.
-- Healthcheck: probe `/health/celery` and `/health/tika`.
+- Healthcheck: probe `/health/celery` (comprehensive health check for all components).
 
 #### Build Configuration
 The service supports two VLM modes affecting build time and resources:
@@ -300,7 +343,6 @@ The service supports two VLM modes affecting build time and resources:
 4) Validate health:
    ```bash
    curl http://localhost:8000/health/celery
-   curl http://localhost:8000/health/tika
    ```
 5) Publish a test task request (fields shown below) to `task_streams:document_processing` or use the e2e helper.
 

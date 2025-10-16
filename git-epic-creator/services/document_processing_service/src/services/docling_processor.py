@@ -19,11 +19,10 @@ from docling.document_converter import (
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
-    VlmPipelineOptions,
     smolvlm_picture_description,
+    PictureDescriptionApiOptions,
 )
-from docling.datamodel.pipeline_options_vlm_model import ApiVlmOptions, ResponseFormat
-from docling.pipeline.vlm_pipeline import VlmPipeline
+from docling.datamodel.pipeline_options_vlm_model import ResponseFormat
 import requests
 
 # Markdown serialization with picture descriptions
@@ -94,7 +93,7 @@ class DoclingProcessor:
         # Docling supports PDFs and images only
         return self._is_pdf(file_path) or self._is_image(file_path)
 
-    def _create_azure_openai_vlm_options(self) -> ApiVlmOptions:
+    def _create_azure_openai_vlm_options(self) -> PictureDescriptionApiOptions:
         """Create Azure OpenAI VLM options for Llama 3.2 Vision or GPT-4o (PRIMARY remote provider)."""
         
         if not self.settings.DOCLING_AZURE_OPENAI_ENDPOINT:
@@ -129,7 +128,7 @@ class DoclingProcessor:
                    api_version=api_version,
                    response_format=response_format)
         
-        options = ApiVlmOptions(
+        options = PictureDescriptionApiOptions(
             url=url,
             params=dict(
                 max_tokens=self.settings.DOCLING_VLM_MAX_TOKENS,
@@ -144,7 +143,7 @@ class DoclingProcessor:
         
         return options
 
-    def _create_lm_studio_vlm_options(self) -> ApiVlmOptions:
+    def _create_lm_studio_vlm_options(self) -> PictureDescriptionApiOptions:
         """Create LM Studio VLM options (OpenAI-compatible local API)."""
         
         headers = {}
@@ -161,7 +160,7 @@ class DoclingProcessor:
                    endpoint=self.settings.DOCLING_VLM_ENDPOINT,
                    model=self.settings.DOCLING_VLM_MODEL)
         
-        options = ApiVlmOptions(
+        options = PictureDescriptionApiOptions(
             url=f"{self.settings.DOCLING_VLM_ENDPOINT.rstrip('/')}/v1/chat/completions",
             params=dict(
                 model=self.settings.DOCLING_VLM_MODEL,
@@ -177,7 +176,7 @@ class DoclingProcessor:
         
         return options
 
-    def _create_ollama_vlm_options(self) -> ApiVlmOptions:
+    def _create_ollama_vlm_options(self) -> PictureDescriptionApiOptions:
         """Create Ollama VLM options."""
         
         response_format = (
@@ -190,7 +189,7 @@ class DoclingProcessor:
                    endpoint=self.settings.DOCLING_VLM_ENDPOINT,
                    model=self.settings.DOCLING_VLM_MODEL)
         
-        options = ApiVlmOptions(
+        options = PictureDescriptionApiOptions(
             url=f"{self.settings.DOCLING_VLM_ENDPOINT.rstrip('/')}/v1/chat/completions",
             params=dict(
                 model=self.settings.DOCLING_VLM_MODEL,
@@ -203,7 +202,7 @@ class DoclingProcessor:
         
         return options
 
-    def _create_watsonx_vlm_options(self) -> ApiVlmOptions:
+    def _create_watsonx_vlm_options(self) -> PictureDescriptionApiOptions:
         """Create watsonx.ai VLM options."""
         
         if not self.settings.WX_API_KEY:
@@ -235,7 +234,7 @@ class DoclingProcessor:
                    model=self.settings.DOCLING_VLM_MODEL,
                    project_id=self.settings.WX_PROJECT_ID)
         
-        options = ApiVlmOptions(
+        options = PictureDescriptionApiOptions(
             url="https://us-south.ml.cloud.ibm.com/ml/v1/text/chat?version=2023-05-29",
             params=dict(
                 model_id=self.settings.DOCLING_VLM_MODEL,
@@ -254,7 +253,7 @@ class DoclingProcessor:
         
         return options
 
-    def _create_openai_compatible_vlm_options(self) -> ApiVlmOptions:
+    def _create_openai_compatible_vlm_options(self) -> PictureDescriptionApiOptions:
         """Create generic OpenAI-compatible VLM options."""
         
         headers = {}
@@ -271,7 +270,7 @@ class DoclingProcessor:
                    endpoint=self.settings.DOCLING_VLM_ENDPOINT,
                    model=self.settings.DOCLING_VLM_MODEL)
         
-        options = ApiVlmOptions(
+        options = PictureDescriptionApiOptions(
             url=f"{self.settings.DOCLING_VLM_ENDPOINT.rstrip('/')}/v1/chat/completions",
             params=dict(
                 model=self.settings.DOCLING_VLM_MODEL,
@@ -287,7 +286,7 @@ class DoclingProcessor:
         
         return options
 
-    def _get_remote_vlm_options(self) -> ApiVlmOptions:
+    def _get_remote_vlm_options(self) -> PictureDescriptionApiOptions:
         """Factory method to get VLM options based on configured provider."""
         
         provider = self.settings.DOCLING_VLM_PROVIDER.lower()
@@ -343,6 +342,16 @@ class DoclingProcessor:
 
         try:
             start_time = datetime.now(timezone.utc)
+            file_size_bytes = os.path.getsize(file_path)
+            is_pdf = self._is_pdf(file_path)
+            
+            # Log file stats before processing
+            logger.info("DOCLING_PROCESSING_START",
+                       file_path=file_path,
+                       file_size_bytes=file_size_bytes,
+                       file_type="pdf" if is_pdf else "image",
+                       vlm_mode=self.settings.DOCLING_VLM_MODE,
+                       vlm_provider=self.settings.DOCLING_VLM_PROVIDER if self.settings.DOCLING_VLM_MODE == "remote" else None)
 
             result = self._converter.convert(file_path)
 
@@ -352,17 +361,92 @@ class DoclingProcessor:
             metadata: Dict[str, Any] = meta_obj if isinstance(meta_obj, dict) else {}
 
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-            file_type = 'application/pdf' if self._is_pdf(file_path) else 'image/*'
+            file_type = 'application/pdf' if is_pdf else 'image/*'
+            
+            # Get page count if available
+            page_count = None
+            if hasattr(result.document, 'pages') and result.document.pages:
+                page_count = len(result.document.pages)
 
-            logger.info("DOCLING PROCESSING COMPLETED",
+            logger.info("DOCLING_PROCESSING_COMPLETED",
                         file_path=file_path,
                         text_length=len(extracted_text),
-                        processing_time=processing_time)
+                        page_count=page_count,
+                        processing_time=processing_time,
+                        vlm_mode=self.settings.DOCLING_VLM_MODE)
+
+            # Check for empty or minimal text extraction
+            text_length = len(extracted_text.strip())
+            min_threshold = self.settings.DOCLING_MIN_TEXT_LENGTH
+            
+            # Trigger fallback if: text is below threshold, file is PDF, size > 4KB, and fallback is enabled
+            if (text_length < min_threshold and 
+                is_pdf and 
+                file_size_bytes > 4096 and 
+                self.settings.DOCLING_ENABLE_EMPTY_FALLBACK):
+                
+                logger.warning("EMPTY_EXTRACTION_DETECTED",
+                              file_path=file_path,
+                              text_length=text_length,
+                              min_threshold=min_threshold,
+                              file_size_bytes=file_size_bytes,
+                              page_count=page_count,
+                              strategy="fallback_to_tika",
+                              vlm_mode=self.settings.DOCLING_VLM_MODE)
+                
+                # Attempt Tika fallback
+                try:
+                    from services.tika_processor import TikaProcessor
+                    
+                    logger.info("FALLBACK_TIKA_TRIGGERED",
+                               file_path=file_path,
+                               reason="empty_docling_extraction")
+                    
+                    tika_processor = TikaProcessor()
+                    tika_result = tika_processor.extract_text_with_result(file_path)
+                    
+                    if tika_result.success and tika_result.extracted_text:
+                        tika_text = tika_result.extracted_text.strip()
+                        if len(tika_text) >= min_threshold:
+                            logger.info("FALLBACK_TIKA_SUCCESS",
+                                       file_path=file_path,
+                                       tika_text_length=len(tika_text),
+                                       docling_text_length=text_length,
+                                       improvement_chars=len(tika_text) - text_length)
+                            
+                            # Rebuild result with Tika text and combined metadata
+                            combined_metadata = {**metadata, **{"fallback_used": "tika", "docling_text_length": text_length}}
+                            if tika_result.metadata:
+                                combined_metadata.update(tika_result.metadata)
+                            
+                            return DocumentProcessingResult(
+                                extracted_text=tika_text,
+                                file_type=file_type,
+                                page_count=tika_result.page_count or page_count,
+                                metadata=combined_metadata,
+                                success=True,
+                                processing_time=processing_time + (tika_result.processing_time or 0),
+                            )
+                        else:
+                            logger.warning("FALLBACK_TIKA_ALSO_EMPTY",
+                                          file_path=file_path,
+                                          tika_text_length=len(tika_text))
+                    else:
+                        logger.warning("FALLBACK_TIKA_FAILED",
+                                      file_path=file_path,
+                                      error=tika_result.error_message)
+                
+                except Exception as fallback_exc:
+                    logger.error("FALLBACK_TIKA_EXCEPTION",
+                                file_path=file_path,
+                                error=str(fallback_exc),
+                                error_type=type(fallback_exc).__name__,
+                                exc_info=True)
 
             return DocumentProcessingResult(
                 extracted_text=extracted_text,
                 file_type=file_type,
-                page_count=None,
+                page_count=page_count,
                 metadata=metadata,
                 success=True,
                 processing_time=processing_time,
@@ -432,13 +516,20 @@ class DoclingProcessor:
             return DocumentProcessingResult(success=False, error_message=error_msg)
 
     def _build_converter(self) -> DocumentConverter:
-        """Create a converter configured for PDFs and images with local or remote VLM support."""
+        """Create a converter configured for PDFs and images with local or remote VLM support.
+        
+        In remote mode, uses hybrid approach: PdfPipelineOptions (for text/OCR/tables) 
+        + remote picture description API (for vision). This preserves PDF text extraction
+        while adding remote vision capabilities.
+        """
         
         vlm_mode = self.settings.DOCLING_VLM_MODE.lower()
         
         if vlm_mode == "local":
-            # LOCAL MODE: Use SmolVLM (current implementation)
-            logger.info("DOCLING_VLM_MODE_LOCAL", provider="SmolVLM")
+            # LOCAL MODE: Use SmolVLM for picture description
+            logger.info("DOCLING_PIPELINE_CONFIGURED", 
+                       strategy="local_pdf_with_smolvlm",
+                       provider="SmolVLM")
             
             pdf_opts = PdfPipelineOptions()
             pdf_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
@@ -463,26 +554,37 @@ class DoclingProcessor:
             )
             
         elif vlm_mode == "remote":
-            # REMOTE MODE: Use API-based VLM via provider factory
-            logger.info("DOCLING_VLM_MODE_REMOTE", provider=self.settings.DOCLING_VLM_PROVIDER)
+            # REMOTE MODE: Use hybrid approach - PDF text extraction + remote picture description
+            # This preserves standard PDF text layer while adding remote vision for pictures
+            logger.info("DOCLING_PIPELINE_CONFIGURED", 
+                       strategy="pdf_with_remote_vision",
+                       provider=self.settings.DOCLING_VLM_PROVIDER)
             
-            # Get provider-specific VLM options
-            vlm_options = self._get_remote_vlm_options()
+            # Build PdfPipelineOptions with standard text extraction
+            pdf_opts = PdfPipelineOptions()
+            pdf_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
             
-            # Configure VLM pipeline options
-            vlm_pipeline_opts = VlmPipelineOptions(
-                enable_remote_services=True,
-                vlm_options=vlm_options
-            )
+            # Enable remote services for picture description API calls
+            pdf_opts.enable_remote_services = True
             
-            # Create converter with VLM pipeline
+            # Configure remote picture description
+            pdf_opts.do_picture_description = True
+            pdf_opts.picture_description_options = self._get_remote_vlm_options()
+            
+            # Scale images for better VLM performance
+            images_scale = float(self.settings.DOCLING_IMAGES_SCALE)
+            pdf_opts.images_scale = images_scale
+            pdf_opts.generate_picture_images = True
+            
+            # Configure OCR languages
+            ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
+            pdf_opts.ocr_options.lang = [lang.strip() for lang in ocr_langs.split(",") if lang.strip()]
+
+            # Create converter with hybrid pipeline (text + remote vision)
             converter = DocumentConverter(
                 allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
                 format_options={
-                    InputFormat.PDF: PdfFormatOption(
-                        pipeline_cls=VlmPipeline,
-                        pipeline_options=vlm_pipeline_opts
-                    ),
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts),
                     InputFormat.IMAGE: ImageFormatOption(),
                 },
             )
