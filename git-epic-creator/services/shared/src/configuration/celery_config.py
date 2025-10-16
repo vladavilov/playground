@@ -43,6 +43,11 @@ class CelerySettings(BaseSettings):
     # Broker transport options
     # Visibility timeout for in-flight tasks (seconds). Keep modest to enable timely redelivery on worker loss.
     CELERY_BROKER_VISIBILITY_TIMEOUT: int = 60
+    
+    # Health Check Configuration
+    CELERY_HEALTH_CHECK_PING_TIMEOUT: int = 5  # Seconds to wait for worker ping response
+    CELERY_HEALTH_CHECK_INSPECTOR_TIMEOUT: int = 5  # Seconds to wait for inspector calls (increased from 1s for busy workers)
+    CELERY_HEALTH_CHECK_LONG_RUNNING_THRESHOLD: int = 60  # Seconds after which a task is considered long-running
 
     # Task Routing (centralized)
     CELERY_TASK_ROUTES: Dict[str, Dict[str, str]] = {

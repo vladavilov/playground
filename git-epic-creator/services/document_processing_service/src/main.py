@@ -3,6 +3,7 @@
 import threading
 import uvicorn
 import structlog
+import os
 from typing import Dict, Any
 from fastapi import Depends, Request, APIRouter
 from celery import Celery
@@ -160,17 +161,38 @@ def start_worker():
     """
     Start Celery worker for document processing tasks.
     Runs in a separate thread and handles task execution.
+    
+    Uses platform-aware pool selection:
+    - prefork (Linux/Unix): Multiple processes, true parallelism, isolated memory
+    - threads (Windows): Multiple threads, shared memory, Windows-compatible
+    
+    This fixes health check issues where solo pool blocked inspector calls
+    during long-running document processing tasks.
     """
     try:
-        celery_app.worker_main([
+        # Platform-aware pool selection
+        # prefork: Best for Linux/Docker - true process isolation
+        # threads: Best for Windows dev - handles signals properly
+        pool_type = 'threads' if os.name == 'nt' else 'prefork'
+        
+        worker_args = [
             'worker',
             '--loglevel=info',
             '--concurrency=2',
-            '--pool=solo',
+            f'--pool={pool_type}',
             '--hostname=document-processor@%h',
             '--queues=document_processing',
-            '--prefetch-multiplier=1'
-        ])
+            '--prefetch-multiplier=1',
+            '--max-tasks-per-child=10',  # Restart workers periodically to prevent memory leaks
+        ]
+        
+        logger.info("CELERY_WORKER_STARTING", 
+                   pool=pool_type, 
+                   concurrency=2,
+                   platform=os.name,
+                   note="Using prefork/threads pool for concurrent processing and health check responsiveness")
+        
+        celery_app.worker_main(worker_args)
         logger.debug("Celery worker started successfully")
     except Exception as e:
         error_msg = str(e)

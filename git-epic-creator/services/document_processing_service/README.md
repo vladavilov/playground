@@ -214,48 +214,99 @@ DOCLING_VLM_MODEL=llama3.2-vision:11b
 - `PROJECT_MANAGEMENT_SERVICE_URL`
 - Local S2S auth uses `LOCAL_JWT_SECRET` for signing/verification
 
-### Health
-- `GET /health/celery` - Comprehensive health endpoint that returns:
-  - Basic service health
-  - Celery worker status (app name, registered tasks, routes, serializers, task validation status)
-  - Processor initialization status (DoclingProcessor and TikaProcessor)
-  - Tika server availability and configuration
-  - All components organized under `components` object with individual `healthy` status
-  - Overall `healthy` flag that is `false` if any critical component fails
+### Health Check
+`GET /health/celery` - Comprehensive health endpoint that monitors all critical components and provides detailed worker state information.
 
-#### Processor Initialization Health Check
-The service implements fail-fast initialization with health status reporting:
-- **Healthy**: Processors (`DoclingProcessor`, `TikaProcessor`) initialized successfully
-- **Unhealthy**: Processor initialization failed (e.g., invalid Azure OpenAI credentials, missing configuration)
+#### What It Checks
+The health endpoint verifies:
+- **Basic service health**: Service is running and responsive
+- **Celery workers**: At least one worker is alive and responding to pings
+- **Worker state**: Current activity level (idle, active, busy, busy_unresponsive, unresponsive)
+- **Long-running tasks**: Tasks processing > 60 seconds are tracked separately
+- **Task registration**: Expected tasks are registered with workers
+- **Processor initialization**: DoclingProcessor and TikaProcessor initialized successfully
+- **Tika server**: Tika server is available and healthy
 
-When processor initialization fails:
+#### Response Structure
+All components are organized under a `components` object with individual health status. The overall `healthy` flag is `false` if any critical component fails.
+
+Example healthy response with busy worker:
+```json
+{
+  "healthy": true,
+  "service": "Document Processing Service",
+  "components": {
+    "basic": {"healthy": true, "status": "ok"},
+    "celery": {
+      "healthy": true,
+      "active_workers_count": 1,
+      "worker_state": "busy",
+      "long_running_tasks": [
+        {
+          "worker": "document-processor@hostname",
+          "task_id": "abc-123",
+          "task_name": "tasks.document_tasks.process_project_documents_task",
+          "elapsed_seconds": 87
+        }
+      ]
+    },
+    "processor_initialization": {"healthy": true},
+    "tika": {"healthy": true}
+  }
+}
+```
+
+#### Worker State Detection
+The health check distinguishes between different worker states to avoid false alarms during heavy processing:
+
+- **`idle`**: No active tasks
+- **`active`**: Processing tasks < 60 seconds
+- **`busy`**: Processing long-running tasks (> 60 seconds) - still healthy
+- **`busy_unresponsive`**: Workers alive but too busy to respond to inspector - still healthy
+- **`unresponsive`**: Workers not responding to ping - unhealthy
+
+This prevents false alarms when workers are legitimately busy with large documents (95s+ processing time).
+
+#### Processor Initialization
+The service implements fail-fast initialization with health status reporting. When processor initialization fails:
 - Service stays running (doesn't crash)
-- Health endpoints return `"healthy": false`
-- Response includes `processor_initialization` with error details:
-  - `initialized`: Whether initialization was attempted
-  - `healthy`: Whether initialization succeeded
-  - `error`: Error message if initialization failed
-  - `error_type`: Category of error (`configuration_error`, `unexpected_error`, `task_import_error`)
-  - `timestamp`: When initialization was attempted
-- Celery tasks are **not imported** (prevents task execution with broken processors)
-- Logs show `SERVICE_UNHEALTHY` and `TASKS_NOT_IMPORTED` messages
+- Health endpoint returns `"healthy": false`
+- Response includes detailed error information (configuration_error, unexpected_error, task_import_error)
+- Celery tasks are not imported to prevent execution with broken processors
 
 Example unhealthy response:
 ```json
 {
   "healthy": false,
   "processor_initialization_failed": true,
-  "processor_initialization": {
-    "initialized": true,
-    "healthy": false,
-    "error": "Configuration validation failed: DOCLING_AZURE_OPENAI_API_KEY is required for azure_openai provider",
-    "error_type": "configuration_error",
-    "timestamp": "2025-10-15T20:30:00.000Z"
+  "components": {
+    "processor_initialization": {
+      "healthy": false,
+      "error": "DOCLING_AZURE_OPENAI_API_KEY is required for azure_openai provider",
+      "error_type": "configuration_error",
+      "timestamp": "2025-10-15T20:30:00.000Z"
+    }
   }
 }
 ```
 
-This design ensures that configuration errors are immediately visible via health checks rather than causing silent worker crashes.
+#### Configuration
+Health check behavior can be tuned via shared Celery configuration:
+- `CELERY_HEALTH_CHECK_PING_TIMEOUT`: 5s (worker ping timeout)
+- `CELERY_HEALTH_CHECK_INSPECTOR_TIMEOUT`: 5s (inspector call timeout)
+- `CELERY_HEALTH_CHECK_LONG_RUNNING_THRESHOLD`: 60s (long-running task threshold)
+
+#### Log Events
+Health check operations emit structured log events:
+- `CELERY_WORKER_STARTING`: Worker starting with pool type and platform
+- `CELERY_WORKERS_IDLE`: No active tasks
+- `CELERY_WORKERS_ACTIVE`: Processing tasks < 60s
+- `CELERY_WORKERS_BUSY`: Processing long-running tasks with details
+- `CELERY_INSPECT_TIMEOUT_DURING_PROCESSING`: Inspector timed out but worker alive (expected during heavy processing)
+- `CELERY_HEALTH_CHECK_COMPLETED`: Health check finished with summary
+
+#### Why Concurrent Pool Matters
+The service uses platform-aware concurrent pools (`prefork` on Linux, `threads` on Windows) instead of single-threaded `solo` pool. This allows workers to respond to health checks while processing long-running tasks, preventing false timeouts and "missing tasks" warnings during legitimate heavy processing.
 
 ### Exception handling and timeout configuration
 The service implements comprehensive exception handling to prevent silent task failures:
@@ -307,14 +358,21 @@ All error logs include full exception details (`exc_info=True`) with stack trace
 
 ### Operational notes
 - Subscriber uses consumer group `document_processors` on `task_streams:document_processing` and enqueues Celery with `process_project_documents_task(project_id)`.
-- Celery worker runs with queue `document_processing` and prefetch multiplier 1; tune concurrency via worker flags.
+- **Celery worker pool**: Platform-aware selection - `prefork` (Linux/Docker) or `threads` (Windows dev)
+  - **Concurrency**: 2 workers by default
+  - **Prefetch multiplier**: 1 (processes one task at a time per worker)
+  - **Max tasks per child**: 10 (worker restarts after 10 tasks to prevent memory leaks)
+  - **Pool rationale**: Switched from `solo` to `prefork/threads` to fix health check issues during long-running tasks
 - Task timeout: soft limit 55 minutes, hard limit 1 hour (configurable via task decorator).
 - Observability: structured logs across blob I/O, Tika processing, progress updates, and trigger publishing with comprehensive exception tracking.
 
 ### Docker and Compose
 - Image should include `tika` client and place Tika server JAR at `TIKA_SERVER_JAR` path if `TIKA_SERVER_AUTO_START` is true.
-- Run a dedicated Celery worker for queue `document_processing`; on Windows, prefer `--pool=solo`.
-- Healthcheck: probe `/health/celery` (comprehensive health check for all components).
+- Run a dedicated Celery worker for queue `document_processing`
+  - **Pool**: Auto-selected based on platform (`prefork` for Linux/Docker, `threads` for Windows)
+  - **Previous**: Used `--pool=solo` which blocked health checks during long tasks
+  - **Current**: Uses concurrent pool to maintain health check responsiveness
+- Healthcheck: probe `/health/celery` (comprehensive health check for all components with busy-worker awareness).
 
 #### Build Configuration
 The service supports two VLM modes affecting build time and resources:
