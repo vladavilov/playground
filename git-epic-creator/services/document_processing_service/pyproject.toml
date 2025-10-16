@@ -24,6 +24,7 @@ dependencies = [
     "requests",
     "tenacity",
     "docling[vlm]",
+    "onnxruntime",  # Required by rapidocr-onnxruntime for OCR model inference
     "shared @ file:../shared"
 ]
 

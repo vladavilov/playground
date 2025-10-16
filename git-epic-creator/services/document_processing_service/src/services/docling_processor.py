@@ -21,6 +21,7 @@ from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
     smolvlm_picture_description,
     PictureDescriptionApiOptions,
+    RapidOcrOptions,
 )
 from docling.datamodel.pipeline_options_vlm_model import ResponseFormat
 import requests
@@ -529,7 +530,8 @@ class DoclingProcessor:
             # LOCAL MODE: Use SmolVLM for picture description
             logger.info("DOCLING_PIPELINE_CONFIGURED", 
                        strategy="local_pdf_with_smolvlm",
-                       provider="SmolVLM")
+                       provider="SmolVLM",
+                       rapidocr_models_path=self.settings.RAPIDOCR_MODELS_PATH)
             
             pdf_opts = PdfPipelineOptions()
             pdf_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
@@ -544,6 +546,20 @@ class DoclingProcessor:
             # Configure OCR languages
             ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
             pdf_opts.ocr_options.lang = [lang.strip() for lang in ocr_langs.split(",") if lang.strip()]
+            
+            # Configure RapidOCR to use pre-downloaded models for offline operation
+            models_path = self.settings.RAPIDOCR_MODELS_PATH
+            pdf_opts.ocr_options = RapidOcrOptions(
+                det_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
+                rec_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
+                cls_model_path=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+                lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
+            )
+            
+            logger.info("RAPIDOCR_MODELS_CONFIGURED",
+                       det_model=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
+                       rec_model=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
+                       cls_model=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"))
 
             converter = DocumentConverter(
                 allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
@@ -558,7 +574,8 @@ class DoclingProcessor:
             # This preserves standard PDF text layer while adding remote vision for pictures
             logger.info("DOCLING_PIPELINE_CONFIGURED", 
                        strategy="pdf_with_remote_vision",
-                       provider=self.settings.DOCLING_VLM_PROVIDER)
+                       provider=self.settings.DOCLING_VLM_PROVIDER,
+                       rapidocr_models_path=self.settings.RAPIDOCR_MODELS_PATH)
             
             # Build PdfPipelineOptions with standard text extraction
             pdf_opts = PdfPipelineOptions()
@@ -578,7 +595,20 @@ class DoclingProcessor:
             
             # Configure OCR languages
             ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
-            pdf_opts.ocr_options.lang = [lang.strip() for lang in ocr_langs.split(",") if lang.strip()]
+            
+            # Configure RapidOCR to use pre-downloaded models for offline operation
+            models_path = self.settings.RAPIDOCR_MODELS_PATH
+            pdf_opts.ocr_options = RapidOcrOptions(
+                det_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
+                rec_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
+                cls_model_path=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+                lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
+            )
+            
+            logger.info("RAPIDOCR_MODELS_CONFIGURED",
+                       det_model=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
+                       rec_model=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
+                       cls_model=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"))
 
             # Create converter with hybrid pipeline (text + remote vision)
             converter = DocumentConverter(
@@ -606,6 +636,65 @@ class DoclingProcessor:
         except Exception:
             # Fallback to built-in markdown export if custom serialization fails
             return (getattr(doc, "export_to_markdown", lambda: "")() or "").strip()
+
+    def check_health(self) -> Dict[str, Any]:
+        """
+        Check health of Docling processor.
+        
+        Returns:
+            Dict with health status including:
+            - healthy: bool indicating if processor is operational
+            - vlm_mode: local or remote VLM configuration
+            - vlm_provider: which VLM provider is configured (for remote mode)
+            - ocr_enabled: whether OCR is enabled
+            - rapidocr_models_path: path to RapidOCR models
+            - supported_formats: list of supported file extensions
+        """
+        try:
+            health_info = {
+                "healthy": True,
+                "vlm_mode": self.settings.DOCLING_VLM_MODE,
+                "ocr_enabled": self.settings.DOCLING_USE_OCR,
+                "rapidocr_models_path": self.settings.RAPIDOCR_MODELS_PATH,
+                "supported_formats": ["pdf"] + list(self._image_exts),
+                "processor_version": PROCESSOR_VERSION
+            }
+            
+            # Add VLM provider info for remote mode
+            if self.settings.DOCLING_VLM_MODE == "remote":
+                health_info["vlm_provider"] = self.settings.DOCLING_VLM_PROVIDER
+            
+            # Verify RapidOCR models exist if OCR is enabled
+            if self.settings.DOCLING_USE_OCR:
+                models_path = self.settings.RAPIDOCR_MODELS_PATH
+                required_models = [
+                    "ch_PP-OCRv3_det_infer.onnx",
+                    "ch_PP-OCRv3_rec_infer.onnx",
+                    "ch_ppocr_mobile_v2.0_cls_infer.onnx"
+                ]
+                missing_models = []
+                for model in required_models:
+                    model_path = os.path.join(models_path, "models", model)
+                    if not os.path.exists(model_path):
+                        missing_models.append(model)
+                
+                if missing_models:
+                    health_info["healthy"] = False
+                    health_info["error"] = f"Missing RapidOCR models: {', '.join(missing_models)}"
+                    health_info["ocr_health"] = "unhealthy"
+                else:
+                    health_info["ocr_health"] = "healthy"
+            
+            logger.debug("Docling health check completed", **health_info)
+            return health_info
+            
+        except Exception as e:
+            error_msg = f"Docling health check failed: {str(e)}"
+            logger.error("Docling health check error", error=error_msg, exc_info=True)
+            return {
+                "healthy": False,
+                "error": error_msg
+            }
 
 
 @dataclass
