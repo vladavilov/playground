@@ -50,18 +50,83 @@ def _on_worker_process_shutdown(**kwargs):
 _docling_processor = None
 _tika_processor = None
 
-# Initialization status tracking for health checks
+# Initialization status tracking for health checks (separate for each processor)
 _initialization_status = {
     "initialized": False,
     "healthy": False,
-    "error": None,
-    "error_type": None,
+    "docling": {
+        "initialized": False,
+        "healthy": False,
+        "error": None,
+        "error_type": None,
+        "vlm_mode": None,
+        "ocr_enabled": None
+    },
+    "tika": {
+        "initialized": False,
+        "healthy": False,
+        "error": None,
+        "error_type": None
+    },
     "timestamp": None
 }
 
 def get_initialization_status():
     """Get the current initialization status for health checks."""
     return _initialization_status.copy()
+
+def get_processors_health():
+    """
+    Get runtime health status for both Docling and Tika processors.
+    
+    This function calls check_health() on the singleton processor instances
+    and returns their health status. Only checks processors that initialized successfully.
+    
+    Returns:
+        dict: Health status for both processors with keys 'docling' and 'tika'
+    """
+    health_status = {
+        "docling": None,
+        "tika": None
+    }
+    
+    # Check Docling processor health
+    if _initialization_status["docling"]["healthy"] and _docling_processor is not None:
+        try:
+            health_status["docling"] = _docling_processor.check_health()
+        except Exception as e:
+            logger.error("Docling runtime health check failed", error=str(e), exc_info=True)
+            health_status["docling"] = {
+                "healthy": False,
+                "error": f"Docling health check failed: {str(e)}"
+            }
+    else:
+        # Processor not initialized or unhealthy
+        health_status["docling"] = {
+            "healthy": False,
+            "error": "Docling unavailable due to initialization failure",
+            "initialization_error": _initialization_status["docling"].get("error")
+        }
+    
+    # Check Tika processor health
+    if _initialization_status["tika"]["healthy"] and _tika_processor is not None:
+        try:
+            health_status["tika"] = _tika_processor.check_health()
+        except Exception as e:
+            logger.error("Tika runtime health check failed", error=str(e), exc_info=True)
+            health_status["tika"] = {
+                "healthy": False,
+                "error": f"Tika health check failed: {str(e)}"
+            }
+    else:
+        # Processor not initialized or unhealthy
+        health_status["tika"] = {
+            "healthy": False,
+            "error": "Tika unavailable due to initialization failure",
+            "initialization_error": _initialization_status["tika"].get("error")
+        }
+    
+    return health_status
 
 def _initialize_processors_eagerly():
     """
@@ -75,71 +140,103 @@ def _initialize_processors_eagerly():
     """
     global _docling_processor, _tika_processor, _initialization_status
     
+    logger.info("PROCESSOR_INITIALIZATION_STARTED",
+               message="Starting eager processor initialization")
     
+    overall_healthy = True
+    timestamp = datetime.now(timezone.utc).isoformat()
     
+    # Initialize Docling processor
     try:
-        logger.info("PROCESSOR_INITIALIZATION_STARTED",
-                   message="Starting eager processor initialization")
-        
         _docling_processor = DoclingProcessor()
-        logger.info("docling_processor_initialized_successfully",
-                   vlm_mode=_docling_processor.settings.DOCLING_VLM_MODE,
-                   vlm_provider=_docling_processor.settings.DOCLING_VLM_PROVIDER)
-        
-        _tika_processor = TikaProcessor()
-        logger.info("tika_processor_initialized_successfully")
-        
-        # Mark as successfully initialized
-        _initialization_status = {
+        _initialization_status["docling"] = {
             "initialized": True,
             "healthy": True,
             "error": None,
             "error_type": None,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "vlm_mode": _docling_processor.settings.DOCLING_VLM_MODE,
+            "ocr_enabled": _docling_processor.settings.DOCLING_USE_OCR
         }
-        
-        logger.info("PROCESSOR_INITIALIZATION_SUCCESSFUL",
-                   message="All processors initialized successfully")
+        logger.info("docling_processor_initialized_successfully",
+                   vlm_mode=_docling_processor.settings.DOCLING_VLM_MODE,
+                   vlm_provider=_docling_processor.settings.DOCLING_VLM_PROVIDER)
         
     except ValueError as ve:
         # Configuration validation errors (e.g., missing Azure OpenAI credentials)
-        error_msg = f"Configuration validation failed: {ve}"
-        logger.error("FATAL_processor_initialization_failed",
+        error_msg = f"Docling configuration validation failed: {ve}"
+        logger.error("FATAL_docling_initialization_failed",
                     error=error_msg,
                     error_type="configuration_error",
                     exc_info=True)
         
-        _initialization_status = {
+        _initialization_status["docling"] = {
             "initialized": True,
             "healthy": False,
             "error": error_msg,
             "error_type": "configuration_error",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "vlm_mode": None,
+            "ocr_enabled": None
         }
-        
-        logger.critical("SERVICE_UNHEALTHY",
-                       message="Service will report unhealthy status due to initialization failure",
-                       error=error_msg)
+        overall_healthy = False
         
     except Exception as e:
         # Unexpected initialization errors
-        error_msg = f"Processor initialization failed: {e}"
-        logger.error("FATAL_processor_initialization_failed",
+        error_msg = f"Docling initialization failed: {e}"
+        logger.error("FATAL_docling_initialization_failed",
                     error=error_msg,
                     error_type="unexpected_error",
                     exc_info=True)
         
-        _initialization_status = {
+        _initialization_status["docling"] = {
             "initialized": True,
             "healthy": False,
             "error": error_msg,
             "error_type": "unexpected_error",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "vlm_mode": None,
+            "ocr_enabled": None
         }
+        overall_healthy = False
+    
+    # Initialize Tika processor
+    try:
+        _tika_processor = TikaProcessor()
+        _initialization_status["tika"] = {
+            "initialized": True,
+            "healthy": True,
+            "error": None,
+            "error_type": None
+        }
+        logger.info("tika_processor_initialized_successfully")
         
+    except Exception as e:
+        # Tika initialization errors
+        error_msg = f"Tika initialization failed: {e}"
+        logger.error("FATAL_tika_initialization_failed",
+                    error=error_msg,
+                    error_type="unexpected_error",
+                    exc_info=True)
+        
+        _initialization_status["tika"] = {
+            "initialized": True,
+            "healthy": False,
+            "error": error_msg,
+            "error_type": "unexpected_error"
+        }
+        overall_healthy = False
+    
+    # Set overall status
+    _initialization_status["initialized"] = True
+    _initialization_status["healthy"] = overall_healthy
+    _initialization_status["timestamp"] = timestamp
+    
+    if overall_healthy:
+        logger.info("PROCESSOR_INITIALIZATION_SUCCESSFUL",
+                   message="All processors initialized successfully")
+    else:
         logger.critical("SERVICE_UNHEALTHY",
                        message="Service will report unhealthy status due to initialization failure",
-                       error=error_msg)
+                       docling_healthy=_initialization_status["docling"]["healthy"],
+                       tika_healthy=_initialization_status["tika"]["healthy"])
 
 def get_docling_processor():
     """
@@ -244,5 +341,5 @@ def get_task_validation_status():
             'error': str(e)
         }
 
-# Export the configured app, validation function, singleton processor getters, and initialization status
-__all__ = ['celery_app', 'get_task_validation_status', 'get_docling_processor', 'get_tika_processor', 'get_initialization_status']
+# Export the configured app, validation function, singleton processor getters, initialization status, and health check
+__all__ = ['celery_app', 'get_task_validation_status', 'get_docling_processor', 'get_tika_processor', 'get_initialization_status', 'get_processors_health']

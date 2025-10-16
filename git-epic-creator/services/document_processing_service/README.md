@@ -128,6 +128,16 @@ sequenceDiagram
   - `DOCLING_OCR_LANGS` (default `en`) - OCR languages (comma-separated)
   - `DOCLING_IMAGES_SCALE` (default `2.0`) - Image scaling factor
 
+- **RapidOCR Offline Configuration**:
+  - `RAPIDOCR_MODELS_PATH` (default `/opt/rapidocr-models`) - Path to RapidOCR ONNX models
+  - The service uses three pre-existing OCR models (must be in `plugins/rapidocr/models/`):
+    - Detection Model: `ch_PP-OCRv3_det_infer.onnx` (identifies text regions in images)
+    - Recognition Model: `ch_PP-OCRv3_rec_infer.onnx` (recognizes text within detected regions)
+    - Classification Model: `ch_ppocr_mobile_v2.0_cls_infer.onnx` (determines text orientation)
+  - Models are copied from `plugins/` to Docker image during build
+  - This configuration enables OCR processing without runtime internet access
+  - Docker build will FAIL if required models are not present in `plugins/rapidocr/models/`
+
 - **Fallback Configuration**:
   - `DOCLING_ENABLE_EMPTY_FALLBACK` (default `True`) - Enable automatic fallback to Tika if Docling returns empty/minimal text
   - `DOCLING_MIN_TEXT_LENGTH` (default `50`) - Minimum text length (chars) to consider extraction successful. Below this triggers fallback if enabled.
@@ -224,8 +234,12 @@ The health endpoint verifies:
 - **Worker state**: Current activity level (idle, active, busy, busy_unresponsive, unresponsive)
 - **Long-running tasks**: Tasks processing > 60 seconds are tracked separately
 - **Task registration**: Expected tasks are registered with workers
-- **Processor initialization**: DoclingProcessor and TikaProcessor initialized successfully
-- **Tika server**: Tika server is available and healthy
+- **Docling processor**: 
+  - Initialization status (VLM mode, OCR enabled)
+  - Runtime health (RapidOCR models availability, configuration)
+- **Tika processor**:
+  - Initialization status
+  - Runtime health (Tika server availability, version)
 
 #### Response Structure
 All components are organized under a `components` object with individual health status. The overall `healthy` flag is `false` if any critical component fails.
@@ -237,6 +251,33 @@ Example healthy response with busy worker:
   "service": "Document Processing Service",
   "components": {
     "basic": {"healthy": true, "status": "ok"},
+    "docling_initialization": {
+      "initialized": true,
+      "healthy": true,
+      "vlm_mode": "local",
+      "ocr_enabled": true
+    },
+    "docling": {
+      "healthy": true,
+      "vlm_mode": "local",
+      "ocr_enabled": true,
+      "ocr_health": "healthy",
+      "rapidocr_models_path": "/opt/rapidocr-models",
+      "supported_formats": ["pdf", "jpg", "png", "webp"],
+      "processor_version": "docling-1.0"
+    },
+    "tika_initialization": {
+      "initialized": true,
+      "healthy": true
+    },
+    "tika": {
+      "healthy": true,
+      "server_healthy": true,
+      "server_endpoint": "http://localhost:9998",
+      "server_version": "3.1.0",
+      "tika_version": "3.1.0",
+      "supported_formats": [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"]
+    },
     "celery": {
       "healthy": true,
       "active_workers_count": 1,
@@ -249,9 +290,7 @@ Example healthy response with busy worker:
           "elapsed_seconds": 87
         }
       ]
-    },
-    "processor_initialization": {"healthy": true},
-    "tika": {"healthy": true}
+    }
   }
 }
 ```
@@ -268,23 +307,39 @@ The health check distinguishes between different worker states to avoid false al
 This prevents false alarms when workers are legitimately busy with large documents (95s+ processing time).
 
 #### Processor Initialization
-The service implements fail-fast initialization with health status reporting. When processor initialization fails:
+The service implements fail-fast initialization with health status reporting. Each processor (Docling and Tika) is initialized and checked independently. When processor initialization fails:
 - Service stays running (doesn't crash)
 - Health endpoint returns `"healthy": false`
-- Response includes detailed error information (configuration_error, unexpected_error, task_import_error)
+- Response includes detailed error information per processor (configuration_error, unexpected_error, task_import_error)
 - Celery tasks are not imported to prevent execution with broken processors
 
-Example unhealthy response:
+Example unhealthy response (Docling configuration error):
 ```json
 {
   "healthy": false,
   "processor_initialization_failed": true,
   "components": {
-    "processor_initialization": {
+    "docling_initialization": {
+      "initialized": true,
       "healthy": false,
-      "error": "DOCLING_AZURE_OPENAI_API_KEY is required for azure_openai provider",
+      "error": "Docling configuration validation failed: DOCLING_AZURE_OPENAI_API_KEY is required for azure_openai provider",
       "error_type": "configuration_error",
-      "timestamp": "2025-10-15T20:30:00.000Z"
+      "vlm_mode": null,
+      "ocr_enabled": null
+    },
+    "docling": {
+      "healthy": false,
+      "error": "Docling unavailable due to initialization failure",
+      "initialization_error": "Docling configuration validation failed: DOCLING_AZURE_OPENAI_API_KEY is required for azure_openai provider"
+    },
+    "tika_initialization": {
+      "initialized": true,
+      "healthy": true
+    },
+    "tika": {
+      "healthy": false,
+      "server_healthy": false,
+      "error": "Tika server is not responding"
     }
   }
 }
@@ -364,10 +419,12 @@ All error logs include full exception details (`exc_info=True`) with stack trace
   - **Max tasks per child**: 10 (worker restarts after 10 tasks to prevent memory leaks)
   - **Pool rationale**: Switched from `solo` to `prefork/threads` to fix health check issues during long-running tasks
 - Task timeout: soft limit 55 minutes, hard limit 1 hour (configurable via task decorator).
-- Observability: structured logs across blob I/O, Tika processing, progress updates, and trigger publishing with comprehensive exception tracking.
+- **Offline OCR Operation**: RapidOCR models are pre-downloaded during Docker build, enabling OCR processing without runtime internet access. Models are configured via `RAPIDOCR_MODELS_PATH` environment variable.
+- Observability: structured logs across blob I/O, Tika processing, progress updates, and trigger publishing with comprehensive exception tracking. OCR model configuration is logged during pipeline initialization (`RAPIDOCR_MODELS_CONFIGURED` event).
 
 ### Docker and Compose
 - Image should include `tika` client and place Tika server JAR at `TIKA_SERVER_JAR` path if `TIKA_SERVER_AUTO_START` is true.
+- RapidOCR models are copied from `plugins/rapidocr/` to `/opt/rapidocr-models/` during build
 - Run a dedicated Celery worker for queue `document_processing`
   - **Pool**: Auto-selected based on platform (`prefork` for Linux/Docker, `threads` for Windows)
   - **Previous**: Used `--pool=solo` which blocked health checks during long tasks
@@ -378,6 +435,13 @@ All error logs include full exception details (`exc_info=True`) with stack trace
 The service supports two VLM modes affecting build time and resources:
 - **Local VLM (default)**: Downloads and caches ML models during build (~30-40 min, 6-8GB RAM)
 - **Remote VLM**: Skips model downloads, uses external APIs (~5-10 min, 2-4GB RAM)
+
+**RapidOCR Models**: Regardless of VLM mode, the service uses pre-existing RapidOCR ONNX models:
+- Models must exist in `plugins/rapidocr/models/` before build (ch_PP-OCRv3_det_infer.onnx, ch_PP-OCRv3_rec_infer.onnx, ch_ppocr_mobile_v2.0_cls_infer.onnx)
+- Copied to `/opt/rapidocr-models/` directory in Docker image during build
+- Adds ~13MB to image size (models are already present locally)
+- Enables offline OCR processing without runtime model downloads
+- Build will FAIL with clear error if models are missing
 
 ### Local development quickstart
 1) Start dependent services (from `playground/git-epic-creator`):
