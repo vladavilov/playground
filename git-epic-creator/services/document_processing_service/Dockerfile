@@ -115,8 +115,8 @@ RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
 ENV API_PORT=8000
 EXPOSE $API_PORT
 
-# Health check validates both Tika environment (including pre-installed JAR) and Celery
+# Health check validates all components (basic, Celery, processors, Tika) via consolidated endpoint
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:${API_PORT}/health/tika && curl -f http://localhost:${API_PORT}/health/celery || exit 1
+  CMD curl -f http://localhost:${API_PORT}/health/celery || exit 1
 
 CMD ["python", "-m", "main"] 
