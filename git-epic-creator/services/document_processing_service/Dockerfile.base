@@ -193,21 +193,19 @@ RUN pip install --no-cache-dir docling[vlm] onnxruntime
 # Hugging Face caches (only create directories for local VLM mode)
 ENV HF_HOME=/opt/hf-cache \
     HUGGINGFACE_HUB_CACHE=/opt/hf-cache/hub \
-    TRANSFORMERS_CACHE=/opt/hf-cache/transformers \
-    HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct \
-    HF_LOCAL_DIR=/opt/hf-cache/models
+    TRANSFORMERS_CACHE=/opt/hf-cache/transformers
 
-# Conditionally download SmolVLM model in base image for better caching
-# Only executed when DOCLING_VLM_MODE=local, otherwise uses remote VLM APIs
+# Conditionally download SmolVLM model to docling-models directory
+# Docling expects models in artifacts_path with HF naming pattern (namespace--repo-name)
 RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
         echo "DOCLING_VLM_MODE=local: Downloading SmolVLM model in base image..." && \
         echo "Creating Hugging Face cache directories..." && \
-        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" "$HF_LOCAL_DIR" && \
+        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" && \
         echo "Installing huggingface_hub for model download..." && \
         pip install --no-cache-dir huggingface_hub && \
-        echo "Downloading SmolVLM model..." && \
-        python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='$HF_REPO_ID', local_dir='$HF_LOCAL_DIR', local_dir_use_symlinks=False, cache_dir='$HUGGINGFACE_HUB_CACHE')" && \
-        echo "SmolVLM model downloaded successfully to $HF_LOCAL_DIR"; \
+        echo "Downloading SmolVLM model to docling-models directory..." && \
+        python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='HuggingFaceTB/SmolVLM-256M-Instruct', local_dir='$DOCLING_ARTIFACTS_PATH/HuggingFaceTB--SmolVLM-256M-Instruct', local_dir_use_symlinks=False, cache_dir='$HUGGINGFACE_HUB_CACHE')" && \
+        echo "SmolVLM model downloaded successfully to $DOCLING_ARTIFACTS_PATH/HuggingFaceTB--SmolVLM-256M-Instruct"; \
     else \
         echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping SmolVLM model download (using remote VLM APIs)"; \
     fi

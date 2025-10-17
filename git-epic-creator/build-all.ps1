@@ -102,6 +102,30 @@ function Test-DoclingModels {
     }
 }
 
+# Function to build python-service-base image
+function Build-PythonServiceBase {
+    Write-Host "-----------------------------------------------------------" -ForegroundColor Yellow
+    Write-Host " Building Python Service Base Image" -ForegroundColor Yellow
+    Write-Host "-----------------------------------------------------------" -ForegroundColor Yellow
+    Write-Host ""
+    
+    $startTime = Get-Date
+    
+    docker compose build python-base
+    
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to build python-service-base image"
+    }
+    
+    $duration = (Get-Date) - $startTime
+    $baseSize = docker images --format "{{.Size}}" python-service-base:latest
+    
+    Write-Host ""
+    Write-Host "[OK] Python base image built successfully in $($duration.ToString('mm\:ss'))" -ForegroundColor Green
+    Write-Host "   Image size: $baseSize" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 # Function to build document-processing-base image
 function Build-DocumentProcessingBase {
     param(
@@ -204,6 +228,19 @@ if ($buildDocumentProcessing) {
     Write-Host "[OK] All Docling layout models found" -ForegroundColor Green
     Write-Host ""
     
+    # Check if python-service-base exists (required for document-processing-base)
+    $pythonBaseExists = docker images --format "{{.Repository}}:{{.Tag}}" | Select-String -Pattern "^python-service-base:latest$" -Quiet
+    if (-not $pythonBaseExists) {
+        Write-Host "python-service-base:latest not found" -ForegroundColor Yellow
+        Write-Host "   Building python base image first (required for document-processing-base)..." -ForegroundColor Yellow
+        Write-Host ""
+        
+        Build-PythonServiceBase
+    } else {
+        Write-Host "[OK] python-service-base:latest found" -ForegroundColor Green
+    }
+    Write-Host ""
+    
     # Check if base image exists
     if (-not $SkipDocumentProcessingBase) {
         $baseExists = Test-DocumentProcessingBaseImage
@@ -255,9 +292,13 @@ if ($Services.Count -eq 0) {
     Write-Host "Building ALL services..." -ForegroundColor Cyan
     Write-Host ""
     
-    # Build using docker compose with environment variables set
-    docker compose build python-base
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    # Check if python-base needs to be built (only if not already built earlier)
+    $pythonBaseExists = docker images --format "{{.Repository}}:{{.Tag}}" | Select-String -Pattern "^python-service-base:latest$" -Quiet
+    if (-not $pythonBaseExists) {
+        Write-Host "Building python-base..." -ForegroundColor Cyan
+        docker compose build python-base
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
     
     docker compose build --progress=plain
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
