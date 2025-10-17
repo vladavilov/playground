@@ -150,4 +150,10 @@ class DoclingSettings(BaseSettings):
         description="Path to pre-downloaded Docling layout models (docling-layout-heron, etc.) for offline operation"
     )
 
+    # ===== RapidOCR Font Configuration =====
+    RAPIDOCR_FONT_PATH: str = Field(
+        default="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        description="Path to TTF font file for RapidOCR to use instead of downloading fonts from internet"
+    )
+
 

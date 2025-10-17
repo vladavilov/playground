@@ -82,6 +82,7 @@ class DoclingProcessor:
             ext.strip().lower() for ext in self.settings.DOCLING_IMAGE_EXTENSIONS.split(",") if ext.strip()
         }
 
+
         # Build a single DocumentConverter for PDFs and Images with SmolVLM-based picture description
         self._converter = self._build_converter()
 
@@ -94,6 +95,29 @@ class DoclingProcessor:
     def is_supported_format(self, file_path: str) -> bool:
         # Docling supports PDFs and images only
         return self._is_pdf(file_path) or self._is_image(file_path)
+
+    def _get_font_path(self) -> str:
+        """Get the best available font path for RapidOCR."""
+        # Check configured font first
+        if os.path.exists(self.settings.RAPIDOCR_FONT_PATH):
+            return self.settings.RAPIDOCR_FONT_PATH
+        
+        # Try alternative font paths
+        alternative_fonts = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        ]
+        
+        for alt_font in alternative_fonts:
+            if os.path.exists(alt_font):
+                logger.info("RAPIDOCR_FONT_FALLBACK",
+                           original_path=self.settings.RAPIDOCR_FONT_PATH,
+                           fallback_path=alt_font)
+                return alt_font
+        
+        # Return configured path even if it doesn't exist (let RapidOCR handle the error)
+        return self.settings.RAPIDOCR_FONT_PATH
 
     def _create_azure_openai_vlm_options(self) -> PictureDescriptionApiOptions:
         """Create Azure OpenAI VLM options for Llama 3.2 Vision or GPT-4o (PRIMARY remote provider)."""
@@ -555,11 +579,13 @@ class DoclingProcessor:
             
             # Configure RapidOCR to use pre-downloaded models for offline operation
             models_path = self.settings.RAPIDOCR_MODELS_PATH
+            font_path = self._get_font_path()
             pdf_opts.ocr_options = RapidOcrOptions(
                 det_model_path=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
                 rec_model_path=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
                 cls_model_path=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
                 lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
+                font_path=font_path,
             )
             
             logger.info("RAPIDOCR_MODELS_CONFIGURED",
@@ -608,11 +634,13 @@ class DoclingProcessor:
             
             # Configure RapidOCR to use pre-downloaded models for offline operation
             models_path = self.settings.RAPIDOCR_MODELS_PATH
+            font_path = self._get_font_path()
             pdf_opts.ocr_options = RapidOcrOptions(
                 det_model_path=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
                 rec_model_path=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
                 cls_model_path=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
                 lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
+                font_path=font_path,
             )
             
             logger.info("RAPIDOCR_MODELS_CONFIGURED",
@@ -666,6 +694,7 @@ class DoclingProcessor:
                 "vlm_mode": self.settings.DOCLING_VLM_MODE,
                 "ocr_enabled": self.settings.DOCLING_USE_OCR,
                 "rapidocr_models_path": self.settings.RAPIDOCR_MODELS_PATH,
+                "rapidocr_font_path": self.settings.RAPIDOCR_FONT_PATH,
                 "docling_artifacts_path": self.settings.DOCLING_ARTIFACTS_PATH,
                 "supported_formats": ["pdf"] + list(self._image_exts),
                 "processor_version": PROCESSOR_VERSION
@@ -720,6 +749,11 @@ class DoclingProcessor:
                     health_info["ocr_health"] = "unhealthy"
                 else:
                     health_info["ocr_health"] = "healthy"
+                
+                # Check font configuration
+                font_path = self._get_font_path()
+                health_info["font_path"] = font_path
+                health_info["font_exists"] = os.path.exists(font_path)
             
             logger.debug("Docling health check completed", **health_info)
             return health_info

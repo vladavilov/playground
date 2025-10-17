@@ -62,6 +62,22 @@ RUN fc-cache -fv && \
     echo "Available font directories:" && \
     fc-list : file | cut -d: -f1 | sort -u | head -20
 
+# Set RapidOCR font path to use pre-installed DejaVu Sans font
+# This prevents RapidOCR from attempting to download fonts from internet
+ENV RAPIDOCR_FONT_PATH=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+
+# Verify the font file exists and log available fonts for debugging
+RUN echo "Verifying RapidOCR font configuration..." && \
+    if [ -f "$RAPIDOCR_FONT_PATH" ]; then \
+        echo "✓ RapidOCR font found: $RAPIDOCR_FONT_PATH"; \
+    else \
+        echo "⚠ Warning: RapidOCR font not found at $RAPIDOCR_FONT_PATH"; \
+        echo "Available DejaVu fonts:"; \
+        find /usr/share/fonts -name "*dejavu*" -type f | head -5; \
+    fi && \
+    echo "Available TTF fonts for RapidOCR:" && \
+    find /usr/share/fonts -name "*.ttf" | head -10
+
 # Pre-install Apache Tika server during build phase
 ENV TIKA_VERSION=3.1.0
 ENV TIKA_SERVER_JAR=/opt/tika-server/tika-server.jar
