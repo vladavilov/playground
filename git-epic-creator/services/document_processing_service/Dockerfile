@@ -20,6 +20,10 @@ ENV PYTHONPATH=/app/document_processing_service/src
 ARG DOCLING_VLM_MODE
 ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE:-local}
 
+# Ensure Hugging Face environment variables are available
+ENV HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct \
+    HF_LOCAL_DIR=/opt/hf-cache/models
+
 WORKDIR /app
 
 # Copy application code (this changes frequently)

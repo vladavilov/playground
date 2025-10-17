@@ -190,7 +190,8 @@ RUN pip install --no-cache-dir docling[vlm] onnxruntime
 ENV HF_HOME=/opt/hf-cache \
     HUGGINGFACE_HUB_CACHE=/opt/hf-cache/hub \
     TRANSFORMERS_CACHE=/opt/hf-cache/transformers \
-    HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct
+    HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct \
+    HF_LOCAL_DIR=/opt/hf-cache/models
 
 # Conditionally prepare local VLM environment (cache dirs, model download, docling pre-warm)
 # Only executed when DOCLING_VLM_MODE=local, otherwise uses remote VLM APIs
