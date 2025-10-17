@@ -130,13 +130,13 @@ sequenceDiagram
 
 - **RapidOCR Offline Configuration**:
   - `RAPIDOCR_MODELS_PATH` (default `/opt/rapidocr-models`) - Path to RapidOCR ONNX models
-  - The service uses three pre-existing OCR models (must be in `plugins/rapidocr/models/`):
+  - The service uses three pre-existing OCR models (must be in `plugins/rapidocr-models/`):
     - Detection Model: `ch_PP-OCRv3_det_infer.onnx` (identifies text regions in images)
     - Recognition Model: `ch_PP-OCRv3_rec_infer.onnx` (recognizes text within detected regions)
     - Classification Model: `ch_ppocr_mobile_v2.0_cls_infer.onnx` (determines text orientation)
-  - Models are copied from `plugins/` to Docker image during build
+  - Models are copied from `plugins/rapidocr-models/` to Docker image during build
   - This configuration enables OCR processing without runtime internet access
-  - Docker build will FAIL if required models are not present in `plugins/rapidocr/models/`
+  - Docker build will FAIL if required models are not present in `plugins/rapidocr-models/`
 
 - **Fallback Configuration**:
   - `DOCLING_ENABLE_EMPTY_FALLBACK` (default `True`) - Enable automatic fallback to Tika if Docling returns empty/minimal text
@@ -502,7 +502,7 @@ docker build -f ./document_processing_service/Dockerfile -t document-processing-
 - **Remote VLM**: Uses external APIs, skips model downloads (~5-10 min, 2-4GB RAM)
 
 **RapidOCR Models** (required for both modes):
-- Must exist in `plugins/rapidocr/models/` before build:
+- Must exist in `plugins/rapidocr-models/` before build:
   - `ch_PP-OCRv3_det_infer.onnx` (detection)
   - `ch_PP-OCRv3_rec_infer.onnx` (recognition)
   - `ch_ppocr_mobile_v2.0_cls_infer.onnx` (classification)

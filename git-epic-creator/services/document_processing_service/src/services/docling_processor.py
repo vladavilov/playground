@@ -541,6 +541,9 @@ class DoclingProcessor:
             pdf_opts.do_picture_description = True
             pdf_opts.picture_description_options = smolvlm_picture_description
             
+            # Enable picture classification (requires ds4sd/docling-picture-classifier)
+            pdf_opts.do_picture_classification = True
+            
             # Scale images for better VLM performance
             images_scale = float(self.settings.DOCLING_IMAGES_SCALE)
             pdf_opts.images_scale = images_scale
@@ -591,6 +594,9 @@ class DoclingProcessor:
             # Configure remote picture description
             pdf_opts.do_picture_description = True
             pdf_opts.picture_description_options = self._get_remote_vlm_options()
+            
+            # Enable picture classification (requires ds4sd/docling-picture-classifier)
+            pdf_opts.do_picture_classification = True
             
             # Scale images for better VLM performance
             images_scale = float(self.settings.DOCLING_IMAGES_SCALE)
@@ -691,7 +697,7 @@ class DoclingProcessor:
                 ]
                 missing_models = []
                 for model in required_models:
-                    model_path = os.path.join(models_path, "models", model)
+                    model_path = os.path.join(models_path, model)
                     if not os.path.exists(model_path):
                         missing_models.append(model)
                 
