@@ -553,16 +553,16 @@ class DoclingProcessor:
             # Configure RapidOCR to use pre-downloaded models for offline operation
             models_path = self.settings.RAPIDOCR_MODELS_PATH
             pdf_opts.ocr_options = RapidOcrOptions(
-                det_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
-                rec_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
-                cls_model_path=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+                det_model_path=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
+                rec_model_path=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
+                cls_model_path=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
                 lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
             )
             
             logger.info("RAPIDOCR_MODELS_CONFIGURED",
-                       det_model=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
-                       rec_model=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
-                       cls_model=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"))
+                       det_model=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
+                       rec_model=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
+                       cls_model=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"))
 
             converter = DocumentConverter(
                 allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
@@ -603,16 +603,16 @@ class DoclingProcessor:
             # Configure RapidOCR to use pre-downloaded models for offline operation
             models_path = self.settings.RAPIDOCR_MODELS_PATH
             pdf_opts.ocr_options = RapidOcrOptions(
-                det_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
-                rec_model_path=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
-                cls_model_path=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+                det_model_path=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
+                rec_model_path=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
+                cls_model_path=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
                 lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
             )
             
             logger.info("RAPIDOCR_MODELS_CONFIGURED",
-                       det_model=os.path.join(models_path, "models/ch_PP-OCRv3_det_infer.onnx"),
-                       rec_model=os.path.join(models_path, "models/ch_PP-OCRv3_rec_infer.onnx"),
-                       cls_model=os.path.join(models_path, "models/ch_ppocr_mobile_v2.0_cls_infer.onnx"))
+                       det_model=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
+                       rec_model=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
+                       cls_model=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"))
 
             # Create converter with hybrid pipeline (text + remote vision)
             converter = DocumentConverter(

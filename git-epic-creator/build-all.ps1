@@ -48,7 +48,7 @@ function Test-DocumentProcessingBaseImage {
 
 # Function to verify RapidOCR models exist
 function Test-RapidOCRModels {
-    $modelsPath = ".\services\document_processing_service\plugins\rapidocr\models"
+    $modelsPath = ".\services\document_processing_service\plugins\rapidocr-models"
     $requiredModels = @(
         "ch_PP-OCRv3_det_infer.onnx",
         "ch_PP-OCRv3_rec_infer.onnx",
@@ -66,6 +66,39 @@ function Test-RapidOCRModels {
     return @{
         AllPresent = ($missingModels.Count -eq 0)
         Missing = $missingModels
+    }
+}
+
+# Function to verify Docling layout models exist
+function Test-DoclingModels {
+    $modelsPath = ".\services\document_processing_service\plugins\docling-models\ds4sd--docling-layout-heron"
+    $requiredFiles = @(
+        "config.json",
+        "model.safetensors",
+        "preprocessor_config.json"
+    )
+    
+    # Check if directory exists
+    if (-not (Test-Path $modelsPath)) {
+        return @{
+            AllPresent = $false
+            Missing = @("Directory 'ds4sd--docling-layout-heron' not found")
+            DirectoryMissing = $true
+        }
+    }
+    
+    $missingFiles = @()
+    foreach ($file in $requiredFiles) {
+        $filePath = Join-Path $modelsPath $file
+        if (-not (Test-Path $filePath)) {
+            $missingFiles += $file
+        }
+    }
+    
+    return @{
+        AllPresent = ($missingFiles.Count -eq 0)
+        Missing = $missingFiles
+        DirectoryMissing = $false
     }
 }
 
@@ -123,22 +156,52 @@ if ($buildDocumentProcessing) {
     Write-Host ""
     
     # Check RapidOCR models
-    $modelsCheck = Test-RapidOCRModels
-    if (-not $modelsCheck.AllPresent) {
+    $rapidocrCheck = Test-RapidOCRModels
+    if (-not $rapidocrCheck.AllPresent) {
         Write-Host ""
         Write-Host "================================================================" -ForegroundColor Red
         Write-Host "  ERROR: Required RapidOCR models NOT FOUND                    " -ForegroundColor Red
         Write-Host "================================================================" -ForegroundColor Red
         Write-Host ""
-        Write-Host "Missing models in services/document_processing_service/plugins/rapidocr/models/:" -ForegroundColor Red
-        foreach ($model in $modelsCheck.Missing) {
+        Write-Host "Missing models in services/document_processing_service/plugins/rapidocr-models/:" -ForegroundColor Red
+        foreach ($model in $rapidocrCheck.Missing) {
             Write-Host "  - $model" -ForegroundColor Red
         }
         Write-Host ""
         Write-Host "Please download the required models before building." -ForegroundColor Yellow
         exit 1
     }
-    Write-Host "All RapidOCR models found" -ForegroundColor Green
+    Write-Host "[OK] All RapidOCR models found" -ForegroundColor Green
+    
+    # Check Docling layout models
+    $doclingCheck = Test-DoclingModels
+    if (-not $doclingCheck.AllPresent) {
+        Write-Host ""
+        Write-Host "================================================================" -ForegroundColor Red
+        Write-Host "  ERROR: Required Docling layout models NOT FOUND              " -ForegroundColor Red
+        Write-Host "================================================================" -ForegroundColor Red
+        Write-Host ""
+        if ($doclingCheck.DirectoryMissing) {
+            Write-Host "Directory not found:" -ForegroundColor Red
+            Write-Host "  plugins/docling-models/ds4sd--docling-layout-heron/" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "NOTE: The folder name MUST be 'ds4sd--docling-layout-heron' (with double hyphen)" -ForegroundColor Yellow
+            Write-Host "      This matches the Hugging Face repository pattern 'ds4sd/docling-layout-heron'" -ForegroundColor Yellow
+        } else {
+            Write-Host "Missing files in plugins/docling-models/ds4sd--docling-layout-heron/:" -ForegroundColor Red
+            foreach ($file in $doclingCheck.Missing) {
+                Write-Host "  - $file" -ForegroundColor Red
+            }
+        }
+        Write-Host ""
+        Write-Host "To download models, run:" -ForegroundColor Yellow
+        Write-Host "  cd services/document_processing_service" -ForegroundColor Yellow
+        Write-Host "  pip install huggingface_hub" -ForegroundColor Yellow
+        Write-Host "  python src/scripts/download_docling_models.py" -ForegroundColor Yellow
+        Write-Host ""
+        exit 1
+    }
+    Write-Host "[OK] All Docling layout models found" -ForegroundColor Green
     Write-Host ""
     
     # Check if base image exists

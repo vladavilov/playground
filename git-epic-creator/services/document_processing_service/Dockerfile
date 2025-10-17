@@ -20,7 +20,7 @@ ENV PYTHONPATH=/app/document_processing_service/src
 ARG DOCLING_VLM_MODE
 ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE:-local}
 
-# Ensure Hugging Face environment variables are available
+# Ensure Hugging Face environment variables are available (inherited from base)
 ENV HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct \
     HF_LOCAL_DIR=/opt/hf-cache/models
 
@@ -38,17 +38,15 @@ RUN pip install --no-cache-dir .
 WORKDIR /app/document_processing_service
 RUN pip install --no-cache-dir .
 
-# Conditionally download HF model and pre-warm docling plugins (only for local VLM mode)
-# This step requires the actual application code with scripts/
+# Conditionally pre-warm docling plugins (only for local VLM mode)
+# Model is already downloaded in base image, just need to pre-warm
 RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
-        echo "DOCLING_VLM_MODE=local: Downloading model and pre-warming docling..." && \
-        echo "Step 1/2: Downloading and caching Hugging Face model..." && \
-        python -m scripts.download_hf_model && \
-        echo "Step 2/2: Pre-warming docling plugins and models..." && \
+        echo "DOCLING_VLM_MODE=local: Pre-warming docling plugins and models..." && \
+        echo "SmolVLM model already downloaded in base image, pre-warming docling..." && \
         python -m scripts.build_init && \
-        echo "Local VLM environment initialized successfully."; \
+        echo "Local VLM environment pre-warmed successfully."; \
     else \
-        echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping local VLM model download"; \
+        echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping local VLM pre-warming"; \
     fi
 
 WORKDIR /app

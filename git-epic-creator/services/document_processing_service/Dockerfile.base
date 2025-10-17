@@ -77,13 +77,13 @@ RUN mkdir -p ${TIKA_LOG_PATH} && \
 ENV RAPIDOCR_MODELS_PATH=/opt/rapidocr-models
 
 # Copy RapidOCR models from plugins/ directory
-# REQUIRED: The following models MUST exist in plugins/rapidocr/models/:
+# REQUIRED: The following models MUST exist directly in plugins/rapidocr-models/:
 #   - ch_PP-OCRv3_det_infer.onnx
 #   - ch_PP-OCRv3_rec_infer.onnx
 #   - ch_ppocr_mobile_v2.0_cls_infer.onnx
 # The build will FAIL if models are not found
 RUN mkdir -p "$RAPIDOCR_MODELS_PATH"
-COPY ./document_processing_service/plugins/rapidocr/ ${RAPIDOCR_MODELS_PATH}/
+COPY ./document_processing_service/plugins/rapidocr-models/ ${RAPIDOCR_MODELS_PATH}/
 
 # Verify required model files exist - FAIL BUILD if missing
 RUN set -e; \
@@ -91,7 +91,7 @@ RUN set -e; \
     REQUIRED_MODELS="ch_PP-OCRv3_det_infer.onnx ch_PP-OCRv3_rec_infer.onnx ch_ppocr_mobile_v2.0_cls_infer.onnx"; \
     MISSING_MODELS=""; \
     for MODEL in $REQUIRED_MODELS; do \
-        MODEL_PATH="${RAPIDOCR_MODELS_PATH}/models/${MODEL}"; \
+        MODEL_PATH="${RAPIDOCR_MODELS_PATH}/${MODEL}"; \
         if [ ! -f "$MODEL_PATH" ]; then \
             MISSING_MODELS="${MISSING_MODELS}\n  - ${MODEL}"; \
         fi; \
@@ -105,7 +105,7 @@ RUN set -e; \
         echo "Missing models:"; \
         printf "$MISSING_MODELS\n"; \
         echo ""; \
-        echo "Expected in: plugins/rapidocr/models/"; \
+        echo "Expected directly in: plugins/rapidocr-models/"; \
         echo "  - ch_PP-OCRv3_det_infer.onnx"; \
         echo "  - ch_PP-OCRv3_rec_infer.onnx"; \
         echo "  - ch_ppocr_mobile_v2.0_cls_infer.onnx"; \
@@ -113,16 +113,17 @@ RUN set -e; \
         exit 1; \
     fi; \
     echo "✓ All required RapidOCR models found"; \
-    ls -lh ${RAPIDOCR_MODELS_PATH}/models/*.onnx
+    ls -lh ${RAPIDOCR_MODELS_PATH}/*.onnx
 
 # Docling layout models directory (pre-downloaded layout models for offline operation)
-ENV DOCLING_ARTIFACTS_PATH=/opt/docling/models
+ENV DOCLING_ARTIFACTS_PATH=/opt/docling-models
 
 # Copy Docling layout models from plugins/ directory
 # REQUIRED: Docling layout models (docling-layout-heron, etc.) MUST be pre-downloaded
+# Files should be directly in plugins/docling-models/docling-layout-heron/
 # Run: python src/scripts/download_docling_models.py before building
 RUN mkdir -p "$DOCLING_ARTIFACTS_PATH"
-COPY ./document_processing_service/plugins/docling/models/ ${DOCLING_ARTIFACTS_PATH}/
+COPY ./document_processing_service/plugins/docling-models/ ${DOCLING_ARTIFACTS_PATH}/
 
 # Verify Docling layout models - FAIL BUILD if missing
 RUN set -e; \
@@ -137,7 +138,10 @@ RUN set -e; \
         echo "║  ✗ ERROR: Docling layout model directory NOT FOUND            ║"; \
         echo "╚════════════════════════════════════════════════════════════════╝"; \
         echo ""; \
-        echo "Expected directory: plugins/docling/models/ds4sd--docling-layout-heron/"; \
+        echo "Expected directory: plugins/docling-models/ds4sd--docling-layout-heron/"; \
+        echo ""; \
+        echo "NOTE: Folder MUST be named 'ds4sd--docling-layout-heron' (double hyphen)"; \
+        echo "      This matches HuggingFace repo pattern 'ds4sd/docling-layout-heron'"; \
         echo ""; \
         echo "To download models, run:"; \
         echo "  cd services/document_processing_service"; \
@@ -163,7 +167,7 @@ RUN set -e; \
         echo "Missing files:"; \
         printf "$MISSING_FILES\n"; \
         echo ""; \
-        echo "Expected in: plugins/docling/models/ds4sd--docling-layout-heron/"; \
+        echo "Expected in: plugins/docling-models/ds4sd--docling-layout-heron/"; \
         echo "  - config.json"; \
         echo "  - model.safetensors"; \
         echo "  - preprocessor_config.json"; \
@@ -193,17 +197,19 @@ ENV HF_HOME=/opt/hf-cache \
     HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct \
     HF_LOCAL_DIR=/opt/hf-cache/models
 
-# Conditionally prepare local VLM environment (cache dirs, model download, docling pre-warm)
+# Conditionally download SmolVLM model in base image for better caching
 # Only executed when DOCLING_VLM_MODE=local, otherwise uses remote VLM APIs
-# This step is placed at the end of base image to allow flexibility
 RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
-        echo "DOCLING_VLM_MODE=local: Initializing local VLM environment..." && \
+        echo "DOCLING_VLM_MODE=local: Downloading SmolVLM model in base image..." && \
         echo "Creating Hugging Face cache directories..." && \
-        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-cache/models && \
-        echo "Note: Model download and pre-warming will be done in service image after code is available" && \
-        echo "Local VLM environment prepared (models will be downloaded in service build)."; \
+        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" "$HF_LOCAL_DIR" && \
+        echo "Installing huggingface_hub for model download..." && \
+        pip install --no-cache-dir huggingface_hub && \
+        echo "Downloading SmolVLM model..." && \
+        python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='$HF_REPO_ID', local_dir='$HF_LOCAL_DIR', local_dir_use_symlinks=False, cache_dir='$HUGGINGFACE_HUB_CACHE')" && \
+        echo "SmolVLM model downloaded successfully to $HF_LOCAL_DIR"; \
     else \
-        echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping local VLM setup (using remote VLM APIs)"; \
+        echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping SmolVLM model download (using remote VLM APIs)"; \
     fi
 
 WORKDIR /app

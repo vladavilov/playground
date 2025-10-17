@@ -18,7 +18,7 @@ def get_default_models_path() -> Path:
     """Get the default models directory path."""
     script_dir = Path(__file__).parent
     service_root = script_dir.parent.parent  # Go up to service root
-    return service_root / "plugins" / "docling" / "models"
+    return service_root / "plugins" / "docling-models"
 
 
 def main() -> int:
