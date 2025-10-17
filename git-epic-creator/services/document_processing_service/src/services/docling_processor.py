@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, Optional, Set, List
 from datetime import datetime, timezone
+from pathlib import Path
 import os
 import structlog
 
@@ -531,9 +532,11 @@ class DoclingProcessor:
             logger.info("DOCLING_PIPELINE_CONFIGURED", 
                        strategy="local_pdf_with_smolvlm",
                        provider="SmolVLM",
-                       rapidocr_models_path=self.settings.RAPIDOCR_MODELS_PATH)
+                       rapidocr_models_path=self.settings.RAPIDOCR_MODELS_PATH,
+                       artifacts_path=self.settings.DOCLING_ARTIFACTS_PATH)
             
-            pdf_opts = PdfPipelineOptions()
+            # Configure PdfPipelineOptions with artifacts path for offline layout models
+            pdf_opts = PdfPipelineOptions(artifacts_path=self.settings.DOCLING_ARTIFACTS_PATH)
             pdf_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
             pdf_opts.do_picture_description = True
             pdf_opts.picture_description_options = smolvlm_picture_description
@@ -575,10 +578,11 @@ class DoclingProcessor:
             logger.info("DOCLING_PIPELINE_CONFIGURED", 
                        strategy="pdf_with_remote_vision",
                        provider=self.settings.DOCLING_VLM_PROVIDER,
-                       rapidocr_models_path=self.settings.RAPIDOCR_MODELS_PATH)
+                       rapidocr_models_path=self.settings.RAPIDOCR_MODELS_PATH,
+                       artifacts_path=self.settings.DOCLING_ARTIFACTS_PATH)
             
-            # Build PdfPipelineOptions with standard text extraction
-            pdf_opts = PdfPipelineOptions()
+            # Build PdfPipelineOptions with artifacts path for offline layout models
+            pdf_opts = PdfPipelineOptions(artifacts_path=self.settings.DOCLING_ARTIFACTS_PATH)
             pdf_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
             
             # Enable remote services for picture description API calls
@@ -656,6 +660,7 @@ class DoclingProcessor:
                 "vlm_mode": self.settings.DOCLING_VLM_MODE,
                 "ocr_enabled": self.settings.DOCLING_USE_OCR,
                 "rapidocr_models_path": self.settings.RAPIDOCR_MODELS_PATH,
+                "docling_artifacts_path": self.settings.DOCLING_ARTIFACTS_PATH,
                 "supported_formats": ["pdf"] + list(self._image_exts),
                 "processor_version": PROCESSOR_VERSION
             }
@@ -663,6 +668,18 @@ class DoclingProcessor:
             # Add VLM provider info for remote mode
             if self.settings.DOCLING_VLM_MODE == "remote":
                 health_info["vlm_provider"] = self.settings.DOCLING_VLM_PROVIDER
+            
+            # Verify Docling layout models (artifacts) directory exists
+            artifacts_path = self.settings.DOCLING_ARTIFACTS_PATH
+            if os.path.exists(artifacts_path):
+                # Count artifacts (layout models, etc.)
+                artifacts = list(Path(artifacts_path).rglob("*"))
+                model_files = [f for f in artifacts if f.is_file()]
+                health_info["layout_models_count"] = len(model_files)
+                health_info["layout_models_health"] = "healthy" if model_files else "warning"
+            else:
+                health_info["layout_models_health"] = "missing"
+                health_info["layout_models_warning"] = f"Artifacts path does not exist: {artifacts_path}"
             
             # Verify RapidOCR models exist if OCR is enabled
             if self.settings.DOCLING_USE_OCR:

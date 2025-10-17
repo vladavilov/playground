@@ -1,149 +1,53 @@
-# Document Processing Service Dockerfile
+# Document Processing Service - Application Layer
 # 
-# This Dockerfile supports conditional VLM (Vision Language Model) configuration:
-# - DOCLING_VLM_MODE=local: Downloads and caches SmolVLM model locally, pre-warms docling plugins
-# - DOCLING_VLM_MODE=remote: Skips local model download and pre-warming, uses remote VLM APIs
+# This service image contains application code and lightweight components.
+# It extends the heavy base image which contains:
+# - Java JRE 17, Apache Tika, RapidOCR models, heavy Python libs
 #
-# Build with custom VLM mode:
-# docker build --build-arg DOCLING_VLM_MODE=remote -t document-processing-service .
+# Build process:
+# 1. First build base: docker build -f Dockerfile.base -t document-processing-base:latest .
+# 2. Then build service: docker build -t document-processing-service:latest .
 #
-FROM python-service-base:latest
+# For remote VLM mode (faster build):
+# 1. docker build -f Dockerfile.base --build-arg DOCLING_VLM_MODE=remote -t document-processing-base:latest .
+# 2. docker build -t document-processing-service:latest .
+#
+FROM document-processing-base:latest
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/document_processing_service/src
+ENV PYTHONPATH=/app/document_processing_service/src
 
-# Set DOCLING_VLM_MODE early to control conditional build steps
-# Default to 'local' if not provided, but can be overridden via build args
-ARG DOCLING_VLM_MODE=local
-ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE}
+# Set DOCLING_VLM_MODE from base image (can be overridden)
+ARG DOCLING_VLM_MODE
+ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE:-local}
 
 WORKDIR /app
 
+# Copy application code (this changes frequently)
 COPY ./shared/ ./shared/
 COPY ./document_processing_service/ ./document_processing_service/
 
+# Install shared and service packages (dependencies already installed in base image)
+# This reinstall is quick since heavy deps are cached
 WORKDIR /app/shared
 RUN pip install --no-cache-dir .
 
 WORKDIR /app/document_processing_service
 RUN pip install --no-cache-dir .
 
-# Install Java Runtime Environment, wget for Tika download, curl for healthchecks, and git for HF downloads
-RUN for i in 1 2 3 4 5; do \
-    find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) -print0 | xargs -0 sed -i 's|http://|https://|g'; \
-    apt-get update && \
-    apt-get install -y --no-install-recommends --fix-missing \
-        ca-certificates \
-        libssl-dev \
-        openjdk-17-jre-headless \
-        wget \
-        libgl1 && \
-    update-ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
-    java -version && \
-    break || (echo "Retry $i/5 failed, waiting..." && sleep 5); \
-  done
-
-# Set JAVA_HOME and update PATH to include Java
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-ENV PATH="${JAVA_HOME}/bin:${PATH}"
-
-# Pre-install Apache Tika server during build phase
-ENV TIKA_VERSION=3.1.0
-ENV TIKA_SERVER_JAR=/opt/tika-server/tika-server.jar
-ENV TIKA_SERVER_ENDPOINT=http://localhost:9998
-
-# Download and validate Tika Server JAR
-RUN mkdir -p /opt/tika-server && \
-    echo "Downloading Tika Server JAR version ${TIKA_VERSION}..." && \
-    wget --quiet --timeout=60 --tries=3 \
-    -O ${TIKA_SERVER_JAR} \
-    "https://repo1.maven.org/maven2/org/apache/tika/tika-server-standard/${TIKA_VERSION}/tika-server-standard-${TIKA_VERSION}.jar" && \
-    echo "Verifying download..." && \
-    test -f ${TIKA_SERVER_JAR} && \
-    JAR_SIZE=$(stat -c%s ${TIKA_SERVER_JAR}) && \
-    echo "JAR downloaded successfully: $JAR_SIZE bytes" && \
-    [ "$JAR_SIZE" -gt 50000000 ] && \
-    chmod 644 ${TIKA_SERVER_JAR} && \
-    echo "Tika JAR ready: ${TIKA_SERVER_JAR}"
-
-# Set default Tika log path for build-time directory creation
-ENV TIKA_LOG_PATH=/tmp/tika-logs
-
-# Prepare Tika log directory and initial log file with proper permissions
-RUN mkdir -p ${TIKA_LOG_PATH} && \
-    touch ${TIKA_LOG_PATH}/tika.log && \
-    chmod 755 ${TIKA_LOG_PATH} && \
-    chmod 644 ${TIKA_LOG_PATH}/tika.log && \
-    echo "Tika log directory and initial log file prepared: ${TIKA_LOG_PATH}/tika.log"
-
-# Note: Tika environment variables are now configured via docker-compose.env or environments
-
-WORKDIR /app
-
-# RapidOCR models directory (pre-downloaded OCR models for offline operation)
-ENV RAPIDOCR_MODELS_PATH=/opt/rapidocr-models
-
-# Copy RapidOCR models from plugins/ directory
-# REQUIRED: The following models MUST exist in plugins/rapidocr/models/:
-#   - ch_PP-OCRv3_det_infer.onnx
-#   - ch_PP-OCRv3_rec_infer.onnx
-#   - ch_ppocr_mobile_v2.0_cls_infer.onnx
-# The build will FAIL if models are not found
-RUN mkdir -p "$RAPIDOCR_MODELS_PATH"
-COPY ./document_processing_service/plugins/rapidocr/ ${RAPIDOCR_MODELS_PATH}/
-
-# Verify required model files exist - FAIL BUILD if missing
-RUN set -e; \
-    echo "Verifying RapidOCR models..."; \
-    REQUIRED_MODELS="ch_PP-OCRv3_det_infer.onnx ch_PP-OCRv3_rec_infer.onnx ch_ppocr_mobile_v2.0_cls_infer.onnx"; \
-    MISSING_MODELS=""; \
-    for MODEL in $REQUIRED_MODELS; do \
-        MODEL_PATH="${RAPIDOCR_MODELS_PATH}/models/${MODEL}"; \
-        if [ ! -f "$MODEL_PATH" ]; then \
-            MISSING_MODELS="${MISSING_MODELS}\n  - ${MODEL}"; \
-        fi; \
-    done; \
-    if [ -n "$MISSING_MODELS" ]; then \
-        echo ""; \
-        echo "╔════════════════════════════════════════════════════════════════╗"; \
-        echo "║  ✗ ERROR: Required RapidOCR models NOT FOUND                  ║"; \
-        echo "╚════════════════════════════════════════════════════════════════╝"; \
-        echo ""; \
-        echo "Missing models:"; \
-        printf "$MISSING_MODELS\n"; \
-        echo ""; \
-        echo "Expected in: plugins/rapidocr/models/"; \
-        echo "  - ch_PP-OCRv3_det_infer.onnx"; \
-        echo "  - ch_PP-OCRv3_rec_infer.onnx"; \
-        echo "  - ch_ppocr_mobile_v2.0_cls_infer.onnx"; \
-        echo ""; \
-        exit 1; \
-    fi; \
-    echo "✓ All required RapidOCR models found"; \
-    ls -lh ${RAPIDOCR_MODELS_PATH}/models/*.onnx
-
-# Hugging Face caches (only create directories for local VLM mode)
-ENV HF_HOME=/opt/hf-cache \
-    HUGGINGFACE_HUB_CACHE=/opt/hf-cache/hub \
-    TRANSFORMERS_CACHE=/opt/hf-cache/transformers \
-    HF_REPO_ID=HuggingFaceTB/SmolVLM-256M-Instruct
-
-# Conditionally prepare local VLM environment (cache dirs, model download, docling pre-warm)
-# Only executed when DOCLING_VLM_MODE=local, otherwise uses remote VLM APIs
+# Conditionally download HF model and pre-warm docling plugins (only for local VLM mode)
+# This step requires the actual application code with scripts/
 RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
-        echo "DOCLING_VLM_MODE=local: Initializing local VLM environment..." && \
-        echo "Step 1/3: Creating Hugging Face cache directories..." && \
-        mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" /opt/hf-cache/models && \
-        echo "Step 2/3: Downloading and caching Hugging Face model (${HF_REPO_ID})..." && \
+        echo "DOCLING_VLM_MODE=local: Downloading model and pre-warming docling..." && \
+        echo "Step 1/2: Downloading and caching Hugging Face model..." && \
         python -m scripts.download_hf_model && \
-        echo "Step 3/3: Pre-warming docling plugins and models..." && \
+        echo "Step 2/2: Pre-warming docling plugins and models..." && \
         python -m scripts.build_init && \
         echo "Local VLM environment initialized successfully."; \
     else \
-        echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping local VLM setup (using remote VLM APIs)"; \
+        echo "DOCLING_VLM_MODE=${DOCLING_VLM_MODE}: Skipping local VLM model download"; \
     fi
+
+WORKDIR /app
 
 ENV API_PORT=8000
 EXPOSE $API_PORT
@@ -152,4 +56,4 @@ EXPOSE $API_PORT
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${API_PORT}/health/celery || exit 1
 
-CMD ["python", "-m", "main"] 
+CMD ["python", "-m", "main"]

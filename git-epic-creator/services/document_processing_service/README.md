@@ -422,26 +422,99 @@ All error logs include full exception details (`exc_info=True`) with stack trace
 - **Offline OCR Operation**: RapidOCR models are pre-downloaded during Docker build, enabling OCR processing without runtime internet access. Models are configured via `RAPIDOCR_MODELS_PATH` environment variable.
 - Observability: structured logs across blob I/O, Tika processing, progress updates, and trigger publishing with comprehensive exception tracking. OCR model configuration is logged during pipeline initialization (`RAPIDOCR_MODELS_CONFIGURED` event).
 
-### Docker and Compose
-- Image should include `tika` client and place Tika server JAR at `TIKA_SERVER_JAR` path if `TIKA_SERVER_AUTO_START` is true.
-- RapidOCR models are copied from `plugins/rapidocr/` to `/opt/rapidocr-models/` during build
-- Run a dedicated Celery worker for queue `document_processing`
-  - **Pool**: Auto-selected based on platform (`prefork` for Linux/Docker, `threads` for Windows)
-  - **Previous**: Used `--pool=solo` which blocked health checks during long tasks
-  - **Current**: Uses concurrent pool to maintain health check responsiveness
-- Healthcheck: probe `/health/celery` (comprehensive health check for all components with busy-worker awareness).
+### Docker Architecture - Two-Stage Build
+
+The service uses a **two-stage Docker build** to optimize rebuild times by separating heavy, rarely-changing dependencies from frequently-changing application code. This reduces code change rebuild time from **30-40 minutes to 2-5 minutes** (87% faster).
+
+#### Image Hierarchy
+
+```
+python-service-base:latest (Python 3.12 slim)
+  └─> document-processing-base:latest (heavy dependencies)
+       └─> document-processing-service:latest (application code)
+```
+
+#### Stage 1: Base Image (`Dockerfile.base`)
+Contains heavy dependencies that rarely change:
+- **System packages**: Java 17 JRE (~200MB), libgl1, libssl-dev, wget, git, curl
+- **Binary artifacts**: Apache Tika JAR (~80MB), RapidOCR ONNX models (~13MB)
+- **Heavy Python libraries**: docling[vlm], onnxruntime, shared (~200MB+)
+- **Optional**: Hugging Face SmolVLM model (~500MB-1GB, local VLM mode only)
+
+**Build time**: 30-40 min (local VLM) / 5-10 min (remote VLM)  
+**Rebuild frequency**: Rarely (only on dependency/model updates)
+
+#### Stage 2: Service Image (`Dockerfile`)
+Contains application code that changes frequently:
+- Application source (src/), scripts, configuration
+- Lightweight dependency reinstall (fast, uses cached layers)
+- Optional: Model download & pre-warm (local VLM mode)
+
+**Build time**: 2-5 minutes  
+**Rebuild frequency**: Every code change
+
+#### Build Process
+
+**Using build-all.ps1** (recommended):
+```powershell
+cd playground/git-epic-creator
+
+# First-time build (automatically builds base image if needed)
+.\build-all.ps1
+
+# Code changes only (87% faster - skips base image)
+.\build-all.ps1 -SkipDocumentProcessingBase
+
+# Remote VLM mode (faster, smaller image)
+.\build-all.ps1 -VlmMode remote -SkipDocumentProcessingBase
+
+# Build only document-processing-service
+.\build-all.ps1 -Services "document-processing-service"
+```
+
+**Manual build**:
+```powershell
+cd playground/git-epic-creator/services
+
+# Base image (rarely)
+docker build -f ./document_processing_service/Dockerfile.base -t document-processing-base:latest .
+
+# Service image (frequently)
+docker build -f ./document_processing_service/Dockerfile -t document-processing-service:latest .
+```
+
+#### When to Rebuild Each Image
+
+**Rebuild base image when**:
+- ✅ Updating Python packages in `pyproject.toml`
+- ✅ Updating system packages (Java, libraries)
+- ✅ Updating Apache Tika or RapidOCR models
+- ✅ Changing VLM mode (local ↔ remote)
+
+**Rebuild service image only when**:
+- ✅ Changing application code, scripts, or configuration
+- ✅ Updating tests or documentation
 
 #### Build Configuration
-The service supports two VLM modes affecting build time and resources:
-- **Local VLM (default)**: Downloads and caches ML models during build (~30-40 min, 6-8GB RAM)
-- **Remote VLM**: Skips model downloads, uses external APIs (~5-10 min, 2-4GB RAM)
 
-**RapidOCR Models**: Regardless of VLM mode, the service uses pre-existing RapidOCR ONNX models:
-- Models must exist in `plugins/rapidocr/models/` before build (ch_PP-OCRv3_det_infer.onnx, ch_PP-OCRv3_rec_infer.onnx, ch_ppocr_mobile_v2.0_cls_infer.onnx)
-- Copied to `/opt/rapidocr-models/` directory in Docker image during build
-- Adds ~13MB to image size (models are already present locally)
-- Enables offline OCR processing without runtime model downloads
-- Build will FAIL with clear error if models are missing
+**VLM Modes**:
+- **Local VLM (default)**: Downloads SmolVLM model during build (~30-40 min, 6-8GB RAM)
+- **Remote VLM**: Uses external APIs, skips model downloads (~5-10 min, 2-4GB RAM)
+
+**RapidOCR Models** (required for both modes):
+- Must exist in `plugins/rapidocr/models/` before build:
+  - `ch_PP-OCRv3_det_infer.onnx` (detection)
+  - `ch_PP-OCRv3_rec_infer.onnx` (recognition)
+  - `ch_ppocr_mobile_v2.0_cls_infer.onnx` (classification)
+- Copied to `/opt/rapidocr-models/` during build (~13MB)
+- Enables offline OCR processing
+- **Build will FAIL if models are missing**
+
+### Docker Compose and Runtime
+- Celery worker pool: Auto-selected (`prefork` on Linux/Docker, `threads` on Windows)
+- Healthcheck: `/health/celery` (monitors all components with busy-worker awareness)
+- Tika server: JAR at `TIKA_SERVER_JAR`, auto-starts if `TIKA_SERVER_AUTO_START=true`
+- RapidOCR models: Pre-loaded in `/opt/rapidocr-models/` for offline operation
 
 ### Local development quickstart
 1) Start dependent services (from `playground/git-epic-creator`):
