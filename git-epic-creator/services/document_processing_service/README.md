@@ -138,6 +138,17 @@ sequenceDiagram
   - This configuration enables OCR processing without runtime internet access
   - Docker build will FAIL if required models are not present in `plugins/rapidocr-models/`
 
+- **Font Configuration** (prevents runtime font download):
+  - Fonts are pre-installed at **system level** in Docker base image (no application config needed)
+  - Environment variables set in `Dockerfile.base`:
+    - `FONTS_DIR=/usr/share/fonts` - System fonts directory
+    - `FONTCONFIG_PATH=/etc/fonts` - Fontconfig configuration directory
+  - Pre-installed font packages:
+    - **Western fonts**: `fonts-liberation`, `fonts-dejavu-core`
+    - **Chinese fonts**: `fonts-wqy-microhei`, `fonts-wqy-zenhei`
+  - Font cache is updated during build (`fc-cache -fv`) to prevent runtime downloads
+  - RapidOCR and Pillow automatically use system fonts via fontconfig (no explicit configuration required)
+
 - **Fallback Configuration**:
   - `DOCLING_ENABLE_EMPTY_FALLBACK` (default `True`) - Enable automatic fallback to Tika if Docling returns empty/minimal text
   - `DOCLING_MIN_TEXT_LENGTH` (default `50`) - Minimum text length (chars) to consider extraction successful. Below this triggers fallback if enabled.
@@ -236,7 +247,7 @@ The health endpoint verifies:
 - **Task registration**: Expected tasks are registered with workers
 - **Docling processor**: 
   - Initialization status (VLM mode, OCR enabled)
-  - Runtime health (RapidOCR models availability, configuration)
+  - Runtime health (RapidOCR models availability, system fonts availability, configuration)
 - **Tika processor**:
   - Initialization status
   - Runtime health (Tika server availability, version)
@@ -263,6 +274,9 @@ Example healthy response with busy worker:
       "ocr_enabled": true,
       "ocr_health": "healthy",
       "rapidocr_models_path": "/opt/rapidocr-models",
+      "fonts_dir": "/usr/share/fonts",
+      "fonts_count": 127,
+      "fonts_health": "healthy",
       "supported_formats": ["pdf", "jpg", "png", "webp"],
       "processor_version": "docling-1.0"
     },
@@ -419,7 +433,7 @@ All error logs include full exception details (`exc_info=True`) with stack trace
   - **Max tasks per child**: 10 (worker restarts after 10 tasks to prevent memory leaks)
   - **Pool rationale**: Switched from `solo` to `prefork/threads` to fix health check issues during long-running tasks
 - Task timeout: soft limit 55 minutes, hard limit 1 hour (configurable via task decorator).
-- **Offline OCR Operation**: RapidOCR models are pre-downloaded during Docker build, enabling OCR processing without runtime internet access. Models are configured via `RAPIDOCR_MODELS_PATH` environment variable.
+- **Offline OCR Operation**: RapidOCR models and system fonts are pre-installed during Docker build, enabling OCR processing and text rendering without runtime internet access. Models are configured via `RAPIDOCR_MODELS_PATH` environment variable. System fonts are managed by fontconfig and automatically used by RapidOCR/Pillow.
 - Observability: structured logs across blob I/O, Tika processing, progress updates, and trigger publishing with comprehensive exception tracking. OCR model configuration is logged during pipeline initialization (`RAPIDOCR_MODELS_CONFIGURED` event).
 
 ### Docker Architecture - Two-Stage Build
@@ -437,6 +451,7 @@ python-service-base:latest (Python 3.12 slim)
 #### Stage 1: Base Image (`Dockerfile.base`)
 Contains heavy dependencies that rarely change:
 - **System packages**: Java 17 JRE (~200MB), libgl1, libssl-dev, wget, git, curl
+- **Font packages**: fontconfig, Liberation fonts, DejaVu fonts, WenQuanYi fonts (~30MB)
 - **Binary artifacts**: Apache Tika JAR (~80MB), RapidOCR ONNX models (~13MB)
 - **Heavy Python libraries**: docling[vlm], onnxruntime, shared (~200MB+)
 - **Optional**: Hugging Face SmolVLM model (~500MB-1GB, local VLM mode only)
@@ -515,6 +530,7 @@ docker build -f ./document_processing_service/Dockerfile -t document-processing-
 - Healthcheck: `/health/celery` (monitors all components with busy-worker awareness)
 - Tika server: JAR at `TIKA_SERVER_JAR`, auto-starts if `TIKA_SERVER_AUTO_START=true`
 - RapidOCR models: Pre-loaded in `/opt/rapidocr-models/` for offline operation
+- System fonts: Pre-installed in `/usr/share/fonts/` with fontconfig in `/etc/fonts/`
 
 ### Local development quickstart
 1) Start dependent services (from `playground/git-epic-creator`):

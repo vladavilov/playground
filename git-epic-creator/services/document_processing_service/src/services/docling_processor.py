@@ -687,6 +687,19 @@ class DoclingProcessor:
                 health_info["layout_models_health"] = "missing"
                 health_info["layout_models_warning"] = f"Artifacts path does not exist: {artifacts_path}"
             
+            # Verify system fonts are available (using system-level font directory)
+            # Fonts are configured at system level via Dockerfile.base, not application config
+            fonts_dir = os.environ.get("FONTS_DIR", "/usr/share/fonts")
+            if os.path.exists(fonts_dir):
+                # Count available font files
+                font_files = list(Path(fonts_dir).rglob("*.ttf")) + list(Path(fonts_dir).rglob("*.otf"))
+                health_info["fonts_count"] = len(font_files)
+                health_info["fonts_health"] = "healthy" if font_files else "warning"
+                health_info["fonts_dir"] = fonts_dir
+            else:
+                health_info["fonts_health"] = "missing"
+                health_info["fonts_warning"] = f"System fonts directory does not exist: {fonts_dir}"
+            
             # Verify RapidOCR models exist if OCR is enabled
             if self.settings.DOCLING_USE_OCR:
                 models_path = self.settings.RAPIDOCR_MODELS_PATH

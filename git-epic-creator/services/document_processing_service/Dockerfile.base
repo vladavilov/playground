@@ -22,7 +22,8 @@ ENV DOCLING_VLM_MODE=${DOCLING_VLM_MODE}
 
 WORKDIR /app
 
-# Install Java Runtime Environment, wget for Tika download, curl for healthchecks, and git for HF downloads
+# Install Java Runtime Environment, wget for Tika download, curl for healthchecks, git for HF downloads,
+# and font packages for RapidOCR/Pillow text rendering
 # These are system-level dependencies that rarely change
 RUN for i in 1 2 3 4 5; do \
     find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) -print0 | xargs -0 sed -i 's|http://|https://|g'; \
@@ -33,7 +34,12 @@ RUN for i in 1 2 3 4 5; do \
         openjdk-17-jre-headless \
         wget \
         libgl1 \
-        git && \
+        git \
+        fontconfig \
+        fonts-liberation \
+        fonts-dejavu-core \
+        fonts-wqy-microhei \
+        fonts-wqy-zenhei && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     java -version && \
@@ -43,6 +49,18 @@ RUN for i in 1 2 3 4 5; do \
 # Set JAVA_HOME and update PATH to include Java
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Configure font paths for RapidOCR and Pillow
+# These fonts are used for text rendering and visualization in OCR operations
+ENV FONTCONFIG_PATH=/etc/fonts
+ENV FONTS_DIR=/usr/share/fonts
+
+# Update font cache to ensure all installed fonts are available
+# This prevents runtime font download attempts
+RUN fc-cache -fv && \
+    echo "Font cache updated successfully" && \
+    echo "Available font directories:" && \
+    fc-list : file | cut -d: -f1 | sort -u | head -20
 
 # Pre-install Apache Tika server during build phase
 ENV TIKA_VERSION=3.1.0
