@@ -476,12 +476,14 @@ GITLAB_INGESTION_BASE_URL=http://gitlab-client-service:8000
 HTTP_TIMEOUT_SEC=30.0
 
 # Azure OpenAI (required)
-OAI_BASE_URL=https://your-resource.openai.azure.com
-OAI_KEY=your-azure-openai-key
-OAI_API_VERSION=2024-02-01
-OAI_MODEL=gpt-4
-OAI_EMBED_MODEL_NAME=text-embedding-3-small
-OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small
+# Note: Service uses AzureChatOpenAI connector which requires deployment_name parameter
+# OAI_MODEL is used as the deployment_name for Azure OpenAI deployments
+OAI_BASE_URL=https://your-resource.openai.azure.com     # Azure endpoint (no trailing /openai)
+OAI_KEY=your-azure-openai-key                           # Azure OpenAI API key
+OAI_API_VERSION=2024-02-01                              # Azure OpenAI API version
+OAI_MODEL=gpt-4                                         # Azure deployment name (not model name)
+OAI_EMBED_MODEL_NAME=text-embedding-3-small             # Embedding model name (for tiktoken)
+OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small        # Embedding deployment name
 LLM_TIMEOUT_SEC=20.0
 LLM_TEMPERATURE=0.2
 

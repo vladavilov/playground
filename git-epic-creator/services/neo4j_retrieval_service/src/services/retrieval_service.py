@@ -6,7 +6,7 @@ import structlog
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from fastapi import HTTPException
 
@@ -22,8 +22,8 @@ from retrieval_ms.repositories.neo4j_repository import Neo4jRepository
 
 
 GetSessionFn = Callable[[], Any]
-GetLlmFn = Callable[[], ChatOpenAI]
-GetEmbedderFn = Callable[[], OpenAIEmbeddings]
+GetLlmFn = Callable[[], AzureChatOpenAI]
+GetEmbedderFn = Callable[[], AzureOpenAIEmbeddings]
 
 logger = structlog.get_logger(__name__)
 
@@ -93,12 +93,12 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
             end_on=("human", "tool"),
         )
 
-    async def _format_invoke_parse(prompt_obj: Any, llm: ChatOpenAI, label: str, **fmt_kwargs: Any) -> Dict[str, Any]:
+    async def _format_invoke_parse(prompt_obj: Any, llm: AzureChatOpenAI, label: str, **fmt_kwargs: Any) -> Dict[str, Any]:
         msg = prompt_obj.format_messages(**fmt_kwargs)
         res = await llm.ainvoke(msg)
         return _parse_json_or_502(res, label)
 
-    async def _format_invoke_content(prompt_obj: Any, llm: ChatOpenAI, **fmt_kwargs: Any) -> str:
+    async def _format_invoke_content(prompt_obj: Any, llm: AzureChatOpenAI, **fmt_kwargs: Any) -> str:
         msg = prompt_obj.format_messages(**fmt_kwargs)
         res = await llm.ainvoke(msg)
         return _as_str_content(res)

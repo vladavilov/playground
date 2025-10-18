@@ -20,9 +20,9 @@ def get_llm(temperature: float = None) -> AzureChatOpenAI:
     
     return AzureChatOpenAI(
         azure_endpoint=settings.llm.OAI_BASE_URL,
+        deployment_name=settings.llm.OAI_MODEL,
         api_key=settings.llm.OAI_KEY,
         api_version=settings.llm.OAI_API_VERSION,
-        model=settings.llm.OAI_MODEL,
         timeout=settings.LLM_TIMEOUT_SEC,
         temperature=temperature if temperature is not None else settings.LLM_TEMPERATURE,
     )

@@ -146,3 +146,50 @@ cypher UNWIND $chunkIds AS cid MATCH (ch:__Chunk__) WHERE id(ch)=cid OPTIONAL MA
     { final_answer, key_facts:[{fact, citations:[...] }], residual_uncertainty }
 
 ------------------------------------------------------------------------
+
+## 6. Configuration
+
+### Azure OpenAI Environment Variables (Required)
+
+This service uses `AzureChatOpenAI` and `AzureOpenAIEmbeddings` connectors from LangChain, which require specific Azure OpenAI parameters:
+
+```bash
+# Azure OpenAI Configuration
+OAI_BASE_URL=https://your-resource.openai.azure.com/     # Azure endpoint (no /openai suffix)
+OAI_MODEL=gpt-4o                                         # Azure deployment name for chat (NOT model name)
+OAI_KEY=your-azure-openai-key                            # Azure OpenAI API key
+OAI_API_VERSION=2024-02-15-preview                       # Azure OpenAI API version
+
+# Azure OpenAI Embeddings
+OAI_EMBED_MODEL_NAME=text-embedding-3-small              # Embedding model name (for tiktoken)
+OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small         # Azure deployment name for embeddings
+
+# LLM Parameters
+OAI_TIMEOUT_SEC=10.0                                     # HTTP/LLM client timeout
+LLM_TEMPERATURE=0.0                                      # Temperature for LLM requests (0.0-2.0)
+```
+
+**Important Notes:**
+- `OAI_MODEL` is used as the `deployment_name` parameter in `AzureChatOpenAI`
+- The endpoint path is constructed as: `{OAI_BASE_URL}/openai/deployments/{deployment_name}/chat/completions?api-version={OAI_API_VERSION}`
+- Without proper `deployment_name`, requests will result in 404 errors
+
+### Neo4j Configuration
+
+```bash
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=neo4j123
+NEO4J_DATABASE=neo4j
+```
+
+### Vector Index Configuration
+
+```bash
+COMMUNITY_VECTOR_INDEX_NAME=graphrag_comm_index
+CHUNK_VECTOR_INDEX_NAME=graphrag_chunk_index
+VECTOR_INDEX_DIMENSIONS=1536
+VECTOR_INDEX_SIMILARITY=cosine
+```
+
+------------------------------------------------------------------------

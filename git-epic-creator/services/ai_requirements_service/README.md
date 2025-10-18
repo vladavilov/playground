@@ -218,6 +218,12 @@ Service Components
 Configuration
 
 - Env vars (examples):
+  - **Azure OpenAI Configuration** (required):
+    - `OAI_BASE_URL`: Azure OpenAI endpoint (e.g., `https://<resource>.openai.azure.com/`)
+    - `OAI_MODEL`: Azure OpenAI deployment name (e.g., `gpt-4o`, `gpt-4.1`)
+    - `OAI_KEY`: Azure OpenAI API key
+    - `OAI_API_VERSION`: Azure OpenAI API version (e.g., `2024-02-15-preview`)
+    - Note: Service uses `AzureChatOpenAI` connector requiring `deployment_name` parameter
   - GRAPH_RAG_BASE_URL, HTTP_TIMEOUT_SEC
   - EVAL_WEIGHTS: JSON or separate vars (PRECISION_WEIGHT, GROUNDING_WEIGHT, ...)
   - CLARIFICATION_SCORE_TARGET=0.70
