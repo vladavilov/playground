@@ -23,7 +23,7 @@ def test_gitlab_client_settings_defaults():
     assert settings.redis.REDIS_PASSWORD is None
     
     # LLM/Embedding settings (from shared LlmConfig)
-    assert settings.llm.OAI_EMBED_MODEL == "text-embedding-3-small"
+    assert settings.llm.OAI_EMBED_MODEL_NAME == "text-embedding-3-small"
     assert settings.OAI_EMBED_BATCH == 16
     assert settings.OAI_EMBED_CONCURRENCY == 2
     
@@ -74,7 +74,7 @@ def test_embedding_settings():
     )
     
     # LLM settings from shared config
-    assert settings.llm.OAI_EMBED_MODEL == "text-embedding-3-small"
+    assert settings.llm.OAI_EMBED_MODEL_NAME == "text-embedding-3-small"
     # GitLab-specific embedding settings
     assert settings.OAI_EMBED_BATCH == 32
     assert settings.OAI_EMBED_CONCURRENCY == 4

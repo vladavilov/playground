@@ -198,7 +198,8 @@ graph TB
   - `OAI_BASE_URL` (for Azure or custom gateway). When paired with `OAI_API_VERSION`, Azure mode is used.
   - `OAI_API_VERSION` (e.g., `2024-06-01`)
   - `OAI_MODEL` (chat model)
-  - `OAI_EMBED_MODEL` (embedding model)
+  - `OAI_EMBED_MODEL_NAME` (embedding model name for tiktoken, e.g., `text-embedding-3-small`)
+  - `OAI_EMBED_DEPLOYMENT_NAME` (Azure deployment name for embeddings; optional, defaults to `OAI_EMBED_MODEL_NAME`)
 - Azure Blob
   - `AZURE_STORAGE_CONNECTION_STRING`
   - `AZURE_STORAGE_CONTAINER_NAME`

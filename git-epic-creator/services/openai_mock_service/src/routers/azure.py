@@ -19,11 +19,16 @@ def ensure_model_in_body(deployment: str, body: Dict[str, Any]) -> Dict[str, Any
 async def list_deployments() -> Dict[str, Any]:
     """List Azure OpenAI deployments (compatible with models listing)."""
     settings = get_app_settings()
-    logger.info("list_deployments", oai_model=settings.llm.OAI_MODEL, oai_embed_model=settings.llm.OAI_EMBED_MODEL)
+    logger.info(
+        "list_deployments",
+        oai_model=settings.llm.OAI_MODEL,
+        oai_embed_model_name=settings.llm.OAI_EMBED_MODEL_NAME,
+        oai_embed_deployment_name=settings.llm.embedding_deployment_name
+    )
     return {
         "data": [
             {"id": settings.llm.OAI_MODEL, "model": settings.llm.OAI_MODEL, "object": "deployment"},
-            {"id": settings.llm.OAI_EMBED_MODEL, "model": settings.llm.OAI_EMBED_MODEL, "object": "deployment"},
+            {"id": settings.llm.embedding_deployment_name, "model": settings.llm.OAI_EMBED_MODEL_NAME, "object": "deployment"},
         ]
     }
 

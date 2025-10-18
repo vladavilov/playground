@@ -12,11 +12,11 @@ router = APIRouter()
 @router.get("/v1/models", dependencies=[Depends(require_authentication)])
 async def list_models() -> Dict[str, Any]:
     settings = get_app_settings()
-    models_list = [settings.llm.OAI_MODEL, settings.llm.OAI_EMBED_MODEL]
+    models_list = [settings.llm.OAI_MODEL, settings.llm.OAI_EMBED_MODEL_NAME]
     logger.info(
         "list_models",
         oai_model=settings.llm.OAI_MODEL,
-        oai_embed_model=settings.llm.OAI_EMBED_MODEL,
+        oai_embed_model=settings.llm.OAI_EMBED_MODEL_NAME,
         response_models=models_list,
     )
     return {
@@ -24,7 +24,7 @@ async def list_models() -> Dict[str, Any]:
         "data": [
             {"id": settings.llm.OAI_MODEL, "object": "model", "owned_by": "mock"},
             {
-                "id": settings.llm.OAI_EMBED_MODEL,
+                "id": settings.llm.OAI_EMBED_MODEL_NAME,
                 "object": "model",
                 "owned_by": "mock",
             },

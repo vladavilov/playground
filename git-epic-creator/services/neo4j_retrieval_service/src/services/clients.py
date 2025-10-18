@@ -22,10 +22,14 @@ def get_llm(temperature: float | None = None) -> ChatOpenAI:
 def get_embedder() -> OpenAIEmbeddings:
     settings = get_retrieval_settings()
     kwargs: dict = {
-        "model": settings.llm.OAI_EMBED_MODEL,
+        "model": settings.llm.OAI_EMBED_MODEL_NAME,  # Model name for tiktoken
+        "deployment": settings.llm.embedding_deployment_name,  # Deployment name for Azure
         "base_url": settings.llm.OAI_BASE_URL,
         "api_key": settings.llm.OAI_KEY,
     }
+    # Only include deployment parameter if using Azure (has api_version)
+    if not settings.llm.OAI_API_VERSION:
+        kwargs.pop("deployment", None)
     return OpenAIEmbeddings(**kwargs)
 
 

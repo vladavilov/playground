@@ -8,6 +8,10 @@ def configure_settings_for_json() -> Dict[str, Any]:
     Build a GraphRAG settings dict configured for JSON inputs and Azure/OpenAI models.
 
     - Returns the final settings dict without writing to disk
+    - Uses LiteLLM format (type: chat/embedding, model_provider: azure)
+    - Uses separate model_name (for tiktoken) and deployment_name (for Azure API) for embeddings
+    
+    Reference: https://microsoft.github.io/graphrag/config/models/
     """
     settings: Dict[str, Any] = {}
 
@@ -20,13 +24,17 @@ def configure_settings_for_json() -> Dict[str, Any]:
     azure_base = llm.OAI_BASE_URL
     azure_api_version = llm.OAI_API_VERSION
     chat_model_name = llm.OAI_MODEL
-    embed_model_name = llm.OAI_EMBED_MODEL
+    
+    # Use separate embedding model name and deployment name for proper tiktoken usage
+    embed_model_name = llm.OAI_EMBED_MODEL_NAME
+    azure_embed_deployment = llm.embedding_deployment_name
+    
     azure_chat_deployment = chat_model_name
-    azure_embed_deployment = embed_model_name
     api_key_value = llm.OAI_KEY
 
     chat_cfg = {
-        "type": "azure_openai_chat",
+        "type": "chat",  # LiteLLM generic type (not azure_openai_chat)
+        "model_provider": "azure",  # Required for LiteLLM Azure integration
         "api_base": azure_base,
         "api_version": azure_api_version,
         "model": chat_model_name,
@@ -37,11 +45,12 @@ def configure_settings_for_json() -> Dict[str, Any]:
         "async_mode": gr.GRAPHRAG_ASYNC_MODE,
     }
     embed_cfg = {
-        "type": "azure_openai_embedding",
+        "type": "embedding",  # LiteLLM generic type (not azure_openai_embedding)
+        "model_provider": "azure",  # Required for LiteLLM Azure integration
         "api_base": azure_base,
         "api_version": azure_api_version,
-        "model": embed_model_name,
-        "deployment_name": azure_embed_deployment,
+        "model": embed_model_name,  # Model name for tiktoken
+        "deployment_name": azure_embed_deployment,  # Deployment name for Azure API
         "auth_type": "api_key",
         "api_key": api_key_value,
         "async_mode": gr.GRAPHRAG_ASYNC_MODE, 

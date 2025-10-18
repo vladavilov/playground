@@ -19,7 +19,7 @@ def get_config() -> Dict[str, Optional[str]]:
         "API_PORT": get_env("API_PORT", "11434"),
         "OAI_KEY": get_env("OAI_KEY"),
         "OAI_MODEL": get_env("OAI_MODEL", "gpt-oss:20b"),
-        "OAI_EMBED_MODEL": get_env("OAI_EMBED_MODEL", "text-embedding-3-large"),
+        "OAI_EMBED_MODEL_NAME": get_env("OAI_EMBED_MODEL_NAME", "text-embedding-3-large"),
         "OLLAMA_HOST": get_env("OLLAMA_HOST", "http://127.0.0.1:11435"),
     }
 
@@ -71,7 +71,7 @@ async def list_models() -> Dict[str, Any]:
         "object": "list",
         "data": [
             {"id": cfg["OAI_MODEL"], "object": "model", "owned_by": "gpt-oss"},
-            {"id": cfg["OAI_EMBED_MODEL"], "object": "model", "owned_by": "gpt-oss"},
+            {"id": cfg["OAI_EMBED_MODEL_NAME"], "object": "model", "owned_by": "gpt-oss"},
         ],
     }
 
@@ -122,7 +122,7 @@ async def embeddings(body: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "object": "list",
         "data": data,
-        "model": cfg["OAI_EMBED_MODEL"],
+        "model": cfg["OAI_EMBED_MODEL_NAME"],
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
 

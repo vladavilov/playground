@@ -148,7 +148,8 @@ OAI_KEY="your-azure-openai-key"
 # OAI_BASE_URL="http://openai-mock-service:8000"
 # OAI_KEY="sk-..."
 
-OAI_EMBED_MODEL="text-embedding-3-small"
+OAI_EMBED_MODEL_NAME="text-embedding-3-small"
+OAI_EMBED_DEPLOYMENT_NAME="text-embedding-3-small"
 ```
 
 **Local JWT (for service-to-service auth):**
@@ -707,7 +708,8 @@ REDIS_DB=0
 OAI_BASE_URL=https://<your-resource>.openai.azure.com
 OAI_KEY=your-azure-openai-key
 OAI_API_VERSION=2024-02-01
-OAI_EMBED_MODEL=text-embedding-3-small
+OAI_EMBED_MODEL_NAME=text-embedding-3-small
+OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small
 OAI_EMBED_BATCH=16
 OAI_EMBED_CONCURRENCY=2
 

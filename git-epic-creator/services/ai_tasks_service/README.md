@@ -480,7 +480,8 @@ OAI_BASE_URL=https://your-resource.openai.azure.com
 OAI_KEY=your-azure-openai-key
 OAI_API_VERSION=2024-02-01
 OAI_MODEL=gpt-4
-OAI_EMBED_MODEL=text-embedding-3-small
+OAI_EMBED_MODEL_NAME=text-embedding-3-small
+OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small
 LLM_TIMEOUT_SEC=20.0
 LLM_TEMPERATURE=0.2
 

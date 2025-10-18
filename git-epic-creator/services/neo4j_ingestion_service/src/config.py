@@ -14,7 +14,7 @@ class GraphRAGSettings(BaseConfig):
 	Minimal settings required for the library-based GraphRAG pipeline.
 
 	Environment variables:
-	- OAI_KEY, OAI_MODEL, OAI_EMBED_MODEL, OAI_BASE_URL, OAI_API_VERSION (via LlmConfig)
+	- OAI_KEY, OAI_MODEL, OAI_EMBED_MODEL_NAME, OAI_EMBED_DEPLOYMENT_NAME, OAI_BASE_URL, OAI_API_VERSION (via LlmConfig)
 	- RAG_WORKSPACE_ROOT: Workspace root path
 	"""
 

@@ -176,7 +176,8 @@ POST /v1/embeddings
 | `API_PORT` | `8000` | HTTP port (from shared `AppSettings.API_PORT`) |
 | `OAI_KEY` | - | API key (optional, enables auth) (from shared `LlmConfig.OAI_KEY`) |
 | `OAI_MODEL` | `gpt-4o-mini` | Chat model name (from shared `LlmConfig.OAI_MODEL`) |
-| `OAI_EMBED_MODEL` | `text-embedding-3-small` | Embeddings model name (from shared `LlmConfig.OAI_EMBED_MODEL`) |
+| `OAI_EMBED_MODEL_NAME` | `text-embedding-3-small` | Embeddings model name (from shared `LlmConfig.OAI_EMBED_MODEL_NAME`) |
+| `OAI_EMBED_DEPLOYMENT_NAME` | - | Azure deployment name for embeddings (from shared `LlmConfig.OAI_EMBED_DEPLOYMENT_NAME`) |
 | `VECTOR_INDEX_DIMENSIONS` | `1536` | Embedding vector size (from shared `VectorIndexEnv.VECTOR_INDEX_DIMENSIONS`) |
 
 ### Build Arguments

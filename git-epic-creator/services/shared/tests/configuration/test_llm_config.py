@@ -19,7 +19,8 @@ def _reset_cache_and_env(monkeypatch):
     for key in [
         "OAI_KEY",
         "OAI_MODEL",
-        "OAI_EMBED_MODEL",
+        "OAI_EMBED_MODEL_NAME",
+        "OAI_EMBED_DEPLOYMENT_NAME",
         "OAI_BASE_URL",
         "OAI_API_VERSION",
         "oai_key",
@@ -34,7 +35,9 @@ def test_defaults_when_no_env_vars_set():
     settings = get_llm_config()
     assert settings.OAI_KEY is None
     assert settings.OAI_MODEL == "gpt-4o-mini"
-    assert settings.OAI_EMBED_MODEL == "text-embedding-3-small"
+    assert settings.OAI_EMBED_MODEL_NAME == "text-embedding-3-small"
+    assert settings.OAI_EMBED_DEPLOYMENT_NAME is None
+    assert settings.embedding_deployment_name == "text-embedding-3-small"  # Falls back to model name
     assert settings.OAI_BASE_URL is None
     assert settings.OAI_API_VERSION is None
 
@@ -42,7 +45,8 @@ def test_defaults_when_no_env_vars_set():
 def test_env_overrides(monkeypatch):
     monkeypatch.setenv("OAI_KEY", "test-key")
     monkeypatch.setenv("OAI_MODEL", "gpt-4o-mini-2024")
-    monkeypatch.setenv("OAI_EMBED_MODEL", "text-embedding-3-large")
+    monkeypatch.setenv("OAI_EMBED_MODEL_NAME", "text-embedding-3-large")
+    monkeypatch.setenv("OAI_EMBED_DEPLOYMENT_NAME", "custom-embedding-deployment")
     monkeypatch.setenv("OAI_BASE_URL", "http://localhost:8010/v1")
     monkeypatch.setenv("OAI_API_VERSION", "2024-06-01")
 
@@ -51,7 +55,9 @@ def test_env_overrides(monkeypatch):
 
     assert settings.OAI_KEY == "test-key"
     assert settings.OAI_MODEL == "gpt-4o-mini-2024"
-    assert settings.OAI_EMBED_MODEL == "text-embedding-3-large"
+    assert settings.OAI_EMBED_MODEL_NAME == "text-embedding-3-large"
+    assert settings.OAI_EMBED_DEPLOYMENT_NAME == "custom-embedding-deployment"
+    assert settings.embedding_deployment_name == "custom-embedding-deployment"
     assert settings.OAI_BASE_URL == "http://localhost:8010/v1"
     assert settings.OAI_API_VERSION == "2024-06-01"
 
@@ -81,3 +87,26 @@ def test_case_sensitive_env_vars(monkeypatch):
     clear_cache()
     settings = get_llm_config()
     assert settings.OAI_MODEL == "uppercase-used"
+
+
+def test_embedding_deployment_fallback(monkeypatch):
+    # When deployment name is not set, should fall back to model name
+    monkeypatch.setenv("OAI_EMBED_MODEL_NAME", "text-embedding-ada-002")
+    
+    clear_cache()
+    settings = get_llm_config()
+    assert settings.OAI_EMBED_MODEL_NAME == "text-embedding-ada-002"
+    assert settings.OAI_EMBED_DEPLOYMENT_NAME is None
+    assert settings.embedding_deployment_name == "text-embedding-ada-002"
+
+
+def test_embedding_deployment_explicit(monkeypatch):
+    # When deployment name is explicitly set, should use it
+    monkeypatch.setenv("OAI_EMBED_MODEL_NAME", "text-embedding-3-small")
+    monkeypatch.setenv("OAI_EMBED_DEPLOYMENT_NAME", "my-custom-deployment")
+    
+    clear_cache()
+    settings = get_llm_config()
+    assert settings.OAI_EMBED_MODEL_NAME == "text-embedding-3-small"
+    assert settings.OAI_EMBED_DEPLOYMENT_NAME == "my-custom-deployment"
+    assert settings.embedding_deployment_name == "my-custom-deployment"

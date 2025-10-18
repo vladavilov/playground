@@ -33,7 +33,8 @@ class EmbeddingClient:
                 "Initializing Azure OpenAI embedding client",
                 base_url=llm_cfg.OAI_BASE_URL,
                 api_version=llm_cfg.OAI_API_VERSION,
-                model=llm_cfg.OAI_EMBED_MODEL
+                model_name=llm_cfg.OAI_EMBED_MODEL_NAME,
+                deployment_name=llm_cfg.embedding_deployment_name
             )
             self.client = AzureOpenAI(
                 api_key=llm_cfg.OAI_KEY or "dummy-key",
@@ -49,7 +50,7 @@ class EmbeddingClient:
             logger.info(
                 "Initializing OpenAI embedding client",
                 base_url=llm_cfg.OAI_BASE_URL,
-                model=llm_cfg.OAI_EMBED_MODEL
+                model=llm_cfg.OAI_EMBED_MODEL_NAME
             )
             self.client = OpenAI(
                 api_key=llm_cfg.OAI_KEY or "dummy-key",
@@ -74,8 +75,9 @@ class EmbeddingClient:
             return []
         
         try:
+            # Use deployment name for Azure API calls
             response = self.client.embeddings.create(
-                model=self.settings.llm.OAI_EMBED_MODEL,
+                model=self.settings.llm.embedding_deployment_name,
                 input=texts
             )
             
@@ -84,7 +86,8 @@ class EmbeddingClient:
             logger.debug(
                 "Embeddings generated",
                 count=len(embeddings),
-                model=self.settings.llm.OAI_EMBED_MODEL
+                model=self.settings.llm.OAI_EMBED_MODEL_NAME,
+                deployment=self.settings.llm.embedding_deployment_name
             )
             
             return embeddings
@@ -112,8 +115,9 @@ class EmbeddingClient:
             return []
         
         try:
+            # Use deployment name for Azure API calls
             response = await self.async_client.embeddings.create(
-                model=self.settings.llm.OAI_EMBED_MODEL,
+                model=self.settings.llm.embedding_deployment_name,
                 input=texts
             )
             
@@ -122,7 +126,8 @@ class EmbeddingClient:
             logger.debug(
                 "Embeddings generated (async)",
                 count=len(embeddings),
-                model=self.settings.llm.OAI_EMBED_MODEL
+                model=self.settings.llm.OAI_EMBED_MODEL_NAME,
+                deployment=self.settings.llm.embedding_deployment_name
             )
             
             return embeddings

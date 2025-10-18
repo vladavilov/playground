@@ -19,7 +19,8 @@ class DuplicateMapper:
     def __init__(self) -> None:
         settings = get_ai_tasks_settings()
         self.similarity_threshold = settings.SIMILARITY_THRESHOLD
-        self.embed_model = settings.llm.OAI_EMBED_MODEL
+        # Use deployment name for Azure API calls
+        self.embed_model = settings.llm.embedding_deployment_name
         
         self.client = AzureOpenAI(
             api_key=settings.llm.OAI_KEY,

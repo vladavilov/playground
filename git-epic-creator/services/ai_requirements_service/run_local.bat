@@ -36,7 +36,8 @@ set RETRIEVAL_BACKOFF_BASE_SEC=0.2
 REM OpenAI-compatible mock service (openai-mock-service -> host 8010)
 set OAI_KEY=KEY
 set OAI_MODEL=gpt-4.1
-set OAI_EMBED_MODEL=text-embedding-3-small
+set OAI_EMBED_MODEL_NAME=text-embedding-3-small
+set OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small
 set OAI_BASE_URL=http://localhost:8010/v1
 
 REM Optional: Project Management Service (if used by any HTTP client utilities)

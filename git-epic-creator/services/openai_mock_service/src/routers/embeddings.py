@@ -64,7 +64,7 @@ async def embeddings(body: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "object": "list",
         "data": data,
-        "model": settings.llm.OAI_EMBED_MODEL,
+        "model": settings.llm.OAI_EMBED_MODEL_NAME,
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
 
