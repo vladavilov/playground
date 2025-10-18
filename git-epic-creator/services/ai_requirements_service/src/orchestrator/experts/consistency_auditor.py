@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm
 import structlog
-from configuration.llm_config import get_llm_config
 from utils.deepeval_utils import evaluate_with_metrics
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric, GEval
@@ -103,7 +102,7 @@ class ConsistencyAuditor:
         }
 
     async def _evaluate_axes(self, draft: DraftRequirements, user_prompt: str, context: RetrievedContext) -> Dict[str, float]:
-        """Evaluate requirements quality axes using DeepEval metrics with telemetry disabled."""
+        """Evaluate requirements quality axes using DeepEval metrics."""
         parts: list[str] = []
         for r in list(draft.business_requirements) + list(draft.functional_requirements):
             ac_text = "; ".join(r.acceptance_criteria)
@@ -124,14 +123,6 @@ class ConsistencyAuditor:
         )
 
         try:
-            llm_config = get_llm_config()
-            
-            if not llm_config.OAI_KEY:
-                raise RuntimeError(
-                    "OpenAI API key not configured. Set OAI_KEY environment variable. "
-                    "DeepEval requires OpenAI API access for evaluation metrics."
-                )
-            
             # Build test case
             test_case = LLMTestCase(
                 input=user_prompt,
@@ -141,7 +132,7 @@ class ConsistencyAuditor:
             )
             logger.debug("deepeval_test_case_created", answer_text_length=len(answer_text))
             
-            # Configure metrics with shared utility (telemetry disabled, cached model, parallel execution)
+            # Configure metrics (configuration loaded automatically from shared LLM config)
             metrics_config = {
                 "faithfulness": {
                     "class": FaithfulnessMetric,
@@ -188,20 +179,8 @@ class ConsistencyAuditor:
                 },
             }
             
-            model_config = {
-                "model": f"azure/{llm_config.OAI_MODEL}",
-                "api_key": llm_config.OAI_KEY,
-                "api_base": llm_config.OAI_BASE_URL,
-                "api_version": llm_config.OAI_API_VERSION,
-            }
-            
-            # Execute metrics with shared utility (parallel, telemetry suppressed, timeout protected)
-            axes = await evaluate_with_metrics(
-                test_case=test_case,
-                metrics_config=metrics_config,
-                model_config=model_config,
-                timeout_seconds=30.0,
-            )
+            # Execute metrics (telemetry disabled, model cached, parallel execution, 30s timeout)
+            axes = await evaluate_with_metrics(test_case, metrics_config)
             
             logger.info(
                 "deepeval_evaluation_completed_successfully",

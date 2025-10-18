@@ -5,8 +5,12 @@ This module provides a centralized way to execute DeepEval metrics with:
 - Shared LiteLLMModel instance to reduce duplicate calls
 - Timeout support for metric execution
 - Proper error handling that doesn't fail on telemetry issues
+- Direct configuration from shared LLM config
 
 Telemetry is disabled globally when this module is imported for maximum performance.
+
+CRITICAL: This module sets environment variables and monkeypatches PostHog BEFORE
+importing DeepEval to ensure all PostHog instances are disabled.
 """
 
 import os
@@ -14,90 +18,162 @@ from typing import Dict, Optional, Any
 from functools import lru_cache
 import asyncio
 import structlog
-from deepeval.models import LiteLLMModel
-import posthog
+from configuration.llm_config import get_llm_config
 
 logger = structlog.get_logger(__name__)
 
+# Hardcoded timeout for all metric executions (performance optimization)
+_METRIC_TIMEOUT_SECONDS = 30.0
+
+
 # ============================================================================
-# TELEMETRY DISABLED AT MODULE IMPORT (HARDCODED FOR PERFORMANCE)
+# STEP 1: SET ENVIRONMENT VARIABLES FIRST (BEFORE POSTHOG/DEEPEVAL IMPORTS)
 # ============================================================================
-# Disable PostHog (used by DeepEval for analytics)
+# PostHog environment variables
 os.environ["POSTHOG_DISABLED"] = "1"
 os.environ["POSTHOG_API_KEY"] = ""
+os.environ["POSTHOG_HOST"] = ""
+os.environ["POSTHOG_PROJECT_API_KEY"] = ""
 
-# Disable LiteLLM logging and telemetry
+# LiteLLM telemetry and logging
 os.environ["LITELLM_DISABLE_LOGGING"] = "True"
 os.environ["LITELLM_LOGGING_LEVEL"] = "ERROR"
 os.environ["LITELLM_DROP_PARAMS"] = "True"
 os.environ["LITELLM_TELEMETRY"] = "False"
+os.environ["LITELLM_LOG"] = "ERROR"
 
-# Disable DeepEval telemetry
+# DeepEval telemetry
 os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "YES"
 
-posthog.disabled = True
-posthog.api_key = None
+# Confident AI (DeepEval parent) telemetry/tracing
+os.environ["CONFIDENT_TRACE_VERBOSE"] = "NO"
+os.environ["CONFIDENT_TRACE_FLUSH"] = "NO"
 
-logger.debug("telemetry_permanently_disabled", module="deepeval_utils")
 
-@lru_cache(maxsize=8)
-def get_litellm_model(
-    model: str,
-    api_key: str,
-    api_base: str,
-    api_version: str,
-) -> Any:
-    """Get or create a cached LiteLLMModel instance.
+# ============================================================================
+# STEP 2: MONKEYPATCH POSTHOG CLASS (BEFORE DEEPEVAL IMPORT)
+# ============================================================================
+try:
+    import posthog
+    
+    # Store original methods before patching
+    _original_posthog_init = posthog.Posthog.__init__
+    _original_posthog_capture = posthog.Posthog.capture
+    _original_posthog_identify = posthog.Posthog.identify
+    _original_posthog_group = posthog.Posthog.group
+    _original_posthog_post = posthog.Client.post if hasattr(posthog, 'Client') else None
+    
+    # Patch __init__ to ALWAYS create disabled clients
+    def _patched_posthog_init(self, *args, **kwargs):
+        # Force all PostHog clients to be disabled
+        kwargs['disabled'] = True
+        kwargs['enable_exception_autocapture'] = False
+        try:
+            _original_posthog_init(self, *args, **kwargs)
+        except Exception:
+            pass  # Ignore initialization errors
+        # Double-ensure disabled after init
+        self.disabled = True
+    
+    # Replace all telemetry methods with no-ops
+    def _noop(*args, **kwargs):
+        return None
+    
+    # Apply patches to PostHog class
+    posthog.Posthog.__init__ = _patched_posthog_init
+    posthog.Posthog.capture = _noop
+    posthog.Posthog.identify = _noop
+    posthog.Posthog.group = _noop
+    posthog.Posthog.alias = _noop
+    posthog.Posthog.page = _noop
+    posthog.Posthog.screen = _noop
+    posthog.Posthog.flush = _noop
+    
+    # Patch Client.post if it exists (low-level HTTP method)
+    if hasattr(posthog, 'Client'):
+        posthog.Client.post = _noop
+    
+    # Disable module-level singleton if it exists
+    if hasattr(posthog, 'default_client') and posthog.default_client:
+        posthog.default_client.disabled = True
+    
+    # Set module-level disabled flag
+    posthog.disabled = True
+    
+    logger.info("posthog_fully_disabled", 
+                methods_patched=["__init__", "capture", "identify", "group", "alias", "page", "screen", "flush", "post"],
+                message="PostHog completely disabled via monkeypatching")
+    
+except (ImportError, AttributeError) as e:
+    logger.warning("posthog_not_available", error=str(e))
+
+
+# ============================================================================
+# STEP 3: NOW SAFE TO IMPORT DEEPEVAL (PostHog already neutered)
+# ============================================================================
+from deepeval.models import LiteLLMModel
+
+logger.info("deepeval_utils_initialized", 
+            telemetry_disabled=True,
+            posthog_monkeypatched=True,
+            env_vars_configured=True)
+
+
+@lru_cache(maxsize=1)
+def _get_litellm_model() -> Any:
+    """Get or create a cached LiteLLMModel instance from shared configuration.
     
     Uses LRU cache to avoid creating multiple instances with same configuration,
     which reduces duplicate model initialization and API overhead.
     
+    Configuration is loaded directly from shared LLM config (get_llm_config).
     Telemetry is already disabled at module import time, so no context manager needed.
-    
-    Args:
-        model: Model identifier (e.g., "azure/gpt-4o")
-        api_key: API key for authentication
-        api_base: Base URL for API endpoint
-        api_version: API version string
     
     Returns:
         LiteLLMModel instance configured for DeepEval metrics
     
     Raises:
+        RuntimeError: If OAI_KEY is not configured
         ImportError: If deepeval is not installed
     """
+    llm_config = get_llm_config()
+    
+    if not llm_config.OAI_KEY:
+        raise RuntimeError(
+            "OpenAI API key not configured. Set OAI_KEY environment variable. "
+            "DeepEval requires OpenAI API access for evaluation metrics."
+        )
+    
     model_instance = LiteLLMModel(
-        model=model,
-        api_key=api_key,
-        api_base=api_base,
-        api_version=api_version,
+        model=f"azure/{llm_config.OAI_MODEL}",
+        api_key=llm_config.OAI_KEY,
+        api_base=llm_config.OAI_BASE_URL,
+        api_version=llm_config.OAI_API_VERSION,
     )
     
-    logger.debug(
+    logger.info(
         "litellm_model_created",
-        model=model,
-        api_base=api_base,
-        api_version=api_version,
-        cached=False,
+        model=llm_config.OAI_MODEL,
+        api_base=llm_config.OAI_BASE_URL,
+        api_version=llm_config.OAI_API_VERSION,
     )
-        
+    
     return model_instance
 
 
-async def execute_metric_with_timeout(
+async def _execute_metric_with_timeout(
     metric: Any,
     test_case: Any,
-    timeout_seconds: float = 30.0,
-    metric_name: str = "unknown",
+    metric_name: str,
 ) -> Optional[float]:
     """Execute a DeepEval metric with timeout protection.
     
     Telemetry is already disabled at module import time for maximum performance.
+    Uses hardcoded timeout from _METRIC_TIMEOUT_SECONDS.
     
     Args:
         metric: DeepEval metric instance (e.g., FaithfulnessMetric)
         test_case: LLMTestCase instance with test data
-        timeout_seconds: Maximum execution time in seconds
         metric_name: Metric name for logging
     
     Returns:
@@ -110,7 +186,7 @@ async def execute_metric_with_timeout(
     logger.debug(
         "metric_execution_starting",
         metric=metric_name,
-        timeout=timeout_seconds,
+        timeout=_METRIC_TIMEOUT_SECONDS,
     )
     
     try:
@@ -118,7 +194,7 @@ async def execute_metric_with_timeout(
         loop = asyncio.get_event_loop()
         await asyncio.wait_for(
             loop.run_in_executor(None, metric.measure, test_case),
-            timeout=timeout_seconds,
+            timeout=_METRIC_TIMEOUT_SECONDS,
         )
         
         score = float(getattr(metric, "score", 0.0) or 0.0)
@@ -135,7 +211,7 @@ async def execute_metric_with_timeout(
         logger.warning(
             "metric_execution_timeout",
             metric=metric_name,
-            timeout=timeout_seconds,
+            timeout=_METRIC_TIMEOUT_SECONDS,
         )
         raise
         
@@ -152,17 +228,17 @@ async def execute_metric_with_timeout(
 async def evaluate_with_metrics(
     test_case: Any,
     metrics_config: Dict[str, Dict[str, Any]],
-    model_config: Dict[str, str],
-    timeout_seconds: float = 30.0,
 ) -> Dict[str, float]:
     """Evaluate test case with multiple DeepEval metrics in parallel.
     
     This is the main entry point for running DeepEval evaluations with:
-    - Telemetry disabled
-    - Shared model instance
+    - Telemetry disabled at module import
+    - Shared model instance from configuration
     - Parallel execution where possible
-    - Timeout protection
+    - Hardcoded timeout protection (30s per metric)
     - Graceful error handling
+    
+    Configuration is loaded directly from shared LLM config (get_llm_config).
     
     Args:
         test_case: LLMTestCase instance with test data
@@ -179,19 +255,12 @@ async def evaluate_with_metrics(
                         "name": "Citations",
                         "criteria": "...",
                         "evaluation_steps": [...],
-                        ...
+                        "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT],
+                        "strict_mode": False,
+                        "verbose_mode": False,
                     }
                 }
             }
-        model_config: Dict with LiteLLM model configuration
-            Example:
-            {
-                "model": "azure/gpt-4o",
-                "api_key": "...",
-                "api_base": "https://...",
-                "api_version": "2024-02-15-preview"
-            }
-        timeout_seconds: Maximum execution time per metric in seconds
     
     Returns:
         Dict mapping metric names to scores (0.0-1.0)
@@ -200,6 +269,7 @@ async def evaluate_with_metrics(
     Example:
         from deepeval.metrics import FaithfulnessMetric, GEval
         from deepeval.test_case import LLMTestCase, LLMTestCaseParams
+        from utils.deepeval_utils import evaluate_with_metrics
         
         test_case = LLMTestCase(
             input="question",
@@ -208,10 +278,7 @@ async def evaluate_with_metrics(
         )
         
         metrics_config = {
-            "faithfulness": {
-                "class": FaithfulnessMetric,
-                "kwargs": {}
-            },
+            "faithfulness": {"class": FaithfulnessMetric, "kwargs": {}},
             "groundedness": {
                 "class": GEval,
                 "kwargs": {
@@ -225,38 +292,22 @@ async def evaluate_with_metrics(
             }
         }
         
-        model_config = {
-            "model": "azure/gpt-4o",
-            "api_key": config.OAI_KEY,
-            "api_base": config.OAI_BASE_URL,
-            "api_version": config.OAI_API_VERSION
-        }
-        
-        scores = await evaluate_with_metrics(test_case, metrics_config, model_config)
+        scores = await evaluate_with_metrics(test_case, metrics_config)
         # Returns: {"faithfulness": 0.85, "groundedness": 0.92}
     """
     logger.info(
         "deepeval_evaluation_starting",
         metrics_count=len(metrics_config),
-        timeout=timeout_seconds,
+        timeout=_METRIC_TIMEOUT_SECONDS,
     )
     
     scores: Dict[str, float] = {}
     
     try:
-        # Get shared model instance (cached)
-        model = get_litellm_model(
-            model=model_config["model"],
-            api_key=model_config["api_key"],
-            api_base=model_config["api_base"],
-            api_version=model_config["api_version"],
-        )
+        # Get shared model instance (cached, configured from shared LLM config)
+        model = _get_litellm_model()
         
-        logger.debug(
-            "litellm_model_configured",
-            model=model_config["model"],
-            api_base=model_config["api_base"],
-        )
+        logger.debug("litellm_model_loaded_from_config")
         
         # Execute metrics in parallel with timeout
         tasks = []
@@ -273,10 +324,9 @@ async def evaluate_with_metrics(
             metric_instance = metric_class(**metric_kwargs_with_model)
             
             # Schedule execution
-            task = execute_metric_with_timeout(
+            task = _execute_metric_with_timeout(
                 metric_instance,
                 test_case,
-                timeout_seconds,
                 metric_name,
             )
             tasks.append(task)
