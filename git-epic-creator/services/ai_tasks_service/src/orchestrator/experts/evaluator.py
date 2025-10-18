@@ -9,13 +9,9 @@ from task_models.agent_models import BacklogDraft, AuditFindings, EvaluationRepo
 from config import get_ai_tasks_settings
 from orchestrator.experts.clients.llm import get_llm
 from configuration.llm_config import get_llm_config
+from utils.deepeval_utils import evaluate_with_metrics
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from deepeval.metrics import (
-    FaithfulnessMetric,
-    AnswerRelevancyMetric,
-    GEval,
-)
-from deepeval.models import LiteLLMModel
+from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric, GEval
 
 logger = structlog.get_logger(__name__)
 
@@ -103,7 +99,7 @@ class Evaluator:
         requirements: str,
         findings: AuditFindings,
     ) -> Dict[str, float]:
-        """Evaluate backlog using DeepEval metrics.
+        """Evaluate backlog using DeepEval metrics with telemetry disabled.
         
         Args:
             draft: Generated backlog draft
@@ -145,8 +141,6 @@ class Evaluator:
             requirements_length=len(requirements),
         )
         
-        component_scores: Dict[str, float] = {}
-        
         try:
             llm_config = get_llm_config()
             
@@ -156,100 +150,84 @@ class Evaluator:
                     "DeepEval requires OpenAI API access for evaluation metrics."
                 )
             
-            # Create custom Azure OpenAI model for DeepEval pointing to mock service
-            custom_model = LiteLLMModel(
-                model=f"azure/{llm_config.OAI_MODEL}",
-                api_key=llm_config.OAI_KEY,
-                api_base=llm_config.OAI_BASE_URL,
-                api_version=llm_config.OAI_API_VERSION
-            )
-            
-            logger.info("deepeval_custom_model_configured", 
-                        endpoint=llm_config.OAI_BASE_URL,
-                        model=llm_config.OAI_MODEL,
-                        api_version=llm_config.OAI_API_VERSION)
-            
+            # Build test case
             test_case = LLMTestCase(
                 input=requirements,
                 actual_output=backlog_text,
                 retrieval_context=contexts,
                 context=contexts,
             )
-            logger.info("deepeval_test_case_created", backlog_text_length=len(backlog_text))
+            logger.debug("deepeval_test_case_created", backlog_text_length=len(backlog_text))
             
-            # Faithfulness Metric - Backlog faithful to requirements
-            logger.info("deepeval_executing_metric", metric="FaithfulnessMetric")
-            faithfulness_metric = FaithfulnessMetric(model=custom_model)
-            faithfulness_metric.measure(test_case)
-            faithfulness_score = float(getattr(faithfulness_metric, "score", 0.0) or 0.0)
-            component_scores["coverage"] = faithfulness_score
-            logger.info("deepeval_metric_completed", metric="FaithfulnessMetric", score=faithfulness_score)
+            # Configure metrics with shared utility (telemetry disabled, cached model, parallel execution)
+            metrics_config = {
+                "coverage": {
+                    "class": FaithfulnessMetric,
+                    "kwargs": {},
+                },
+                "specificity": {
+                    "class": GEval,
+                    "kwargs": {
+                        "name": "Specificity",
+                        "criteria": "Are tasks technically clear, testable with Given/When/Then criteria, and have non-ambiguous scopes?",
+                        "evaluation_steps": [
+                            "Identify all tasks and their acceptance criteria in the backlog",
+                            "Check if acceptance criteria follow Given/When/Then format",
+                            "Verify that task descriptions are technically specific and clear",
+                            "Assess if task scopes are unambiguous and well-defined",
+                            "Check for presence of technical details (APIs, data models, endpoints)",
+                            "Assign a score based on technical clarity and testability"
+                        ],
+                        "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
+                        "strict_mode": False,
+                        "verbose_mode": False,
+                    },
+                },
+                "feasibility": {
+                    "class": AnswerRelevancyMetric,
+                    "kwargs": {},
+                },
+                "duplication": {
+                    "class": GEval,
+                    "kwargs": {
+                        "name": "Duplication",
+                        "criteria": "Are duplicates minimized? Tasks and epics should not overlap significantly or repeat the same functionality.",
+                        "evaluation_steps": [
+                            "Identify all epics and tasks in the backlog",
+                            "Compare epic titles and descriptions for similarity",
+                            "Compare task titles and descriptions for overlap",
+                            "Check if multiple tasks/epics address the same requirement",
+                            "Evaluate if audit findings mention duplicate issues",
+                            "Assign a score based on uniqueness (1.0 = no duplicates, 0.0 = many duplicates)"
+                        ],
+                        "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
+                        "strict_mode": False,
+                        "verbose_mode": False,
+                    },
+                },
+            }
             
-            # Groundedness Metric (GEval) - Tasks grounded in context
-            logger.info("deepeval_executing_metric", metric="GEval-Specificity")
-            specificity_metric = GEval(
-                name="Specificity",
-                criteria=(
-                    "Are tasks technically clear, testable with Given/When/Then criteria, "
-                    "and have non-ambiguous scopes?"
-                ),
-                evaluation_steps=[
-                    "Identify all tasks and their acceptance criteria in the backlog",
-                    "Check if acceptance criteria follow Given/When/Then format",
-                    "Verify that task descriptions are technically specific and clear",
-                    "Assess if task scopes are unambiguous and well-defined",
-                    "Check for presence of technical details (APIs, data models, endpoints)",
-                    "Assign a score based on technical clarity and testability"
-                ],
-                evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
-                strict_mode=False,
-                verbose_mode=True,
-                model=custom_model,
+            model_config = {
+                "model": f"azure/{llm_config.OAI_MODEL}",
+                "api_key": llm_config.OAI_KEY,
+                "api_base": llm_config.OAI_BASE_URL,
+                "api_version": llm_config.OAI_API_VERSION,
+            }
+            
+            # Execute metrics with shared utility (parallel, telemetry suppressed, timeout protected)
+            component_scores = await evaluate_with_metrics(
+                test_case=test_case,
+                metrics_config=metrics_config,
+                model_config=model_config,
+                timeout_seconds=30.0,
             )
-            specificity_metric.measure(test_case)
-            specificity_score = float(getattr(specificity_metric, "score", 0.0) or 0.0)
-            component_scores["specificity"] = specificity_score
-            logger.info("deepeval_metric_completed", metric="GEval-Specificity", score=specificity_score)
-            
-            # Relevancy Metric - Backlog relevant to requirements
-            logger.info("deepeval_executing_metric", metric="AnswerRelevancyMetric")
-            relevancy_metric = AnswerRelevancyMetric(model=custom_model)
-            relevancy_metric.measure(test_case)
-            relevancy_score = float(getattr(relevancy_metric, "score", 0.0) or 0.0)
-            component_scores["feasibility"] = relevancy_score
-            logger.info("deepeval_metric_completed", metric="AnswerRelevancyMetric", score=relevancy_score)
-            
-            # Completeness Metric (GEval) - Duplication check
-            logger.info("deepeval_executing_metric", metric="GEval-Duplication")
-            duplication_metric = GEval(
-                name="Duplication",
-                criteria=(
-                    "Are duplicates minimized? Tasks and epics should not overlap significantly "
-                    "or repeat the same functionality."
-                ),
-                evaluation_steps=[
-                    "Identify all epics and tasks in the backlog",
-                    "Compare epic titles and descriptions for similarity",
-                    "Compare task titles and descriptions for overlap",
-                    "Check if multiple tasks/epics address the same requirement",
-                    "Evaluate if audit findings mention duplicate issues",
-                    "Assign a score based on uniqueness (1.0 = no duplicates, 0.0 = many duplicates)"
-                ],
-                evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
-                strict_mode=False,
-                model=custom_model,
-            )
-            duplication_metric.measure(test_case)
-            duplication_score = float(getattr(duplication_metric, "score", 0.0) or 0.0)
-            component_scores["duplication"] = duplication_score
-            logger.info("deepeval_metric_completed", metric="GEval-Duplication", score=duplication_score)
             
             logger.info(
                 "deepeval_evaluation_completed_successfully",
-                coverage=faithfulness_score,
-                specificity=specificity_score,
-                feasibility=relevancy_score,
-                duplication=duplication_score,
+                coverage=component_scores.get("coverage", 0.0),
+                specificity=component_scores.get("specificity", 0.0),
+                feasibility=component_scores.get("feasibility", 0.0),
+                duplication=component_scores.get("duplication", 0.0),
             )
             
         except ImportError as e:
@@ -265,7 +243,6 @@ class Evaluator:
                 "deepeval_execution_failed",
                 error=str(e),
                 error_type=type(e).__name__,
-                current_scores=component_scores,
                 message="DeepEval metric execution failed. Check API keys, network connectivity, and DeepEval configuration.",
             )
             raise RuntimeError(f"DeepEval metric execution failed: {e}. Check logs for details.") from e

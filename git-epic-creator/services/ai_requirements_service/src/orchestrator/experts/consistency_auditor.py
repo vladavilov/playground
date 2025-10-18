@@ -4,15 +4,10 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm
 import structlog
-import os
 from configuration.llm_config import get_llm_config
+from utils.deepeval_utils import evaluate_with_metrics
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from deepeval.metrics import (
-    FaithfulnessMetric,
-    AnswerRelevancyMetric,
-    GEval,
-)
-from deepeval.models import LiteLLMModel
+from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric, GEval
 
 logger = structlog.get_logger(__name__)
 
@@ -108,6 +103,7 @@ class ConsistencyAuditor:
         }
 
     async def _evaluate_axes(self, draft: DraftRequirements, user_prompt: str, context: RetrievedContext) -> Dict[str, float]:
+        """Evaluate requirements quality axes using DeepEval metrics with telemetry disabled."""
         parts: list[str] = []
         for r in list(draft.business_requirements) + list(draft.functional_requirements):
             ac_text = "; ".join(r.acceptance_criteria)
@@ -127,8 +123,6 @@ class ConsistencyAuditor:
             user_prompt_length=len(user_prompt),
         )
 
-        axes: Dict[str, float] = {}
-
         try:
             llm_config = get_llm_config()
             
@@ -138,99 +132,83 @@ class ConsistencyAuditor:
                     "DeepEval requires OpenAI API access for evaluation metrics."
                 )
             
-            # Create custom Azure OpenAI model for DeepEval pointing to mock service
-            custom_model = LiteLLMModel(
-                model=f"azure/{llm_config.OAI_MODEL}",
-                api_key=llm_config.OAI_KEY,
-                api_base=llm_config.OAI_BASE_URL,
-                api_version=llm_config.OAI_API_VERSION
-            )
-            
-            logger.info("deepeval_custom_model_configured", 
-                        endpoint=llm_config.OAI_BASE_URL,
-                        model=llm_config.OAI_MODEL,
-                        api_version=llm_config.OAI_API_VERSION)
-            
-            logger.info("deepeval_modules_imported_successfully")
-
+            # Build test case
             test_case = LLMTestCase(
                 input=user_prompt,
                 actual_output=answer_text,
                 retrieval_context=contexts,
                 context=contexts,
             )
-            logger.info("deepeval_test_case_created", answer_text_length=len(answer_text))
-
-            # Faithfulness Metric
-            logger.info("deepeval_executing_metric", metric="FaithfulnessMetric")
-            faithfulness_metric = FaithfulnessMetric(model=custom_model)
-            faithfulness_metric.measure(test_case)
-            faithfulness_score = float(getattr(faithfulness_metric, "score", 0.0) or 0.0)
-            axes["faithfulness"] = faithfulness_score
-            logger.info("deepeval_metric_completed", metric="FaithfulnessMetric", score=faithfulness_score)
-
-            # Groundedness Metric (GEval)
-            logger.info("deepeval_executing_metric", metric="GEval-Citations")
-            groundedness_metric = GEval(
-                name="Citations",
-                criteria=(
-                    "Does the actual output cite or clearly derive from the provided context?"
-                ),
-                evaluation_steps=[
-                    "Identify all claims, facts, or statements in the actual output",
-                    "For each claim, verify if it can be traced back to or derived from the provided context",
-                    "Check if the actual output includes explicit citations or references to the context",
-                    "Evaluate whether the actual output introduces information not present in the context",
-                    "Assign a score based on how well the actual output is grounded in the provided context"
-                ],
-                evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
-                strict_mode=False,
-                verbose_mode=True,
-                model=custom_model,
+            logger.debug("deepeval_test_case_created", answer_text_length=len(answer_text))
+            
+            # Configure metrics with shared utility (telemetry disabled, cached model, parallel execution)
+            metrics_config = {
+                "faithfulness": {
+                    "class": FaithfulnessMetric,
+                    "kwargs": {},
+                },
+                "groundedness": {
+                    "class": GEval,
+                    "kwargs": {
+                        "name": "Citations",
+                        "criteria": "Does the actual output cite or clearly derive from the provided context?",
+                        "evaluation_steps": [
+                            "Identify all claims, facts, or statements in the actual output",
+                            "For each claim, verify if it can be traced back to or derived from the provided context",
+                            "Check if the actual output includes explicit citations or references to the context",
+                            "Evaluate whether the actual output introduces information not present in the context",
+                            "Assign a score based on how well the actual output is grounded in the provided context"
+                        ],
+                        "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
+                        "strict_mode": False,
+                        "verbose_mode": False,
+                    },
+                },
+                "response_relevancy": {
+                    "class": AnswerRelevancyMetric,
+                    "kwargs": {},
+                },
+                "completeness": {
+                    "class": GEval,
+                    "kwargs": {
+                        "name": "Completeness",
+                        "criteria": "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria.",
+                        "evaluation_steps": [
+                            "Extract all user intents, requirements, and constraints from the input",
+                            "Identify each requirement, acceptance criterion, and assumption in the actual output",
+                            "Verify that each user intent from the input is addressed in the actual output",
+                            "Check if acceptance criteria are testable and follow Given/When/Then format",
+                            "Assess if any user intent or constraint is missing or inadequately addressed",
+                            "Assign a score based on completeness of coverage and quality of testable criteria"
+                        ],
+                        "evaluation_params": [LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
+                        "strict_mode": False,
+                        "verbose_mode": False,
+                    },
+                },
+            }
+            
+            model_config = {
+                "model": f"azure/{llm_config.OAI_MODEL}",
+                "api_key": llm_config.OAI_KEY,
+                "api_base": llm_config.OAI_BASE_URL,
+                "api_version": llm_config.OAI_API_VERSION,
+            }
+            
+            # Execute metrics with shared utility (parallel, telemetry suppressed, timeout protected)
+            axes = await evaluate_with_metrics(
+                test_case=test_case,
+                metrics_config=metrics_config,
+                model_config=model_config,
+                timeout_seconds=30.0,
             )
-            groundedness_metric.measure(test_case)
-            groundedness_score = float(getattr(groundedness_metric, "score", 0.0) or 0.0)
-            axes["groundedness"] = groundedness_score
-            logger.info("deepeval_metric_completed", metric="GEval-Citations", score=groundedness_score)
-
-            # Response Relevancy Metric
-            logger.info("deepeval_executing_metric", metric="AnswerRelevancyMetric")
-            relevancy_metric = AnswerRelevancyMetric(model=custom_model)
-            relevancy_metric.measure(test_case)
-            relevancy_score = float(getattr(relevancy_metric, "score", 0.0) or 0.0)
-            axes["response_relevancy"] = relevancy_score
-            logger.info("deepeval_metric_completed", metric="AnswerRelevancyMetric", score=relevancy_score)
-
-            # Completeness Metric (GEval)
-            logger.info("deepeval_executing_metric", metric="GEval-Completeness")
-            completeness_metric = GEval(
-                name="Completeness",
-                criteria=(
-                    "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria."
-                ),
-                evaluation_steps=[
-                    "Extract all user intents, requirements, and constraints from the input",
-                    "Identify each requirement, acceptance criterion, and assumption in the actual output",
-                    "Verify that each user intent from the input is addressed in the actual output",
-                    "Check if acceptance criteria are testable and follow Given/When/Then format",
-                    "Assess if any user intent or constraint is missing or inadequately addressed",
-                    "Assign a score based on completeness of coverage and quality of testable criteria"
-                ],
-                evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-                strict_mode=False,
-                model=custom_model,
-            )
-            completeness_metric.measure(test_case)
-            completeness_score = float(getattr(completeness_metric, "score", 0.0) or 0.0)
-            axes["completeness"] = completeness_score
-            logger.info("deepeval_metric_completed", metric="GEval-Completeness", score=completeness_score)
-
+            
             logger.info(
                 "deepeval_evaluation_completed_successfully",
-                faithfulness=faithfulness_score,
-                groundedness=groundedness_score,
-                response_relevancy=relevancy_score,
-                completeness=completeness_score,
+                faithfulness=axes.get("faithfulness", 0.0),
+                groundedness=axes.get("groundedness", 0.0),
+                response_relevancy=axes.get("response_relevancy", 0.0),
+                completeness=axes.get("completeness", 0.0),
             )
 
         except ImportError as e:
@@ -246,11 +224,11 @@ class ConsistencyAuditor:
                 "deepeval_execution_failed",
                 error=str(e),
                 error_type=type(e).__name__,
-                current_axes=axes,
                 message="DeepEval metric execution failed. Check API keys, network connectivity, and DeepEval configuration.",
             )
             raise RuntimeError(f"DeepEval metric execution failed: {e}. Check logs for details.") from e
 
+        # Ensure all expected axes exist with fallback
         for k in ("faithfulness", "groundedness", "response_relevancy", "completeness"):
             axes.setdefault(k, 0.0)
         
