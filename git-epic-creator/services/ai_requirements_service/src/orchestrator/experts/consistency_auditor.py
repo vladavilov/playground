@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm
 import structlog
-from utils.deepeval_utils import evaluate_with_metrics
+from utils.deepeval_utils import evaluate_with_metrics, StrictGEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric, GEval
+from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric
 
 logger = structlog.get_logger(__name__)
 
@@ -114,11 +114,15 @@ class ConsistencyAuditor:
         answer_text = ". ".join(p for p in parts if p) or ""
 
         contexts = self._aggregate_context(context)
+        
+        # Check if context is placeholder-only (no real retrieval data)
+        has_real_context = not (len(contexts) == 1 and contexts[0] == "__NO_CONTEXT_AVAILABLE__")
 
         logger.info(
             "deepeval_evaluation_starting",
             requirements_count=len(draft.business_requirements) + len(draft.functional_requirements),
             contexts_count=len(contexts),
+            has_real_context=has_real_context,
             user_prompt_length=len(user_prompt),
         )
 
@@ -139,7 +143,7 @@ class ConsistencyAuditor:
                     "kwargs": {},
                 },
                 "groundedness": {
-                    "class": GEval,
+                    "class": StrictGEval,
                     "kwargs": {
                         "name": "Citations",
                         "criteria": "Does the actual output cite or clearly derive from the provided context?",
@@ -160,7 +164,7 @@ class ConsistencyAuditor:
                     "kwargs": {},
                 },
                 "completeness": {
-                    "class": GEval,
+                    "class": StrictGEval,
                     "kwargs": {
                         "name": "Completeness",
                         "criteria": "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria.",
@@ -179,7 +183,16 @@ class ConsistencyAuditor:
                 },
             }
             
-            # Execute metrics (telemetry disabled, model cached, parallel execution, 30s timeout)
+            # Skip groundedness metric if only placeholder context is available
+            if not has_real_context:
+                logger.warning(
+                    "groundedness_metric_skipped",
+                    reason="No real context available from retrieval",
+                    message="Groundedness metric skipped due to empty retrieval context"
+                )
+                metrics_config.pop("groundedness", None)
+            
+            # Execute metrics (telemetry disabled, model cached, serialized GEval execution, 30s timeout)
             axes = await evaluate_with_metrics(test_case, metrics_config)
             
             logger.info(
@@ -219,4 +232,13 @@ class ConsistencyAuditor:
             parts.append(str(context.context_answer))
         parts.extend([str(k) for k in getattr(context, "key_facts", []) or []])
         parts.extend([f"citation:{c}" for c in (getattr(context, "citations", []) or [])])
+        
+        # Guard against empty context - add placeholder for metric filtering
+        if not parts:
+            logger.warning(
+                "retrieval_context_empty",
+                message="No context returned from retrieval. Using placeholder to skip groundedness metric."
+            )
+            parts.append("__NO_CONTEXT_AVAILABLE__")
+        
         return parts

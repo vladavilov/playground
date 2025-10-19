@@ -8,9 +8,9 @@ import structlog
 from task_models.agent_models import BacklogDraft, AuditFindings, EvaluationReport
 from config import get_ai_tasks_settings
 from orchestrator.experts.clients.llm import get_llm
-from utils.deepeval_utils import evaluate_with_metrics
+from utils.deepeval_utils import evaluate_with_metrics, StrictGEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric, GEval
+from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric
 
 logger = structlog.get_logger(__name__)
 
@@ -130,7 +130,13 @@ class Evaluator:
             contexts.append("Issues identified: " + "; ".join(findings.issues[:5]))
         if findings.suggestions:
             contexts.append("Suggestions: " + "; ".join(findings.suggestions[:5]))
+        
+        # Guard against empty context
         if not contexts:
+            logger.warning(
+                "evaluation_context_minimal",
+                message="No audit issues or suggestions found. Using minimal context placeholder."
+            )
             contexts.append("No audit issues found")
         
         logger.info(
@@ -157,7 +163,7 @@ class Evaluator:
                     "kwargs": {},
                 },
                 "specificity": {
-                    "class": GEval,
+                    "class": StrictGEval,
                     "kwargs": {
                         "name": "Specificity",
                         "criteria": "Are tasks technically clear, testable with Given/When/Then criteria, and have non-ambiguous scopes?",
@@ -179,7 +185,7 @@ class Evaluator:
                     "kwargs": {},
                 },
                 "duplication": {
-                    "class": GEval,
+                    "class": StrictGEval,
                     "kwargs": {
                         "name": "Duplication",
                         "criteria": "Are duplicates minimized? Tasks and epics should not overlap significantly or repeat the same functionality.",

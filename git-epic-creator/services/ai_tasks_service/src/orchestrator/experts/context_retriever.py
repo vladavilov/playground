@@ -91,8 +91,26 @@ class ContextRetriever:
                 seen.add(c)
                 dedup_citations.append(c)
         
+        # Log retrieval results to distinguish genuine absence vs failure
+        context_answer = str(data.get("final_answer", ""))
+        logger.info(
+            "retrieval_context_parsed",
+            context_answer_length=len(context_answer),
+            key_facts_count=len(key_facts),
+            citations_count=len(dedup_citations),
+            project_id=str(project_id),
+        )
+        
+        if not key_facts:
+            logger.warning(
+                "retrieval_key_facts_empty",
+                has_context_answer=bool(context_answer),
+                raw_response_keys=list(data.keys()),
+                message="No key facts returned from retrieval service. This may indicate sparse graph data or retrieval failure."
+            )
+        
         return RetrievedContext(
-            context_answer=str(data.get("final_answer", "")),
+            context_answer=context_answer,
             key_facts=key_facts,
             citations=dedup_citations,
         )
