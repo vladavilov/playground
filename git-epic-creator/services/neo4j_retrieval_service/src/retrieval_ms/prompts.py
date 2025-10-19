@@ -37,9 +37,12 @@ def local_executor_prompt() -> ChatPromptTemplate:
             "- Answer follow-up using ONLY provided context.\n"
             "- Cite chunk spans where evidence comes from.\n"
             "- Propose 0–3 additional follow-ups (if needed).\n"
-            "- Assign confidence [0..1] and whether to continue.\n"
-            "Return JSON:\n"
-            "{{ answer, citations:[{{span}}], new_followups:[...], confidence, should_continue }}\n\n"
+            "- Assign confidence [0..1] and whether to continue.\n\n"
+            "Return JSON with strict schema:\n"
+            '{{ "answer": "<string>", "citations": [{{"chunk_id": <int>, "span": "<string>"}}], '
+            '"new_followups": [{{"question": "<string>"}}], "confidence": <float>, "should_continue": <bool> }}\n\n'
+            "IMPORTANT: new_followups must be an array of objects with 'question' field, NOT plain strings.\n"
+            'Example: {{"new_followups": [{{"question": "clarify X"}}, {{"question": "explain Y"}}]}}\n\n'
             "Follow-up: {qtext}\nTarget communities: {target_communities}\nScoped chunk contexts: {chunks_preview}"
         )),
     ])
