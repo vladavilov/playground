@@ -53,7 +53,7 @@ def get_gitlab_client(
     client = gitlab.Gitlab(
         url=settings.GITLAB_BASE_URL,
         private_token=gitlab_token,
-        timeout=settings.HTTP_TIMEOUT_SEC,
+        timeout=settings.HTTP_CONNECTION_TIMEOUT,
         retry_transient_errors=True,
         ssl_verify=settings.GITLAB_VERIFY_SSL,
     )
@@ -61,7 +61,7 @@ def get_gitlab_client(
     logger.debug(
         "GitLab client created",
         gitlab_url=settings.GITLAB_BASE_URL,
-        timeout=settings.HTTP_TIMEOUT_SEC
+        timeout=settings.HTTP_CONNECTION_TIMEOUT
     )
     
     return client

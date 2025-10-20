@@ -6,6 +6,7 @@ from pydantic import Field
 
 from configuration.base_config import BaseConfig
 from configuration.llm_config import LlmConfig
+from configuration.http_client_config import HTTPClientSettings
 
 
 class AIRequirementsSettings(BaseConfig):
@@ -16,9 +17,9 @@ class AIRequirementsSettings(BaseConfig):
         description="Base URL for GraphRAG/retrieval service health check",
     )
 
-    HTTP_TIMEOUT_SEC: float = Field(
-        default=30.0,
-        description="Timeout in seconds for HTTP calls",
+    WORKFLOW_TIMEOUT_SEC: int = Field(
+        default=150,
+        description="Maximum workflow execution time in seconds (aborts gracefully before client timeout)",
     )
 
     CLARIFICATION_SCORE_TARGET: float = Field(
@@ -52,8 +53,10 @@ class AIRequirementsSettings(BaseConfig):
         description="Base seconds for exponential backoff",
     )
 
-    # Shared LLM config (Azure OpenAI)
+    # Shared configurations
+    http: HTTPClientSettings = Field(default_factory=HTTPClientSettings)
     llm: LlmConfig = Field(default_factory=LlmConfig)
+    
     LLM_TIMEOUT_SEC: float = Field(
         default=20.0,
         description="Timeout for LLM requests",

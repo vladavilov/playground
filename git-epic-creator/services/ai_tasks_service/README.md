@@ -473,7 +473,9 @@ sequenceDiagram
 # Service URLs
 GRAPH_RAG_BASE_URL=http://neo4j-retrieval-service:8000
 GITLAB_INGESTION_BASE_URL=http://gitlab-client-service:8000
-HTTP_TIMEOUT_SEC=30.0
+HTTP_CONNECTION_TIMEOUT=30.0
+HTTP_READ_TIMEOUT=180.0
+WORKFLOW_TIMEOUT_SEC=150
 
 # Azure OpenAI (required)
 # Note: Service uses AzureChatOpenAI connector which requires deployment_name parameter

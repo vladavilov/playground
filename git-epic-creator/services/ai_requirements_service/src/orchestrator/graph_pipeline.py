@@ -1,12 +1,15 @@
 from typing import Any, Dict, Annotated, TypedDict, Literal
 from uuid import uuid4
 from operator import add
+import time
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
+import structlog
+from config import get_ai_requirements_settings
 
 from workflow_models.requirements_models import RequirementsBundle
 from workflow_models.agent_models import AuditFindings
@@ -16,6 +19,8 @@ from orchestrator.experts.requirements_engineer import RequirementsEngineer
 from orchestrator.experts.consistency_auditor import ConsistencyAuditor
 from orchestrator.experts.evaluator import Evaluator
 from orchestrator.experts.question_strategist import QuestionStrategist
+
+logger = structlog.get_logger(__name__)
 
 
 async def create_requirements_graph(publisher: Any, *, target: float, max_iters: int):
@@ -49,6 +54,7 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         max_iters: int
         citations: Annotated[list[str], add]
         result: Any
+        workflow_start_time: float  # Track workflow start for timeout detection
 
     analyst = PromptAnalyst()
     retriever = ContextRetriever()
@@ -58,6 +64,9 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
     strategist = QuestionStrategist()
 
     async def init_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        # Record workflow start time for timeout tracking
+        workflow_start = time.time()
+        
         # Build details_md with prompt preview
         prompt_text = state.get("prompt", "")
         prompt_preview = prompt_text[:200] + "..." if len(prompt_text) > 200 else prompt_text
@@ -82,7 +91,14 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
             )
         else:
             trimmed = incoming_msgs
-        return {"iteration": [0], "target": target, "max_iters": max_iters, "result": None, "messages": trimmed}
+        return {
+            "iteration": [0], 
+            "target": target, 
+            "max_iters": max_iters, 
+            "result": None, 
+            "messages": trimmed,
+            "workflow_start_time": workflow_start
+        }
 
     async def analyze_node(state: Dict[str, Any]) -> Dict[str, Any]:
         analysis = await analyst.analyze(state["prompt"])
@@ -196,6 +212,40 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         return {"findings": findings}
 
     async def supervisor_node(state: Dict[str, Any]) -> Command[Literal["finalize", "clarify", "synthesize"]]:
+        settings = get_ai_requirements_settings()
+        
+        # Check workflow timeout (90% threshold for graceful abort)
+        workflow_start = state.get("workflow_start_time", time.time())
+        elapsed = time.time() - workflow_start
+        timeout_threshold = settings.WORKFLOW_TIMEOUT_SEC * 0.9  # 90% of timeout (135s default)
+        
+        # Log warnings at key percentages
+        percent_elapsed = (elapsed / settings.WORKFLOW_TIMEOUT_SEC) * 100
+        if percent_elapsed >= 90:
+            logger.warning(
+                "workflow_timeout_imminent",
+                elapsed_sec=round(elapsed, 1),
+                timeout_sec=settings.WORKFLOW_TIMEOUT_SEC,
+                percent=round(percent_elapsed, 1),
+                message="Workflow at 90%+ of timeout, will abort at current iteration"
+            )
+        elif percent_elapsed >= 75:
+            logger.warning(
+                "workflow_timeout_approaching",
+                elapsed_sec=round(elapsed, 1),
+                timeout_sec=settings.WORKFLOW_TIMEOUT_SEC,
+                percent=round(percent_elapsed, 1),
+                message="Workflow at 75%+ of timeout"
+            )
+        elif percent_elapsed >= 50:
+            logger.info(
+                "workflow_timeout_halfway",
+                elapsed_sec=round(elapsed, 1),
+                timeout_sec=settings.WORKFLOW_TIMEOUT_SEC,
+                percent=round(percent_elapsed, 1),
+                message="Workflow at 50%+ of timeout"
+            )
+        
         # Compute evaluation here (sequentially after audit) and publish progress
         report = await evaluator.evaluate(state["draft"], state["findings"], state["prompt"], state["context"])
         score = float(getattr(report, "score", 0.0) or 0.0)
@@ -213,6 +263,20 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
             iteration=current_iter,
             score=score,
         )
+        
+        # Check timeout AFTER evaluation (evaluation always runs)
+        if elapsed > timeout_threshold:
+            logger.warning(
+                "workflow_timeout_abort",
+                elapsed_sec=round(elapsed, 1),
+                timeout_sec=settings.WORKFLOW_TIMEOUT_SEC,
+                current_iter=current_iter,
+                score=score,
+                message="Workflow exceeded 90% of timeout threshold, aborting gracefully"
+            )
+            # Force finalize to return partial results
+            return Command(goto="finalize", update={"report": report, "iteration": [current_iter]})
+        
         if score >= state.get("target", 1.0):
             return Command(goto="finalize", update={"report": report, "iteration": [current_iter]})
         if current_iter >= int(state.get("max_iters", 1)):

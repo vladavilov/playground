@@ -7,6 +7,7 @@ from pydantic import Field
 from configuration.base_config import BaseConfig
 from configuration.llm_config import LlmConfig
 from configuration.redis_config import RedisSettings
+from configuration.http_client_config import HTTPClientSettings
 
 
 class AITasksSettings(BaseConfig):
@@ -17,9 +18,9 @@ class AITasksSettings(BaseConfig):
         description="Base URL for GraphRAG/retrieval service",
     )
 
-    HTTP_TIMEOUT_SEC: float = Field(
-        default=30.0,
-        description="Timeout in seconds for HTTP calls",
+    WORKFLOW_TIMEOUT_SEC: int = Field(
+        default=150,
+        description="Maximum workflow execution time in seconds (aborts gracefully before client timeout)",
     )
 
     GITLAB_INGESTION_BASE_URL: str = Field(
@@ -70,8 +71,11 @@ class AITasksSettings(BaseConfig):
         le=1.0,
     )
 
-    # Shared LLM config (Azure OpenAI)
+    # Shared configurations
+    http: HTTPClientSettings = Field(default_factory=HTTPClientSettings)
     llm: LlmConfig = Field(default_factory=LlmConfig)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
+    
     LLM_TIMEOUT_SEC: float = Field(
         default=20.0,
         description="Timeout for LLM requests",
@@ -82,9 +86,6 @@ class AITasksSettings(BaseConfig):
         le=2.0,
         description="Temperature for LLM requests",
     )
-
-    # Shared Redis config
-    redis: RedisSettings = Field(default_factory=RedisSettings)
 
 
 @lru_cache()

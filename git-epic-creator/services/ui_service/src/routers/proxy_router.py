@@ -275,9 +275,33 @@ async def _forward(
             if close_after:
                 await client.aclose()
                 
+    except httpx.TimeoutException as exc:
+        # Timeout errors should return 504 Gateway Timeout (not 502)
+        logger.error(
+            "Upstream request timeout",
+            error=str(exc),
+            target_url=target_url,
+            target_service=target_service,
+            message="Request timed out waiting for upstream service"
+        )
+        return JSONResponse(
+            {"detail": f"Upstream service timeout: {target_service} took too long to respond"},
+            status_code=504
+        )
     except httpx.RequestError as exc:
-        logger.error("Upstream request failed", error=str(exc), target_url=target_url)
-        return JSONResponse({"detail": f"Upstream request failed: {str(exc)}"}, status_code=502)
+        # Connection/network errors return 502 Bad Gateway
+        logger.error(
+            "Upstream connection failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            target_url=target_url,
+            target_service=target_service,
+            message="Connection or network error communicating with upstream"
+        )
+        return JSONResponse(
+            {"detail": f"Upstream connection failed: {type(exc).__name__}"},
+            status_code=502
+        )
     
     # Handle 401 Unauthorized from GitLab-related services
     # This indicates the GitLab token is invalid (e.g., after mock service restart)

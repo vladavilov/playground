@@ -40,8 +40,8 @@ class HTTPClientSettings(BaseSettings):
     )
 
     READ_TIMEOUT: float = Field(
-        default=60.0,
-        description="Read timeout in seconds",
+        default=180.0,
+        description="Read timeout in seconds (3 minutes for long-running workflows)",
         alias="HTTP_READ_TIMEOUT"
     )
 

@@ -90,7 +90,7 @@ class ContextRetriever:
         merged = self._merge_query_with_intents(query, intents)
         payload = {"query": merged, "top_k": settings.RETRIEVAL_TOP_K, "project_id": str(project_id)}
 
-        timeout = settings.HTTP_TIMEOUT_SEC
+        timeout = settings.http.READ_TIMEOUT
         attempts = settings.RETRY_MAX_ATTEMPTS
         backoff = settings.RETRIEVAL_BACKOFF_BASE_SEC
         async for attempt in AsyncRetrying(

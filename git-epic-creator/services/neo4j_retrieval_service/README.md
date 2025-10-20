@@ -6,6 +6,50 @@ adapts Microsoft's DRIFT method to your schema and Python environment.
 
 ------------------------------------------------------------------------
 
+## API Interface
+
+### POST /retrieve
+
+Retrieves context from Neo4j graph using DRIFT search algorithm.
+
+**Request:**
+```json
+{
+  "query": "string",
+  "top_k": 1,
+  "project_id": "string"
+}
+```
+
+**Response (200 OK - Data Found):**
+```json
+{
+  "final_answer": "string",
+  "key_facts": [{"fact": "string", "citations": ["chunk_id"]}],
+  "citations": [{"chunk_id": "string", "span": "string"}],
+  "residual_uncertainty": "string"
+}
+```
+
+**Response (200 OK - No Data Found):**
+Returns 200 (not 500) when no data exists in graph for the query:
+```json
+{
+  "final_answer": "",
+  "key_facts": [],
+  "citations": [],
+  "residual_uncertainty": "",
+  "no_data_found": true
+}
+```
+
+**Response (500 Internal Server Error):**
+Only returned for actual infrastructure/connection failures (Neo4j down, OpenAI API failure, etc.)
+
+**Note:** The service distinguishes between "no data in graph" (200 with empty result) and "service failure" (500). This allows upstream services to handle empty graphs gracefully without treating them as errors.
+
+------------------------------------------------------------------------
+
 ## 1. Graph Schema
 
 Your graph:

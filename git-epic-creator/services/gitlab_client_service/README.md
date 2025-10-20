@@ -116,7 +116,7 @@ Configuration is centralized in `src/config.py` and reuses shared library config
 ```env
 GITLAB_BASE_URL=""                     # Required: e.g., https://gitlab.example.com
 GITLAB_VERIFY_SSL=true                 # Verify SSL certificates
-HTTP_TIMEOUT_SEC=30.0                  # HTTP request timeout
+HTTP_CONNECTION_TIMEOUT=30.0           # HTTP connection timeout
 RETRY_MAX_ATTEMPTS=3                   # Maximum HTTP retries
 RETRY_BACKOFF_FACTOR=2.0              # Exponential backoff factor
 DEFAULT_PAGE_SIZE=100                  # Default pagination size

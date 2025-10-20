@@ -192,7 +192,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         
         gitlab_client = GitLabClient(
             base_url=settings.GITLAB_INGESTION_BASE_URL,
-            timeout_sec=settings.HTTP_TIMEOUT_SEC,
+            timeout_sec=settings.http.CONNECTION_TIMEOUT,
         )
         
         auth_header = state.get("auth_header")

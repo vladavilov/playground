@@ -12,7 +12,7 @@ def test_gitlab_client_settings_defaults():
     
     # GitLab settings
     assert settings.GITLAB_BASE_URL == "http://test-gitlab.com"
-    assert settings.HTTP_TIMEOUT_SEC == 30.0
+    assert settings.HTTP_CONNECTION_TIMEOUT == 30.0
     assert settings.RETRY_MAX_ATTEMPTS == 3
     assert settings.RETRY_BACKOFF_FACTOR == 2.0
     assert settings.DEFAULT_PAGE_SIZE == 100
@@ -37,7 +37,7 @@ def test_gitlab_client_settings_defaults():
 def test_gitlab_client_settings_custom_values(monkeypatch):
     """Test configuration with custom environment values."""
     monkeypatch.setenv("GITLAB_BASE_URL", "https://custom-gitlab.com")
-    monkeypatch.setenv("HTTP_TIMEOUT_SEC", "60")
+    monkeypatch.setenv("HTTP_CONNECTION_TIMEOUT", "60")
     monkeypatch.setenv("RETRY_MAX_ATTEMPTS", "5")
     monkeypatch.setenv("DEFAULT_PAGE_SIZE", "200")
     monkeypatch.setenv("REDIS_URL", "redis://custom-redis:6379")
@@ -48,7 +48,7 @@ def test_gitlab_client_settings_custom_values(monkeypatch):
     settings = GitLabClientSettings()
     
     assert settings.GITLAB_BASE_URL == "https://custom-gitlab.com"
-    assert settings.HTTP_TIMEOUT_SEC == 60.0
+    assert settings.HTTP_CONNECTION_TIMEOUT == 60.0
     assert settings.RETRY_MAX_ATTEMPTS == 5
     assert settings.DEFAULT_PAGE_SIZE == 200
     assert settings.redis.REDIS_URL == "redis://custom-redis:6379"

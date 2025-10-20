@@ -224,7 +224,11 @@ Configuration
     - `OAI_KEY`: Azure OpenAI API key
     - `OAI_API_VERSION`: Azure OpenAI API version (e.g., `2024-02-15-preview`)
     - Note: Service uses `AzureChatOpenAI` connector requiring `deployment_name` parameter
-  - GRAPH_RAG_BASE_URL, HTTP_TIMEOUT_SEC
+  - **Timeout Configuration** (for long-running workflows):
+    - `HTTP_READ_TIMEOUT`: Read timeout from shared HTTPClientSettings (default: 180s for UI, overridable per service)
+    - `WORKFLOW_TIMEOUT_SEC`: Maximum workflow execution time before graceful abort (default: 150s)
+    - Note: WORKFLOW_TIMEOUT_SEC should be < HTTP_READ_TIMEOUT to allow graceful response before client timeout
+  - GRAPH_RAG_BASE_URL
   - EVAL_WEIGHTS: JSON or separate vars (PRECISION_WEIGHT, GROUNDING_WEIGHT, ...)
   - CLARIFICATION_SCORE_TARGET=0.70
   - REDIS_URL (via shared config)

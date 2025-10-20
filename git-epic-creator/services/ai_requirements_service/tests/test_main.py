@@ -15,7 +15,7 @@ class TestAIWorkflowService:
     def setup_method(self):
         # Ensure service-specific env vars are set for tests
         os.environ.setdefault("GRAPH_RAG_BASE_URL", "http://localhost:8010")
-        os.environ.setdefault("HTTP_TIMEOUT_SEC", "1.0")
+        os.environ.setdefault("HTTP_READ_TIMEOUT", "90.0")
 
     def test_routes_exist(self):
         """App should expose base health, redis, and custom graphrag/ready endpoints."""
@@ -38,7 +38,7 @@ class TestAIWorkflowService:
 
             mock_get_settings.return_value = SimpleNamespace(
                 GRAPH_RAG_BASE_URL="http://example.com",
-                HTTP_TIMEOUT_SEC=0.2,
+                http=SimpleNamespace(READ_TIMEOUT=0.2),
             )
 
             mock_resp = Mock()
@@ -66,7 +66,7 @@ class TestAIWorkflowService:
 
             mock_get_settings.return_value = SimpleNamespace(
                 GRAPH_RAG_BASE_URL="http://bad-host",
-                HTTP_TIMEOUT_SEC=0.01,
+                http=SimpleNamespace(READ_TIMEOUT=0.01),
             )
 
             mock_cm = Mock()
@@ -102,7 +102,7 @@ class TestAIWorkflowService:
 
             mock_get_settings.return_value = SimpleNamespace(
                 GRAPH_RAG_BASE_URL="http://example.com",
-                HTTP_TIMEOUT_SEC=0.2,
+                http=SimpleNamespace(READ_TIMEOUT=0.2),
             )
             mock_resp = Mock()
             mock_resp.status_code = 200
@@ -130,7 +130,7 @@ class TestAIWorkflowService:
 
             mock_get_settings.return_value = SimpleNamespace(
                 GRAPH_RAG_BASE_URL="http://bad-host",
-                HTTP_TIMEOUT_SEC=0.01,
+                http=SimpleNamespace(READ_TIMEOUT=0.01),
             )
             mock_cm = Mock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_cm)

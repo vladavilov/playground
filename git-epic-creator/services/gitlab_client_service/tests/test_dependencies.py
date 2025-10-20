@@ -50,7 +50,7 @@ def test_get_gitlab_client_creates_client(monkeypatch):
     
     settings = GitLabClientSettings(
         GITLAB_BASE_URL="http://test-gitlab.com",
-        HTTP_TIMEOUT_SEC=60.0,
+        HTTP_CONNECTION_TIMEOUT=60.0,
         RETRY_MAX_ATTEMPTS=5
     )
     
