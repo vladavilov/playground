@@ -37,6 +37,34 @@ class RetrievalSettings(BaseConfig):
         le=50,
         description="Maximum number of communities to include in prompt contexts"
     )
+    MAX_CHUNK_TEXT_LENGTH: int = Field(
+        default=1500,
+        ge=100,
+        le=5000,
+        description="Maximum characters per chunk text in prompts"
+    )
+    
+    # Early exit configuration
+    CONFIDENCE_THRESHOLD_EARLY_EXIT: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Stop processing followups if confidence exceeds this threshold"
+    )
+    MIN_FOLLOWUPS_BEFORE_EXIT: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Process at least N followups before allowing early exit"
+    )
+    
+    # Request caching (deduplication always enabled)
+    REQUEST_CACHE_TTL_SEC: int = Field(
+        default=300,
+        ge=0,
+        le=3600,
+        description="TTL for cached retrieval results (0=disabled)"
+    )
 
 
 @lru_cache()
