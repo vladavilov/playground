@@ -1,5 +1,4 @@
-from typing import Any, Callable, Dict, List, TypedDict, Annotated
-from operator import add
+from typing import Any, Callable, Dict, List, TypedDict
 import json
 import asyncio
 import random
@@ -10,7 +9,7 @@ from pydantic import BaseModel
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
-from langchain_core.messages.utils import trim_messages, count_tokens_approximately
+from langchain_core.messages.utils import count_tokens_approximately
 from fastapi import HTTPException
 
 from config import get_retrieval_settings
@@ -108,17 +107,13 @@ class _State(TypedDict, total=False):
     question: str
     top_k: int
     project_id: str
-    messages: Annotated[List[Any], add]
-    hyde_text: str
     qvec: List[float]
     communities: List[int]
-    sampled_chunks: Dict[int, List[int]]
     community_brief: List[Dict[str, Any]]
     primer_json: Dict[str, Any]
     followups: List[Dict[str, Any]]
     followup_results: List[Dict[str, Any]]
     tree: Dict[str, Any]
-    agg_text: str
     result_json: Dict[str, Any]
 
 
@@ -311,18 +306,6 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"Embeddings failed: {exc}")
 
-    def _trim_msgs(msgs: List[Any]) -> List[Any]:
-        if not msgs:
-            return msgs
-        return trim_messages(
-            msgs,
-            strategy="last",
-            token_counter=count_tokens_approximately,
-            max_tokens=256,
-            start_on="human",
-            end_on=("human", "tool"),
-        )
-
     async def _format_invoke_parse(prompt_obj: Any, llm: AzureChatOpenAI, label: str, **fmt_kwargs: Any) -> Dict[str, Any]:
         msg = prompt_obj.format_messages(**fmt_kwargs)
         
@@ -391,10 +374,34 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
             return []
         return repo.expand_neighborhood_minimal(chunks, project_id)
 
+    def _create_minimal_followup_result(local_validated: LocalExecutorResponse, qtext: str) -> Dict[str, Any]:
+        """Create minimal followup result for aggregation - strips unnecessary context.
+        
+        Aggregator only needs: question, answer, citations, confidence, new_followups.
+        Full chunk contexts (text, entities, relationships) are NOT needed and waste tokens.
+        """
+        minimal_result = {
+            "question": qtext,
+            "answer": local_validated.answer,
+            "citations": [{"chunk_id": c.chunk_id, "span": c.span} for c in local_validated.citations],
+            "confidence": local_validated.confidence,
+        }
+        
+        # Include new followups (questions only, no contexts)
+        if local_validated.should_continue and local_validated.new_followups:
+            new_followup_questions = []
+            for nf in local_validated.new_followups[:3]:
+                if nf.question:
+                    new_followup_questions.append({"question": nf.question})
+            
+            if new_followup_questions:
+                minimal_result["new_followups"] = new_followup_questions
+        
+        return minimal_result
+
     async def init_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        msgs = state.get("messages") or []
-        logger.info("retrieval.init", messages=len(msgs))
-        return {"messages": _trim_msgs(msgs)}
+        logger.info("retrieval.init", question_len=len(state.get("question") or ""))
+        return {}
 
     async def hyde_node(state: Dict[str, Any]) -> Dict[str, Any]:
         llm = get_llm()
@@ -403,7 +410,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         hyde_text = build_hyde_embed_text(state["question"], hyde_answer)
         qvec = await _embed_one_or_502(hyde_text)
         logger.info("retrieval.hyde.done", hyde_text_len=len(hyde_text or ""), qvec_len=len(qvec or []))
-        return {"hyde_text": hyde_text, "qvec": qvec}
+        return {"qvec": qvec}
 
     async def primer_node(state: Dict[str, Any]) -> Dict[str, Any]:
         k = _ensure_top_k(state)
@@ -456,7 +463,6 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         )
         return {
             "communities": communities,
-            "sampled_chunks": sampled,
             "community_brief": community_brief,
             "primer_json": primer_validated.model_dump(),
             "followups": followups,
@@ -534,48 +540,20 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             f"Local executor (followup {idx})",
                         )
 
-                        # Convert to dict for tree preservation
-                        local_json = local_validated.model_dump()
+                        # Create minimal result for aggregation - strips unnecessary context
+                        # Aggregator only needs: question, answer, citations, confidence, new_followups
+                        minimal_result = _create_minimal_followup_result(local_validated, qtext)
+                        
+                        logger.debug(
+                            "followup_result_created",
+                            followup_index=idx,
+                            has_answer=bool(minimal_result.get("answer")),
+                            citations_count=len(minimal_result.get("citations", [])),
+                            confidence=minimal_result.get("confidence"),
+                            new_followups_count=len(minimal_result.get("new_followups", [])),
+                        )
 
-                        # Preserve retrieval context for aggregation stage
-                        local_json["context"] = chunks
-
-                        if "target_communities" in local_json:
-                            local_json.pop("target_communities", None)
-
-                        # Process new_followups (now guaranteed to be normalized by Pydantic)
-                        if local_validated.should_continue and local_validated.new_followups:
-                            for nf_idx, nf in enumerate(local_validated.new_followups[:3]):
-                                nf_q = nf.question  # ✅ Now safe - nf is Followup object, not string
-                                if not nf_q:
-                                    continue
-                                
-                                logger.debug(
-                                    "processing_new_followup",
-                                    original_followup_index=idx,
-                                    new_followup_index=nf_idx,
-                                    new_question=nf_q[:100],
-                                )
-                                
-                                nf_vec = await _embed_one_or_502(nf_q)
-                                expanded = _scoped_chunks_expanded(
-                                    repo,
-                                    cids,
-                                    chunk_index,
-                                    nf_vec,
-                                    k,
-                                    state["project_id"],
-                                )
-                                if expanded:
-                                    # Add to local_json (dict form for tree)
-                                    if "new_followups_expanded" not in local_json:
-                                        local_json["new_followups_expanded"] = []
-                                    local_json["new_followups_expanded"].append({
-                                        "question": nf_q,
-                                        "answer_context": expanded,
-                                    })
-
-                        results.append(local_json)
+                        results.append(minimal_result)
                         
                     except Exception as exc:
                         logger.error(
@@ -694,7 +672,6 @@ class Neo4jRetrievalService:
                 "question": question,
                 "top_k": int(top_k or 1),
                 "project_id": project_id,
-                "messages": [{"role": "user", "content": question}],
             },
             {"configurable": {"thread_id": thread_id}},
         )
