@@ -1,6 +1,8 @@
 from typing import Any, Callable, Dict, List, TypedDict, Annotated
 from operator import add
 import json
+import asyncio
+import random
 from contextlib import contextmanager
 import structlog
 from pydantic import BaseModel
@@ -25,6 +27,7 @@ from retrieval_ms.response_models import (
     LocalExecutorResponse,
     AggregatorResponse,
 )
+from configuration.retry_config import get_retry_settings
 
 
 GetSessionFn = Callable[[], Any]
@@ -32,6 +35,73 @@ GetLlmFn = Callable[[], AzureChatOpenAI]
 GetEmbedderFn = Callable[[], AzureOpenAIEmbeddings]
 
 logger = structlog.get_logger(__name__)
+
+
+async def _llm_call_with_retry(llm_fn: Callable, label: str) -> Any:
+    """Execute LLM call with exponential backoff for rate limiting.
+    
+    Handles HTTP 429 (Too Many Requests) errors with retry logic using
+    shared retry configuration and adds jitter to prevent thundering herd.
+    
+    Args:
+        llm_fn: Async callable that executes the LLM call
+        label: Label for logging context
+        
+    Returns:
+        Result from llm_fn
+        
+    Raises:
+        Original exception after max retries exhausted
+    """
+    retry_settings = get_retry_settings()
+    max_attempts = retry_settings.RETRY_MAX_ATTEMPTS
+    backoff_base = retry_settings.RETRY_BACKOFF_BASE_SEC
+    backoff_factor = retry_settings.RETRY_BACKOFF_FACTOR
+    backoff_max = retry_settings.RETRY_BACKOFF_MAX_SEC
+    
+    for attempt in range(max_attempts):
+        try:
+            return await llm_fn()
+        except Exception as exc:
+            error_str = str(exc)
+            is_rate_limit = "429" in error_str or "rate limit" in error_str.lower()
+            is_last_attempt = attempt >= max_attempts - 1
+            
+            if not is_rate_limit or is_last_attempt:
+                # Not a rate limit error or exhausted retries - propagate exception
+                logger.error(
+                    "llm_call_failed",
+                    label=label,
+                    attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    error=error_str,
+                    error_type=type(exc).__name__,
+                    is_rate_limit=is_rate_limit,
+                )
+                raise
+            
+            # Calculate backoff with exponential + jitter
+            exponent = attempt
+            backoff = backoff_base * (backoff_factor ** exponent)
+            backoff = min(backoff, backoff_max)
+            # Add jitter: ±25% random variation
+            jitter = backoff * 0.25 * (2 * random.random() - 1)
+            sleep_time = max(0.1, backoff + jitter)
+            
+            logger.warning(
+                "llm_rate_limit_retry",
+                label=label,
+                attempt=attempt + 1,
+                max_attempts=max_attempts,
+                sleep_seconds=round(sleep_time, 2),
+                error=error_str,
+                message=f"Rate limit hit, retrying after {sleep_time:.1f}s"
+            )
+            
+            await asyncio.sleep(sleep_time)
+    
+    # Should not reach here due to raise in loop, but for type safety
+    raise RuntimeError(f"Max retries exhausted for {label}")
 
 
 class _State(TypedDict, total=False):
@@ -99,26 +169,47 @@ def _parse_and_validate(
             "response_validated",
             label=label,
             model=model_class.__name__,
+            message="Successfully validated LLM response"
         )
         return validated
     except Exception as exc:
+        # Extract field-level validation errors if available
+        field_errors = []
+        if hasattr(exc, "errors"):
+            try:
+                field_errors = [
+                    f"{'.'.join(str(x) for x in err.get('loc', []))}: {err.get('msg', '')}" 
+                    for err in exc.errors()[:3]  # Show first 3 errors
+                ]
+            except Exception:
+                pass
+        
         logger.warning(
             "response_validation_failed",
             label=label,
             model=model_class.__name__,
-            error=str(exc),
+            error=str(exc)[:200],
+            field_errors=field_errors,
             parsed_keys=list(parsed.keys()) if isinstance(parsed, dict) else None,
-            message="Using normalized fallback values"
+            message="Attempting normalized fallback"
         )
         # Try to create with defaults (Pydantic validators will normalize)
         try:
-            return model_class.model_validate(parsed, strict=False)
-        except Exception:
+            fallback = model_class.model_validate(parsed, strict=False)
+            logger.info(
+                "response_validation_fallback_success",
+                label=label,
+                model=model_class.__name__,
+                message="Fallback validation succeeded with normalization"
+            )
+            return fallback
+        except Exception as exc2:
             # Last resort: return empty model
             logger.error(
                 "response_validation_fatal",
                 label=label,
                 model=model_class.__name__,
+                error=str(exc2)[:200],
                 message="Returning empty model as last resort"
             )
             return model_class()
@@ -157,15 +248,26 @@ def _truncate_for_prompt(
             message=f"Truncated {label} to prevent token overflow"
         )
     
-    # Additional size check (rough heuristic: 4 chars ~ 1 token)
-    estimated_tokens = len(serialized) // 4
-    if estimated_tokens > 2000:
+    try:
+        actual_tokens = count_tokens_approximately(serialized)
+    except Exception:
+        # Fallback to heuristic if count fails
+        actual_tokens = len(serialized) // 4
+    
+    if actual_tokens > 2000:
         logger.warning(
             "prompt_data_large",
             label=label,
             serialized_length=len(serialized),
-            estimated_tokens=estimated_tokens,
+            actual_tokens=actual_tokens,
             message="Large prompt may cause token pressure or LLM output simplification"
+        )
+    else:
+        logger.debug(
+            "prompt_data_size",
+            label=label,
+            serialized_length=len(serialized),
+            actual_tokens=actual_tokens,
         )
     
     return serialized
@@ -201,7 +303,10 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
     async def _embed_one_or_502(text: str) -> List[float]:
         embedder = get_embedder()
         try:
-            vectors = await embedder.aembed_documents([text])
+            async def _do_embed():
+                return await embedder.aembed_documents([text])
+            
+            vectors = await _llm_call_with_retry(_do_embed, "Embeddings")
             return [float(x) for x in (vectors[0] if vectors else [])]
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"Embeddings failed: {exc}")
@@ -220,12 +325,20 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
 
     async def _format_invoke_parse(prompt_obj: Any, llm: AzureChatOpenAI, label: str, **fmt_kwargs: Any) -> Dict[str, Any]:
         msg = prompt_obj.format_messages(**fmt_kwargs)
-        res = await llm.ainvoke(msg)
+        
+        async def _do_invoke():
+            return await llm.ainvoke(msg)
+        
+        res = await _llm_call_with_retry(_do_invoke, label)
         return _parse_json_or_502(res, label)
 
-    async def _format_invoke_content(prompt_obj: Any, llm: AzureChatOpenAI, **fmt_kwargs: Any) -> str:
+    async def _format_invoke_content(prompt_obj: Any, llm: AzureChatOpenAI, label: str, **fmt_kwargs: Any) -> str:
         msg = prompt_obj.format_messages(**fmt_kwargs)
-        res = await llm.ainvoke(msg)
+        
+        async def _do_invoke():
+            return await llm.ainvoke(msg)
+        
+        res = await _llm_call_with_retry(_do_invoke, label)
         return _as_str_content(res)
 
     def _fetch_communities(repo: Neo4jRepository, index_name: str, k: int, qvec: List[float], project_id: str) -> List[int]:
@@ -286,7 +399,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
     async def hyde_node(state: Dict[str, Any]) -> Dict[str, Any]:
         llm = get_llm()
         prompt = hyde_prompt()
-        hyde_answer = await _format_invoke_content(prompt, llm, question=state["question"])
+        hyde_answer = await _format_invoke_content(prompt, llm, "HyDE", question=state["question"])
         hyde_text = build_hyde_embed_text(state["question"], hyde_answer)
         qvec = await _embed_one_or_502(hyde_text)
         logger.info("retrieval.hyde.done", hyde_text_len=len(hyde_text or ""), qvec_len=len(qvec or []))
@@ -476,11 +589,20 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                         # Continue processing other followups
                         continue
                 
+                # Calculate validation success: count non-empty answers or non-empty citations
+                valid_results = [
+                    r for r in results 
+                    if (r.get("answer") and r.get("answer").strip()) 
+                    or (r.get("citations") and len(r.get("citations")) > 0)
+                ]
+                
                 logger.info(
                     "retrieval.followups.done",
                     processed=len(results),
+                    validated=len(valid_results),
                     total_followups=total_followups,
-                    success_rate=f"{len(results)}/{total_followups}"
+                    success_rate=f"{len(valid_results)}/{total_followups}",
+                    message=f"Processed {len(results)}, validated {len(valid_results)} of {total_followups} followups"
                 )
                 return {"followup_results": results}
                 

@@ -192,4 +192,17 @@ VECTOR_INDEX_DIMENSIONS=1536
 VECTOR_INDEX_SIMILARITY=cosine
 ```
 
+### Retry Configuration
+
+Rate limiting protection uses shared retry settings:
+
+```bash
+RETRY_MAX_ATTEMPTS=3                  # Max retry attempts for rate limits (default: 3)
+RETRY_BACKOFF_BASE_SEC=2              # Base backoff in seconds (default: 2)
+RETRY_BACKOFF_FACTOR=2                # Exponential backoff factor (default: 2)
+RETRY_BACKOFF_MAX_SEC=60              # Max backoff ceiling (default: 60)
+```
+
+The service automatically retries HTTP 429 (rate limit) errors with exponential backoff + jitter.
+
 ------------------------------------------------------------------------

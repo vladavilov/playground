@@ -67,8 +67,26 @@ class PrimerResponse(BaseModel):
 class Citation(BaseModel):
     """Citation reference to chunk with optional span."""
     
-    chunk_id: Optional[int] = Field(default=None, description="Chunk ID reference")
+    chunk_id: Optional[str] = Field(default=None, description="Chunk ID reference (string)")
     span: str = Field(default="", description="Text span or excerpt")
+    
+    @field_validator("chunk_id", mode="before")
+    @classmethod
+    def normalize_chunk_id(cls, v):
+        """Ensure chunk_id is a string (handles various ID formats)."""
+        if v is None:
+            return None
+        
+        # Log when coercing non-string types to aid debugging
+        if not isinstance(v, str):
+            logger.debug(
+                "citation_chunk_id_coerced",
+                original_type=type(v).__name__,
+                original_value=str(v)[:50],
+                message="Coerced non-string chunk_id to string"
+            )
+        
+        return str(v)
     
     @field_validator("span", mode="before")
     @classmethod
@@ -147,7 +165,7 @@ class KeyFact(BaseModel):
     """Key fact with citations."""
     
     fact: str = Field(..., description="Key fact statement")
-    citations: List[int] = Field(default_factory=list, description="Chunk ID citations")
+    citations: List[str] = Field(default_factory=list, description="Chunk ID citations (strings)")
     
     @field_validator("fact", mode="before")
     @classmethod
@@ -160,16 +178,14 @@ class KeyFact(BaseModel):
     @field_validator("citations", mode="before")
     @classmethod
     def normalize_citations(cls, v):
-        """Ensure citations is a list of integers."""
+        """Ensure citations is a list of strings."""
         if not isinstance(v, list):
             return []
         
         normalized = []
         for item in v:
-            try:
-                normalized.append(int(item))
-            except (TypeError, ValueError):
-                logger.warning("citation_invalid_int", value=item)
+            if item is not None:
+                normalized.append(str(item))
         
         return normalized
 

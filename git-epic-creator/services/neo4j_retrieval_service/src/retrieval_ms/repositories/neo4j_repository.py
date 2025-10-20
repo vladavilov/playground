@@ -21,7 +21,8 @@ class Neo4jRepository:
         query = (
             "MATCH (p:__Project__ {id: $projectId}) "
             "MATCH (c:__Community__)-[:IN_PROJECT]->(p) WHERE c.community IN $communityIds "
-            "CALL { WITH c, p MATCH (c)<-[:IN_COMMUNITY]-(ch:__Chunk__)-[:IN_PROJECT]->(p) "
+            # Neo4j 5.28+ explicit variable scope syntax: CALL () { WITH ... }
+            "CALL (c, p) { WITH c, p MATCH (c)<-[:IN_COMMUNITY]-(ch:__Chunk__)-[:IN_PROJECT]->(p) "
             "WITH ch CALL db.index.vector.queryNodes($chunkIndex, 50, $qvec) YIELD node AS cand, score "
             "WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } "
             "RETURN c.community AS cid, collect(distinct chunk.id) AS chunk_ids"
@@ -92,7 +93,7 @@ class Neo4jRepository:
             "WITH cid, ch, "
             "collect(DISTINCT { _id: e.id, properties: { "
             "title: e.title, description: e.description, type: coalesce(e.type, ''), "
-            "text_unit_ids: e.text_unit_ids } })[0..5] AS entities, "
+            "text_unit_ids: e.text_unit_ids } })[0..3] AS entities, "
             "collect(DISTINCT { _id: re.id, properties: { "
             "title: re.title, description: re.description, type: coalesce(re.type, ''), "
             "text_unit_ids: re.text_unit_ids } })[0..5] AS related_entities, "

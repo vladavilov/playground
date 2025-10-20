@@ -19,7 +19,7 @@ MATCH (x:__Chunk__ {text:c.text})
 WITH c,x ORDER BY x.id
 WITH head(collect(x)) AS canon, tail(collect(x)) AS dups
 UNWIND dups AS dup
-CALL {
+CALL (dup, canon) {
   WITH dup,canon
   MATCH (a)-[r]->(dup)
   WITH a,canon,type(r) AS t,properties(r) AS p
@@ -27,7 +27,7 @@ CALL {
   RETURN 0 AS moved_in_done
 }
 WITH dup,canon
-CALL {
+CALL (dup, canon) {
   WITH dup,canon
   MATCH (dup)-[r]->(b)
   WITH canon,b,type(r) AS t,properties(r) AS p
@@ -37,7 +37,7 @@ CALL {
 WITH dup,canon
 DETACH DELETE dup
 WITH canon
-CALL {
+CALL (canon) {
   WITH canon
   MATCH (canon)-[r]->(b)
   WITH canon,b,type(r) AS t,collect(r) AS rs
@@ -46,7 +46,7 @@ CALL {
   RETURN 0 AS dedup_out_done
 }
 WITH canon
-CALL {
+CALL (canon) {
   WITH canon
   MATCH (a)-[r]->(canon)
   WITH a,canon,type(r) AS t,collect(r) AS rs
