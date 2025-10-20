@@ -667,7 +667,6 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         logger.info(
             "retrieval.primer.done",
             communities=len(communities or []),
-            sampled_total=sum(len(v or []) for v in sampled.values()),
             community_brief=len(community_brief or []),
             followups=len(followups or []),
         )
