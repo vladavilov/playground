@@ -30,7 +30,7 @@ PROMPT_ANALYST = PromptSpec(
         "- Eliminate redundancy and ambiguity\n"
         "- Focus on WHAT is needed, not HOW to implement\n"
         "- Each intent should map to a testable requirement\n\n"
-        "Respond ONLY with valid JSON: {\"intents\": [\"intent1\", \"intent2\", ...]}"
+        "Respond ONLY with valid JSON: {{\"intents\": [\"intent1\", \"intent2\", ...]}}"
     ),
     human="{user_prompt}",
 )
