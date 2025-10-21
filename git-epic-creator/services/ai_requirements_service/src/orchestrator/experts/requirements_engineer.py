@@ -2,8 +2,8 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from workflow_models.requirements_models import Requirement
 from workflow_models.agent_models import DraftRequirements, PromptAnalysis, RetrievedContext, AuditFindings
-from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm
+from orchestrator.prompts import build_chat_prompt, REQUIREMENTS_ENGINEER
 
 
 class RequirementsEngineer:
@@ -36,15 +36,7 @@ class RequirementsEngineer:
             assumptions: List[str] = Field(default_factory=list)
             risks: List[str] = Field(default_factory=list)
 
-        system = (
-            "You are a senior requirements engineer. Produce grounded, testable requirements from intents and evidence. "
-            "Use Given/When/Then for all acceptance criteria. Prioritize items (Must/Should/Could/Won't). "
-            "Respond ONLY with JSON object with keys: {{business_requirements, functional_requirements, assumptions, risks}}."
-        )
-        tmpl = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", "intents: {intents}\ncontexts: {contexts}\nfindings: {findings}"),
-        ])
+        tmpl = build_chat_prompt(REQUIREMENTS_ENGINEER)
         llm = get_llm()
         chain = tmpl | llm.with_structured_output(DraftOut)
         out: DraftOut = await chain.ainvoke({"intents": intents, "contexts": contexts, "findings": findings_payload})

@@ -134,7 +134,11 @@ Agentic Pipeline (expanded, requirements‑focused)
 
 6) Evaluation and Scoring (Evaluator)
    - Compute metrics: precision/faithfulness, grounding, response_relevancy, completeness.
-   - Aggregate to s ∈ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, score) summarizing rubric axes.
+   - Apply severity penalty from ConsistencyAuditor to all component scores:
+     * severity 0.0-0.3 (minor issues) → minimal penalty (multiplier 0.7-1.0)
+     * severity 0.4-0.6 (moderate issues) → medium penalty (multiplier 0.4-0.6)
+     * severity 0.7-1.0 (critical issues) → severe penalty (multiplier 0.0-0.3)
+   - Aggregate penalized scores to s ∈ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, score) summarizing rubric axes.
 
 7a) If s ≥ 0.70 → Finalize
    - Return RequirementsBundle. Publish WorkflowProgressMessage (status: completed, score).
@@ -160,7 +164,7 @@ Evaluation Rubric (configurable) and Technical Implementation
   - Completeness: `deepeval.metrics.GEval` (criteria ensures intents/constraints addressed with testable ACs; params: INPUT + ACTUAL_OUTPUT)
   - Optional: Retrieval sanity checks via `deepeval.metrics.ContextualRelevancyMetric` or `ContextualPrecisionMetric`.
 
-Implementation note: Scoring uses DeepEval metrics with configurable weights via `EVAL_WEIGHTS`. Only axes present in weights contribute to the final score.
+Implementation note: Scoring uses DeepEval metrics with configurable weights via `EVAL_WEIGHTS`. Only axes present in weights contribute to the final score. **All component scores are penalized by the consistency audit severity** (penalty_factor = 1.0 - severity) before weighted aggregation, ensuring quality issues directly impact the final score and trigger clarification loops.
 
 
 Input/Output Contracts
@@ -214,6 +218,30 @@ Service Components
   - Implemented as pure classes with explicit inputs/outputs for testability
 - Clients:
   - RedisPublisher (async)
+
+Prompt Repository
+
+- Centralized prompts live in `orchestrator/prompts`.
+- Use `build_chat_prompt(spec)` with one of the exported specs:
+  - `PROMPT_ANALYST`
+  - `REQUIREMENTS_ENGINEER`
+  - `CONSISTENCY_AUDITOR`
+  - `QUESTION_STRATEGIST`
+- Example usage in an expert:
+
+```python
+from orchestrator.prompts import build_chat_prompt, REQUIREMENTS_ENGINEER
+
+tmpl = build_chat_prompt(REQUIREMENTS_ENGINEER)
+chain = tmpl | llm.with_structured_output(OutputModel)
+out = await chain.ainvoke({"intents": intents, "contexts": contexts, "findings": findings_payload})
+```
+
+Evaluation Rubrics
+
+- Shared rubric definitions and metric configuration live in `orchestrator/prompts/rubrics.py`.
+- Use `build_metrics_config(has_real_context: bool)` to obtain the metrics config for DeepEval.
+- This centralizes LLM instructions like `criteria` and `evaluation_steps` for groundedness and completeness.
 
 Configuration
 

@@ -181,3 +181,105 @@ async def test_audit_configures_custom_azure_openai_model_for_deepeval(sample_dr
     assert call_kwargs["api_key"] == "KEY", "API key should match OAI_KEY"
     assert call_kwargs["api_base"] == "http://openai-mock-service:8000", "API base should match OAI_BASE_URL"
     assert call_kwargs["api_version"] == "2024-02-15-preview", "API version should match OAI_API_VERSION"
+
+
+@pytest.mark.asyncio
+async def test_severity_penalty_applied_to_component_scores(sample_draft, sample_context, monkeypatch):
+    """Verify that Evaluator applies severity penalty to all component scores."""
+    from orchestrator.experts.evaluator import Evaluator
+    from workflow_models.agent_models import AuditFindings
+    
+    # Test case 1: No penalty (severity = 0.0)
+    findings_no_penalty = AuditFindings(
+        issues=[],
+        suggestions=[],
+        llm_critique_severity=0.0,
+        component_scores={
+            "faithfulness": 0.8,
+            "groundedness": 0.9,
+            "response_relevancy": 0.7,
+            "completeness": 0.85,
+        }
+    )
+    
+    evaluator = Evaluator()
+    report = await evaluator.evaluate(sample_draft, findings_no_penalty, "test prompt", sample_context)
+    
+    # With no severity penalty (factor=1.0), scores should remain unchanged
+    assert report.component_scores["faithfulness"] == 0.8
+    assert report.component_scores["groundedness"] == 0.9
+    assert report.component_scores["response_relevancy"] == 0.7
+    assert report.component_scores["completeness"] == 0.85
+    
+    # Test case 2: Moderate penalty (severity = 0.5)
+    findings_moderate = AuditFindings(
+        issues=["Ambiguous requirement BR-1"],
+        suggestions=["Add specific acceptance criteria"],
+        llm_critique_severity=0.5,
+        component_scores={
+            "faithfulness": 0.8,
+            "groundedness": 0.9,
+            "response_relevancy": 0.7,
+            "completeness": 0.85,
+        }
+    )
+    
+    report = await evaluator.evaluate(sample_draft, findings_moderate, "test prompt", sample_context)
+    
+    # With severity=0.5, penalty_factor=0.5, all scores should be halved
+    assert report.component_scores["faithfulness"] == 0.4  # 0.8 * 0.5
+    assert report.component_scores["groundedness"] == 0.45  # 0.9 * 0.5
+    assert report.component_scores["response_relevancy"] == 0.35  # 0.7 * 0.5
+    assert report.component_scores["completeness"] == 0.425  # 0.85 * 0.5
+    
+    # Test case 3: Critical penalty (severity = 0.7)
+    findings_critical = AuditFindings(
+        issues=["Contradictory requirements", "Missing testable criteria"],
+        suggestions=["Resolve contradictions", "Add Given/When/Then format"],
+        llm_critique_severity=0.7,
+        component_scores={
+            "faithfulness": 0.8,
+            "groundedness": 0.9,
+            "response_relevancy": 0.7,
+            "completeness": 0.85,
+        }
+    )
+    
+    report = await evaluator.evaluate(sample_draft, findings_critical, "test prompt", sample_context)
+    
+    # With severity=0.7, penalty_factor=0.3, all scores should be multiplied by 0.3
+    assert report.component_scores["faithfulness"] == 0.24  # 0.8 * 0.3
+    assert report.component_scores["groundedness"] == 0.27  # 0.9 * 0.3
+    assert report.component_scores["response_relevancy"] == 0.21  # 0.7 * 0.3
+    assert report.component_scores["completeness"] == 0.255  # 0.85 * 0.3
+    
+    # Verify that the final score is also penalized and below threshold
+    assert report.score < 0.3  # Should be around 0.25 given the penalty
+
+
+@pytest.mark.asyncio
+async def test_severity_penalty_affects_final_score(sample_draft, sample_context, monkeypatch):
+    """Verify that high severity ensures score drops below threshold to trigger clarification."""
+    from orchestrator.experts.evaluator import Evaluator
+    from workflow_models.agent_models import AuditFindings
+    
+    # High component scores but critical severity should result in low final score
+    findings = AuditFindings(
+        issues=["Critical: Contradictory requirements", "Critical: Untestable criteria"],
+        suggestions=["Resolve contradictions", "Make all ACs testable"],
+        llm_critique_severity=0.8,  # Critical severity
+        component_scores={
+            "faithfulness": 0.9,
+            "groundedness": 0.85,
+            "response_relevancy": 0.9,
+            "completeness": 0.88,
+        }
+    )
+    
+    evaluator = Evaluator()
+    report = await evaluator.evaluate(sample_draft, findings, "test prompt", sample_context)
+    
+    # With severity=0.8, penalty_factor=0.2, final score should be very low
+    assert report.score < 0.3, f"Expected score < 0.3 with critical severity, got {report.score}"
+    # Verify this would trigger clarification loop (threshold typically 0.70)
+    assert report.score < 0.70, "Critical severity should force clarification loop"

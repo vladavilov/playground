@@ -1,8 +1,8 @@
 from typing import List
 from pydantic import BaseModel, Field
 from workflow_models.agent_models import PromptAnalysis
-from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm
+from orchestrator.prompts import build_chat_prompt, PROMPT_ANALYST
 
 class PromptAnalyst:
     def __init__(self) -> None:
@@ -12,10 +12,7 @@ class PromptAnalyst:
         class IntentsOut(BaseModel):
             intents: List[str] = Field(default_factory=list)
 
-        prompt_tmpl = ChatPromptTemplate.from_messages([
-            ("system", "You are a senior requirements analyst. Extract concise atomic requirement intents. Respond ONLY with JSON object: {{\"intents\": string[1-5]}}"),
-            ("human", "{user_prompt}"),
-        ])
+        prompt_tmpl = build_chat_prompt(PROMPT_ANALYST)
         llm = get_llm()
         chain = prompt_tmpl | llm.with_structured_output(IntentsOut)
         out: IntentsOut = await chain.ainvoke({"user_prompt": prompt})

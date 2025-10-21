@@ -2,8 +2,8 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator
 from workflow_models.requirements_models import ClarificationQuestion
 from workflow_models.agent_models import DraftRequirements, ClarificationPlan
-from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm
+from orchestrator.prompts import build_chat_prompt, QUESTION_STRATEGIST
 
 
 class QuestionStrategist:
@@ -15,11 +15,6 @@ class QuestionStrategist:
         axes_payload = component_scores
         prompt = user_prompt
 
-        system = (
-            "You are a requirements analyst. Given the user's prompt, the current draft requirements, "
-            "and axis scores (faithfulness, groundedness, response_relevancy, completeness), propose 1-3 concise, "
-            "targeted clarification questions to improve the weakest axes. Respond ONLY with a JSON object with a top-level 'questions' array, e.g. {{\"questions\": [{{...}}]}}."
-        )
         class QOut(BaseModel):
             id: Optional[str] = None
             text: Optional[str] = None
@@ -41,10 +36,7 @@ class QuestionStrategist:
                     return {"questions": value}
                 return value
 
-        tmpl = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", "user_prompt: {prompt}\ndraft: {draft}\naxis_scores: {axes}"),
-        ])
+        tmpl = build_chat_prompt(QUESTION_STRATEGIST)
         llm = get_llm()
         chain = tmpl | llm.with_structured_output(QList)
         out: QList = await chain.ainvoke({"prompt": prompt, "draft": draft_payload, "axes": axes_payload})

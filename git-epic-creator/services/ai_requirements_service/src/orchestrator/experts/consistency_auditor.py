@@ -1,12 +1,12 @@
 from workflow_models.agent_models import DraftRequirements, RetrievedContext, AuditFindings
 from typing import List, Set, Dict
 from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
 from orchestrator.experts.clients.llm import get_llm
+from orchestrator.prompts import build_chat_prompt, CONSISTENCY_AUDITOR
 import structlog
-from utils.deepeval_utils import evaluate_with_metrics, StrictGEval
-from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric
+from utils.deepeval_utils import evaluate_with_metrics
+from deepeval.test_case import LLMTestCase
+from orchestrator.prompts.rubrics import build_metrics_config
 
 logger = structlog.get_logger(__name__)
 
@@ -50,19 +50,17 @@ class ConsistencyAuditor:
         if not draft.risks:
             suggestions.append("Document key delivery risks")
 
+        # LLM-based consistency audit using BABOK validation principles
+        # Returns severity score (0.0-1.0) that will penalize all component scores:
+        #   - 0.0-0.3: Minor issues (style, formatting) → minimal penalty
+        #   - 0.4-0.6: Moderate issues (ambiguity, missing details) → medium penalty
+        #   - 0.7-1.0: Critical issues (contradictions, gaps, untestable) → severe penalty
         payload = self._build_draft_payload(draft)
-        system = (
-            "You are a senior requirements QA reviewer for finance. Critique the requirements for contradictions, "
-            "duplicates, gaps and relevance. Return ONLY JSON object with fields: {{severity (in [0,1]), suggestions (string[])}}."
-        )
         class Critique(BaseModel):
             severity: float = 0.0
             suggestions: List[str] = Field(default_factory=list)
 
-        tmpl = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", "requirements: {requirements}\nassumptions: {assumptions}\nrisks: {risks}\ncontexts: {contexts}"),
-        ])
+        tmpl = build_chat_prompt(CONSISTENCY_AUDITOR)
         llm = get_llm()
         chain = tmpl | llm.with_structured_output(Critique)
         out: Critique = await chain.ainvoke({
@@ -136,61 +134,8 @@ class ConsistencyAuditor:
             )
             logger.debug("deepeval_test_case_created", answer_text_length=len(answer_text))
             
-            # Configure metrics (configuration loaded automatically from shared LLM config)
-            metrics_config = {
-                "faithfulness": {
-                    "class": FaithfulnessMetric,
-                    "kwargs": {},
-                },
-                "groundedness": {
-                    "class": StrictGEval,
-                    "kwargs": {
-                        "name": "Citations",
-                        "criteria": "Does the actual output cite or clearly derive from the provided context?",
-                        "evaluation_steps": [
-                            "Identify all claims, facts, or statements in the actual output",
-                            "For each claim, verify if it can be traced back to or derived from the provided context",
-                            "Check if the actual output includes explicit citations or references to the context",
-                            "Evaluate whether the actual output introduces information not present in the context",
-                            "Assign a score based on how well the actual output is grounded in the provided context"
-                        ],
-                        "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
-                        "strict_mode": False,
-                        "verbose_mode": False,
-                    },
-                },
-                "response_relevancy": {
-                    "class": AnswerRelevancyMetric,
-                    "kwargs": {},
-                },
-                "completeness": {
-                    "class": StrictGEval,
-                    "kwargs": {
-                        "name": "Completeness",
-                        "criteria": "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria.",
-                        "evaluation_steps": [
-                            "Extract all user intents, requirements, and constraints from the input",
-                            "Identify each requirement, acceptance criterion, and assumption in the actual output",
-                            "Verify that each user intent from the input is addressed in the actual output",
-                            "Check if acceptance criteria are testable and follow Given/When/Then format",
-                            "Assess if any user intent or constraint is missing or inadequately addressed",
-                            "Assign a score based on completeness of coverage and quality of testable criteria"
-                        ],
-                        "evaluation_params": [LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-                        "strict_mode": False,
-                        "verbose_mode": False,
-                    },
-                },
-            }
-            
-            # Skip groundedness metric if only placeholder context is available
-            if not has_real_context:
-                logger.warning(
-                    "groundedness_metric_skipped",
-                    reason="No real context available from retrieval",
-                    message="Groundedness metric skipped due to empty retrieval context"
-                )
-                metrics_config.pop("groundedness", None)
+            # Configure metrics via shared rubrics
+            metrics_config = build_metrics_config(has_real_context)
             
             # Execute metrics (telemetry disabled, model cached, serialized GEval execution, 30s timeout)
             axes = await evaluate_with_metrics(test_case, metrics_config)
