@@ -92,6 +92,23 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     ingestor.backfill_entity_relationship_ids(cb)
     ingestor.backfill_community_membership(cb)
 
+    # Validation: check relationship health after ingestion
+    validation_stats = {}
+    try:
+        validation_stats = ingestor.validate_relationships()
+        logger.info("Relationship validation completed", stats=validation_stats)
+        
+        # Log warning if duplicate relationships detected
+        duplicate_count = validation_stats.get("duplicate_count", 0)
+        if duplicate_count > 0:
+            logger.warning(
+                "Duplicate relationships detected after ingestion",
+                duplicate_count=duplicate_count,
+                duplication_ratio=validation_stats.get("duplication_ratio", 0),
+            )
+    except Exception as exc:
+        logger.error("Relationship validation failed", error=str(exc))
+
     logger.info("Neo4j import counts", imported=imported, vectors=vector_counts)
 
     try:
@@ -104,6 +121,7 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
         "output_dir": str(output_dir),
         "neo4j_import": imported,
         "vector_import": vector_counts,
+        "validation": validation_stats,
     }
 
 

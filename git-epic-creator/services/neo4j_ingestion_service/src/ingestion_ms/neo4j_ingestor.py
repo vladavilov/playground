@@ -10,6 +10,8 @@ from .cypher import (
     get_merge_relationship_query,
     get_backfill_entity_rel_ids,
     get_backfill_community_membership,
+    get_validate_relationships_query,
+    get_cleanup_duplicate_relationships_query,
 )
 
 
@@ -155,3 +157,36 @@ class Neo4jIngestor:
             logger.warning("Failed to backfill community.entity_ids and IN_COMMUNITY edges", error=err)
         finally:
             callbacks.backfill_end(step, ok, err)
+
+    # -----------------------
+    # Validation and cleanup
+    # -----------------------
+    def validate_relationships(self) -> Dict[str, Any]:
+        """Validate relationship health for the current project.
+        
+        Returns statistics about entities and relationships including duplicate detection.
+        """
+        if not self._project_id:
+            raise ValueError("project_id is required for relationship validation")
+        
+        with self._driver.session() as session:
+            result = session.run(get_validate_relationships_query(), project_id=self._project_id)
+            record = result.single()
+            if record:
+                return dict(record)
+            return {}
+
+    def cleanup_duplicate_relationships(self) -> int:
+        """Remove duplicate RELATED relationships for the current project.
+        
+        Returns the count of duplicates removed.
+        """
+        if not self._project_id:
+            raise ValueError("project_id is required for relationship cleanup")
+        
+        with self._driver.session() as session:
+            result = session.run(get_cleanup_duplicate_relationships_query(), project_id=self._project_id)
+            record = result.single()
+            if record:
+                return record.get("total_duplicates_removed", 0)
+            return 0

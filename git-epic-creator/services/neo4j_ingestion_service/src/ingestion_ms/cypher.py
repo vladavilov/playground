@@ -48,6 +48,15 @@ def get_update_community_summary_embeddings_query() -> str:
 def get_update_entity_description_embeddings_query() -> str:
     return _load_query("update_entity_description_embeddings.cypher")
 
+
+def get_validate_relationships_query() -> str:
+    return _load_query("validate_relationships.cypher")
+
+
+def get_cleanup_duplicate_relationships_query() -> str:
+    return _load_query("cleanup_duplicate_relationships.cypher")
+
+
 __all__ = [
     "get_merge_document_query",
     "get_merge_chunk_query",
@@ -60,4 +69,6 @@ __all__ = [
     "get_update_chunk_embeddings_query",
     "get_update_community_summary_embeddings_query",
     "get_update_entity_description_embeddings_query",
+    "get_validate_relationships_query",
+    "get_cleanup_duplicate_relationships_query",
 ]
