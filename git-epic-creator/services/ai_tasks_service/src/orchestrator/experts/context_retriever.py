@@ -118,18 +118,80 @@ class ContextRetriever:
     def _build_query(self, analysis: RequirementsAnalysis) -> str:
         """Build GraphRAG query emphasizing technical implementation details."""
         intents = [i.strip() for i in analysis.intents if isinstance(i, str) and i.strip()]
+        entities = [e.strip() for e in analysis.entities if isinstance(e, str) and e.strip()]
+        constraints = [c.strip() for c in analysis.constraints if isinstance(c, str) and c.strip()]
         
         lines = [
-            "### Requirements for Backlog Generation",
+            "### Technical Context Query for Epic/Story Generation",
+            "",
+            "**Original Requirements:**",
             analysis.requirements_text.strip(),
             "",
-            "### Key Intents",
+            "**Technical Intents:**",
             *([f"- {i}" for i in intents] if intents else ["- (none)"]),
             "",
-            "### Context Needed",
-            "Provide technical implementation context: APIs, services, data models, "
-            "integration points, infrastructure constraints, and tech stack specifics.",
         ]
+        
+        # Add entities if present
+        if entities:
+            lines.extend([
+                "**Entities Involved:**",
+                f"{', '.join(entities)}",
+                "",
+            ])
+        
+        # Add constraints if present
+        if constraints:
+            lines.extend([
+                "**Constraints:**",
+                *[f"- {c}" for c in constraints],
+                "",
+            ])
+        
+        # Comprehensive technical context request
+        lines.extend([
+            "**Required Technical Context:**",
+            "",
+            "Provide detailed technical implementation context covering:",
+            "",
+            "1. **Architecture & Services:**",
+            "   - Existing services/microservices that need modification or integration",
+            "   - Service boundaries and responsibilities",
+            "   - Communication patterns (REST, gRPC, messaging, events)",
+            "   - API contracts and endpoints (existing or planned)",
+            "",
+            "2. **Data Layer:**",
+            "   - Data models, schemas, and entities involved",
+            "   - Database technologies (PostgreSQL, Neo4j, Redis, etc.)",
+            "   - Data access patterns and repositories",
+            "   - Data migration or transformation needs",
+            "",
+            "3. **Integration Points:**",
+            "   - External APIs or third-party services",
+            "   - Authentication/authorization mechanisms (JWT, OAuth, RBAC)",
+            "   - Message queues or event buses",
+            "   - File storage or document processing systems",
+            "",
+            "4. **Infrastructure & Deployment:**",
+            "   - Container/orchestration setup (Docker, Kubernetes)",
+            "   - Configuration management approaches",
+            "   - Environment-specific considerations",
+            "   - Monitoring, logging, and observability patterns",
+            "",
+            "5. **Technical Stack & Patterns:**",
+            "   - Programming languages and frameworks in use",
+            "   - Existing code patterns or architectural decisions",
+            "   - Shared libraries or common utilities",
+            "   - Testing strategies and tools",
+            "",
+            "6. **Dependencies & Constraints:**",
+            "   - Technical dependencies between components",
+            "   - Performance requirements or bottlenecks",
+            "   - Security considerations and compliance needs",
+            "   - Known technical debt or limitations",
+            "",
+            "Focus on providing **actionable technical information** that will help generate specific, implementable epics and user stories with concrete acceptance criteria.",
+        ])
         
         return "\n".join(lines)
 

@@ -48,10 +48,50 @@ class Evaluator:
         prompt_tmpl = ChatPromptTemplate.from_messages([
             (
                 "system",
-                "You are a Backlog Evaluator. Analyze the backlog and provide:\n"
-                "- **rationale**: Brief explanation of backlog quality\n"
-                "- **gaps**: Top 3 gaps (what's missing or unclear)\n\n"
-                "Respond ONLY with JSON: {{\"rationale\": string, \"gaps\": string[]}}",
+                "You are a Senior Backlog Evaluator and Technical Architect assessing the quality of a technical backlog. "
+                "Your evaluation focuses on whether the backlog is ACTIONABLE, COMPLETE, and IMPLEMENTABLE by an engineering team.\n\n"
+                "# Evaluation Framework\n\n"
+                "**Technical Quality Axes:**\n"
+                "1. **Coverage**: All requirements translated into epics/tasks with full scope\n"
+                "2. **Specificity**: Technical details (APIs, data models, infrastructure) are concrete and clear\n"
+                "3. **Feasibility**: Tasks are realistic, properly sized, and implementable\n"
+                "4. **Consistency**: No duplicates, circular dependencies, or contradictions\n\n"
+                "# Your Task\n\n"
+                "Analyze the backlog against the requirements and audit findings, then provide:\n\n"
+                "**1. Rationale (2-3 sentences):**\n"
+                "- Overall assessment of backlog quality\n"
+                "- Strongest aspects (e.g., 'Acceptance criteria are well-defined', 'Clear technical approach')\n"
+                "- Weakest aspects (e.g., 'Some tasks lack API specifics', 'Missing error handling coverage')\n\n"
+                "**2. Gaps (Top 3-5 specific gaps):**\n"
+                "- Missing requirements not covered by any epic/task\n"
+                "- Technical details absent from descriptions (which services, APIs, data models)\n"
+                "- Acceptance criteria issues (vague, not Given/When/Then, missing edge cases)\n"
+                "- Non-functional requirements not addressed (performance, security, observability)\n"
+                "- Architectural concerns (integration points, error handling, scalability)\n\n"
+                "**Examples of good gaps:**\n"
+                "- 'No task addresses authentication integration with existing identity service'\n"
+                "- 'T-005 lacks specific API endpoint definitions and response schemas'\n"
+                "- 'Missing acceptance criteria for error scenarios (timeouts, API failures)'\n"
+                "- 'No task covers database migration or schema evolution'\n"
+                "- 'Performance requirements (sub-200ms latency) not reflected in any acceptance criteria'\n\n"
+                "**Examples of poor gaps (too vague):**\n"
+                "- 'More details needed' ❌\n"
+                "- 'Tasks could be clearer' ❌\n"
+                "- 'Consider adding tests' ❌\n\n"
+                "# Output Format\n\n"
+                "Respond ONLY with JSON:\n"
+                "```json\n"
+                "{{\n"
+                "  \"rationale\": \"2-3 sentence assessment highlighting strengths and weaknesses\",\n"
+                "  \"gaps\": [\n"
+                "    \"Specific gap 1 with task/epic reference if applicable\",\n"
+                "    \"Specific gap 2 with technical detail about what's missing\",\n"
+                "    \"Specific gap 3\"\n"
+                "  ]\n"
+                "}}\n"
+                "```\n\n"
+                "**Be specific**: Reference epic/task IDs when identifying gaps. "
+                "**Be technical**: Focus on implementation details (APIs, schemas, configs), not just business outcomes.",
             ),
             ("human", "### Requirements\n{requirements}\n\n### Backlog & Findings\n{backlog_summary}"),
         ])
@@ -165,15 +205,21 @@ class Evaluator:
                 "specificity": {
                     "class": StrictGEval,
                     "kwargs": {
-                        "name": "Specificity",
-                        "criteria": "Are tasks technically clear, testable with Given/When/Then criteria, and have non-ambiguous scopes?",
+                        "name": "Technical Specificity",
+                        "criteria": (
+                            "Epics and tasks must be technically specific, implementable, and testable. "
+                            "Each work item should include concrete technical details (APIs, endpoints, data models, services, infrastructure), "
+                            "clear implementation approach, and well-formed Given/When/Then acceptance criteria with specific values."
+                        ),
                         "evaluation_steps": [
-                            "Identify all tasks and their acceptance criteria in the backlog",
-                            "Check if acceptance criteria follow Given/When/Then format",
-                            "Verify that task descriptions are technically specific and clear",
-                            "Assess if task scopes are unambiguous and well-defined",
-                            "Check for presence of technical details (APIs, data models, endpoints)",
-                            "Assign a score based on technical clarity and testability"
+                            "Parse all epics and tasks from the backlog output",
+                            "For each epic, check if description includes: technical approach, services/components involved, integration points, and architectural details",
+                            "For each task, verify presence of: specific API endpoints, data model details, configuration items, or infrastructure components",
+                            "Evaluate acceptance criteria format: must follow 'Given [specific precondition] When [action with parameters] Then [measurable outcome with values]'",
+                            "Check if acceptance criteria include specific values (status codes, field names, thresholds) rather than vague statements",
+                            "Assess if tasks specify HOW to implement (frameworks, libraries, patterns) not just WHAT business need",
+                            "Count tasks with vague descriptions (e.g., 'user-friendly', 'improve', 'enhance' without specifics)",
+                            "Score based on: (tasks with concrete technical details / total tasks) weighted with (criteria following Given/When/Then / total criteria)"
                         ],
                         "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
                         "strict_mode": False,
@@ -187,15 +233,21 @@ class Evaluator:
                 "duplication": {
                     "class": StrictGEval,
                     "kwargs": {
-                        "name": "Duplication",
-                        "criteria": "Are duplicates minimized? Tasks and epics should not overlap significantly or repeat the same functionality.",
+                        "name": "Uniqueness",
+                        "criteria": (
+                            "Backlog should minimize duplication and overlap. Each epic and task should address a distinct capability "
+                            "without repeating work covered by other items. Tasks should not implement the same API endpoint, modify the "
+                            "same data model, or duplicate acceptance criteria found elsewhere in the backlog."
+                        ),
                         "evaluation_steps": [
-                            "Identify all epics and tasks in the backlog",
-                            "Compare epic titles and descriptions for similarity",
-                            "Compare task titles and descriptions for overlap",
-                            "Check if multiple tasks/epics address the same requirement",
-                            "Evaluate if audit findings mention duplicate issues",
-                            "Assign a score based on uniqueness (1.0 = no duplicates, 0.0 = many duplicates)"
+                            "Extract all epic and task titles and descriptions from the backlog",
+                            "Compare epic pairs for semantic similarity in scope (e.g., both implementing authentication features)",
+                            "Compare task pairs for overlapping technical work (e.g., both creating the same API endpoint or database table)",
+                            "Identify acceptance criteria that appear in multiple tasks with minimal variation",
+                            "Check audit findings context for mentions of duplicate or overlapping work",
+                            "Assess if similar work could be consolidated into single tasks without loss of clarity",
+                            "Calculate duplication score: 1.0 - (number of identified overlaps / total work items)",
+                            "Apply penalties for: exact duplicate technical components (0.3), similar functionality (0.2), redundant acceptance criteria (0.1)"
                         ],
                         "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
                         "strict_mode": False,
