@@ -65,10 +65,11 @@ class PrimerResponse(BaseModel):
 
 
 class Citation(BaseModel):
-    """Citation reference to chunk with optional span."""
+    """Citation reference to chunk with optional span and document name."""
     
     chunk_id: Optional[str] = Field(default=None, description="Chunk ID reference (string)")
     span: str = Field(default="", description="Text span or excerpt")
+    document_name: Optional[str] = Field(default=None, description="Source document title")
     
     @field_validator("chunk_id", mode="before")
     @classmethod
@@ -94,6 +95,16 @@ class Citation(BaseModel):
         """Ensure span is a string."""
         if not isinstance(v, str):
             return str(v) if v else ""
+        return v
+    
+    @field_validator("document_name", mode="before")
+    @classmethod
+    def normalize_document_name(cls, v):
+        """Ensure document_name is a string or None."""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return str(v)
         return v
 
 

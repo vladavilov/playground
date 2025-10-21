@@ -101,6 +101,8 @@ class Neo4jRepository:
             "UNWIND $chunkIds AS cid "
             "MATCH (p:__Project__ {id: $projectId}) "
             "MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p) WHERE ch.id = cid "
+            # Get document information for the chunk
+            "OPTIONAL MATCH (d:__Document__)-[:HAS_CHUNK]->(ch) "
             # Get entities from current chunk
             "OPTIONAL MATCH (ch)-[:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p) "
             # Get related entities and their relationships
@@ -108,7 +110,7 @@ class Neo4jRepository:
             # Get chunks containing related entities
             "OPTIONAL MATCH (ch2:__Chunk__)-[:HAS_ENTITY]->(re) "
             "WHERE ch2 <> ch AND (ch2)-[:IN_PROJECT]->(p) "
-            "WITH cid, ch, "
+            "WITH cid, ch, d, "
             "collect(DISTINCT { _id: e.id, properties: { "
             "title: e.title, description: e.description, type: coalesce(e.type, ''), "
             "text_unit_ids: e.text_unit_ids } })[0..2] AS entities, "  # Reduced from 3 to 2
@@ -119,6 +121,7 @@ class Neo4jRepository:
             "collect(DISTINCT ch2.id)[0..3] AS neighbor_chunk_ids "  # Reduced from 5 to 3
             "RETURN cid AS chunk_id, "
             "substring(ch.text, 0, $maxChunkLen) AS text, "  # Truncate at database level
+            "d.title AS document_name, "
             "entities AS neighbours, related_entities, relationships, neighbor_chunk_ids"
         )
         rows = list(self._session.run(
@@ -132,6 +135,7 @@ class Neo4jRepository:
             result.append({
                 "chunk_id": str(r.get("chunk_id")) if r.get("chunk_id") is not None else None,
                 "text": r.get("text") or "",
+                "document_name": r.get("document_name") or "unknown",
                 "neighbours": r.get("neighbours") or [],
                 "related_entities": r.get("related_entities") or [],
                 "relationships": r.get("relationships") or [],

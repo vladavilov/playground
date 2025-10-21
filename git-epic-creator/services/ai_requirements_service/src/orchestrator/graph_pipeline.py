@@ -133,7 +133,10 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
             ]
             if top:
                 md_lines.append("- Top refs:")
-                md_lines.extend([f"  - {str(ref)}" for ref in top])
+                # Format citations as: [Document Name] "text preview..."
+                for cit in top:
+                    citation_display = f"[{cit.document_name}] \"{cit.text_preview}\""
+                    md_lines.append(f"  - {citation_display}")
             details_md = "\n".join(md_lines)
             await publisher.publish_workflow_update(
                 project_id=state["project_id"],

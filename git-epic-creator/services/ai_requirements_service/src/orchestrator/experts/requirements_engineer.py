@@ -17,7 +17,8 @@ class RequirementsEngineer:
         if getattr(context, "context_answer", None):
             contexts.append(str(context.context_answer))
         contexts.extend([str(k) for k in getattr(context, "key_facts", []) or []])
-        contexts.extend([f"citation:{c}" for c in (getattr(context, "citations", []) or [])])
+        # Format citations as: [Document Name] "text preview..."
+        contexts.extend([f"[{c.document_name}] {c.text_preview}" for c in (getattr(context, "citations", []) or [])])
         findings_payload = {
             "issues": list((findings.issues if findings else []) or []),
             "suggestions": list((findings.suggestions if findings else []) or []),

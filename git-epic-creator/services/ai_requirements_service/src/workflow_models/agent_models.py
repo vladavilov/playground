@@ -9,10 +9,17 @@ class PromptAnalysis(BaseModel):
     intents: List[str] = Field(default_factory=list)
 
 
+class Citation(BaseModel):
+    """Citation with user-friendly format: document name and text preview."""
+    chunk_id: str = Field(..., description="Chunk UUID")
+    text_preview: str = Field(..., description="Shortened chunk text (max 150 chars)")
+    document_name: str = Field(..., description="Source document title")
+
+
 class RetrievedContext(BaseModel):
     context_answer: str = ""
     key_facts: List[str] = Field(default_factory=list)
-    citations: List[str] = Field(default_factory=list)
+    citations: List[Citation] = Field(default_factory=list)
 
 
 class DraftRequirements(BaseModel):

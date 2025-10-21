@@ -176,7 +176,8 @@ class ConsistencyAuditor:
         if getattr(context, "context_answer", None):
             parts.append(str(context.context_answer))
         parts.extend([str(k) for k in getattr(context, "key_facts", []) or []])
-        parts.extend([f"citation:{c}" for c in (getattr(context, "citations", []) or [])])
+        # Format citations as: [Document Name] "text preview..."
+        parts.extend([f"[{c.document_name}] {c.text_preview}" for c in (getattr(context, "citations", []) or [])])
         
         # Guard against empty context - add placeholder for metric filtering
         if not parts:

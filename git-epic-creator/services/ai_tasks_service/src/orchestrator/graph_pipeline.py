@@ -185,6 +185,72 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         
         return {"context": context, "citations": citations}
 
+    async def validate_context_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate that retrieved context is sufficient for backlog generation.
+        
+        Raises:
+            ValueError: If context is insufficient, preventing LLM calls
+        """
+        context = state.get("context")
+        
+        # Check if context is empty or insufficient
+        context_answer = context.context_answer if context else ""
+        key_facts = context.key_facts if context else []
+        
+        # Validation criteria
+        is_context_empty = (
+            not context_answer or 
+            context_answer.strip() == "(no context available)" or
+            len(context_answer.strip()) < 50
+        )
+        
+        has_no_facts = not key_facts or len(key_facts) == 0
+        
+        if is_context_empty and has_no_facts:
+            # Publish error to user
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="error",
+                thought_summary="Insufficient project context for backlog generation.",
+                details_md=(
+                    "### ⚠️ Context Retrieval Failed\n\n"
+                    "Unable to retrieve sufficient project context (architecture, tech stack, services) "
+                    "from the knowledge base.\n\n"
+                    "**Possible reasons:**\n"
+                    "- Project documentation not yet ingested into GraphRAG\n"
+                    "- Requirements are too vague to match existing context\n"
+                    "- Knowledge base is empty for this project\n\n"
+                    "**Actions:**\n"
+                    "1. Ensure project documentation is ingested via Neo4j ingestion service\n"
+                    "2. Provide more specific requirements with technical details\n"
+                    "3. Include explicit technology stack in requirements if context is unavailable"
+                ),
+            )
+            
+            # Raise validation error to halt workflow
+            raise ValueError(
+                "Insufficient context retrieved. Cannot generate backlog without project-specific "
+                "technical context. Please ensure project documentation is ingested or provide "
+                "explicit technology stack in requirements."
+            )
+        
+        # If we have minimal context, issue a warning but proceed
+        if is_context_empty or has_no_facts:
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="warning",
+                thought_summary="Limited context available. Backlog may lack project-specific details.",
+                details_md=(
+                    "### ⚠️ Limited Context\n\n"
+                    "Retrieved context is minimal. Generated backlog may require refinement "
+                    "to align with actual project architecture and technology stack."
+                ),
+            )
+        
+        return {}  # No state changes, just validation
+
     async def fetch_backlog_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # Fetch existing GitLab backlog
         from config import get_ai_tasks_settings
@@ -523,6 +589,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
     builder.add_node("init", init_node)
     builder.add_node("analyze", analyze_node)
     builder.add_node("retrieve", retrieve_node)
+    builder.add_node("validate_context", validate_context_node)
     builder.add_node("fetch_backlog", fetch_backlog_node)
     builder.add_node("draft", draft_node)
     builder.add_node("map_duplicates", map_duplicates_node)
@@ -534,7 +601,8 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
     builder.add_edge(START, "init")
     builder.add_edge("init", "analyze")
     builder.add_edge("analyze", "retrieve")
-    builder.add_edge("retrieve", "fetch_backlog")
+    builder.add_edge("retrieve", "validate_context")
+    builder.add_edge("validate_context", "fetch_backlog")
     builder.add_edge("fetch_backlog", "draft")
     builder.add_edge("draft", "map_duplicates")
     builder.add_edge("map_duplicates", "audit")

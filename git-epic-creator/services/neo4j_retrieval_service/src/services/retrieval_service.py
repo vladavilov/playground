@@ -550,16 +550,26 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         
         return cached_results
 
-    def _create_minimal_followup_result(local_validated: LocalExecutorResponse, qtext: str) -> Dict[str, Any]:
+    def _create_minimal_followup_result(local_validated: LocalExecutorResponse, qtext: str, chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create minimal followup result for aggregation - strips unnecessary context.
         
         Aggregator only needs: question, answer, citations, confidence, new_followups.
         Full chunk contexts (text, entities, relationships) are NOT needed and waste tokens.
         """
+        # Build lookup map: chunk_id -> document_name
+        chunk_to_doc = {item.get("chunk_id"): item.get("document_name", "unknown") for item in chunks}
+        
         minimal_result = {
             "question": qtext,
             "answer": local_validated.answer,
-            "citations": [{"chunk_id": c.chunk_id, "span": c.span} for c in local_validated.citations],
+            "citations": [
+                {
+                    "chunk_id": c.chunk_id, 
+                    "span": c.span,
+                    "document_name": chunk_to_doc.get(c.chunk_id, "unknown")
+                } 
+                for c in local_validated.citations
+            ],
             "confidence": local_validated.confidence,
         }
         
@@ -759,7 +769,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
 
                         # Create minimal result for aggregation - strips unnecessary context
                         # Aggregator only needs: question, answer, citations, confidence, new_followups
-                        minimal_result = _create_minimal_followup_result(local_validated, qtext)
+                        minimal_result = _create_minimal_followup_result(local_validated, qtext, chunks)
                         
                         logger.debug(
                             "followup_result_created",
