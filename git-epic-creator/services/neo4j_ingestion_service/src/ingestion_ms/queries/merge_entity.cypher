@@ -35,6 +35,9 @@ WITH e, value, e.id AS existing_id, norm_title
 SET e += value
 SET e.id = coalesce(existing_id, value.id)
 SET e.norm_title = coalesce(norm_title, e.norm_title)
+// Track all merged entity IDs for reliable community relationship creation
+SET e.merged_ids = coalesce(e.merged_ids, []) + 
+    CASE WHEN value.id IN coalesce(e.merged_ids, []) THEN [] ELSE [value.id] END
 WITH e, value, value.project_id AS pid
 MERGE (p:__Project__ {id: pid})
 MERGE (e)-[:IN_PROJECT]->(p)

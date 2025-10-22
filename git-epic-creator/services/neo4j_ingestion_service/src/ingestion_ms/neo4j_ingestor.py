@@ -20,6 +20,7 @@ from .cypher import (
     get_cleanup_duplicate_relationships_query,
     get_cleanup_orphaned_nodes_query,
     get_detect_orphaned_nodes_query,
+    get_diagnose_community_isolation_query,
 )
 
 
@@ -152,17 +153,27 @@ class Neo4jIngestor:
             callbacks.backfill_end(step, ok, err)
 
     def backfill_community_membership(self, callbacks: IngestionWorkflowCallbacks) -> None:
+        """Backfill community.entity_ids and IN_COMMUNITY relationships for current project."""
         step = "backfill_community_membership"
         callbacks.backfill_start(step)
         ok = True
         err: str | None = None
         try:
+            if not self._project_id:
+                logger.warning("No project_id set, skipping community membership backfill")
+                ok = False
+                err = "No project_id set"
+                return
+                
             with self._driver.session() as session:
-                session.run(get_backfill_community_membership())
+                result = session.run(get_backfill_community_membership(), project_id=self._project_id)
+                record = result.single()
+                count = record.get("communities_processed", 0) if record else 0
+                logger.info("Backfilled community membership", project_id=self._project_id, communities_processed=count)
         except Exception as exc:
             ok = False
             err = str(exc)
-            logger.warning("Failed to backfill community.entity_ids and IN_COMMUNITY edges", error=err)
+            logger.warning("Failed to backfill community.entity_ids and IN_COMMUNITY edges", error=err, project_id=self._project_id)
         finally:
             callbacks.backfill_end(step, ok, err)
 

@@ -174,8 +174,34 @@ graph TB
 | `__Project__` | `id` (UUID) | - | Multi-tenant scoping; unique constraint on `id` |
 | `__Document__` | `id`, `project_id` | `title`, `text`, `metadata` (dict) | Source documents |
 | `__Chunk__` | `id`, `text`, `document_ids` (list), `project_id` | `n_tokens`, `chunk_index`, `embedding` (1536 float) | Deduplication by `text`; embedding set post-ingestion |
-| `__Entity__` | `id`, `description`, `text_unit_ids` (list), `project_id` | `title`, `norm_title`, `type`, `relationship_ids` (list), `embedding` (1536 float) | Matched by `id`, `norm_title`, or `description` |
+| `__Entity__` | `id`, `description`, `text_unit_ids` (list), `project_id` | `title`, `norm_title`, `type`, `relationship_ids` (list), `merged_ids` (list), `embedding` (1536 float) | Matched by `id`, `norm_title`, or `description`; `merged_ids` tracks all entity IDs merged into this entity |
 | `__Community__` | `community`, `full_content`, `entity_ids` (list), `project_id` | `level`, `title`, `summary`, `full_content_json`, `rank`, `rating_explanation`, `text_unit_ids` (list), `embedding` (1536 float) | Composite key: `(community, project_id)`; hierarchical Leiden communities |
+
+**Entity ID Deduplication & Merged ID Tracking:**
+
+Entities are deduplicated by `norm_title` and `description` during ingestion. When multiple entities with the same semantic identity are merged, the **first entity's ID is preserved** and subsequent IDs are tracked in a `merged_ids` array:
+
+**Example:**
+```cypher
+// entities.parquet has two entities with same norm_title
+{id: "entity_A", title: "Risk Model"}
+{id: "entity_B", title: "RISK MODEL"}  // Same after normalization
+
+// After merge_entity.cypher:
+(:__Entity__ {
+  id: "entity_A",                    // Primary ID (first one wins)
+  merged_ids: ["entity_A", "entity_B"]  // All IDs that reference this entity
+})
+```
+
+**Community Relationship Resolution:**
+
+- **GraphRAG output:** `communities.parquet` contains `entity_ids` that may reference merged IDs (e.g., `["entity_B"]`)
+- **Match strategy:** `merge_community.cypher` matches entities using: `WHERE entity_id IN e.merged_ids`
+- **Result:** Community finds the entity even if it references a merged ID
+- **Update:** `Community.entity_ids` is updated to current canonical IDs (e.g., `["entity_A"]`)
+
+This ensures `Entity-[:IN_COMMUNITY]->Community` relationships are created correctly even when entity IDs from GraphRAG output were merged during deduplication.
 
 **Key relationships:**
 
