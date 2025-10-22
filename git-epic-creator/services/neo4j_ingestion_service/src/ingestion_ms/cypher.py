@@ -44,10 +44,6 @@ def get_backfill_community_hierarchy() -> str:
     return _load_query("backfill_community_hierarchy.cypher")
 
 
-def get_backfill_community_embeddings() -> str:
-    return _load_query("backfill_community_embeddings.cypher")
-
-
 def get_update_community_embedding() -> str:
     return _load_query("update_community_embedding.cypher")
 
@@ -100,7 +96,6 @@ __all__ = [
     "get_backfill_entity_rel_ids",
     "get_backfill_community_membership",
     "get_backfill_community_hierarchy",
-    "get_backfill_community_embeddings",
     "get_backfill_community_ids",
     "get_update_community_embedding",
     "get_sync_entity_relationship_ids",

@@ -11,7 +11,6 @@ from .cypher import (
     get_backfill_entity_rel_ids,
     get_backfill_community_membership,
     get_backfill_community_hierarchy,
-    get_backfill_community_embeddings,
     get_backfill_community_ids,
     get_update_community_embedding,
     get_sync_entity_relationship_ids,
@@ -20,7 +19,6 @@ from .cypher import (
     get_cleanup_duplicate_relationships_query,
     get_cleanup_orphaned_nodes_query,
     get_detect_orphaned_nodes_query,
-    get_diagnose_community_isolation_query,
 )
 
 
