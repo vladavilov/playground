@@ -39,6 +39,19 @@ def get_backfill_entity_rel_ids() -> str:
 def get_backfill_community_membership() -> str:
     return _load_query("backfill_community_membership.cypher")
 
+
+def get_backfill_community_hierarchy() -> str:
+    return _load_query("backfill_community_hierarchy.cypher")
+
+
+def get_backfill_community_embeddings() -> str:
+    return _load_query("backfill_community_embeddings.cypher")
+
+
+def get_update_community_embedding() -> str:
+    return _load_query("update_community_embedding.cypher")
+
+
 def get_update_chunk_embeddings_query() -> str:
     return _load_query("update_chunk_embeddings.cypher")
 
@@ -57,6 +70,26 @@ def get_cleanup_duplicate_relationships_query() -> str:
     return _load_query("cleanup_duplicate_relationships.cypher")
 
 
+def get_cleanup_orphaned_nodes_query() -> str:
+    return _load_query("cleanup_orphaned_nodes.cypher")
+
+
+def get_detect_orphaned_nodes_query() -> str:
+    return _load_query("detect_orphaned_nodes.cypher")
+
+
+def get_sync_entity_relationship_ids() -> str:
+    return _load_query("sync_entity_relationship_ids.cypher")
+
+
+def get_backfill_community_ids() -> str:
+    return _load_query("backfill_community_ids.cypher")
+
+
+def get_validate_embeddings_query() -> str:
+    return _load_query("validate_embeddings.cypher")
+
+
 __all__ = [
     "get_merge_document_query",
     "get_merge_chunk_query",
@@ -66,9 +99,17 @@ __all__ = [
     "get_merge_relationship_query",
     "get_backfill_entity_rel_ids",
     "get_backfill_community_membership",
+    "get_backfill_community_hierarchy",
+    "get_backfill_community_embeddings",
+    "get_backfill_community_ids",
+    "get_update_community_embedding",
+    "get_sync_entity_relationship_ids",
+    "get_validate_embeddings_query",
     "get_update_chunk_embeddings_query",
     "get_update_community_summary_embeddings_query",
     "get_update_entity_description_embeddings_query",
     "get_validate_relationships_query",
     "get_cleanup_duplicate_relationships_query",
+    "get_cleanup_orphaned_nodes_query",
+    "get_detect_orphaned_nodes_query",
 ]

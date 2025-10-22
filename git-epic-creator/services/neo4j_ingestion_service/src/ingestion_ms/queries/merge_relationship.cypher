@@ -1,21 +1,25 @@
 UNWIND $rows AS value
 
-// Isolated subquery to find exactly ONE source entity deterministically
-CALL (value) {
-  WITH value
+// Normalize source and target once for reuse
+WITH value, toUpper(coalesce(value.source, '')) AS source_key, toUpper(coalesce(value.target, '')) AS target_key
+WHERE source_key <> '' AND target_key <> ''
+
+// Find source entity using normalized key
+CALL (source_key) {
   MATCH (s:__Entity__)
-  WHERE toUpper(coalesce(s.norm_title, s.title)) = toUpper(value.source)
-  WITH s ORDER BY s.id LIMIT 1
+  WHERE toUpper(coalesce(s.norm_title, s.title, '')) = source_key
   RETURN s
+  ORDER BY s.id
+  LIMIT 1
 }
 
-// Isolated subquery to find exactly ONE target entity deterministically
-CALL (value) {
-  WITH value
+// Find target entity using normalized key
+CALL (target_key) {
   MATCH (t:__Entity__)
-  WHERE toUpper(coalesce(t.norm_title, t.title)) = toUpper(value.target)
-  WITH t ORDER BY t.id LIMIT 1
+  WHERE toUpper(coalesce(t.norm_title, t.title, '')) = target_key
   RETURN t
+  ORDER BY t.id
+  LIMIT 1
 }
 
 // Filter out cases where either entity doesn't exist
@@ -46,10 +50,12 @@ ON MATCH SET
   rel.weight = coalesce(value.weight, rel.weight),
   rel.combined_degree = coalesce(value.combined_degree, rel.combined_degree)
 
-// Deduplicate text_unit_ids without APOC, preserving existing + new
-WITH rel, new_text_units, coalesce(rel.text_unit_ids, []) + new_text_units AS combined_ids
+// Deduplicate text_unit_ids after merge using pure Cypher
+WITH rel, coalesce(rel.text_unit_ids, []) + new_text_units AS combined_ids
 WHERE size(combined_ids) > 0
-UNWIND combined_ids AS id
-WITH rel, collect(DISTINCT id) AS dedup_ids
+WITH rel, [id IN combined_ids WHERE id IS NOT NULL] AS filtered_ids
+UNWIND filtered_ids AS text_unit_id
+WITH rel, collect(DISTINCT text_unit_id) AS dedup_ids
 SET rel.text_unit_ids = dedup_ids
-RETURN count(rel) AS relationships_processed
+
+RETURN count(DISTINCT rel) AS relationships_processed

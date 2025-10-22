@@ -91,6 +91,54 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     # Backfills
     ingestor.backfill_entity_relationship_ids(cb)
     ingestor.backfill_community_membership(cb)
+    ingestor.backfill_community_hierarchy(cb)
+    ingestor.backfill_community_ids(cb)
+    
+    # Sync entity relationship metadata (ensures property matches graph state)
+    ingestor.sync_entity_relationship_ids(cb)
+    
+    # Comprehensive embedding validation (all node types) - CRITICAL for DRIFT search
+    embedding_validation = ingestor.validate_all_embeddings(cb)
+    
+    # Check for critical embedding issues
+    if embedding_validation.get("has_critical_issues"):
+        logger.error(
+            "Pipeline completed with CRITICAL embedding issues",
+            project_id=project_id,
+            issues=embedding_validation.get("issues", []),
+            suggestions=embedding_validation.get("suggestions", [])
+        )
+        # Note: Pipeline continues but marks issues in result for downstream handling
+    elif embedding_validation.get("has_warnings"):
+        logger.warning(
+            "Pipeline completed with embedding warnings",
+            project_id=project_id,
+            issues=embedding_validation.get("issues", [])
+        )
+
+    # Cleanup: remove orphaned nodes after deduplication and merging
+    orphaned_stats = {}
+    try:
+        # First detect orphaned nodes for logging
+        orphaned_detection = ingestor.detect_orphaned_nodes()
+        logger.info("Orphaned nodes detection completed", stats=orphaned_detection)
+        
+        total_orphaned = orphaned_detection.get("total_orphaned", 0)
+        if total_orphaned > 0:
+            logger.warning(
+                "Orphaned nodes detected after ingestion",
+                orphaned_chunks=orphaned_detection.get("orphaned_chunks", 0),
+                orphaned_entities=orphaned_detection.get("orphaned_entities", 0),
+                orphaned_communities=orphaned_detection.get("orphaned_communities", 0),
+                unlinked_nodes=orphaned_detection.get("unlinked_nodes", 0),
+                total=total_orphaned,
+            )
+            
+            # Cleanup orphaned nodes
+            orphaned_stats = ingestor.cleanup_orphaned_nodes(cb)
+            logger.info("Orphaned nodes cleanup completed", stats=orphaned_stats)
+    except Exception as exc:
+        logger.error("Orphaned nodes cleanup failed", error=str(exc))
 
     # Validation: check relationship health after ingestion
     validation_stats = {}
@@ -121,6 +169,8 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
         "output_dir": str(output_dir),
         "neo4j_import": imported,
         "vector_import": vector_counts,
+        "embedding_validation": embedding_validation,
+        "orphaned_cleanup": orphaned_stats,
         "validation": validation_stats,
     }
 

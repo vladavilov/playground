@@ -1,7 +1,7 @@
-// Backfill entity.relationship_ids with outgoing and incoming RELATED relationship IDs
-// Process all entities across all projects (can be filtered by project if needed)
-
-MATCH (e:__Entity__)-[:IN_PROJECT]->(:__Project__)
+// Synchronize entity.relationship_ids with actual RELATED relationships
+// Should be run after relationship changes (merge, cleanup, delete)
+MATCH (p:__Project__ {id: $project_id})
+MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
 
 // Collect outgoing relationship IDs
 CALL (e) {
@@ -18,3 +18,5 @@ CALL (e) {
 // Combine and filter nulls
 WITH e, [id IN (out_ids + in_ids) WHERE id IS NOT NULL] AS all_rel_ids
 SET e.relationship_ids = all_rel_ids
+RETURN count(e) AS entities_updated
+

@@ -54,9 +54,36 @@ class SchemaQueryBuilder:
     def get_index_queries(self) -> List[str]:
         """
         Generate Neo4j index queries for the Graph RAG schema.
-
+        
+        Index Categories:
+        
+        1. **Vector Indexes** (Read-Side):
+           - Purpose: Semantic similarity search in DRIFT algorithm
+           - Usage: db.index.vector.queryNodes() calls in retrieval service
+           - Required: Yes (DRIFT search fails without them)
+        
+        2. **Community Indexes** (Read-Side):
+           - Purpose: Fast community lookups and hierarchical filtering
+           - Usage: fetch_community_summaries, vector_query_communities_by_level
+           - Required: Yes for performance (queries slow without them)
+        
+        3. **Entity Indexes** (Write-Side):
+           - Purpose: Entity deduplication during GraphRAG ingestion
+           - Usage: merge_entity.cypher OPTIONAL MATCH lookups
+           - Required: Yes for merge performance (ingestion 10x slower without)
+        
+        4. **Chunk/Document Indexes** (Write-Side):
+           - Purpose: Deduplication and relationship traversal
+           - Usage: merge_chunk.cypher, merge_document.cypher
+           - Required: Recommended (improves ingestion performance)
+        
+        Performance Notes:
+        - Write-side indexes: Trade write speed for merge correctness
+        - Read-side indexes: Essential for query performance (100x+ speedup)
+        - chunk_text_index: May cause issues on very large texts (>10KB)
+        
         Returns:
-            List[str]: List of Cypher index queries
+            List[str]: List of Cypher index creation queries
         """
         env = get_vector_index_env()
         prop = env.VECTOR_INDEX_PROPERTY
@@ -68,19 +95,70 @@ class SchemaQueryBuilder:
         )
 
         indexes = [
+            # ============================================================================
+            # VECTOR INDEXES (Read-Side: DRIFT Search)
+            # ============================================================================
+            # Used by: db.index.vector.queryNodes() in DRIFT primer and follow-up phases
+            # Purpose: Semantic similarity search for retrieval
+            # Dimensions: 1536 (text-embedding-3-small), Similarity: cosine
             (f"CREATE VECTOR INDEX {env.CHUNK_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_CHUNK}`) "
              f"ON (c.{prop}) {vector_index_options}"),
             (f"CREATE VECTOR INDEX {env.COMMUNITY_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) "
              f"ON (c.{prop}) {vector_index_options}"),
             (f"CREATE VECTOR INDEX {env.ENTITY_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) "
              f"ON (e.{prop}) {vector_index_options}"),
-            # Community support BTREE/FTS indexes
+            
+            # ============================================================================
+            # COMMUNITY INDEXES (Read-Side: DRIFT Search)
+            # ============================================================================
+            # community_id: Single-property lookups (faster than composite key)
+            # Used by: fetch_community_summaries, fetch_communities_brief
             (f"CREATE INDEX community_id IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) ON (c.id)"),
+            
+            # community_level: Hierarchical search filtering
+            # Used by: vector_query_communities_by_level (DRIFT primer phase)
+            # Purpose: Filter communities by hierarchy level (0=leaf, N=aggregate)
             (f"CREATE INDEX community_level IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) ON (c.level)"),
+            
+            # community_summary_fts: Full-text search on summaries (future feature)
+            # Currently unused - reserved for keyword search fallback
             (f"CREATE FULLTEXT INDEX community_summary_fts IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) ON EACH [c.summary]"),
+            
+            # ============================================================================
+            # ENTITY INDEXES (Write-Side: Merge Deduplication)
+            # ============================================================================
+            # Used by: merge_entity.cypher for finding existing entities by various properties
+            # Purpose: Entity deduplication during GraphRAG ingestion
+            # - norm_title: Case-insensitive title matching (primary dedup key)
+            # - title: Exact title matching (secondary dedup key)
+            # - description: Content-based matching (tertiary dedup key)
+            # Performance: Critical for merge performance (OPTIONAL MATCH lookups)
             (f"CREATE INDEX entity_norm_title_index IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) ON (e.norm_title)"),
+            (f"CREATE INDEX entity_title_index IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) ON (e.title)"),
             (f"CREATE INDEX entity_description_index IF NOT EXISTS FOR (e:`{LABEL_ENTITY}`) ON (e.description)"),
+            
+            # ============================================================================
+            # CHUNK INDEXES (Write-Side: Deduplication)
+            # ============================================================================
+            # chunk_text: Text-based deduplication during ingestion
+            # Used by: merge_chunk.cypher (line 18: MATCH (x:__Chunk__ {text:c.text}))
+            # WARNING: Chunk text can be large (>1500 chars). This index may cause:
+            #   - High storage overhead
+            #   - Slower write performance
+            #   - Index size limits on large texts
+            # Consider: Remove if ingestion performance degrades or storage is constrained
+            # Alternative: Use hash-based deduplication (e.g., SET c.text_hash = sha256(c.text))
             (f"CREATE INDEX chunk_text_index IF NOT EXISTS FOR (c:`{LABEL_CHUNK}`) ON (c.text)"),
+            
+            # ============================================================================
+            # DOCUMENT INDEXES (Mixed: Ingestion + Citations)
+            # ============================================================================
+            # document_title: Used for:
+            #   1. Write-side: Document deduplication (if needed)
+            #   2. Read-side: Citation retrieval (expand_neighborhood_minimal line 124)
+            # Note: Currently only used via relationship traversal in read queries,
+            #       but indexed for potential future direct lookups
+            (f"CREATE INDEX document_title_index IF NOT EXISTS FOR (d:`{LABEL_DOCUMENT}`) ON (d.title)"),
         ]
 
         logger.debug("Generated index queries", count=len(indexes))

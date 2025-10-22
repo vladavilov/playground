@@ -3,7 +3,8 @@ WITH value
 WITH value, value.project_id AS pid
 MERGE (p:__Project__ {id: pid})
 MERGE (c:__Community__ {community:value.community, project_id: pid}) 
-SET c += value 
+SET c.id = toString(value.community) + '_' + pid,
+    c += value 
 MERGE (c)-[:IN_PROJECT]->(p)
 WITH c, p, value, range(0, coalesce(size(value.entity_ids),0)-1) AS idxs 
 UNWIND idxs AS i 

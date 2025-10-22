@@ -54,15 +54,44 @@ Only returned for actual infrastructure/connection failures (Neo4j down, OpenAI 
 
 Your graph:
 
-    (:__Chunk__)<-[:FROM_CHUNK]-(:Node)
-    (:__Community__ {level:0})<-[:IN_COMMUNITY]-(:Node)
-    (:__Community__ {level:1})<-[:IN_COMMUNITY]-(:__Community__ {level:0})
-    (:__Community__ {level:N})<-[:IN_COMMUNITY]-(:__Community__ {level:N-1})
+    (:__Document__)-[:HAS_CHUNK]->(:__Chunk__)
+    (:__Chunk__)-[:HAS_ENTITY]->(:__Entity__)
+    (:__Entity__)-[:IN_COMMUNITY]->(:__Community__ {level:0})
+    (:__Chunk__)-[:IN_COMMUNITY]->(:__Community__ {level:0})
+    (:__Community__ {level:0})-[:IN_COMMUNITY]->(:__Community__ {level:1})
+    (:__Community__ {level:N-1})-[:IN_COMMUNITY]->(:__Community__ {level:N})
 
--   Communities have `summary` (text) describing contained nodes or
-    subcommunities.
--   Nodes/Chunks hold the original content.
--   Higher-level communities summarize their children.
+**Relationship Semantics:**
+- `HAS_CHUNK`: Document is split into text chunks
+- `HAS_ENTITY`: Chunk contains/mentions an entity extracted by GraphRAG
+- `IN_COMMUNITY`: Node belongs to a community in the Leiden hierarchy
+- `RELATED`: Entity has semantic relationship with another entity (with LLM-generated description)
+- `IN_PROJECT`: All nodes scoped to a project for multi-tenancy
+
+**Community Hierarchy:**
+- Direction: child → parent (level 0 → level 1 → level N)
+- Level 0: Leaf communities (direct entity membership)
+- Level N: Aggregate communities (contain lower-level communities)
+- Higher-level communities summarize their children's content
+
+**Properties:**
+-   Communities: `summary` (text describing entities/subcommunities), `embedding` (1536 floats)
+-   Chunks: `text` (original content), `embedding` (1536 floats)
+-   Entities: `title`, `description`, `embedding` (1536 floats)
+
+### Schema Design Notes
+
+**Why `HAS_ENTITY` instead of `FROM_CHUNK`?**
+- Semantic clarity: "Chunk HAS Entity" reads naturally
+- Query direction: Most queries start from chunks and expand to entities
+- Consistent with `HAS_CHUNK` pattern (Document → Chunk → Entity)
+
+**Community Hierarchy Direction:**
+- Child → Parent direction: `(level 0)-[:IN_COMMUNITY]->(level 1)`
+- Rationale: Entities "belong to" communities (upward direction)
+- Query pattern: Start with entities, traverse up to aggregate communities
+
+This differs from some GraphRAG reference implementations but provides clearer semantics for our use case.
 
 ### Properties
 
@@ -79,7 +108,37 @@ cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:__Community_
 
 ------------------------------------------------------------------------
 
-## 2. DRIFT Search Workflow
+## 2. Citation Handling
+
+### Document Name Retrieval
+Citations include the source document name for each chunk reference. The retrieval query fetches:
+```cypher
+coalesce(d.title, d.id, 'unknown') AS document_name
+```
+
+This ensures:
+- Primary: Use document's `title` property (set during ingestion)
+- Fallback 1: Use document's `id` if title is empty
+- Fallback 2: Use "unknown" if document is not found
+
+**Note:** The ingestion service ensures `title` is always populated (from `title` field or `metadata.file_name` fallback), so "unknown" should only appear if the `HAS_CHUNK` relationship is missing.
+
+### Citation Scope Design
+Citations are built from the **full retrieved chunk set**, not just the chunks sent to the LLM prompt. This design choice:
+- **Why:** Context window limits may require truncating chunks for LLM prompts (via `MAX_CHUNKS_FOR_PROMPT`)
+- **Benefit:** If LLM correctly cites a chunk from the retrieval set (even if truncated from prompt), we still map it correctly
+- **Risk:** If LLM hallucinates chunk IDs, they won't map (fallback to "unknown")
+- **Mitigation:** Prompts instruct LLM to cite from provided context; validation logs when mappings fail
+
+**Code Flow:**
+1. Retrieve top-K chunks via vector search (`_scoped_chunks_expanded`)
+2. Truncate for prompt (`_truncate_for_prompt` with `MAX_CHUNKS_FOR_PROMPT`)
+3. LLM generates answer with citations
+4. Map citations using **full retrieved set** (not truncated)
+
+This is working as designed and provides better citation coverage than mapping only to truncated chunks.
+
+## 3. DRIFT Search Workflow
 
 DRIFT combines **global primer search** with **local follow-ups** for
 improved coverage.
@@ -89,7 +148,10 @@ improved coverage.
 1.  **Primer**
     -   Expand query with HyDE (hypothetical document expansion).
     -   Embed query + HyDE.
-    -   Retrieve top-K communities by embedding similarity.
+    -   Retrieve top-K communities by embedding similarity **using hierarchical level filtering**:
+        -   Query highest-level communities first (global aggregate summaries)
+        -   Fall back to lower levels if insufficient results
+        -   Ensures DRIFT starts with broad context before drilling down
     -   Gather 1--3 representative chunks per community.
     -   LLM produces:
         -   Initial coarse answer
@@ -99,10 +161,12 @@ improved coverage.
         -   Restrict scope to target communities.
         -   Retrieve top-N chunks (vector + optional BM25).
         -   Expand with nearest neighbors (nodes, relations, chunks).
+        -   Build citation mapping: `chunk_id` → `document_name` from full retrieved set
         -   LLM produces:
-            -   Intermediate answer (with citations)
+            -   Intermediate answer (with citations referencing chunk_id)
             -   0--3 new follow-ups
             -   Confidence score
+        -   Map LLM citations to include document names for traceability
     -   Iterate for 2 passes (default).
 3.  **Final Aggregation**
     -   Collect Q/A tree (primer + follow-ups).
@@ -113,7 +177,7 @@ improved coverage.
 
 ------------------------------------------------------------------------
 
-## 3. Primer Phase Details
+## 4. Primer Phase Details
 
 ### HyDE Expansion
 
@@ -124,10 +188,62 @@ improved coverage.
     Question: "{user_query}"
     Hypothetical answer paragraph:
 
-### Community Retrieval
-cypher CALL db.index.vector.queryNodes('graphrag_comm_index', $k, $qvec) YIELD node, score RETURN node, score ORDER BY score DESC;
+### Hierarchical Community Retrieval
+
+**Strategy:** DRIFT primer phase queries communities using **hierarchy-aware filtering** to start with aggregate context:
+
+1. **Get max hierarchy level** for project: `MATCH (c:__Community__)-[:IN_PROJECT]->(:__Project__) RETURN max(c.level)`
+2. **Query top-level first** (level N): Aggregate communities with broadest summaries
+3. **Fall back to level N-1** if fewer than k/2 results found
+4. **Fallback to all levels** if no hierarchy exists (level = 0 for all)
+
+**Implementation:**
+```python
+max_level = repo.get_max_community_level(project_id)
+rows = repo.vector_query_communities_by_level(
+    index_name='graphrag_comm_index',
+    k=5,
+    qvec=query_vector,
+    project_id=project_id,
+    level=max_level  # Query highest level first
+)
+```
+
+**Cypher (level-aware):**
+```cypher
+MATCH (p:__Project__ {id: $projectId})
+MATCH (c:__Community__)-[:IN_PROJECT]->(p)
+WHERE c.level = $level  // Filter by hierarchy level
+WITH collect(c) AS candidates, p
+CALL db.index.vector.queryNodes($name, $k * 2, $qvec)
+YIELD node AS n, score
+WHERE n IN candidates
+RETURN n AS node, score
+ORDER BY score DESC LIMIT $k
+```
+
+**Why hierarchical?**
+- **Broader context first**: Level 2+ communities aggregate multiple lower-level communities
+- **Efficient drilling**: Avoid leaf-level noise in initial phase
+- **Better follow-ups**: LLM generates more targeted questions from high-level summaries
 ### Sample Chunks per Community
-cypher MATCH (c:__Community__) WHERE id(c) IN $communityIds CALL { WITH c, $qvec AS qvec MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:FROM_CHUNK]->(ch:__Chunk__) WITH ch, qvec CALL db.index.vector.queryNodes('chunk_idx', 50, qvec) YIELD node AS cand, score WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 3 } RETURN c, collect({chunk: chunk, score: score}) AS top_chunks;
+```cypher
+MATCH (c:__Community__)-[:IN_PROJECT]->(p:__Project__ {id: $projectId})
+WHERE c.community IN $communityIds 
+CALL { 
+  WITH c, $qvec AS qvec, p
+  // Get chunks that belong to this community
+  MATCH (c)<-[:IN_COMMUNITY]-(ch:__Chunk__)-[:IN_PROJECT]->(p)
+  WITH ch, qvec 
+  // Vector search within community's chunks
+  CALL db.index.vector.queryNodes('chunk_idx', 50, qvec) 
+  YIELD node AS cand, score 
+  WHERE cand = ch 
+  RETURN cand AS chunk, score 
+  ORDER BY score DESC LIMIT 3 
+} 
+RETURN c, collect({chunk: chunk, score: score}) AS top_chunks;
+```
 ### Primer Prompt
 
     You are DRIFT-Search Primer.
@@ -143,20 +259,50 @@ cypher MATCH (c:__Community__) WHERE id(c) IN $communityIds CALL { WITH c, $qvec
 
 ------------------------------------------------------------------------
 
-## 4. Follow-up Phase Details
+## 5. Follow-up Phase Details
 
 ### Scoped Retrieval
 
 Scoped retrieval means we only search within the **chunks belonging to
 specific target communities** (instead of the entire graph), which
 improves efficiency and precision.
-cypher WITH $qvec AS qvec, $cids AS cids MATCH (c:__Community__) WHERE id(c) IN cids MATCH (c)<-[:IN_COMMUNITY]-(:Node)-[:FROM_CHUNK]->(ch:__Chunk__) WITH DISTINCT ch, qvec CALL db.index.vector.queryNodes('chunk_idx', 200, qvec) YIELD node AS cand, score WHERE cand = ch RETURN cand AS chunk, score ORDER BY score DESC LIMIT 30;
+
+```cypher
+MATCH (p:__Project__ {id: $projectId})
+MATCH (c:__Community__)-[:IN_PROJECT]->(p)
+WHERE c.community IN $cids AND c.project_id = $projectId
+MATCH (c)<-[:IN_COMMUNITY]-(ch:__Chunk__)-[:IN_PROJECT]->(p)
+WITH DISTINCT ch.id AS chunk_id, p
+CALL db.index.vector.queryNodes('chunk_idx', 200, $qvec) 
+YIELD node AS cand, score 
+WHERE cand.id = chunk_id
+RETURN chunk_id, score 
+ORDER BY score DESC LIMIT 30;
+```
 ### Neighborhood Expansion
 
 For each selected chunk, fetch its **nearest neighbors** (1-hop nodes,
 relations, and chunks). This ensures local context is added without
 exploding the search space.
-cypher UNWIND $chunkIds AS cid MATCH (ch:__Chunk__) WHERE id(ch)=cid OPTIONAL MATCH (n)-[:FROM_CHUNK]->(ch) OPTIONAL MATCH (n)-[r]->(m)-[:FROM_CHUNK]->(ch2) RETURN cid, ch.text AS chunk_text, collect(DISTINCT {id:id(n), label:labels(n)}) AS nodes1, collect(DISTINCT {id:id(m), label:labels(m)}) AS nodes2, collect(DISTINCT {type:type(r)}) AS rels, collect(DISTINCT id(ch2)) AS neighbor_chunk_ids;
+
+```cypher
+UNWIND $chunkIds AS cid 
+MATCH (p:__Project__ {id: $projectId})
+MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p) WHERE ch.id = cid 
+// Get entities in this chunk
+OPTIONAL MATCH (ch)-[:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p)
+// Get related entities and their relationships
+OPTIONAL MATCH (e)-[r:RELATED]->(e2:__Entity__)-[:IN_PROJECT]->(p)
+// Get neighboring chunks that contain related entities
+OPTIONAL MATCH (ch2:__Chunk__)-[:HAS_ENTITY]->(e2)-[:IN_PROJECT]->(p)
+WHERE ch2 <> ch
+RETURN cid, 
+       ch.text AS chunk_text, 
+       collect(DISTINCT {id: e.id, title: e.title, description: e.description}) AS entities,
+       collect(DISTINCT {id: e2.id, title: e2.title}) AS related_entities,
+       collect(DISTINCT {type: type(r), description: r.description}) AS relationships,
+       collect(DISTINCT ch2.id) AS neighbor_chunk_ids;
+```
 ### Follow-up Prompt
 
     You are DRIFT-Search Local Executor.
@@ -173,7 +319,7 @@ cypher UNWIND $chunkIds AS cid MATCH (ch:__Chunk__) WHERE id(ch)=cid OPTIONAL MA
 
 ------------------------------------------------------------------------
 
-## 5. Aggregation Phase
+## 6. Aggregation Phase
 
 ### Prompt
 
@@ -191,7 +337,7 @@ cypher UNWIND $chunkIds AS cid MATCH (ch:__Chunk__) WHERE id(ch)=cid OPTIONAL MA
 
 ------------------------------------------------------------------------
 
-## 6. Configuration
+## 7. Configuration
 
 ### Azure OpenAI Environment Variables (Required)
 

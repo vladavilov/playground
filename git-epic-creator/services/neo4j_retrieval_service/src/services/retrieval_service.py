@@ -477,12 +477,45 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         return _as_str_content(res)
 
     def _fetch_communities(repo: Neo4jRepository, index_name: str, k: int, qvec: List[float], project_id: str) -> List[int]:
-        rows = repo.vector_query_nodes(index_name, k, qvec, project_id)
+        """
+        Fetch communities for DRIFT primer phase using hierarchical level filtering.
+        
+        Strategy:
+        1. Query highest-level communities first (global summaries)
+        2. Fall back to lower levels if insufficient results
+        3. Ensures DRIFT algorithm starts with aggregate context
+        """
+        # Get max hierarchy level for project
+        max_level = repo.get_max_community_level(project_id)
+        
+        if max_level > 0:
+            # Query at highest level first (aggregate communities)
+            logger.info("fetching_communities_by_level", level=max_level, k=k, project_id=project_id)
+            rows = repo.vector_query_communities_by_level(index_name, k, qvec, project_id, level=max_level)
+            
+            # If insufficient results, fall back to next level
+            if len(rows) < k // 2 and max_level > 0:
+                logger.info("insufficient_top_level_communities", found=len(rows), needed=k, falling_back_to_level=max_level - 1)
+                additional_rows = repo.vector_query_communities_by_level(
+                    index_name, 
+                    k - len(rows), 
+                    qvec, 
+                    project_id, 
+                    level=max_level - 1
+                )
+                rows.extend(additional_rows)
+        else:
+            # No hierarchy or flat structure - use all levels
+            logger.info("fetching_communities_all_levels", project_id=project_id)
+            rows = repo.vector_query_nodes(index_name, k, qvec, project_id)
+        
         communities: List[int] = []
         for r in rows:
             node = r.get("node")
             if node is not None:
                 communities.append(int(node["community"]))
+        
+        logger.info("communities_fetched", count=len(communities), max_level=max_level, project_id=project_id)
         return communities
 
     def _fetch_community_brief(
