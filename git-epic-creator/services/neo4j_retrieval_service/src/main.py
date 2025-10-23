@@ -27,7 +27,7 @@ app: FastAPI = FastAPIFactory.create_app(
     enable_cors=True,
     enable_postgres=False,
     enable_neo4j=False,
-    enable_redis=False,
+    enable_redis=True,
 )
 
 app.include_router(retrieval_router, prefix="/retrieve", tags=["Retrieval"])

@@ -441,6 +441,16 @@ VECTOR_INDEX_DIMENSIONS=1536
 VECTOR_INDEX_SIMILARITY=cosine
 ```
 
+### Redis Configuration
+
+Redis is required for publishing real-time progress updates to the UI:
+
+```bash
+REDIS_URL=redis://redis:6379          # Redis connection URL (required)
+```
+
+The service publishes progress messages to the `ui:retrieval_progress` channel. Redis client is initialized by `FastAPIFactory` with `enable_redis=True` in `main.py`.
+
 ### Retry Configuration
 
 Rate limiting protection uses shared retry settings:
