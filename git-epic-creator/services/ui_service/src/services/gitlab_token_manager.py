@@ -15,6 +15,7 @@ import time
 from typing import Optional, Dict, Any
 import structlog
 import httpx
+import os
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +39,8 @@ class GitLabTokenManager:
         gitlab_base_url: Optional[str] = None,
         client_id: Optional[str] = None,
         client_secret: Optional[str] = None,
-        verify_ssl: bool = True
+        verify_ssl: bool = True,
+        ca_cert_path: Optional[str] = None
     ):
         """
         Initialize GitLab token manager.
@@ -50,6 +52,7 @@ class GitLabTokenManager:
             client_id: GitLab OAuth client ID (for token refresh)
             client_secret: GitLab OAuth client secret (for token refresh)
             verify_ssl: Whether to verify SSL certificates for GitLab API calls
+            ca_cert_path: Optional path to custom CA cert file
         """
         self.session_id = session_id
         self.redis_client = redis_client
@@ -57,8 +60,18 @@ class GitLabTokenManager:
         self.client_id = client_id
         self.client_secret = client_secret
         self.verify_ssl = verify_ssl
+        self.ca_cert_path = (ca_cert_path or "").strip("/") if ca_cert_path else ""
         self._cache_key = f"{GITLAB_TOKEN_KEY_PREFIX}{session_id}"
-        
+
+        self._httpx_verify: Optional[str | bool] = self.verify_ssl
+        if self.verify_ssl and self.ca_cert_path and os.path.isfile(self.ca_cert_path):
+            self._httpx_verify = self.ca_cert_path
+            logger.info(f"Using custom CA cert file at {self.ca_cert_path}")
+        elif self.verify_ssl and self.ca_cert_path:
+            logger.info(f"Custom CA bundle not found at {self.ca_cert_path}; falling back to system trust store")
+        elif not self.verify_ssl:
+            logger.warning("Gitlab SSL verification disabled")
+
         logger.debug("GitLab token manager initialized", session_id=session_id)
     
     async def save_token(

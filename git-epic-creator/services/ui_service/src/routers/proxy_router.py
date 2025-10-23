@@ -7,18 +7,18 @@ that include comprehensive claims for proper authorization and audit logging.
 
 from __future__ import annotations
 
-from typing import Dict
 import time
-import structlog
+from typing import Dict
+
 import httpx
+import structlog
+from configuration.common_config import get_app_settings
+from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
-
-from configuration.common_config import get_app_settings
-from utils.jwt_utils import sign_jwt
 from services.gitlab_token_manager import get_gitlab_token_manager
+from utils.jwt_utils import sign_jwt
 from utils.redis_client import get_redis_client
-from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -76,7 +76,7 @@ def _mint_s2s_token(session: dict, target_service: str) -> str:
         RuntimeError: If JWT secret is not configured
     """
     now = int(time.time())
-    
+
     # Build comprehensive claims
     claims = {
         # Identity claims
@@ -84,19 +84,19 @@ def _mint_s2s_token(session: dict, target_service: str) -> str:
         "tid": str(session.get("tid") or ""),
         "preferred_username": session.get("username"),
         "roles": session.get("roles") or [],
-        
+
         # Token metadata
         "iss": "ui-service",
         "aud": target_service,
         "iat": now,
         "nbf": now,
         "exp": now + 600,  # 10 minutes
-        
+
         # Original Azure token metadata (for correlation)
         "azure_exp": session.get("exp"),
         "azure_iat": session.get("iat"),
     }
-    
+
     # Sign token (uses LOCAL_JWT_SECRET from environment)
     return sign_jwt(claims, expires_in_seconds=0)  # exp already set
 
@@ -121,20 +121,20 @@ async def _get_or_mint_s2s_token(
     """
     session_id = session.get("sid", "")
     cache_key = f"{session_id}:{target_service}"
-    
+
     # Check cache
     if cache_key in _s2s_token_cache:
         cached_token, cached_at = _s2s_token_cache[cache_key]
         if (time.time() - cached_at) < cache_ttl:
             logger.debug("Using cached S2S token", target_service=target_service)
             return cached_token
-    
+
     # Mint new token
     token = _mint_s2s_token(session, target_service)
-    
+
     # Cache it
     _s2s_token_cache[cache_key] = (token, time.time())
-    
+
     logger.debug("Minted new S2S token", target_service=target_service)
     return token
 
@@ -154,7 +154,7 @@ async def _invalidate_s2s_token_cache(session: dict) -> None:
         keys_to_remove = [k for k in _s2s_token_cache.keys() if k.startswith(f"{session_id}:")]
         for key in keys_to_remove:
             _s2s_token_cache.pop(key, None)
-        
+
         if keys_to_remove:
             logger.debug("Invalidated S2S token cache", session_id=session_id, count=len(keys_to_remove))
 
@@ -178,15 +178,15 @@ async def _forward(
     if not session_id:
         logger.warning("Proxy auth check failed: no session ID")
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
-    
+
     oid = request.session.get("oid")
     if not oid:
         logger.warning("Proxy auth check failed: no oid in session", session_id=session_id, session_keys=list(request.session.keys()))
         return JSONResponse({"detail": "Invalid session"}, status_code=401)
-    
+
     # Identify target service
     target_service = _identify_target_service(target_url)
-    
+
     # Mint S2S token with enhanced claims
     try:
         s2s_token = await _get_or_mint_s2s_token(
@@ -197,34 +197,36 @@ async def _forward(
     except Exception as e:
         logger.error("Failed to mint S2S token", error=str(e), error_type=type(e).__name__)
         return JSONResponse({"detail": "Server auth not configured"}, status_code=500)
-    
+
     # Build forward headers
     forward_headers: Dict[str, str] = {
         "Authorization": f"Bearer {s2s_token}"
     }
-    
+
     is_gitlab_route = (GITLAB_ROUTE_SEGMENT in (target_url or ""))
     is_tasks_service = (target_service == "tasks-service")
     requires_gitlab_token = is_gitlab_route or is_tasks_service
-    
+
     if requires_gitlab_token:
         try:
             redis_client = getattr(request.app.state, "redis_client", None) or get_redis_client()
-            
+
             gitlab_base_url = getattr(request.app.state, "gitlab_base_url", "")
             client_id = getattr(request.app.state, "gitlab_client_id", "")
             client_secret = getattr(request.app.state, "gitlab_client_secret", "")
             verify_ssl = getattr(request.app.state, "gitlab_verify_ssl", True)
-            
+            ca_cert_path = getattr(request.app.state, "gitlab_ca_cert_path", "")
+
             token_manager = await get_gitlab_token_manager(
                 session_id=session_id,
                 redis_client=redis_client,
                 gitlab_base_url=gitlab_base_url,
                 client_id=client_id,
                 client_secret=client_secret,
-                verify_ssl=verify_ssl
+                verify_ssl=verify_ssl,
+                ca_cert_path=ca_cert_path
             )
-            
+
             gitlab_token = await token_manager.get_valid_token()
             if gitlab_token:
                 forward_headers["GitLab-Access-Token"] = gitlab_token
@@ -235,19 +237,19 @@ async def _forward(
         except Exception as e:
             logger.error("Failed to get GitLab token", error=str(e), target_service=target_service)
             return JSONResponse({"detail": "GitLab authentication error"}, status_code=500)
-    
+
     # Preserve content headers
     ct = request.headers.get("content-type")
     if ct:
         forward_headers["Content-Type"] = ct
-    
+
     accept = request.headers.get("accept")
     if accept:
         forward_headers["Accept"] = accept
-    
+
     # Get request body
     body = await request.body()
-    
+
     # Forward request to upstream
     try:
         client = getattr(request.app.state, "upstream_http_client", None)
@@ -255,7 +257,7 @@ async def _forward(
         if client is None:
             client = httpx.AsyncClient(timeout=60.0)
             close_after = True
-        
+
         try:
             resp = await client.request(
                 method=request.method,
@@ -263,18 +265,18 @@ async def _forward(
                 content=body if body else None,
                 headers=forward_headers,
             )
-            
+
             logger.debug(
                 "Proxied request",
                 method=request.method,
                 target_service=target_service,
                 status_code=resp.status_code
             )
-            
+
         finally:
             if close_after:
                 await client.aclose()
-                
+
     except httpx.TimeoutException as exc:
         # Timeout errors should return 504 Gateway Timeout (not 502)
         logger.error(
@@ -302,7 +304,7 @@ async def _forward(
             {"detail": f"Upstream connection failed: {type(exc).__name__}"},
             status_code=502
         )
-    
+
     # Handle 401 Unauthorized from GitLab-related services
     # This indicates the GitLab token is invalid (e.g., after mock service restart)
     if resp.status_code == 401 and requires_gitlab_token:
@@ -312,11 +314,11 @@ async def _forward(
                 session_id=session_id,
                 target_service=target_service
             )
-            
+
             # Clear the invalid GitLab token from Redis
             # Note: token_manager was already initialized earlier in this function
             await token_manager.clear_token()
-            
+
             logger.info(
                 "GitLab token cleared due to 401 response",
                 session_id=session_id,
@@ -328,7 +330,7 @@ async def _forward(
                 session_id=session_id,
                 error=str(e)
             )
-    
+
     # Return response
     headers = _preserve_headers(resp)
     return Response(content=resp.content, status_code=resp.status_code, headers=headers)

@@ -28,6 +28,7 @@ class UiSettings(BaseConfig):
     GITLAB_OAUTH_REDIRECT_URI: str = Field(default="", description="GitLab OAuth redirect URI")
     GITLAB_OAUTH_SCOPES: str = Field(default="read_api", description="Space/comma separated scopes")
     GITLAB_VERIFY_SSL: bool = Field(default=True, description="Verify TLS for GitLab calls")
+    GITLAB_CA_CERT_PATH: str = Field(default="", description="Path to PEM bundle of CA certificates")
 
 
 @lru_cache()
