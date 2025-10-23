@@ -14,6 +14,7 @@ from celery_worker_app import celery_app, get_docling_processor, get_tika_proces
 from utils.redis_client import get_sync_redis_client
 from utils.workflow_gating import gate_and_enqueue_sync, cleanup_after_run_sync
 from utils.asyncio_runner import run_async
+from utils.celery_helpers import extract_auth_header
 
 if TYPE_CHECKING:
     from services.docling_processor import DoclingProcessor
@@ -145,9 +146,12 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                 hard_time_limit=3600)
 
     try:
-        auth_header = self.request.headers.get('Authentication')
-        if not auth_header:
-            raise RuntimeError("Missing Authentication for task")
+        # Extract and validate authentication token using shared utility
+        auth_header = extract_auth_header(
+            request=self.request,
+            logger=logger,
+            project_id=project_id
+        )
         # Acquire a per-project distributed lock to avoid concurrent processing (sync lock)
         sync_client = get_sync_redis_client()
         lock_key = f"{GATE_NS_DOCS}:lock:{project_id}"

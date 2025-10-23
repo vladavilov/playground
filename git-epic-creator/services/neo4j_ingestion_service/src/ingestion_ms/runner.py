@@ -18,13 +18,22 @@ from .callbacks import IngestionWorkflowCallbacks
 logger = structlog.get_logger(__name__)
 
 
-async def _run(workspace: Path, cb: IngestionWorkflowCallbacks) -> None:
+async def _run(workspace: Path, cb: IngestionWorkflowCallbacks) -> Dict[str, Any]:
     """Run GraphRAG indexing pipeline programmatically using the library API.
 
     Uses the common logger; no separate file handler/log file is configured here.
+    
+    Returns:
+        Dict with pipeline execution status:
+        {
+            'success': bool,
+            'output_dir': str,
+            'error': str (if failed)
+        }
     """
     # Build config dict programmatically and create GraphRAG config without writing files
     config = create_graphrag_config(configure_settings_for_json(), str(workspace))
+    output_dir = workspace / "output"
 
     try:
         callbacks = [cb]
@@ -34,9 +43,19 @@ async def _run(workspace: Path, cb: IngestionWorkflowCallbacks) -> None:
             await cb.drain()
         except Exception:
             pass
+        
+        logger.info("GraphRAG pipeline completed successfully", output_dir=str(output_dir))
+        return {
+            'success': True,
+            'output_dir': str(output_dir),
+        }
     except Exception as e:
         logger.exception("GraphRAG indexing failed")
-        raise RuntimeError("GraphRAG pipeline failed") from e
+        return {
+            'success': False,
+            'output_dir': str(output_dir),
+            'error': str(e),
+        }
 
 
 def ensure_workspace_initialized(workspace_root: Path, project_id: str) -> Path:
@@ -62,10 +81,58 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
 
     cb = IngestionWorkflowCallbacks(project_id=project_id)
 
-    await _run(workspace, cb)
+    # Run pipeline and capture result
+    pipeline_result = await _run(workspace, cb)
+    
+    # Abort if pipeline failed
+    if not pipeline_result.get('success'):
+        error_msg = pipeline_result.get('error', 'Unknown error')
+        logger.error(
+            "GraphRAG pipeline failed - aborting ingestion",
+            project_id=project_id,
+            error=error_msg
+        )
+        raise RuntimeError(f"GraphRAG pipeline failed: {error_msg}")
 
     # Post-processing: load outputs into Neo4j
     output_dir = workspace / "output"
+    
+    # Validate critical artifacts exist before proceeding
+    entities_parquet = output_dir / "entities.parquet"
+    communities_parquet = output_dir / "communities.parquet"
+    
+    entities_exist = entities_parquet.exists() and entities_parquet.stat().st_size > 0
+    communities_exist = communities_parquet.exists() and communities_parquet.stat().st_size > 0
+    
+    if not entities_exist and not communities_exist:
+        error_msg = (
+            "GraphRAG pipeline produced no entities or communities. "
+            "This indicates the pipeline failed to extract any meaningful graph structure. "
+            "Possible causes: empty input documents, LLM extraction failures, or schema mismatches."
+        )
+        logger.error(
+            "Critical artifacts missing after pipeline execution",
+            project_id=project_id,
+            entities_exist=entities_exist,
+            communities_exist=communities_exist,
+            output_dir=str(output_dir)
+        )
+        raise RuntimeError(error_msg)
+    
+    if not entities_exist:
+        logger.warning(
+            "entities.parquet missing or empty - graph will have no entity nodes",
+            project_id=project_id,
+            output_dir=str(output_dir)
+        )
+    
+    if not communities_exist:
+        logger.warning(
+            "communities.parquet missing or empty - DRIFT search will be degraded",
+            project_id=project_id,
+            output_dir=str(output_dir)
+        )
+    
     client = get_neo4j_client()
     driver = client.driver
     # Initialize readers and ingestor
