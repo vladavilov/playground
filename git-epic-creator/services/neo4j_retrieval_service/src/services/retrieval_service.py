@@ -241,6 +241,7 @@ class _State(TypedDict, total=False):
     question: str
     top_k: int
     project_id: str
+    prompt_id: Optional[str]  # Optional parent workflow prompt_id for UI tracking
     retrieval_id: UUID
     qvec: List[float]
     communities: List[int]
@@ -727,12 +728,15 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         # Publish initialization status
         if publisher:
             try:
+                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=retrieval_id,
                     phase=RetrievalStatus.INITIALIZING,
-                    thought_summary="Initializing retrieval session",
+                    thought_summary="🔍 **Initializing Context Retrieval**",
+                    details_md="Starting DRIFT search to find relevant information from the knowledge graph",
                     progress_pct=0.0,
+                    prompt_id=prompt_id_uuid,
                 )
             except Exception as exc:
                 logger.debug("publish_failed", phase="init", error=str(exc))
@@ -759,13 +763,15 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         # Publish query expansion status
         if publisher:
             try:
+                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.EXPANDING_QUERY,
-                    thought_summary="Expanding query with hypothetical document",
-                    details_md=f"Generated hypothetical answer to guide retrieval",
+                    thought_summary="📝 **Expanding Query**",
+                    details_md=f"Using HyDE (Hypothetical Document Embeddings) to improve search precision\n\n**Original query:** {state['question'][:100]}...\n\n**HyDE answer:** {hyde_answer[:100]}...",
                     progress_pct=20.0,
+                    prompt_id=prompt_id_uuid,
                 )
             except Exception as exc:
                 logger.debug("publish_failed", phase="hyde", error=str(exc))
@@ -815,13 +821,15 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         # Publish community retrieval status
         if publisher:
             try:
+                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.RETRIEVING_COMMUNITIES,
-                    thought_summary=f"Retrieved {len(communities)} communities, generated {len(followups)} follow-up questions",
-                    details_md=f"Initial answer prepared, identified {len(followups)} areas for deeper investigation",
+                    thought_summary=f"🌐 **Retrieved {len(communities)} Knowledge Communities**",
+                    details_md=f"**Communities found:** {len(communities)}\n**Follow-up questions generated:** {len(followups)}\n\nPrepared initial answer and identified areas for deeper investigation",
                     progress_pct=40.0,
+                    prompt_id=prompt_id_uuid,
                 )
             except Exception as exc:
                 logger.debug("publish_failed", phase="primer", error=str(exc))
@@ -865,13 +873,15 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                         if publisher:
                             try:
                                 progress = 40.0 + ((idx + 1) / total_followups) * 40.0  # 40-80% range
+                                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
                                 await publisher.publish_retrieval_update(
                                     project_id=UUID(state["project_id"]),
                                     retrieval_id=state["retrieval_id"],
                                     phase=RetrievalStatus.EXECUTING_FOLLOWUP,
-                                    thought_summary=f"Processing follow-up {idx + 1}/{total_followups}: {qtext[:80]}...",
-                                    details_md=f"**Question:** {qtext}",
+                                    thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
+                                    details_md=f"**Investigating:** {qtext}\n\nSearching targeted communities for specific details...",
                                     progress_pct=progress,
+                                    prompt_id=prompt_id_uuid,
                                 )
                             except Exception as exc:
                                 logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
@@ -1060,13 +1070,15 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         # Publish aggregation status
         if publisher:
             try:
+                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.AGGREGATING_RESULTS,
-                    thought_summary="Synthesizing final answer from all findings",
-                    details_md=f"Aggregated {len(agg_validated.key_facts)} key facts into final response",
+                    thought_summary="🧩 **Synthesizing Results**",
+                    details_md=f"**Key facts collected:** {len(agg_validated.key_facts)}\n\nAggregating findings from all sources into cohesive context...",
                     progress_pct=90.0,
+                    prompt_id=prompt_id_uuid,
                 )
             except Exception as exc:
                 logger.debug("publish_failed", phase="aggregate", error=str(exc))
@@ -1074,13 +1086,15 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         # Publish completion status
         if publisher:
             try:
+                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.COMPLETED,
-                    thought_summary="Retrieval completed successfully",
-                    details_md=f"Final answer with {len(agg_validated.key_facts)} key facts ready",
+                    thought_summary="✅ **Context Retrieval Complete**",
+                    details_md=f"**Final answer ready** with key facts: **{agg_validated.key_facts}** and citations: **{agg_validated.citations}**\n\nProceeding with generation...",
                     progress_pct=100.0,
+                    prompt_id=prompt_id_uuid,
                 )
             except Exception as exc:
                 logger.debug("publish_failed", phase="completed", error=str(exc))
@@ -1112,11 +1126,17 @@ class Neo4jRetrievalService:
         self._get_embedder = get_embedder
         self._publisher = publisher
 
-    async def retrieve(self, question: str, top_k: int, project_id: str) -> Dict[str, Any]:
+    async def retrieve(self, question: str, top_k: int, project_id: str, prompt_id: Optional[str] = None) -> Dict[str, Any]:
         """Retrieve with request deduplication and caching.
         
         If identical request is in-flight, waits for existing future.
         If identical request completed recently, returns cached result.
+        
+        Args:
+            question: User query
+            top_k: Number of results to retrieve
+            project_id: Project UUID
+            prompt_id: Optional parent workflow prompt_id for UI tracking
         """
         if not isinstance(question, str) or not question.strip():
             raise HTTPException(status_code=400, detail="query must be a non-empty string")
@@ -1149,7 +1169,7 @@ class Neo4jRetrievalService:
             else:
                 # Create new task for this request
                 future = asyncio.create_task(
-                    self._execute_retrieval(question, top_k, project_id)
+                    self._execute_retrieval(question, top_k, project_id, prompt_id)
                 )
                 _REQUEST_FUTURES[cache_key] = future
                 logger.info(
@@ -1157,7 +1177,8 @@ class Neo4jRetrievalService:
                     cache_key=cache_key[:16],
                     question_len=len(question),
                     top_k=int(top_k or 1),
-                    project_id=project_id
+                    project_id=project_id,
+                    prompt_id=prompt_id
                 )
         
         # Execute or wait for existing
@@ -1182,7 +1203,7 @@ class Neo4jRetrievalService:
         # Should not reach here
         raise RuntimeError("Request tracking state inconsistent")
 
-    async def _execute_retrieval(self, question: str, top_k: int, project_id: str) -> Dict[str, Any]:
+    async def _execute_retrieval(self, question: str, top_k: int, project_id: str, prompt_id: Optional[str] = None) -> Dict[str, Any]:
         """Execute actual retrieval pipeline (extracted from retrieve method)."""
         # Use persistent graph instance (reduces latency by 200-500ms per request)
         graph = await _get_or_create_graph(self._get_session, self._get_llm, self._get_embedder, self._publisher)
@@ -1195,10 +1216,11 @@ class Neo4jRetrievalService:
                 "question": question,
                 "top_k": int(top_k or 1),
                 "project_id": project_id,
+                "prompt_id": prompt_id,
                 "retrieval_id": retrieval_id,
             },
             {"configurable": {"thread_id": thread_id}},
         )
         result = state.get("result_json") or {}
-        logger.info("retrieval.response", has_result=bool(result), keys=len(list(result.keys())), retrieval_id=str(retrieval_id))
+        logger.info("retrieval.response", has_result=bool(result), keys=len(list(result.keys())), retrieval_id=str(retrieval_id), prompt_id=prompt_id)
         return result

@@ -627,16 +627,14 @@ function subscribeSSE() {
         // Build display text from message
         const md = msg.details_md || msg.thought_summary || 'Retrieving context...';
         
-        // Use retrieval_id as the box identifier (similar to prompt_id)
-        const rid = msg.retrieval_id || null;
+        const rid = msg.prompt_id || null;
         const box = getOrCreateBoxForPromptId(rid);
         if (box) {
           box.appendMarkdown(md);
           
-          // Finish box on completion or error
-          if (msg.phase === 'completed') {
-            box.finish('ok');
-          } else if (msg.phase === 'error') {
+          // Only finish box on error - retrieval completion doesn't end requirements workflow
+          // Requirements workflow will finish the box when it completes
+          if (msg.phase === 'error') {
             box.finish('error');
           }
         }

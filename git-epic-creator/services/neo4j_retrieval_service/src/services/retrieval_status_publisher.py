@@ -29,6 +29,7 @@ class RetrievalStatusPublisher(RedisProgressPublisher):
         thought_summary: str,
         details_md: Optional[str] = None,
         progress_pct: Optional[float] = None,
+        prompt_id: Optional[UUID] = None,
     ) -> bool:
         """Publish a retrieval progress update.
         
@@ -39,12 +40,14 @@ class RetrievalStatusPublisher(RedisProgressPublisher):
             thought_summary: User-visible progress summary
             details_md: Optional markdown details
             progress_pct: Optional progress percentage (0-100)
+            prompt_id: Optional parent workflow prompt_id for UI tracking
             
         Returns:
             True if published successfully, False otherwise
         """
         message = RetrievalProgressMessage(
             project_id=project_id,
+            prompt_id=prompt_id,
             retrieval_id=retrieval_id,
             phase=phase,
             thought_summary=thought_summary,

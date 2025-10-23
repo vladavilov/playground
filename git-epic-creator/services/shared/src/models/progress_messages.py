@@ -172,6 +172,11 @@ class RetrievalProgressMessage(BaseModel):
         description="Project ID", 
         json_schema_extra={"format": "uuid"}
     )
+    prompt_id: Optional[UUID] = Field(
+        None,
+        description="Parent workflow prompt_id for UI box tracking",
+        json_schema_extra={"format": "uuid"},
+    )
     retrieval_id: UUID = Field(
         default_factory=uuid4,
         description="Unique retrieval session identifier",
@@ -214,9 +219,9 @@ class RetrievalProgressMessage(BaseModel):
             raise ValueError("progress_pct must be between 0 and 100")
         return v
 
-    @field_serializer("project_id", "retrieval_id", "message_id", when_used="always")
-    def _serialize_uuid(self, v: UUID) -> str:  # noqa: D401
-        return str(v)
+    @field_serializer("project_id", "prompt_id", "retrieval_id", "message_id", when_used="always")
+    def _serialize_uuid(self, v: Optional[UUID]) -> str | None:  # noqa: D401
+        return str(v) if v is not None else None
 
     @field_serializer("timestamp", when_used="always")
     def _serialize_timestamp(self, v: datetime) -> str:  # noqa: D401

@@ -18,6 +18,7 @@ class RetrievalRequest(BaseModel):
     query: str
     top_k: int = 1
     project_id: str
+    prompt_id: str | None = None  # Optional parent workflow prompt_id for UI tracking
 
 @retrieval_router.post("")
 async def retrieve(req: RetrievalRequest, request: Request, current_user: LocalUser = Depends(get_local_user_verified)) -> Dict[str, Any]:
@@ -40,7 +41,12 @@ async def retrieve(req: RetrievalRequest, request: Request, current_user: LocalU
             get_embedder=get_embedder,
             publisher=publisher
         )
-        result = await service.retrieve(req.query, top_k=req.top_k, project_id=req.project_id)
+        result = await service.retrieve(
+            req.query, 
+            top_k=req.top_k, 
+            project_id=req.project_id,
+            prompt_id=req.prompt_id
+        )
         
         # Check if result is empty (no data scenario)
         is_empty = (

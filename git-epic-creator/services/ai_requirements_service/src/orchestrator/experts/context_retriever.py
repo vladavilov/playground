@@ -9,8 +9,8 @@ logger = structlog.get_logger(__name__)
 
 
 class ContextRetriever:
-    async def retrieve(self, analysis: PromptAnalysis, project_id: Any, auth_header: str) -> RetrievedContext:
-        data = await self._retrieve_from_provider(analysis.prompt, analysis.intents, project_id, auth_header=auth_header)
+    async def retrieve(self, analysis: PromptAnalysis, project_id: Any, auth_header: str, prompt_id: Any = None) -> RetrievedContext:
+        data = await self._retrieve_from_provider(analysis.prompt, analysis.intents, project_id, auth_header=auth_header, prompt_id=prompt_id)
         key_facts = []
         citations: list[Citation] = []
         try:
@@ -144,7 +144,7 @@ class ContextRetriever:
             lines.append("- (none)")
         return "\n".join(lines)
 
-    async def _retrieve_from_provider(self, query: str, intents: List[str], project_id: Any, auth_header: str):
+    async def _retrieve_from_provider(self, query: str, intents: List[str], project_id: Any, auth_header: str, prompt_id: Any = None):
         # Strict validation: auth_header is required for authentication to retrieval service
         if not auth_header or not isinstance(auth_header, str):
             raise ValueError(
@@ -154,7 +154,12 @@ class ContextRetriever:
         
         settings = config.get_ai_requirements_settings()
         merged = self._merge_query_with_intents(query, intents)
-        payload = {"query": merged, "top_k": settings.RETRIEVAL_TOP_K, "project_id": str(project_id)}
+        payload = {
+            "query": merged, 
+            "top_k": settings.RETRIEVAL_TOP_K, 
+            "project_id": str(project_id),
+            "prompt_id": str(prompt_id) if prompt_id else None
+        }
 
         timeout = settings.http.READ_TIMEOUT
         attempts = settings.RETRY_MAX_ATTEMPTS
