@@ -734,7 +734,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     retrieval_id=retrieval_id,
                     phase=RetrievalStatus.INITIALIZING,
                     thought_summary="🔍 **Initializing Context Retrieval**",
-                    details_md="Starting DRIFT search to find relevant information from the knowledge graph",
+                    details_md=f"**Starting DRIFT search**\n\nTo find relevant information from the knowledge graph by question: {state['question'][:300]}...",
                     progress_pct=0.0,
                     prompt_id=prompt_id_uuid,
                 )
@@ -769,7 +769,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.EXPANDING_QUERY,
                     thought_summary="📝 **Expanding Query**",
-                    details_md=f"Using HyDE (Hypothetical Document Embeddings) to improve search precision\n\n**Original query:** {state['question'][:100]}...\n\n**HyDE answer:** {hyde_answer[:100]}...",
+                    details_md=f"**Using HyDE (Hypothetical Document Embeddings) to improve search precision**\n\nHyDE answer: {hyde_answer[:300]}...",
                     progress_pct=20.0,
                     prompt_id=prompt_id_uuid,
                 )
@@ -827,7 +827,12 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.RETRIEVING_COMMUNITIES,
                     thought_summary=f"🌐 **Retrieved {len(communities)} Knowledge Communities**",
-                    details_md=f"**Communities found:** {len(communities)}\n**Follow-up questions generated:** {len(followups)}\n\nPrepared initial answer and identified areas for deeper investigation",
+                    details_md=(
+                        f"**Communities found:** {len(communities)}"
+                        + "\n\n**Follow-up questions:**\n"
+                        + "\n".join([f"- {f.get('question','')}" for f in (followups or [])])
+                        if followups else ""
+                    ),
                     progress_pct=40.0,
                     prompt_id=prompt_id_uuid,
                 )
@@ -868,23 +873,6 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             followup_index=idx,
                             question=qtext[:100],
                         )
-                        
-                        # Publish followup execution status
-                        if publisher:
-                            try:
-                                progress = 40.0 + ((idx + 1) / total_followups) * 40.0  # 40-80% range
-                                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
-                                await publisher.publish_retrieval_update(
-                                    project_id=UUID(state["project_id"]),
-                                    retrieval_id=state["retrieval_id"],
-                                    phase=RetrievalStatus.EXECUTING_FOLLOWUP,
-                                    thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
-                                    details_md=f"**Investigating:** {qtext}\n\nSearching targeted communities for specific details...",
-                                    progress_pct=progress,
-                                    prompt_id=prompt_id_uuid,
-                                )
-                            except Exception as exc:
-                                logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
                         
                         qvec = await _embed_with_cache(qtext, state)
                         
@@ -965,6 +953,44 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                         # Explicit cleanup of large chunk data after processing
                         del chunks, local_response, local_validated
                         
+                         # Publish followup execution status
+                        if publisher:
+                            try:
+                                progress = 40.0 + ((idx + 1) / total_followups) * 40.0  # 40-80% range
+                                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
+                                await publisher.publish_retrieval_update(
+                                    project_id=UUID(state["project_id"]),
+                                    retrieval_id=state["retrieval_id"],
+                                    phase=RetrievalStatus.EXECUTING_FOLLOWUP,
+                                    thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
+                                    details_md=(
+                                        f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n\n"
+                                        f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
+                                        f"**Citations:**\n" +
+                                        (
+                                            "\n".join(
+                                                [
+                                                    f"- {c.get('document_name', 'Unknown')}: \"{c.get('text_preview', '')[:120]}\""
+                                                    for c in minimal_result.get('citations', []) or []
+                                                ]
+                                            )
+                                            if minimal_result.get('citations') else "No citations."
+                                        ) +
+                                        (
+                                            f"\n\n**Confidence:** {minimal_result.get('confidence'):.2f}"
+                                            if isinstance(minimal_result.get('confidence'), (float, int)) else ""
+                                        ) +
+                                        (
+                                            f"\n\n**New Follow-ups:** {len(minimal_result.get('new_followups', []))}"
+                                            if 'new_followups' in minimal_result else ""
+                                        )
+                                    ),
+                                    progress_pct=progress,
+                                    prompt_id=prompt_id_uuid,
+                                )
+                            except Exception as exc:
+                                logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
+
                         # Check for early exit based on confidence threshold
                         if idx >= settings.MIN_FOLLOWUPS_BEFORE_EXIT - 1:
                             confidence = minimal_result.get("confidence", 0.0)
@@ -1025,6 +1051,82 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
             # Return whatever results we collected before the failure
             return {"followup_results": results}
 
+    def _enrich_citations_from_followups(agg_validated: AggregatorResponse, followup_results: List[Dict[str, Any]]) -> None:
+        """Enrich aggregated key_facts citations with full metadata from followup results.
+        
+        The LLM aggregator returns chunk IDs as strings, but we need full citation objects
+        with {chunk_id, span, document_name} for downstream services. This function maps
+        chunk ID strings to rich citation objects from the followup results.
+        
+        Mutates agg_validated.key_facts in place.
+        """
+        # Build lookup map: chunk_id -> citation object
+        citation_map: Dict[str, Dict[str, Any]] = {}
+        for fr in followup_results:
+            for cit in fr.get("citations", []) or []:
+                if isinstance(cit, dict) and "chunk_id" in cit:
+                    chunk_id = str(cit.get("chunk_id", ""))
+                    if chunk_id and chunk_id not in citation_map:
+                        citation_map[chunk_id] = cit
+        
+        logger.debug(
+            "citation_enrichment_map_built",
+            unique_citations=len(citation_map),
+            total_followup_results=len(followup_results)
+        )
+        
+        # Enrich each key_fact's citations
+        for kf in agg_validated.key_facts:
+            enriched_citations = []
+            for citation_item in kf.citations:
+                # Handle both string chunk IDs (from LLM) and already-enriched dicts (edge case)
+                if isinstance(citation_item, dict):
+                    # Already enriched (shouldn't happen, but handle gracefully)
+                    enriched_citations.append(citation_item)
+                    logger.debug(
+                        "citation_already_enriched",
+                        chunk_id=citation_item.get("chunk_id"),
+                        message="Citation already in enriched format"
+                    )
+                elif isinstance(citation_item, str):
+                    # String chunk ID - look up in citation map
+                    chunk_id = citation_item
+                    if chunk_id in citation_map:
+                        # Found full metadata - use it
+                        enriched_citations.append(citation_map[chunk_id])
+                    else:
+                        # Not found - keep as string (will be treated as legacy format downstream)
+                        logger.warning(
+                            "citation_enrichment_not_found",
+                            chunk_id=chunk_id,
+                            message="Chunk ID from aggregator not found in followup results"
+                        )
+                        enriched_citations.append(chunk_id)
+                else:
+                    # Unknown type - coerce to string and keep as-is
+                    logger.warning(
+                        "citation_enrichment_unknown_type",
+                        type=type(citation_item).__name__,
+                        value=str(citation_item)[:50],
+                        message="Unknown citation type during enrichment"
+                    )
+                    enriched_citations.append(str(citation_item))
+            
+            kf.citations = enriched_citations
+        
+        enriched_count = sum(
+            1 for kf in agg_validated.key_facts 
+            for cit in kf.citations 
+            if isinstance(cit, dict)
+        )
+        
+        logger.info(
+            "citation_enrichment_complete",
+            key_facts_count=len(agg_validated.key_facts),
+            enriched_citations=enriched_count,
+            message="Enriched aggregated citations with full metadata from followup results"
+        )
+
     async def aggregate_node(state: Dict[str, Any]) -> Dict[str, Any]:
         llm = get_llm()
         prompt = aggregator_prompt()
@@ -1057,6 +1159,9 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
             "Aggregator",
         )
         
+        # Enrich key_facts citations with full metadata from followup results
+        _enrich_citations_from_followups(agg_validated, state.get("followup_results", []))
+        
         result_json = agg_validated.model_dump()
         
         logger.info(
@@ -1071,12 +1176,41 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         if publisher:
             try:
                 prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
+                
+                # Format key facts with nested citations (handle both dict and string formats)
+                facts_detail_md = ""
+                if agg_validated.key_facts:
+                    facts_detail_md = "**Validated key facts:**\n"
+                    for idx, kf in enumerate(agg_validated.key_facts, 1):
+                        facts_detail_md += f"{idx}. {kf.fact}\n"
+                        if kf.citations:
+                            citation_displays = []
+                            for cit in kf.citations[:5]:  # Limit to 5 for readability
+                                if isinstance(cit, dict):
+                                    # Enriched format with document name
+                                    doc_name = cit.get("document_name", "unknown")
+                                    citation_displays.append(doc_name)
+                                else:
+                                    # Legacy string format (chunk ID)
+                                    citation_displays.append(str(cit))
+                            
+                            facts_detail_md += f"   - *Sources:* {', '.join(citation_displays)}"
+                            if len(kf.citations) > 5:
+                                facts_detail_md += f" (and {len(kf.citations) - 5} more)"
+                            facts_detail_md += "\n"
+                else:
+                    facts_detail_md = "No key facts found."
+                
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.AGGREGATING_RESULTS,
                     thought_summary="🧩 **Synthesizing Results**",
-                    details_md=f"**Key facts collected:** {len(agg_validated.key_facts)}\n\nAggregating findings from all sources into cohesive context...",
+                    details_md=(
+                        f"**Key facts collected:** {len(agg_validated.key_facts)}\n\n"
+                        + facts_detail_md
+                        + "\n\nAggregating findings from all sources into cohesive context..."
+                    ),
                     progress_pct=90.0,
                     prompt_id=prompt_id_uuid,
                 )
@@ -1087,12 +1221,31 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         if publisher:
             try:
                 prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
+                
+                # Format key facts with their nested citations for display (handle both dict and string formats)
+                facts_md = ""
+                if agg_validated.key_facts:
+                    facts_md = "\n\n**Key Facts:**\n"
+                    for idx, kf in enumerate(agg_validated.key_facts, 1):
+                        facts_md += f"{idx}. {kf.fact}\n"
+                        if kf.citations:
+                            citation_displays = []
+                            for cit in kf.citations:
+                                if isinstance(cit, dict):
+                                    # Enriched format - show document name
+                                    doc_name = cit.get("document_name", "unknown")
+                                    citation_displays.append(f"[{doc_name}]")
+                                else:
+                                    # Legacy string format
+                                    citation_displays.append(str(cit))
+                            facts_md += f"   - *Citations:* {', '.join(citation_displays)}\n"
+                
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.COMPLETED,
                     thought_summary="✅ **Context Retrieval Complete**",
-                    details_md=f"**Final answer ready** with key facts: **{agg_validated.key_facts}** and citations: **{agg_validated.citations}**\n\nProceeding with generation...",
+                    details_md=f"**Final answer ready**{facts_md}\n\nProceeding with generation...",
                     progress_pct=100.0,
                     prompt_id=prompt_id_uuid,
                 )

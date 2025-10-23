@@ -25,11 +25,28 @@ Retrieves context from Neo4j graph using DRIFT search algorithm.
 ```json
 {
   "final_answer": "string",
-  "key_facts": [{"fact": "string", "citations": ["chunk_id"]}],
-  "citations": [{"chunk_id": "string", "span": "string"}],
+  "key_facts": [
+    {
+      "fact": "string",
+      "citations": [
+        {"chunk_id": "uuid", "span": "text excerpt", "document_name": "Document Title"},
+        "chunk_id_fallback_string"
+      ]
+    }
+  ],
   "residual_uncertainty": "string"
 }
 ```
+
+**Citation Structure:**
+- Citations are **nested within each key_fact**, not provided as a top-level array
+- Each key_fact contains a `citations` array that supports that specific fact
+- **Citation Format (Enriched):** Most citations are objects with:
+  - `chunk_id`: UUID string of the source chunk
+  - `span`: Text excerpt from the chunk
+  - `document_name`: Human-readable source document title
+- **Citation Format (Fallback):** If enrichment lookup fails, citations may be plain chunk ID strings
+- This structure preserves the semantic link between facts and their supporting evidence
 
 **Response (200 OK - No Data Found):**
 Returns 200 (not 500) when no data exists in graph for the query:
@@ -37,7 +54,6 @@ Returns 200 (not 500) when no data exists in graph for the query:
 {
   "final_answer": "",
   "key_facts": [],
-  "citations": [],
   "residual_uncertainty": "",
   "no_data_found": true
 }
@@ -141,8 +157,22 @@ cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:__Community_
 
 ## 2. Citation Handling
 
+### Citation Structure
+**Citations are nested within key_facts, not provided as a top-level array.** This design:
+- Preserves the semantic link between facts and their supporting evidence
+- Allows each fact to have its own specific set of citations
+- Simplifies aggregation logic by keeping citations with their facts throughout the pipeline
+
+**Citation Flow:**
+1. **Local Executor**: Generates answers with rich `citations` array (chunk_id, span, document_name)
+2. **Aggregation (LLM)**: LLM consolidates facts and returns chunk IDs as strings in `key_facts`
+3. **Enrichment (Post-Processing)**: Maps chunk ID strings back to full citation objects from followup results
+4. **Final Response**: Each `key_fact` contains `fact` string + `citations` array with full metadata
+
+**Why Enrichment?** The LLM aggregator naturally returns chunk IDs as strings, but downstream services (ai_requirements_service, ai_tasks_service) need full citation metadata (document names, text previews). Post-processing enrichment bridges this gap by looking up chunk IDs in the followup results and replacing strings with rich citation objects.
+
 ### Document Name Retrieval
-Citations include the source document name for each chunk reference. The retrieval query fetches:
+At the local executor level, citations include the source document name for each chunk reference. The retrieval query fetches:
 ```cypher
 coalesce(d.title, d.id, 'unknown') AS document_name
 ```
@@ -196,6 +226,47 @@ The service implements multi-layered citation validation to prevent "[unknown]" 
 - `citation_validation_null_chunk_id`: Post-processing filtered None chunk_id
 - `citation_validation_unmatched_chunk_id`: Post-processing filtered hallucinated chunk_id
 - `citation_validation_summary`: Aggregate stats (total, valid, filtered counts)
+
+### Internal Response Models
+
+The service uses Pydantic models to validate LLM responses at each pipeline stage:
+
+**LocalExecutorResponse** (Follow-up stage):
+```python
+{
+  "answer": str,
+  "citations": [{"chunk_id": str, "span": str, "document_name": str}],
+  "new_followups": [{"question": str}],
+  "confidence": float,
+  "should_continue": bool
+}
+```
+
+**AggregatorResponse** (After LLM + Enrichment):
+```python
+{
+  "final_answer": str,
+  "key_facts": [
+    {
+      "fact": str, 
+      "citations": [  # Mixed format after enrichment
+        {"chunk_id": str, "span": str, "document_name": str},  # Enriched
+        str  # Fallback if chunk ID not found in followup results
+      ]
+    }
+  ],
+  "residual_uncertainty": str
+}
+```
+
+**Citation Enrichment Process:**
+1. LLM aggregator returns chunk IDs as **strings** in `key_facts.citations`
+2. Post-processing `_enrich_citations_from_followups()` looks up each chunk ID in `followup_results`
+3. Found chunk IDs are replaced with full citation objects `{chunk_id, span, document_name}`
+4. Not-found chunk IDs remain as strings (logged as warning)
+5. Result contains **mixed format**: mostly enriched dicts, some strings if lookup fails
+
+This ensures downstream services (ai_requirements_service, ai_tasks_service) receive full citation metadata without requiring the LLM to generate complex nested structures.
 
 ## 3. DRIFT Search Workflow
 
@@ -388,11 +459,14 @@ RETURN cid,
 
     Tasks:
     1. Produce final concise answer.
-    2. List key facts with citations (chunk IDs).
+    2. List key facts with citations (chunk IDs as strings, nested within each fact).
     3. Note any residual uncertainty.
 
     Return JSON:
-    { final_answer, key_facts:[{fact, citations:[...] }], residual_uncertainty }
+    { final_answer, key_facts:[{fact, citations:["chunk_id_1", "chunk_id_2"] }], residual_uncertainty }
+    
+    Note: Citations are chunk ID strings nested within each key_fact to preserve the semantic link
+    between facts and their supporting evidence.
 
 ------------------------------------------------------------------------
 

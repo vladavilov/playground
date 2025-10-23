@@ -8,7 +8,7 @@ These models provide:
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional, Any
+from typing import List, Optional, Union
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -189,10 +189,18 @@ class LocalExecutorResponse(BaseModel):
 
 
 class KeyFact(BaseModel):
-    """Key fact with citations."""
+    """Key fact with citations.
+    
+    Citations can be either:
+    - Strings (chunk IDs from LLM aggregator)
+    - Dicts (enriched with chunk_id, span, document_name from post-processing)
+    """
     
     fact: str = Field(..., description="Key fact statement")
-    citations: List[str] = Field(default_factory=list, description="Chunk ID citations (strings)")
+    citations: List[Union[str, dict]] = Field(
+        default_factory=list, 
+        description="Citations: either chunk ID strings or enriched citation objects"
+    )
     
     @field_validator("fact", mode="before")
     @classmethod
@@ -205,13 +213,32 @@ class KeyFact(BaseModel):
     @field_validator("citations", mode="before")
     @classmethod
     def normalize_citations(cls, v):
-        """Ensure citations is a list of strings."""
+        """Preserve both string and dict citations.
+        
+        After LLM aggregation, citations are strings (chunk IDs).
+        After enrichment, citations are dicts with full metadata.
+        This validator preserves both formats for downstream flexibility.
+        """
         if not isinstance(v, list):
             return []
         
         normalized = []
         for item in v:
-            if item is not None:
+            if item is None:
+                continue
+            elif isinstance(item, dict):
+                # Preserve enriched citation objects
+                normalized.append(item)
+            elif isinstance(item, str):
+                # Preserve string chunk IDs
+                normalized.append(item)
+            else:
+                # Coerce unknown types to string
+                logger.debug(
+                    "citation_coerced_to_string",
+                    type=type(item).__name__,
+                    message="Coercing non-string/non-dict citation to string"
+                )
                 normalized.append(str(item))
         
         return normalized

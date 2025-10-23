@@ -51,8 +51,7 @@ async def retrieve(req: RetrievalRequest, request: Request, current_user: LocalU
         # Check if result is empty (no data scenario)
         is_empty = (
             not result.get("final_answer") and 
-            not result.get("key_facts") and 
-            not result.get("citations")
+            not result.get("key_facts")
         )
         
         if is_empty:
@@ -67,7 +66,6 @@ async def retrieve(req: RetrievalRequest, request: Request, current_user: LocalU
             return {
                 "final_answer": "",
                 "key_facts": [],
-                "citations": [],
                 "residual_uncertainty": "",
                 "no_data_found": True
             }
