@@ -11,7 +11,7 @@ RUN for i in 1 2 3 4 5; do \
         apt-get update && \
         apt-get install -y --no-install-recommends --fix-missing \
             ca-certificates \
-            curl \
+            curl && \
         rm -rf /var/lib/apt/lists/* && \
         break || \
         (echo "Retry $i/5 failed, waiting..." && sleep 5); \

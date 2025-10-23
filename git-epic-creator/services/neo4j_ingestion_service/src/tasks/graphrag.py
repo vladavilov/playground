@@ -19,6 +19,7 @@ from services.ingestion_service import Neo4jIngestionService
 from utils.retry_policy import compute_retry_decision
 from utils.neo4j_client import get_neo4j_client
 from clients.project_management_client import ProjectManagementClient
+from utils.celery_helpers import extract_auth_header
 import asyncio
 from utils.workflow_gating import run_with_lock
 from module_utils.asyncio_runner import run_async
@@ -55,29 +56,12 @@ def run_graphrag_job(
     if not isinstance(project_id, str) or not project_id.strip():
         raise ValueError("project_id must be a non-empty string")
 
-    # Extract and validate authentication token
-    logger.info("Checking task headers", 
-                has_headers=self.request.headers is not None,
-                headers_type=type(self.request.headers).__name__ if self.request.headers else "None",
-                task_id=self.request.id)
-    
-    if not self.request.headers:
-        error_msg = (
-            "Task headers are None - Authentication token required. "
-            "Ensure task_protocol=2 is set in Celery config and worker is restarted."
-        )
-        logger.error(error_msg, task_id=self.request.id, project_id=project_id)
-        raise RuntimeError(error_msg)
-    
-    auth_token = self.request.headers.get('Authentication')
-    if not auth_token:
-        logger.error("Missing Authentication header", 
-                    headers=dict(self.request.headers) if self.request.headers else {},
-                    task_id=self.request.id,
-                    project_id=project_id)
-        raise RuntimeError("Missing Authentication header in task")
-    
-    logger.info("Authentication token found", token_length=len(auth_token), task_id=self.request.id)
+    # Extract and validate authentication token using shared utility
+    auth_token = extract_auth_header(
+        request=self.request,
+        logger=logger,
+        project_id=project_id
+    )
 
     def _enqueue_follow_up(job_id_: str, project_id_: str, attempts_: int) -> None:
         celery_app.send_task(
