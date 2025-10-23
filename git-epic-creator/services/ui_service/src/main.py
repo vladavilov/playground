@@ -118,6 +118,15 @@ async def _startup_load_gitlab_oauth_settings(_ui) -> None:
         # Register GitLab OAuth client at startup (not on every request)
         oauth = getattr(app.state, "oauth", None)
         if oauth:
+            # Configure client_kwargs for SSL certificate if provided
+            client_kwargs = {}
+            if ca_cert_path and _ui.GITLAB_VERIFY_SSL:
+                client_kwargs["verify"] = ca_cert_path
+                logger.info("GitLab OAuth client configured with custom SSL certificate", cert_path=ca_cert_path)
+            elif not _ui.GITLAB_VERIFY_SSL:
+                client_kwargs["verify"] = False
+                logger.info("GitLab OAuth client configured with SSL verification disabled")
+            
             oauth.register(
                 name="gitlab",
                 client_id=client_id,
@@ -125,7 +134,8 @@ async def _startup_load_gitlab_oauth_settings(_ui) -> None:
                 access_token_url=f"{base_url}/oauth/token",
                 authorize_url=f"{client_base_url}/oauth/authorize",
                 api_base_url=f"{base_url}/api/v4/",
-                scopes="api"
+                scopes="api",
+                client_kwargs=client_kwargs
             )
             logger.info(
                 "GitLab OAuth client registered at startup",
