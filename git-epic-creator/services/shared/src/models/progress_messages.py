@@ -141,3 +141,85 @@ class WorkflowProgressMessage(BaseModel):
         return v.isoformat()
 
 
+class RetrievalStatus(str, Enum):
+    """Allowed status values for retrieval workflow."""
+    
+    INITIALIZING = "initializing"
+    EXPANDING_QUERY = "expanding_query"
+    RETRIEVING_COMMUNITIES = "retrieving_communities"
+    EXECUTING_FOLLOWUP = "executing_followup"
+    AGGREGATING_RESULTS = "aggregating_results"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
+class RetrievalProgressMessage(BaseModel):
+    """User-visible step updates for retrieval progress (DRIFT search).
+    
+    Published during neo4j_retrieval_service operations to show:
+    - Query expansion (HyDE)
+    - Community retrieval from graph
+    - Follow-up question execution
+    - Result aggregation
+    """
+
+    message_type: Literal["retrieval_progress"] = Field(
+        default="retrieval_progress",
+        description="Fixed message type identifier",
+    )
+    project_id: UUID = Field(
+        ..., 
+        description="Project ID", 
+        json_schema_extra={"format": "uuid"}
+    )
+    retrieval_id: UUID = Field(
+        default_factory=uuid4,
+        description="Unique retrieval session identifier",
+        json_schema_extra={"format": "uuid"},
+    )
+    phase: RetrievalStatus = Field(
+        ..., 
+        description="Current retrieval phase"
+    )
+    progress_pct: Optional[float] = Field(
+        None, 
+        ge=0.0, 
+        le=100.0, 
+        description="Progress percentage (0-100)"
+    )
+    thought_summary: str = Field(
+        ..., 
+        description="Concise progress summary for UI display"
+    )
+    details_md: Optional[str] = Field(
+        None, 
+        description="Markdown-formatted step details"
+    )
+    message_id: UUID = Field(
+        default_factory=uuid4, 
+        description="Unique message id", 
+        json_schema_extra={"format": "uuid"}
+    )
+    timestamp: datetime = Field(
+        default_factory=datetime.now,
+        description="Event timestamp (ISO8601)",
+    )
+
+    @field_validator("progress_pct")
+    @classmethod
+    def _validate_progress_bounds(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return v
+        if not (0.0 <= v <= 100.0):
+            raise ValueError("progress_pct must be between 0 and 100")
+        return v
+
+    @field_serializer("project_id", "retrieval_id", "message_id", when_used="always")
+    def _serialize_uuid(self, v: UUID) -> str:  # noqa: D401
+        return str(v)
+
+    @field_serializer("timestamp", when_used="always")
+    def _serialize_timestamp(self, v: datetime) -> str:  # noqa: D401
+        return v.isoformat()
+
+

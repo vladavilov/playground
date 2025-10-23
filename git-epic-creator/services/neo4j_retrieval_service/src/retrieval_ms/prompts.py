@@ -41,8 +41,14 @@ def local_executor_prompt() -> ChatPromptTemplate:
             "Return JSON with strict schema:\n"
             '{{ "answer": "<string>", "citations": [{{"chunk_id": "<string>", "span": "<string>"}}], '
             '"new_followups": [{{"question": "<string>"}}], "confidence": <float>, "should_continue": <bool> }}\n\n'
-            "IMPORTANT:\n"
-            "- chunk_id must be a STRING (use the exact chunk_id from the provided context)\n"
+            "CITATION REQUIREMENTS (CRITICAL):\n"
+            "- You MUST use chunk_id values from the list below\n"
+            "- DO NOT invent or hallucinate chunk_ids\n"
+            "- If citing evidence, use one of these EXACT chunk_id strings:\n"
+            "  Valid chunk IDs: {valid_chunk_ids}\n"
+            "- If you cannot find evidence in these chunks, return an empty citations array\n\n"
+            "OTHER REQUIREMENTS:\n"
+            "- chunk_id must be a STRING (use the exact chunk_id from the valid list)\n"
             "- new_followups must be an array of objects with 'question' field, NOT plain strings.\n"
             'Example: {{"new_followups": [{{"question": "clarify X"}}, {{"question": "explain Y"}}]}}\n\n'
             "Follow-up: {qtext}\nTarget communities: {target_communities}\nScoped chunk contexts: {chunks_preview}"

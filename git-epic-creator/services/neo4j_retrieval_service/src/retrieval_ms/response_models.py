@@ -74,20 +74,36 @@ class Citation(BaseModel):
     @field_validator("chunk_id", mode="before")
     @classmethod
     def normalize_chunk_id(cls, v):
-        """Ensure chunk_id is a string (handles various ID formats)."""
+        """Ensure chunk_id is a string (handles various ID formats).
+        
+        Logs warnings when chunk_id is None (indicates LLM output error that will be filtered).
+        """
         if v is None:
+            logger.warning(
+                "citation_model_null_chunk_id",
+                message="Citation has None chunk_id (LLM output error - will be filtered in post-processing)"
+            )
             return None
+        
+        # Empty string after strip is also problematic
+        if isinstance(v, str) and not v.strip():
+            logger.warning(
+                "citation_model_empty_chunk_id",
+                original_value=repr(v),
+                message="Citation has empty/whitespace chunk_id (LLM output error - will be filtered)"
+            )
+            return None  # Normalize to None for consistent filtering
         
         # Log when coercing non-string types to aid debugging
         if not isinstance(v, str):
-            logger.debug(
+            logger.info(
                 "citation_chunk_id_coerced",
                 original_type=type(v).__name__,
                 original_value=str(v)[:50],
                 message="Coerced non-string chunk_id to string"
             )
         
-        return str(v)
+        return str(v).strip()  # Strip whitespace for consistency
     
     @field_validator("span", mode="before")
     @classmethod

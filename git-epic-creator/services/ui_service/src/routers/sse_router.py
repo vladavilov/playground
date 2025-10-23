@@ -11,6 +11,7 @@ from constants.streams import (
     UI_PROJECT_PROGRESS_CHANNEL,
     UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
     UI_AI_TASKS_PROGRESS_CHANNEL,
+    UI_RETRIEVAL_PROGRESS_CHANNEL,
 )
 from utils.redis_client import get_redis_client
 
@@ -46,6 +47,7 @@ class _SSEBroker:
                 UI_PROJECT_PROGRESS_CHANNEL,
                 UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
                 UI_AI_TASKS_PROGRESS_CHANNEL,
+                UI_RETRIEVAL_PROGRESS_CHANNEL,
             )
             self._started = True
             self._task = asyncio.create_task(self._read_loop())
@@ -54,6 +56,7 @@ class _SSEBroker:
                 project_channel=UI_PROJECT_PROGRESS_CHANNEL,
                 workflow_channel=UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
                 tasks_channel=UI_AI_TASKS_PROGRESS_CHANNEL,
+                retrieval_channel=UI_RETRIEVAL_PROGRESS_CHANNEL,
             )
 
     async def stop(self) -> None:
@@ -69,6 +72,7 @@ class _SSEBroker:
                         UI_PROJECT_PROGRESS_CHANNEL,
                         UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
                         UI_AI_TASKS_PROGRESS_CHANNEL,
+                        UI_RETRIEVAL_PROGRESS_CHANNEL,
                     )
                 except Exception:
                     pass
@@ -127,6 +131,8 @@ class _SSEBroker:
                         event_name = "ai_tasks_progress"
                     elif channel == UI_PROJECT_PROGRESS_CHANNEL:
                         event_name = "project_progress"
+                    elif channel == UI_RETRIEVAL_PROGRESS_CHANNEL:
+                        event_name = "retrieval_progress"
                     else:
                         event_name = "unknown"
                     

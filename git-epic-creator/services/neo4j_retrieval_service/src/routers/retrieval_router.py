@@ -1,12 +1,13 @@
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from utils.local_auth import get_local_user_verified, LocalUser
 from pydantic import BaseModel
 import structlog
 
 from services.clients import get_llm, get_embedder, get_neo4j_session
 from services.retrieval_service import Neo4jRetrievalService
+from services.retrieval_status_publisher import RetrievalStatusPublisher
 
 logger = structlog.get_logger(__name__)
 
@@ -19,14 +20,26 @@ class RetrievalRequest(BaseModel):
     project_id: str
 
 @retrieval_router.post("")
-async def retrieve(req: RetrievalRequest, current_user: LocalUser = Depends(get_local_user_verified)) -> Dict[str, Any]:
+async def retrieve(req: RetrievalRequest, request: Request, current_user: LocalUser = Depends(get_local_user_verified)) -> Dict[str, Any]:
     """Retrieve context from Neo4j graph.
     
     Returns 200 with empty structure if no data found (not an error).
     Returns 500 only for actual infrastructure/connection failures.
     """
     try:
-        service = Neo4jRetrievalService(get_session=get_neo4j_session, get_llm=get_llm, get_embedder=get_embedder)
+        # Initialize publisher with Redis client from app state
+        redis_client = getattr(request.app.state, "redis_client", None)
+        publisher = RetrievalStatusPublisher(redis_client) if redis_client else None
+        
+        if not publisher:
+            logger.warning("redis_client_not_found", message="Progress updates will not be published")
+        
+        service = Neo4jRetrievalService(
+            get_session=get_neo4j_session, 
+            get_llm=get_llm, 
+            get_embedder=get_embedder,
+            publisher=publisher
+        )
         result = await service.retrieve(req.query, top_k=req.top_k, project_id=req.project_id)
         
         # Check if result is empty (no data scenario)

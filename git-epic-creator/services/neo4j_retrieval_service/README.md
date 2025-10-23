@@ -48,6 +48,37 @@ Only returned for actual infrastructure/connection failures (Neo4j down, OpenAI 
 
 **Note:** The service distinguishes between "no data in graph" (200 with empty result) and "service failure" (500). This allows upstream services to handle empty graphs gracefully without treating them as errors.
 
+### Real-time Progress Updates
+
+The service publishes real-time progress updates via Redis pub/sub during retrieval operations:
+
+**Channel:** `ui:retrieval_progress`
+
+**Message Format:**
+```json
+{
+  "message_type": "retrieval_progress",
+  "project_id": "uuid",
+  "retrieval_id": "uuid",
+  "phase": "initializing|expanding_query|retrieving_communities|executing_followup|aggregating_results|completed|error",
+  "progress_pct": 0-100,
+  "thought_summary": "Human-readable status",
+  "details_md": "Markdown details (optional)",
+  "message_id": "uuid",
+  "timestamp": "ISO8601"
+}
+```
+
+**Progress Phases:**
+- `initializing` (0%): Session initialization
+- `expanding_query` (20%): HyDE query expansion
+- `retrieving_communities` (40%): Community retrieval from graph
+- `executing_followup` (40-80%): Processing follow-up questions (iterative)
+- `aggregating_results` (90%): Synthesizing final answer
+- `completed` (100%): Retrieval complete
+
+These messages are consumed by `ui_service` and displayed in the agent thought panel for real-time user feedback.
+
 ------------------------------------------------------------------------
 
 ## 1. Graph Schema
@@ -137,6 +168,34 @@ Citations are built from the **full retrieved chunk set**, not just the chunks s
 4. Map citations using **full retrieved set** (not truncated)
 
 This is working as designed and provides better citation coverage than mapping only to truncated chunks.
+
+### Citation Validation & Quality Enforcement
+
+The service implements multi-layered citation validation to prevent "[unknown]" document names from appearing in downstream services:
+
+**Layer 1: Prompt Engineering (Prevention)**
+- `local_executor_prompt` explicitly lists valid chunk IDs in the prompt
+- Instructs LLM: "You MUST use chunk_id values from the list below"
+- Reduces hallucination rate by providing explicit constraints
+
+**Layer 2: Model Validation (Detection)**
+- `Citation` Pydantic model validates chunk_id at parse time
+- Logs warnings when chunk_id is None or empty (indicates LLM output error)
+- Normalizes whitespace and coerces types for consistency
+
+**Layer 3: Post-Processing Validation (Filtering)**
+- `_create_minimal_followup_result` filters invalid citations before aggregation
+- Rejects citations where:
+  - chunk_id is None or empty string
+  - chunk_id not in the retrieved chunk set (hallucination)
+- Logs detailed warnings with citation index, chunk_id, and span preview for debugging
+
+**Logging & Observability:**
+- `citation_model_null_chunk_id`: Pydantic validator detected None chunk_id
+- `citation_model_empty_chunk_id`: Pydantic validator detected empty/whitespace chunk_id
+- `citation_validation_null_chunk_id`: Post-processing filtered None chunk_id
+- `citation_validation_unmatched_chunk_id`: Post-processing filtered hallucinated chunk_id
+- `citation_validation_summary`: Aggregate stats (total, valid, filtered counts)
 
 ## 3. DRIFT Search Workflow
 

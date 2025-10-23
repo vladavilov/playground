@@ -109,6 +109,12 @@ Agentic Pipeline (expanded, requirements‑focused)
      2) POST /retrieve { query: <merged_markdown>, top_k }
      3) Apply resilience: httpx AsyncClient, exponential backoff (tenacity).
      4) Map response to RetrievedContext { context_answer, key_facts, citations } and publish WorkflowProgressMessage (status: retrieving_context).
+   
+   **Citation Quality Monitoring:**
+   - Logs warnings when citations have "unknown" document names (indicates upstream filtering or missing data)
+   - Logs warnings for empty/missing chunk_ids
+   - Logs warnings for legacy string citation format (no document name or span)
+   - Deduplicates citations by chunk_id while preserving order
 
 3) Requirement Synthesis (RequirementEngineer) — iterative agentic loop
    - Approach: iterative refinement with reflection, guided by prompt + RetrievedContext + prior iteration output.

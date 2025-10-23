@@ -23,6 +23,11 @@ class ContextRetriever:
                     try:
                         if isinstance(cid, str):
                             # Legacy format: just chunk_id
+                            logger.warning(
+                                "legacy_citation_format",
+                                chunk_id=cid,
+                                message="Citation in legacy string format (no document name or span)"
+                            )
                             citations.append(Citation(
                                 chunk_id=cid,
                                 text_preview="",
@@ -33,6 +38,22 @@ class ContextRetriever:
                             chunk_id = str(cid.get("chunk_id", ""))
                             span = str(cid.get("span", ""))
                             doc_name = str(cid.get("document_name", "unknown"))
+                            
+                            # Warn if document_name is unknown or empty
+                            if not chunk_id or not chunk_id.strip():
+                                logger.warning(
+                                    "citation_empty_chunk_id",
+                                    citation=cid,
+                                    message="Citation has empty chunk_id from retrieval service"
+                                )
+                            if doc_name == "unknown" or not doc_name.strip():
+                                logger.warning(
+                                    "citation_unknown_document",
+                                    chunk_id=chunk_id,
+                                    span_preview=span[:50] if span else "",
+                                    message="Citation has 'unknown' document name (missing in retrieval or invalid chunk_id)"
+                                )
+                            
                             text_preview = span[:150] + "..." if len(span) > 150 else span
                             citations.append(Citation(
                                 chunk_id=chunk_id,
@@ -40,7 +61,7 @@ class ContextRetriever:
                                 document_name=doc_name
                             ))
                     except Exception as e:
-                        logger.debug("citation_parse_error", error=str(e))
+                        logger.warning("citation_parse_error", error=str(e), citation=str(cid)[:100])
                         continue
             # Also include top-level citations (objects with chunk_id/span/document_name)
             for c in data.get("citations", []) or []:
@@ -49,6 +70,22 @@ class ContextRetriever:
                         chunk_id = str(c.get("chunk_id", ""))
                         span = str(c.get("span", ""))
                         doc_name = str(c.get("document_name", "unknown"))
+                        
+                        # Warn if document_name is unknown or empty
+                        if not chunk_id or not chunk_id.strip():
+                            logger.warning(
+                                "toplevel_citation_empty_chunk_id",
+                                citation=c,
+                                message="Top-level citation has empty chunk_id from retrieval service"
+                            )
+                        if doc_name == "unknown" or not doc_name.strip():
+                            logger.warning(
+                                "toplevel_citation_unknown_document",
+                                chunk_id=chunk_id,
+                                span_preview=span[:50] if span else "",
+                                message="Top-level citation has 'unknown' document name (missing in retrieval or invalid chunk_id)"
+                            )
+                        
                         text_preview = span[:150] + "..." if len(span) > 150 else span
                         citations.append(Citation(
                             chunk_id=chunk_id,
@@ -56,7 +93,7 @@ class ContextRetriever:
                             document_name=doc_name
                         ))
                 except Exception as e:
-                    logger.debug("citation_parse_error", error=str(e))
+                    logger.warning("toplevel_citation_parse_error", error=str(e), citation=str(c)[:100])
                     continue
         except Exception:
             pass

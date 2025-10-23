@@ -1,9 +1,10 @@
-from typing import Any, Callable, Dict, List, TypedDict
+from typing import Any, Callable, Dict, List, TypedDict, Optional
 import json
 import asyncio
 import random
 import time
 from contextlib import contextmanager
+from uuid import UUID, uuid4
 import structlog
 from pydantic import BaseModel
 import tiktoken
@@ -28,6 +29,7 @@ from retrieval_ms.response_models import (
     AggregatorResponse,
 )
 from configuration.retry_config import get_retry_settings
+from models.progress_messages import RetrievalStatus
 
 
 GetSessionFn = Callable[[], Any]
@@ -108,19 +110,23 @@ def _cleanup_expired_cache(ttl_sec: int):
 async def _get_or_create_graph(
     get_session: GetSessionFn, 
     get_llm: GetLlmFn, 
-    get_embedder: GetEmbedderFn
+    get_embedder: GetEmbedderFn,
+    publisher: Optional[Any] = None
 ):
     """Get cached graph or create if not exists (singleton pattern).
     
     Creates the StateGraph only once and reuses it for all requests,
     reducing latency by 200-500ms per request.
+    
+    Note: Publisher is passed per-request but graph is cached. This is acceptable
+    because publisher logic is best-effort (failures don't break retrieval).
     """
     global _GRAPH_INSTANCE
     if _GRAPH_INSTANCE is None:
         async with _GRAPH_LOCK:
             if _GRAPH_INSTANCE is None:
                 logger.info("graph_initialization", message="Creating persistent graph instance")
-                _GRAPH_INSTANCE = await _create_graph(get_session, get_llm, get_embedder)
+                _GRAPH_INSTANCE = await _create_graph(get_session, get_llm, get_embedder, publisher)
     return _GRAPH_INSTANCE
 
 
@@ -235,6 +241,7 @@ class _State(TypedDict, total=False):
     question: str
     top_k: int
     project_id: str
+    retrieval_id: UUID
     qvec: List[float]
     communities: List[int]
     community_brief: List[Dict[str, Any]]
@@ -395,7 +402,7 @@ def _truncate_for_prompt(
     return serialized
 
 
-async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedder: GetEmbedderFn):
+async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedder: GetEmbedderFn, publisher: Optional[Any] = None):
     settings = get_retrieval_settings()
 
     builder = StateGraph(_State)
@@ -588,21 +595,79 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         
         Aggregator only needs: question, answer, citations, confidence, new_followups.
         Full chunk contexts (text, entities, relationships) are NOT needed and waste tokens.
+        
+        Citation Validation:
+        - Filters citations with None/empty chunk_ids
+        - Filters citations referencing chunk_ids not in retrieved set
+        - Logs detailed warnings for debugging hallucination patterns
         """
         # Build lookup map: chunk_id -> document_name
         chunk_to_doc = {item.get("chunk_id"): item.get("document_name", "unknown") for item in chunks}
+        valid_chunk_ids = set(chunk_to_doc.keys())
+        
+        # Validate and filter citations
+        validated_citations = []
+        invalid_count = 0
+        null_count = 0
+        hallucinated_count = 0
+        
+        for idx, c in enumerate(local_validated.citations):
+            # Reject None or empty chunk_ids
+            if c.chunk_id is None or not str(c.chunk_id).strip():
+                null_count += 1
+                logger.warning(
+                    "citation_validation_null_chunk_id",
+                    citation_index=idx,
+                    span_preview=c.span[:50] if c.span else "",
+                    message="Filtered citation with None/empty chunk_id (LLM output error)"
+                )
+                continue
+            
+            # Reject chunk_ids not in retrieved set (hallucination)
+            if c.chunk_id not in valid_chunk_ids:
+                hallucinated_count += 1
+                logger.warning(
+                    "citation_validation_unmatched_chunk_id",
+                    citation_index=idx,
+                    chunk_id=c.chunk_id,
+                    span_preview=c.span[:50] if c.span else "",
+                    valid_chunk_ids=list(valid_chunk_ids)[:5],
+                    message="Filtered citation with chunk_id not in retrieved set (LLM hallucination)"
+                )
+                continue
+            
+            # Valid citation - include with document name
+            validated_citations.append({
+                "chunk_id": c.chunk_id,
+                "span": c.span,
+                "document_name": chunk_to_doc[c.chunk_id]
+            })
+        
+        invalid_count = null_count + hallucinated_count
+        
+        # Log summary if any citations were filtered
+        if invalid_count > 0:
+            logger.warning(
+                "citation_validation_summary",
+                question=qtext[:100],
+                total_citations=len(local_validated.citations),
+                valid_citations=len(validated_citations),
+                null_chunk_ids=null_count,
+                hallucinated_chunk_ids=hallucinated_count,
+                filtered_count=invalid_count,
+                message=f"Filtered {invalid_count}/{len(local_validated.citations)} invalid citations"
+            )
+        else:
+            logger.debug(
+                "citation_validation_all_valid",
+                question=qtext[:100],
+                citation_count=len(validated_citations)
+            )
         
         minimal_result = {
             "question": qtext,
             "answer": local_validated.answer,
-            "citations": [
-                {
-                    "chunk_id": c.chunk_id, 
-                    "span": c.span,
-                    "document_name": chunk_to_doc.get(c.chunk_id, "unknown")
-                } 
-                for c in local_validated.citations
-            ],
+            "citations": validated_citations,
             "confidence": local_validated.confidence,
         }
         
@@ -655,7 +720,25 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
 
     async def init_node(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("retrieval.init", question_len=len(state.get("question") or ""))
+        
+        # Generate retrieval session ID if not provided
+        retrieval_id = state.get("retrieval_id") or uuid4()
+        
+        # Publish initialization status
+        if publisher:
+            try:
+                await publisher.publish_retrieval_update(
+                    project_id=UUID(state["project_id"]),
+                    retrieval_id=retrieval_id,
+                    phase=RetrievalStatus.INITIALIZING,
+                    thought_summary="Initializing retrieval session",
+                    progress_pct=0.0,
+                )
+            except Exception as exc:
+                logger.debug("publish_failed", phase="init", error=str(exc))
+        
         return {
+            "retrieval_id": retrieval_id,
             "_cache_embeddings": {},
             "_cache_neighborhoods": {},
         }
@@ -672,6 +755,21 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         _validate_embedding_dimension(qvec, expected_dim, "HyDE")
         
         logger.info("retrieval.hyde.done", hyde_text_len=len(hyde_text or ""), qvec_len=len(qvec or []))
+        
+        # Publish query expansion status
+        if publisher:
+            try:
+                await publisher.publish_retrieval_update(
+                    project_id=UUID(state["project_id"]),
+                    retrieval_id=state["retrieval_id"],
+                    phase=RetrievalStatus.EXPANDING_QUERY,
+                    thought_summary="Expanding query with hypothetical document",
+                    details_md=f"Generated hypothetical answer to guide retrieval",
+                    progress_pct=20.0,
+                )
+            except Exception as exc:
+                logger.debug("publish_failed", phase="hyde", error=str(exc))
+        
         return {"qvec": qvec}
 
     async def primer_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -713,6 +811,21 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
             community_brief=len(community_brief or []),
             followups=len(followups or []),
         )
+        
+        # Publish community retrieval status
+        if publisher:
+            try:
+                await publisher.publish_retrieval_update(
+                    project_id=UUID(state["project_id"]),
+                    retrieval_id=state["retrieval_id"],
+                    phase=RetrievalStatus.RETRIEVING_COMMUNITIES,
+                    thought_summary=f"Retrieved {len(communities)} communities, generated {len(followups)} follow-up questions",
+                    details_md=f"Initial answer prepared, identified {len(followups)} areas for deeper investigation",
+                    progress_pct=40.0,
+                )
+            except Exception as exc:
+                logger.debug("publish_failed", phase="primer", error=str(exc))
+        
         return {
             "communities": communities,
             "community_brief": community_brief,
@@ -748,6 +861,21 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             question=qtext[:100],
                         )
                         
+                        # Publish followup execution status
+                        if publisher:
+                            try:
+                                progress = 40.0 + ((idx + 1) / total_followups) * 40.0  # 40-80% range
+                                await publisher.publish_retrieval_update(
+                                    project_id=UUID(state["project_id"]),
+                                    retrieval_id=state["retrieval_id"],
+                                    phase=RetrievalStatus.EXECUTING_FOLLOWUP,
+                                    thought_summary=f"Processing follow-up {idx + 1}/{total_followups}: {qtext[:80]}...",
+                                    details_md=f"**Question:** {qtext}",
+                                    progress_pct=progress,
+                                )
+                            except Exception as exc:
+                                logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
+                        
                         qvec = await _embed_with_cache(qtext, state)
                         
                         # Validate embedding dimension on first followup (avoid redundant checks)
@@ -779,6 +907,14 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             max_items=settings.MAX_COMMUNITIES_FOR_PROMPT,
                             label=f"target_communities_followup_{idx}",
                         )
+                        
+                        # Extract valid chunk IDs for prompt (prevents hallucination)
+                        valid_chunk_ids = [
+                            str(chunk.get("chunk_id")) 
+                            for chunk in chunks 
+                            if chunk.get("chunk_id") is not None
+                        ]
+                        valid_chunk_ids_str = ", ".join(valid_chunk_ids)
 
                         prompt = local_executor_prompt()
                         local_response = await _format_invoke_parse(
@@ -788,6 +924,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             qtext=qtext,
                             target_communities=target_communities_json,
                             chunks_preview=chunks_preview_json,
+                            valid_chunk_ids=valid_chunk_ids_str,
                         )
                         
                         # Explicit cleanup of large JSON strings after LLM call
@@ -919,6 +1056,35 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
             has_final_answer=bool(agg_validated.final_answer),
             has_uncertainty=bool(agg_validated.residual_uncertainty),
         )
+        
+        # Publish aggregation status
+        if publisher:
+            try:
+                await publisher.publish_retrieval_update(
+                    project_id=UUID(state["project_id"]),
+                    retrieval_id=state["retrieval_id"],
+                    phase=RetrievalStatus.AGGREGATING_RESULTS,
+                    thought_summary="Synthesizing final answer from all findings",
+                    details_md=f"Aggregated {len(agg_validated.key_facts)} key facts into final response",
+                    progress_pct=90.0,
+                )
+            except Exception as exc:
+                logger.debug("publish_failed", phase="aggregate", error=str(exc))
+        
+        # Publish completion status
+        if publisher:
+            try:
+                await publisher.publish_retrieval_update(
+                    project_id=UUID(state["project_id"]),
+                    retrieval_id=state["retrieval_id"],
+                    phase=RetrievalStatus.COMPLETED,
+                    thought_summary="Retrieval completed successfully",
+                    details_md=f"Final answer with {len(agg_validated.key_facts)} key facts ready",
+                    progress_pct=100.0,
+                )
+            except Exception as exc:
+                logger.debug("publish_failed", phase="completed", error=str(exc))
+        
         return {"tree": tree, "result_json": result_json}
 
     builder.add_node("init", init_node)
@@ -940,10 +1106,11 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
 
 
 class Neo4jRetrievalService:
-    def __init__(self, get_session: GetSessionFn, get_llm: GetLlmFn, get_embedder: GetEmbedderFn) -> None:
+    def __init__(self, get_session: GetSessionFn, get_llm: GetLlmFn, get_embedder: GetEmbedderFn, publisher: Optional[Any] = None) -> None:
         self._get_session = get_session
         self._get_llm = get_llm
         self._get_embedder = get_embedder
+        self._publisher = publisher
 
     async def retrieve(self, question: str, top_k: int, project_id: str) -> Dict[str, Any]:
         """Retrieve with request deduplication and caching.
@@ -1018,17 +1185,20 @@ class Neo4jRetrievalService:
     async def _execute_retrieval(self, question: str, top_k: int, project_id: str) -> Dict[str, Any]:
         """Execute actual retrieval pipeline (extracted from retrieve method)."""
         # Use persistent graph instance (reduces latency by 200-500ms per request)
-        graph = await _get_or_create_graph(self._get_session, self._get_llm, self._get_embedder)
+        graph = await _get_or_create_graph(self._get_session, self._get_llm, self._get_embedder, self._publisher)
         # Provide a stable thread_id for the checkpointer
         thread_id = f"{project_id}:{abs(hash(question))}"
+        # Generate retrieval session ID for tracking
+        retrieval_id = uuid4()
         state = await graph.ainvoke(
             {
                 "question": question,
                 "top_k": int(top_k or 1),
                 "project_id": project_id,
+                "retrieval_id": retrieval_id,
             },
             {"configurable": {"thread_id": thread_id}},
         )
         result = state.get("result_json") or {}
-        logger.info("retrieval.response", has_result=bool(result), keys=len(list(result.keys())))
+        logger.info("retrieval.response", has_result=bool(result), keys=len(list(result.keys())), retrieval_id=str(retrieval_id))
         return result

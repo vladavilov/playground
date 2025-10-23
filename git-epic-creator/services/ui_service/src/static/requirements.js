@@ -613,6 +613,36 @@ function subscribeSSE() {
       } catch (err) {
         console.error('Failed to process ai_requirements_progress event:', err);
       }
+    },
+    'retrieval_progress': (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        // Filter by project_id
+        if (!state.projectId || String(state.projectId) !== String(msg.project_id)) return;
+        
+        // Update status badge with retrieval phase
+        projectStatusEl.innerHTML = '';
+        projectStatusEl.appendChild(getStatusBadge(msg.phase || 'retrieving'));
+        
+        // Build display text from message
+        const md = msg.details_md || msg.thought_summary || 'Retrieving context...';
+        
+        // Use retrieval_id as the box identifier (similar to prompt_id)
+        const rid = msg.retrieval_id || null;
+        const box = getOrCreateBoxForPromptId(rid);
+        if (box) {
+          box.appendMarkdown(md);
+          
+          // Finish box on completion or error
+          if (msg.phase === 'completed') {
+            box.finish('ok');
+          } else if (msg.phase === 'error') {
+            box.finish('error');
+          }
+        }
+      } catch (err) {
+        console.error('Failed to process retrieval_progress event:', err);
+      }
     }
   });
 }
