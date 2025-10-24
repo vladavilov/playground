@@ -64,9 +64,6 @@ def ensure_workspace_initialized(workspace_root: Path, project_id: str) -> Path:
     workspace.mkdir(parents=True, exist_ok=True)
     (workspace / "input").mkdir(parents=True, exist_ok=True)
     (workspace / "output").mkdir(parents=True, exist_ok=True)
-    # Ensure cache directories exist for GraphRAG cached LLM calls
-    (workspace / "cache").mkdir(parents=True, exist_ok=True)
-    (workspace / "cache" / "extract_graph").mkdir(parents=True, exist_ok=True)
     return workspace
 
 

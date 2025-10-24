@@ -95,6 +95,11 @@ def configure_settings_for_json() -> Dict[str, Any]:
     output_cfg["base_dir"] = output_cfg.get("base_dir", "output")
     settings["output"] = output_cfg
 
+    # Cache configuration: disable caching to avoid filesystem directory creation issues
+    # Using 'none' type bypasses caching entirely, avoiding both file system and memory issues
+    # This is acceptable since the pipeline runs once per project
+    settings["cache"] = {"type": "none"}
+
     # Vector store: GraphRAG expects a mapping of named stores → VectorStoreConfig
     # Provide the expected default id used by the pipeline: "default_vector_store"
     settings["vector_store"] = {
