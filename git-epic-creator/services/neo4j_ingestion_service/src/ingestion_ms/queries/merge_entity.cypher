@@ -41,10 +41,10 @@ SET e.merged_ids = coalesce(e.merged_ids, []) +
 WITH e, value, value.project_id AS pid
 MERGE (p:__Project__ {id: pid})
 MERGE (e)-[:IN_PROJECT]->(p)
-WITH e, value
+// Create HAS_ENTITY relationships from chunks to entities WITH project scoping
+WITH e, p, value
 UNWIND coalesce(value.text_unit_ids,[]) AS chunk_id
-MATCH (c:__Chunk__ {id: chunk_id})
+// Add project scoping to chunk MATCH to prevent cross-project contamination
+MATCH (c:__Chunk__)-[:IN_PROJECT]->(p)
+WHERE c.id = chunk_id
 MERGE (c)-[:HAS_ENTITY]->(e)
-WITH c, e
-MATCH (e)-[:IN_COMMUNITY]->(comm:__Community__)
-MERGE (c)-[:IN_COMMUNITY]->(comm)

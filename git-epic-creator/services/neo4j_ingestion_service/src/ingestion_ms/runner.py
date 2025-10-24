@@ -201,6 +201,16 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
         logger.info("Orphaned nodes detection completed", stats=orphaned_detection)
         
         total_orphaned = orphaned_detection.get("total_orphaned", 0)
+        total_nodes = sum([
+            orphaned_detection.get("total_documents", 0),
+            orphaned_detection.get("total_chunks", 0),
+            orphaned_detection.get("total_entities", 0),
+            orphaned_detection.get("total_communities", 0),
+        ])
+        
+        orphan_ratio = (total_orphaned / total_nodes * 100.0) if total_nodes > 0 else 0.0
+        SAFETY_THRESHOLD_PERCENT = 50.0  # Abort cleanup if >50% nodes are orphaned (likely indicates bug)
+        
         if total_orphaned > 0:
             logger.warning(
                 "Orphaned nodes detected after ingestion",
@@ -208,12 +218,40 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
                 orphaned_entities=orphaned_detection.get("orphaned_entities", 0),
                 orphaned_communities=orphaned_detection.get("orphaned_communities", 0),
                 unlinked_nodes=orphaned_detection.get("unlinked_nodes", 0),
-                total=total_orphaned,
+                total_orphaned=total_orphaned,
+                total_nodes=total_nodes,
+                orphan_ratio_percent=round(orphan_ratio, 2),
             )
             
-            # Cleanup orphaned nodes
-            orphaned_stats = ingestor.cleanup_orphaned_nodes(cb)
-            logger.info("Orphaned nodes cleanup completed", stats=orphaned_stats)
+            # SAFETY CHECK: Abort cleanup if orphan ratio exceeds threshold
+            if orphan_ratio > SAFETY_THRESHOLD_PERCENT:
+                logger.error(
+                    "SAFETY ABORT: Orphan ratio exceeds safety threshold - cleanup SKIPPED",
+                    orphan_ratio=round(orphan_ratio, 2),
+                    threshold=SAFETY_THRESHOLD_PERCENT,
+                    total_orphaned=total_orphaned,
+                    total_nodes=total_nodes,
+                    reason=(
+                        "High orphan ratio indicates potential data integrity issue. "
+                        "Possible causes: missing project_id on relationships, incorrect orphan "
+                        "detection query, cross-project contamination. Review logs and Cypher queries."
+                    )
+                )
+                orphaned_stats = {
+                    "cleanup_aborted": True,
+                    "reason": "orphan_ratio_exceeds_threshold",
+                    "orphan_ratio_percent": round(orphan_ratio, 2),
+                    "threshold_percent": SAFETY_THRESHOLD_PERCENT,
+                }
+            else:
+                # Safe to proceed with cleanup
+                logger.info(
+                    "Orphan ratio within safe threshold - proceeding with cleanup",
+                    orphan_ratio=round(orphan_ratio, 2),
+                    threshold=SAFETY_THRESHOLD_PERCENT,
+                )
+                orphaned_stats = ingestor.cleanup_orphaned_nodes(cb)
+                logger.info("Orphaned nodes cleanup completed", stats=orphaned_stats)
     except Exception as exc:
         logger.error("Orphaned nodes cleanup failed", error=str(exc))
 

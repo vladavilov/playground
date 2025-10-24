@@ -4,18 +4,30 @@ UNWIND $rows AS value
 WITH value, toUpper(coalesce(value.source, '')) AS source_key, toUpper(coalesce(value.target, '')) AS target_key
 WHERE source_key <> '' AND target_key <> ''
 
-// Find source entity using normalized key
-CALL (source_key) {
-  MATCH (s:__Entity__)
+// Extract project context from first row for scoping (all rows in batch should have same project_id)
+WITH value, source_key, target_key, value.project_id AS project_id
+LIMIT 1
+WITH source_key, target_key, project_id
+MATCH (p:__Project__ {id: project_id})
+
+// Continue processing all rows with project context
+MATCH (p)
+UNWIND $rows AS value
+WITH p, value, toUpper(coalesce(value.source, '')) AS source_key, toUpper(coalesce(value.target, '')) AS target_key
+WHERE source_key <> '' AND target_key <> ''
+
+// Find source entity WITH project scoping to prevent cross-project matching
+CALL (source_key, p) {
+  MATCH (s:__Entity__)-[:IN_PROJECT]->(p)
   WHERE toUpper(coalesce(s.norm_title, s.title, '')) = source_key
   RETURN s
   ORDER BY s.id
   LIMIT 1
 }
 
-// Find target entity using normalized key
-CALL (target_key) {
-  MATCH (t:__Entity__)
+// Find target entity WITH project scoping to prevent cross-project matching
+CALL (target_key, p) {
+  MATCH (t:__Entity__)-[:IN_PROJECT]->(p)
   WHERE toUpper(coalesce(t.norm_title, t.title, '')) = target_key
   RETURN t
   ORDER BY t.id

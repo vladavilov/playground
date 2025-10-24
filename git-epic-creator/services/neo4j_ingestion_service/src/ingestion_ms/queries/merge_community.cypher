@@ -10,24 +10,19 @@ WITH c, p, value
 
 // Path 1: Match entities by entity_ids (if provided)
 CALL (c, p, value) {
-  WITH c, p, value, range(0, coalesce(size(value.entity_ids),0)-1) AS idxs 
-  WHERE size(idxs) > 0
-  UNWIND idxs AS i 
-  WITH c, p, value.entity_ids[i] AS entity_id 
-  WHERE entity_id IS NOT NULL 
-  // Match by merged_ids to find entity even if this ID was merged into another
+  WITH c, p, value, coalesce(value.entity_ids, []) AS entity_ids
+  // Match entities where any entity_id from community is in the entity's merged_ids (handles deduplication)
   MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
-  WHERE entity_id IN coalesce(e.merged_ids, [e.id])
+  WHERE size(entity_ids) > 0 
+    AND ANY(eid IN entity_ids WHERE eid IN coalesce(e.merged_ids, [e.id]))
   RETURN collect(DISTINCT e) AS entities_from_ids
 }
 
 // Path 2: Fallback to text_unit_ids -> chunks -> entities (if entity_ids empty)
 CALL (c, p, value) {
   WITH c, p, value, coalesce(value.text_unit_ids, []) AS text_unit_ids
-  WHERE size(text_unit_ids) > 0
-  UNWIND text_unit_ids AS chunk_id
   MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p)
-  WHERE ch.id = chunk_id
+  WHERE size(text_unit_ids) > 0 AND ch.id IN text_unit_ids
   OPTIONAL MATCH (ch)-[:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p)
   RETURN collect(DISTINCT e) AS entities_from_chunks, collect(DISTINCT ch) AS chunks_from_text_units
 }
@@ -35,8 +30,8 @@ CALL (c, p, value) {
 // Determine effective entity set (prioritize entity_ids, fallback to chunks)
 WITH c, p, 
      CASE 
-       WHEN size(entities_from_ids) > 0 THEN entities_from_ids
-       WHEN size(entities_from_chunks) > 0 THEN entities_from_chunks
+       WHEN size(coalesce(entities_from_ids, [])) > 0 THEN entities_from_ids
+       WHEN size(coalesce(entities_from_chunks, [])) > 0 THEN entities_from_chunks
        ELSE []
      END AS effective_entities,
      coalesce(chunks_from_text_units, []) AS related_chunks

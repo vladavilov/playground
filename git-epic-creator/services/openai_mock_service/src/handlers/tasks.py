@@ -20,10 +20,10 @@ class TasksRequirementsAnalystHandler(BaseHandler):
         system_lower = system_content.lower()
         
         return (
-            "senior agile architect analyzing requirements" in system_lower
-            and "intents" in system_content
-            and "entities" in system_content
-            and "constraints" in system_content
+            "senior technical architect analyzing requirements" in system_lower
+            and "intents" in system_lower
+            and "entities" in system_lower
+            and "constraints" in system_lower
         )
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
@@ -71,8 +71,8 @@ class TasksBacklogEngineerHandler(BaseHandler):
         )
         
         return (
-            "senior delivery lead" in system_lower
-            and "invest principles" in system_lower
+            "senior technical lead" in system_lower
+            and "agile expert" in system_lower
             and "### Requirements" in user_content
             and "### Technical Context" in user_content
         )

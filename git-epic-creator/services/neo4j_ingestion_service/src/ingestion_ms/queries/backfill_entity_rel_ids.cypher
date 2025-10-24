@@ -1,7 +1,9 @@
 // Backfill entity.relationship_ids with outgoing and incoming RELATED relationship IDs
-// Process all entities across all projects (can be filtered by project if needed)
+// SCOPED to specific project for multi-tenant safety
+// Parameters: $project_id (string)
 
-MATCH (e:__Entity__)-[:IN_PROJECT]->(:__Project__)
+MATCH (p:__Project__ {id: $project_id})
+MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
 
 // Collect outgoing relationship IDs
 CALL (e) {

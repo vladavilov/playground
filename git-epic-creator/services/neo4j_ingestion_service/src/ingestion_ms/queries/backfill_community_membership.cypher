@@ -10,10 +10,9 @@ WITH c, p, coalesce(c.entity_ids, []) AS stored_entity_ids, coalesce(c.text_unit
 // Path 1: Use stored entity_ids if available
 CALL (c, p, stored_entity_ids) {
   WITH c, p, stored_entity_ids
-  WHERE size(stored_entity_ids) > 0
-  UNWIND stored_entity_ids AS entity_id
   MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
-  WHERE entity_id IN coalesce(e.merged_ids, [e.id])
+  WHERE size(stored_entity_ids) > 0 
+    AND ANY(eid IN stored_entity_ids WHERE eid IN coalesce(e.merged_ids, [e.id]))
   RETURN collect(DISTINCT e) AS entities_from_stored
 }
 
@@ -27,10 +26,8 @@ CALL (c, p) {
 // Path 3: Fallback to text_unit_ids -> chunks -> entities
 CALL (c, p, text_unit_ids) {
   WITH c, p, text_unit_ids
-  WHERE size(text_unit_ids) > 0
-  UNWIND text_unit_ids AS chunk_id
   MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p)
-  WHERE ch.id = chunk_id
+  WHERE size(text_unit_ids) > 0 AND ch.id IN text_unit_ids
   OPTIONAL MATCH (ch)-[:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p)
   RETURN collect(DISTINCT e) AS entities_from_chunks
 }
@@ -38,9 +35,9 @@ CALL (c, p, text_unit_ids) {
 // Combine all sources (prioritize stored, then relationships, then chunks)
 WITH c, p, 
      CASE 
-       WHEN size(entities_from_stored) > 0 THEN entities_from_stored
-       WHEN size(entities_from_rels) > 0 THEN entities_from_rels
-       WHEN size(entities_from_chunks) > 0 THEN entities_from_chunks
+       WHEN size(coalesce(entities_from_stored, [])) > 0 THEN entities_from_stored
+       WHEN size(coalesce(entities_from_rels, [])) > 0 THEN entities_from_rels
+       WHEN size(coalesce(entities_from_chunks, [])) > 0 THEN entities_from_chunks
        ELSE []
      END AS effective_entities
 

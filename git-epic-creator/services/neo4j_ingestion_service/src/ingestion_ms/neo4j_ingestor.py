@@ -73,7 +73,7 @@ class Neo4jIngestor:
         return self._batched_run(get_merge_entity_query(), self._attach_project_id(rows), batch_size)
 
     def ingest_entity_relationships(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_relationship_query(), rows, batch_size)
+        return self._batched_run(get_merge_relationship_query(), self._attach_project_id(rows), batch_size)
 
     def ingest_community_reports(self, rows: List[dict], batch_size: int = 1000) -> int:
         return self._batched_run(get_merge_community_report_query(), self._attach_project_id(rows), batch_size)
@@ -136,17 +136,25 @@ class Neo4jIngestor:
     # Backfills
     # -----------------------
     def backfill_entity_relationship_ids(self, callbacks: IngestionWorkflowCallbacks) -> None:
+        """Backfill entity.relationship_ids for current project."""
         step = "backfill_entity_relationship_ids"
         callbacks.backfill_start(step)
         ok = True
         err: str | None = None
         try:
+            if not self._project_id:
+                logger.warning("No project_id set, skipping entity relationship IDs backfill")
+                ok = False
+                err = "No project_id set"
+                return
+                
             with self._driver.session() as session:
-                session.run(get_backfill_entity_rel_ids())
+                session.run(get_backfill_entity_rel_ids(), project_id=self._project_id)
+                logger.info("Backfilled entity relationship IDs", project_id=self._project_id)
         except Exception as exc:
             ok = False
             err = str(exc)
-            logger.warning("Failed to backfill entity.relationship_ids", error=err)
+            logger.warning("Failed to backfill entity.relationship_ids", error=err, project_id=self._project_id)
         finally:
             callbacks.backfill_end(step, ok, err)
 

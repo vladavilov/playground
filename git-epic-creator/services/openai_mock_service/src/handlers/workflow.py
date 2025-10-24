@@ -19,8 +19,8 @@ class AnalystHandler(BaseHandler):
         
         return (
             ("senior requirements analyst" in system_lower)
-            and ("respond only with json object" in system_lower)
-            and ('"intents"' in system_content)
+            and ("respond only with" in system_lower)
+            and ("intents" in system_lower)
         )
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:

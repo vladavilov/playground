@@ -3,10 +3,13 @@ MERGE (c:__Chunk__ {id:v.id}) SET c += v
 WITH c, v, v.project_id AS pid
 MERGE (p:__Project__ {id: pid})
 MERGE (c)-[:IN_PROJECT]->(p)
-WITH c,v,coalesce(v.document_ids,[]) AS dids
+// Create HAS_CHUNK relationships WITH project scoping to prevent cross-project contamination
+WITH c, p, v, coalesce(v.document_ids,[]) AS dids
 UNWIND dids AS did
-WITH c,did WHERE did IS NOT NULL
-MATCH (d:__Document__ {id:did})
+WITH c, p, did WHERE did IS NOT NULL
+// Add project scoping to document MATCH
+MATCH (d:__Document__)-[:IN_PROJECT]->(p)
+WHERE d.id = did
 MERGE (d)-[:HAS_CHUNK]->(c)
 // Ensure no duplicate HAS_CHUNK relationships exist for this chunk even if input repeats
 WITH c
