@@ -43,6 +43,9 @@ def configure_settings_for_json() -> Dict[str, Any]:
         "api_key": api_key_value,
         "model_supports_json": True,
         "async_mode": gr.GRAPHRAG_ASYNC_MODE,
+        "temperature": gr.GRAPHRAG_LLM_TEMPERATURE,  # Deterministic extraction (0 = no randomness)
+        "top_p": gr.GRAPHRAG_LLM_TOP_P,  # Nucleus sampling (1.0 = consider all tokens)
+        "n": gr.GRAPHRAG_LLM_N,  # Number of completions (1 = single response)
     }
     embed_cfg = {
         "type": "embedding",  # LiteLLM generic type (not azure_openai_embedding)
@@ -111,10 +114,15 @@ def configure_settings_for_json() -> Dict[str, Any]:
         }
     }
 
-    # Explicitly configure extract_graph to keep gleanings minimal and predictable
+    # Explicitly configure extract_graph for deterministic, reproducible extraction
+    # Using temperature=0, top_p=1, n=1 ensures consistent LLM outputs across runs
+    # This prevents schema drift where relationship dicts omit keys like 'description', 'source_id', 'weight'
     settings["extract_graph"] = {
         "model_id": chat_model_id,
         "max_gleanings": gr.GRAPHRAG_EXTRACT_MAX_GLEANINGS,
+        "temperature": gr.GRAPHRAG_LLM_TEMPERATURE,  # 0 = deterministic (no randomness)
+        "top_p": gr.GRAPHRAG_LLM_TOP_P,  # 1.0 = consider all tokens (no nucleus sampling)
+        "n": gr.GRAPHRAG_LLM_N,  # 1 = single completion per request
     }
 
     return settings

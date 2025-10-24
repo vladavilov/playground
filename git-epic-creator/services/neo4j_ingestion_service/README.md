@@ -456,5 +456,6 @@ On successful completion of the Celery task for a project:
 
 ### References
 - [Neo4j GraphRAG Python Pipeline](https://neo4j.com/labs/genai-ecosystem/graphrag/)
+- [Microsoft GraphRAG Configuration](https://microsoft.github.io/graphrag/config/yaml/)
 - Shared configuration: `shared/configuration/llm_config.py`
 - Shared models: `shared/models/ingestion_messages.py`

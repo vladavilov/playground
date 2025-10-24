@@ -32,7 +32,20 @@ async def _run(workspace: Path, cb: IngestionWorkflowCallbacks) -> Dict[str, Any
         }
     """
     # Build config dict programmatically and create GraphRAG config without writing files
-    config = create_graphrag_config(configure_settings_for_json(), str(workspace))
+    settings_dict = configure_settings_for_json()
+    
+    # Log critical extraction settings for debugging schema drift issues
+    extract_config = settings_dict.get("extract_graph", {})
+    logger.info(
+        "GraphRAG extraction configuration",
+        max_gleanings=extract_config.get("max_gleanings"),
+        temperature=extract_config.get("temperature"),
+        top_p=extract_config.get("top_p"),
+        n=extract_config.get("n"),
+        model_id=extract_config.get("model_id"),
+    )
+    
+    config = create_graphrag_config(settings_dict, str(workspace))
     output_dir = workspace / "output"
 
     try:

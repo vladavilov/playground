@@ -41,8 +41,40 @@ class ParquetReader:
         )
 
     def read_entity_relationships(self, output_dir: Path) -> List[Dict[str, Any]]:
+        """
+        Read entity relationships from parquet file.
+        
+        Expected columns from GraphRAG:
+        - source (required): Source entity name
+        - target (required): Target entity name
+        - description (optional but expected): LLM-generated relationship description
+        - weight (optional but expected): Relationship strength/weight
+        - source_id: Synthesized if not present (fallback to source|target)
+        
+        If description/weight are missing, it indicates LLM schema drift (non-deterministic output).
+        """
+        path = Path(output_dir) / RELATIONSHIPS_FILE
+        
+        # Read raw parquet to check schema before validation
+        df = self._read_parquet(path)
+        if df is not None:
+            present_cols = set(df.columns)
+            expected_cols = {"source", "target", "description", "weight"}
+            missing_cols = expected_cols - present_cols
+            
+            if missing_cols:
+                logger.warning(
+                    "SCHEMA_DRIFT_DETECTED: Relationship parquet missing expected columns - "
+                    "This indicates non-deterministic LLM output. "
+                    "Verify GRAPHRAG_LLM_TEMPERATURE=0 in configuration.",
+                    path=str(path),
+                    present_columns=sorted(present_cols),
+                    missing_columns=sorted(missing_cols),
+                    total_rows=len(df),
+                )
+        
         return self._prepare_rows(
-            path=Path(output_dir) / RELATIONSHIPS_FILE,
+            path=path,
             required_cols=["source", "target"],
             transforms=[self._synthesize_relationship_id()],
         )
