@@ -18,10 +18,12 @@ CALL (p) {
   RETURN count(e) AS orphaned_entities
 }
 
-// Count orphaned __Community__ nodes (no IN_COMMUNITY relationships)
+// Count orphaned __Community__ nodes (no entities AND no chunks)
+// Communities without parent communities are valid (top-level), so check for content instead
 CALL (p) {
   MATCH (c:__Community__)-[:IN_PROJECT]->(p)
-  WHERE NOT exists(()-[:IN_COMMUNITY]->(c))
+  WHERE NOT exists((:__Entity__)-[:IN_COMMUNITY]->(c))
+    AND NOT exists((:__Chunk__)-[:IN_COMMUNITY]->(c))
   RETURN count(c) AS orphaned_communities
 }
 

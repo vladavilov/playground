@@ -28,10 +28,12 @@ CALL (orphaned_entities) {
 }
 WITH total_orphaned_chunks, deleted AS total_orphaned_entities
 
-// Step 3: Remove orphaned __Community__ nodes (no IN_COMMUNITY relationships from entities or chunks)
+// Step 3: Remove orphaned __Community__ nodes (no entities AND no chunks)
+// Communities without parent communities are valid (top-level), so check for content instead
 MATCH (p:__Project__ {id: $project_id})
 MATCH (c:__Community__)-[:IN_PROJECT]->(p)
-WHERE NOT exists(()-[:IN_COMMUNITY]->(c))
+WHERE NOT exists((:__Entity__)-[:IN_COMMUNITY]->(c))
+  AND NOT exists((:__Chunk__)-[:IN_COMMUNITY]->(c))
 WITH total_orphaned_chunks, total_orphaned_entities, collect(c) AS orphaned_communities
 CALL (orphaned_communities) {
   UNWIND orphaned_communities AS c

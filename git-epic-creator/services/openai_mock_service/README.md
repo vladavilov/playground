@@ -49,13 +49,14 @@ src/
 
 **Registry:** Handlers registered in priority order (most specific first). First matching handler processes request.
 
-**23 Handlers (1-1 mapping guaranteed):**
+**28 Handlers (1-1 mapping guaranteed):**
 
 | Group | Count | Handlers |
 |-------|-------|----------|
 | **DRIFT-search** | 6 | HyDE, Primer, LocalExecutor, Aggregator, SearchSystem, Reduce |
 | **GraphRAG** | 3 | Extraction, CommunityReportGraph, CommunityReportText |
-| **DeepEval** | 4 | Claims, Truths, GEval, Statements |
+| **DeepEval** | 7 | Claims, Truths, FaithfulnessReason, GEval, Statements, AnswerRelevancyScore, Verdicts |
+| **AI Tasks Service** | 5 | RequirementsAnalyst, BacklogEngineer, ConsistencyAuditor, Evaluator, ClarificationStrategist |
 | **AI Workflow** | 4 | Analyst, Engineer, Auditor, Strategist |
 | **Search/Summarization** | 5 | ExtractClaims, GlobalSearch, BasicSearch, QuestionGen, SummarizeDescriptions |
 | **Fallback** | 1 | Default graph generator |
@@ -63,6 +64,8 @@ src/
 **Detection Examples:**
 - `DriftHydeHandler`: `"hyde" in text OR "hypothetical answer paragraph"`
 - `DriftPrimerHandler`: `"you are drift-search primer"`
+- `TasksRequirementsAnalystHandler`: `"senior technical architect analyzing requirements" + "intents/entities/constraints"`
+- `TasksConsistencyAuditorHandler`: `"quality assurance lead" + "conducting a rigorous audit"`
 - `AnalystHandler`: `"senior requirements analyst" + "intents" schema`
 - `EngineerHandler`: `"requirements engineer" + BR/FR schema`
 
@@ -221,21 +224,28 @@ POST /v1/embeddings
 12. **DeepEvalGEvalHandler**: `"give a reason for the score"` OR `"score" + "reason"`
 13. **DeepEvalStatementsHandler**: `"statements"` OR `"break down" + "response"`
 
+### AI Tasks Service (Backlog Generation)
+14. **TasksRequirementsAnalystHandler**: System: `"senior technical architect analyzing requirements" + "intents" + "entities" + "constraints"`
+15. **TasksBacklogEngineerHandler**: System: `"senior technical lead" + "agile expert"` + User: `"### Requirements" + "### Technical Context"`
+16. **TasksConsistencyAuditorHandler**: System: `"quality assurance lead" + "conducting a rigorous audit"` + User: `"### Requirements" + "### Backlog"`
+17. **TasksEvaluatorHandler**: System: `"backlog evaluator"` + User: `"### Requirements" + "### Backlog"` (supports OLD & NEW formats)
+18. **TasksClarificationStrategistHandler**: System: `"clarification strategist" + "below target"` + User: `"### Requirements" + "### Current Scores" + "Target:"`
+
 ### AI Workflow (Requirements Engineering)
-14. **AnalystHandler**: System: `"senior requirements analyst" + "intents" schema`
-15. **EngineerHandler**: System: `"requirements engineer"` OR `"business_requirements"` OR `"functional_requirements"`
-16. **AuditorHandler**: System: `"senior requirements QA reviewer"` OR `"severity" + "suggestions"`
-17. **StrategistHandler**: User: `"axis_scores"` OR `"questions"`
+19. **AnalystHandler**: System: `"senior requirements analyst" + "intents" schema`
+20. **EngineerHandler**: System: `"requirements engineer"` OR `"business_requirements"` OR `"functional_requirements"`
+21. **AuditorHandler**: System: `"senior requirements QA reviewer"` OR `"severity" + "suggestions"`
+22. **StrategistHandler**: User: `"axis_scores"` OR `"questions"`
 
 ### Search & Summarization
-18. **ExtractClaimsHandler**: `"-target activity-" + "extract all entities" + "Format each claim as ("`
-19. **GlobalSearchHandler**: `"JSON formatted as follows" + "points" + "map"`
-20. **BasicSearchHandler**: `"---Data tables---" + "data in the tables"` (different from DriftReduceHandler)
-21. **QuestionGenerationHandler**: `"generate a bulleted list of" + "Use - marks as bullet points"`
-22. **SummarizeDescriptionsHandler**: `"generating a comprehensive summary" + "Description List:"`
+23. **ExtractClaimsHandler**: `"-target activity-" + "extract all entities" + "Format each claim as ("`
+24. **GlobalSearchHandler**: `"JSON formatted as follows" + "points" + "map"`
+25. **BasicSearchHandler**: `"---Data tables---" + "data in the tables"` (different from DriftReduceHandler)
+26. **QuestionGenerationHandler**: `"generate a bulleted list of" + "Use - marks as bullet points"`
+27. **SummarizeDescriptionsHandler**: `"generating a comprehensive summary" + "Description List:"`
 
 ### Fallback
-23. **FallbackGraphHandler**: Always matches (lowest priority). Returns Smallpdf-grounded graph.
+28. **FallbackGraphHandler**: Always matches (lowest priority). Returns Smallpdf-grounded graph.
 
 **Disambiguation:** DriftReduceHandler uses "**reports**", BasicSearchHandler uses "**tables**".
 

@@ -191,7 +191,7 @@ class TasksConsistencyAuditorHandler(BaseHandler):
         
         return (
             "quality assurance lead" in system_lower
-            and "reviewing a backlog for consistency" in system_lower
+            and "conducting a rigorous audit" in system_lower
             and "### Requirements" in user_content
             and "### Backlog" in user_content
         )

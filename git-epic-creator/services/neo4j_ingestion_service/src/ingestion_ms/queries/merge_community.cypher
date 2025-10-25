@@ -36,12 +36,15 @@ WITH c, p,
      END AS effective_entities,
      coalesce(chunks_from_text_units, []) AS related_chunks
 
+// Only proceed if entities found - prevents overwriting entity_ids from parquet with empty array
+WITH c, p, effective_entities, related_chunks
+WHERE size(effective_entities) > 0
+
 // Update entity_ids with actual entity IDs after deduplication/inference
 SET c.entity_ids = [e IN effective_entities | e.id]
 
 // Create Entity -> Community relationships
 WITH c, p, effective_entities, related_chunks
-WHERE size(effective_entities) > 0
 UNWIND effective_entities AS e
 MERGE (e)-[:IN_COMMUNITY]->(c)
 

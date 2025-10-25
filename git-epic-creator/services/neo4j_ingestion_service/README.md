@@ -199,9 +199,37 @@ Entities are deduplicated by `norm_title` and `description` during ingestion. Wh
 - **GraphRAG output:** `communities.parquet` contains `entity_ids` that may reference merged IDs (e.g., `["entity_B"]`)
 - **Match strategy:** `merge_community.cypher` matches entities using: `WHERE entity_id IN e.merged_ids`
 - **Result:** Community finds the entity even if it references a merged ID
-- **Update:** `Community.entity_ids` is updated to current canonical IDs (e.g., `["entity_A"]`)
+- **Update:** `Community.entity_ids` is updated to current canonical IDs (e.g., `["entity_A"]`) **ONLY when entities are found**
+- **Preservation:** If no entities match during initial ingestion, original `entity_ids` from parquet are preserved for backfill phase
 
 This ensures `Entity-[:IN_COMMUNITY]->Community` relationships are created correctly even when entity IDs from GraphRAG output were merged during deduplication.
+
+**Community Hierarchy Construction:**
+
+Communities are organized hierarchically using Leiden algorithm levels (0, 1, 2). The hierarchy is constructed through backfill operations:
+
+1. **Initial Ingestion (`merge_community.cypher`):**
+   - Creates `__Community__` nodes with properties from `communities.parquet`
+   - Attempts to match entities and create `(Entity)-[:IN_COMMUNITY]->(Community)` relationships
+   - If entities found: Updates `entity_ids` with canonical IDs and creates relationships
+   - If no entities found: Preserves original `entity_ids` for backfill phase
+
+2. **Entity/Chunk Membership Backfill (`backfill_community_membership.cypher`):**
+   - Runs after vector embeddings are ingested
+   - Resolves missing `(Entity)-[:IN_COMMUNITY]->(Community)` relationships
+   - Uses three fallback strategies:
+     - Path 1: Match by stored `entity_ids` (from parquet)
+     - Path 2: Match by existing `IN_COMMUNITY` relationships
+     - Path 3: Fallback to `text_unit_ids` → chunks → entities traversal
+   - Creates `(Chunk)-[:IN_COMMUNITY]->(Community)` relationships
+
+3. **Hierarchy Backfill (`backfill_community_hierarchy.cypher`):**
+   - Creates `(child:Community)-[:IN_COMMUNITY]->(parent:Community)` relationships
+   - Matches parent-child by level difference (level N links to level N-1)
+   - Uses two matching strategies:
+     - Primary: Entity overlap (`entity_ids` intersection)
+     - Fallback: Relationship overlap (`relationship_ids` intersection)
+   - Result: Hierarchical graph enabling multi-level DRIFT search
 
 **Key relationships:**
 

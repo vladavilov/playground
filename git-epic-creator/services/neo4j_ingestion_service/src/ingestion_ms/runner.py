@@ -171,9 +171,6 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     ingestor.backfill_community_hierarchy(cb)
     ingestor.backfill_community_ids(cb)
     
-    # Sync entity relationship metadata (ensures property matches graph state)
-    ingestor.sync_entity_relationship_ids(cb)
-    
     # Comprehensive embedding validation (all node types) - CRITICAL for DRIFT search
     embedding_validation = ingestor.validate_all_embeddings(cb)
     
@@ -192,6 +189,27 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
             project_id=project_id,
             issues=embedding_validation.get("issues", [])
         )
+
+    # Validation: check relationship health BEFORE cleanup to detect issues
+    validation_stats_pre = {}
+    duplicate_stats = {}
+    try:
+        validation_stats_pre = ingestor.validate_relationships()
+        logger.info("Pre-cleanup relationship validation completed", stats=validation_stats_pre)
+        
+        # Cleanup duplicate relationships only if detected
+        duplicate_count = validation_stats_pre.get("duplicate_count", 0)
+        if duplicate_count > 0:
+            logger.warning(
+                "Duplicate relationships detected - running cleanup",
+                duplicate_count=duplicate_count,
+                duplication_ratio=validation_stats_pre.get("duplication_ratio", 0),
+            )
+            duplicates_removed = ingestor.cleanup_duplicate_relationships()
+            duplicate_stats = {"duplicates_removed": duplicates_removed}
+            logger.info("Duplicate relationships cleanup completed", duplicates_removed=duplicates_removed)
+    except Exception as exc:
+        logger.error("Relationship validation or cleanup failed", error=str(exc))
 
     # Cleanup: remove orphaned nodes after deduplication and merging
     orphaned_stats = {}
@@ -255,22 +273,29 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("Orphaned nodes cleanup failed", error=str(exc))
 
-    # Validation: check relationship health after ingestion
+    # Post-cleanup sync: rebuild entity.relationship_ids after cleanup operations
+    try:
+        entities_synced = ingestor.sync_entity_relationship_ids(cb)
+        logger.info("Post-cleanup relationship IDs synchronized", entities_updated=entities_synced)
+    except Exception as exc:
+        logger.error("Post-cleanup relationship ID sync failed", error=str(exc))
+
+    # Final validation: check relationship health after all cleanup
     validation_stats = {}
     try:
         validation_stats = ingestor.validate_relationships()
-        logger.info("Relationship validation completed", stats=validation_stats)
+        logger.info("Final relationship validation completed", stats=validation_stats)
         
-        # Log warning if duplicate relationships detected
+        # Log warning if duplicate relationships still detected (should be 0)
         duplicate_count = validation_stats.get("duplicate_count", 0)
         if duplicate_count > 0:
             logger.warning(
-                "Duplicate relationships detected after ingestion",
+                "Duplicate relationships still present after cleanup - investigate",
                 duplicate_count=duplicate_count,
                 duplication_ratio=validation_stats.get("duplication_ratio", 0),
             )
     except Exception as exc:
-        logger.error("Relationship validation failed", error=str(exc))
+        logger.error("Final relationship validation failed", error=str(exc))
 
     logger.info("Neo4j import counts", imported=imported, vectors=vector_counts)
 
@@ -285,8 +310,10 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
         "neo4j_import": imported,
         "vector_import": vector_counts,
         "embedding_validation": embedding_validation,
+        "duplicate_cleanup": duplicate_stats,
         "orphaned_cleanup": orphaned_stats,
-        "validation": validation_stats,
+        "validation_pre_cleanup": validation_stats_pre,
+        "validation_final": validation_stats,
     }
 
 
