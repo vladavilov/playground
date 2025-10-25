@@ -312,8 +312,8 @@ flowchart TD
    - Community detection (Leiden algorithm, hierarchical levels)
    - Embedding generation (OpenAI ada-002, 1536 dimensions for chunks, entities, communities)
 6. **Neo4j writes:** Create nodes/relationships with project scoping; batch processing (1000 rows/batch)
-   - Documents: Ensure `title` is populated (fallback: `metadata.file_name` → `id`)
-   - Chunks: Hash-based deduplication (SHA256) with APOC node merging for performance
+   - Documents: Ensure `title` is populated (fallback: `metadata.file_name` → `id`), guarantee `IN_PROJECT` relationships for all documents
+   - Chunks: Hash-based deduplication (SHA256) with APOC node merging, handles both deduplicated and non-deduplicated paths
    - Entities: Deterministic merge by priority: `id` > `norm_title` > `description`
    - Relationships: Create with deduplication
    - Communities: Create `__Community__` nodes with `level` property from Leiden hierarchy output, establish `(Entity|Chunk)-[:IN_COMMUNITY]->(Community)` relationships
