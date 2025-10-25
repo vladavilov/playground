@@ -3,7 +3,7 @@ MERGE (c:__Chunk__ {id:v.id})
 SET c += v,
     c.text_hash = CASE 
       WHEN v.text IS NOT NULL AND v.text <> '' 
-      THEN substring(sha256(v.text), 0, 16)
+      THEN substring(apoc.util.sha256([v.text]), 0, 16)
       ELSE NULL 
     END
 WITH c, v, v.project_id AS pid
