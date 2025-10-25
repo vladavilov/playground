@@ -59,6 +59,20 @@ MATCH (ch:__Chunk__)-[:HAS_ENTITY]->(e)
 WHERE (ch)-[:IN_PROJECT]->(p)
 MERGE (ch)-[:IN_COMMUNITY]->(c)
 
+// Deduplicate Entity -> Community relationships
+WITH c, p
+MATCH (e:__Entity__)-[r:IN_COMMUNITY]->(c)
+WITH c, p, e, collect(r) AS rels
+WHERE size(rels) > 1
+FOREACH (rel IN rels[1..] | DELETE rel)
+
+// Deduplicate Chunk -> Community relationships
+WITH c, p
+MATCH (ch:__Chunk__)-[r:IN_COMMUNITY]->(c)
+WITH c, p, ch, collect(r) AS rels
+WHERE size(rels) > 1
+FOREACH (rel IN rels[1..] | DELETE rel)
+
 // Return statistics for monitoring
 WITH c, p
 RETURN count(DISTINCT c) AS communities_processed

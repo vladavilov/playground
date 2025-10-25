@@ -165,11 +165,18 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     vectors = ldb.read_all_embeddings(workspace, cb)
     vector_counts = ingestor.ingest_all_vectors(vectors, callbacks=cb)
 
-    # Backfills
+    # Backfills (corrected execution order for data dependencies)
+    # 1. First backfill entity-level data
     ingestor.backfill_entity_relationship_ids(cb)
+    
+    # 2. Then backfill community membership (uses entities)
     ingestor.backfill_community_membership(cb)
-    ingestor.backfill_community_hierarchy(cb)
+    
+    # 3. Backfill community IDs (simple property update)
     ingestor.backfill_community_ids(cb)
+    
+    # 4. Finally, build hierarchy (requires entity_ids to be populated)
+    ingestor.backfill_community_hierarchy(cb)
     
     # Comprehensive embedding validation (all node types) - CRITICAL for DRIFT search
     embedding_validation = ingestor.validate_all_embeddings(cb)

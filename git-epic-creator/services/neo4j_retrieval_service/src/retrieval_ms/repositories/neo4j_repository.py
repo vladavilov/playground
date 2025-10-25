@@ -40,15 +40,12 @@ class Neo4jRepository:
             List of records with node and score fields
         """
         if level is not None:
+            # Optimized: Let query planner filter efficiently
             query = (
                 "MATCH (p:__Project__ {id: $projectId}) "
-                "MATCH (c:__Community__)-[:IN_PROJECT]->(p) "
-                "WHERE c.level = $level "
-                "WITH collect(c) AS candidates, p "
-                # Query wider pool for better recall
-                "CALL db.index.vector.queryNodes($name, $k * 2, $qvec) "
+                "CALL db.index.vector.queryNodes($name, $k * 3, $qvec) "
                 "YIELD node AS n, score "
-                "WHERE n IN candidates "
+                "WHERE (n)-[:IN_PROJECT]->(p) AND n.level = $level "
                 "RETURN n AS node, score "
                 "ORDER BY score DESC LIMIT $k"
             )

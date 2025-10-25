@@ -72,21 +72,70 @@ class Neo4jSchemaService:
                 await asyncio.sleep(self.settings.RETRY_BACKOFF_BASE_SEC)
 
     async def execute_queries_batch(self, queries: List[str]) -> Dict[str, Any]:
-        """Execute a batch of queries with shared flow."""
-        return await self._run_batch(queries)
+        """Execute a batch of queries within a single transaction for better performance."""
+        return await self._run_batch_transactional(queries)
 
-    async def _run_batch(self, queries: List[str]) -> Dict[str, Any]:
+    async def _run_batch_transactional(self, queries: List[str]) -> Dict[str, Any]:
+        """Execute queries in a single transaction with retry logic."""
         results: Dict[str, Any] = {
             "executed_queries": [],
             "failed_queries": [],
             "total_queries": len(queries or []),
         }
-        for query in (queries or []):
-            item = await self.execute_query(query)
-            if item.get("success"):
-                results["executed_queries"].append(item)
-            else:
-                results["failed_queries"].append(item)
+        
+        for attempt in range(self.settings.RETRY_MAX_ATTEMPTS):
+            try:
+                with self.neo4j_client.get_session() as session:
+                    with session.begin_transaction() as tx:
+                        for query in (queries or []):
+                            try:
+                                result = tx.run(query)
+                                result.consume()
+                                results["executed_queries"].append({
+                                    "success": True,
+                                    "query": query,
+                                    "attempts": attempt + 1
+                                })
+                            except Neo4jError as e:
+                                # Don't fail entire batch on already-exists errors
+                                error_msg = str(e).lower()
+                                if "already exists" in error_msg or "equivalent" in error_msg:
+                                    results["executed_queries"].append({
+                                        "success": True,
+                                        "query": query,
+                                        "attempts": attempt + 1,
+                                        "skipped": "already_exists"
+                                    })
+                                    logger.debug("Skipped existing constraint/index", query=query[:80])
+                                else:
+                                    raise
+                        tx.commit()
+                
+                logger.info("Batch transaction committed successfully", 
+                           queries_executed=len(results["executed_queries"]))
+                break  # Success, exit retry loop
+                
+            except (Neo4jError, OSError, ConnectionError) as e:
+                if attempt == self.settings.RETRY_MAX_ATTEMPTS - 1:
+                    # Last attempt failed - mark all remaining queries as failed
+                    logger.error("Batch transaction failed after all retries",
+                               error=str(e), attempts=attempt + 1)
+                    executed_queries = {q["query"] for q in results["executed_queries"]}
+                    for query in queries:
+                        if query not in executed_queries:
+                            results["failed_queries"].append({
+                                "success": False,
+                                "query": query,
+                                "attempts": attempt + 1,
+                                "error": str(e)
+                            })
+                else:
+                    # Retry with backoff
+                    logger.warning("Batch transaction failed, retrying",
+                                 error=str(e), attempt=attempt + 1)
+                    results["executed_queries"].clear()  # Reset for retry
+                    await asyncio.sleep(self.settings.RETRY_BACKOFF_BASE_SEC)
+        
         executed_count = len(results["executed_queries"])
         total_count = results["total_queries"]
         results["success_rate"] = self._calculate_success_rate(executed_count, total_count)

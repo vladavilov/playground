@@ -173,7 +173,7 @@ graph TB
 |------|---------------------|---------------------|-------|
 | `__Project__` | `id` (UUID) | - | Multi-tenant scoping; unique constraint on `id` |
 | `__Document__` | `id`, `project_id` | `title`, `text`, `metadata` (dict) | Source documents |
-| `__Chunk__` | `id`, `text`, `document_ids` (list), `project_id` | `n_tokens`, `chunk_index`, `embedding` (1536 float) | Deduplication by `text`; embedding set post-ingestion |
+| `__Chunk__` | `id`, `text`, `text_hash`, `document_ids` (list), `project_id` | `n_tokens`, `chunk_index`, `embedding` (1536 float) | Deduplication by `text_hash` (SHA256 substring); embedding set post-ingestion |
 | `__Entity__` | `id`, `description`, `text_unit_ids` (list), `project_id` | `title`, `norm_title`, `type`, `relationship_ids` (list), `merged_ids` (list), `embedding` (1536 float) | Matched by `id`, `norm_title`, or `description`; `merged_ids` tracks all entity IDs merged into this entity |
 | `__Community__` | `community`, `full_content`, `entity_ids` (list), `project_id` | `level`, `title`, `summary`, `full_content_json`, `rank`, `rating_explanation`, `text_unit_ids` (list), `embedding` (1536 float) | Composite key: `(community, project_id)`; hierarchical Leiden communities |
 
@@ -313,19 +313,20 @@ flowchart TD
    - Embedding generation (OpenAI ada-002, 1536 dimensions for chunks, entities, communities)
 6. **Neo4j writes:** Create nodes/relationships with project scoping; batch processing (1000 rows/batch)
    - Documents: Ensure `title` is populated (fallback: `metadata.file_name` → `id`)
-   - Chunks: Deduplication by text with relationship merging
-   - Entities: Merge by `id`, `norm_title`, or `description`
+   - Chunks: Hash-based deduplication (SHA256) with APOC node merging for performance
+   - Entities: Deterministic merge by priority: `id` > `norm_title` > `description`
    - Relationships: Create with deduplication
    - Communities: Create `__Community__` nodes with `level` property from Leiden hierarchy output, establish `(Entity|Chunk)-[:IN_COMMUNITY]->(Community)` relationships
    - **Embeddings:** Bulk ingestion from LanceDB tables (see "Embedding Ingestion Strategy" below)
-7. **Backfills:** Populate derived properties and cross-references after all data ingestion completes
+7. **Backfills:** Populate derived properties and cross-references after all data ingestion completes (corrected execution order for data dependencies)
    - `backfill_entity_relationship_ids`: Populate `Entity.relationship_ids[]` arrays from actual `RELATED` edges
-   - `backfill_community_membership`: Populate `Community.entity_ids[]` arrays and missing `IN_COMMUNITY` edges
+   - `backfill_community_membership`: Populate `Community.entity_ids[]` arrays and missing `IN_COMMUNITY` edges (with duplicate relationship cleanup)
+   - `backfill_community_ids`: Synthesize composite `Community.id` property (`community_project_id`)
    - `backfill_community_hierarchy`: Create hierarchical `(child:__Community__)-[:IN_COMMUNITY]->(parent:__Community__)` relationships
      - **Note:** GDS Leiden algorithm outputs hierarchical community levels (0=root, 1=intermediate, 2=leaf) as node properties, but does NOT create inter-community relationship edges
      - This backfill step reconstructs the hierarchy by matching communities where `child.level = parent.level - 1` AND parent contains child's entities
      - Consolidated into single backfill query (removed duplicate logic from `merge_community.cypher` for DRY compliance)
-   - `backfill_community_ids`: Synthesize composite `Community.id` property (`community_project_id`)
+     - **Execution order:** Runs AFTER entity_ids are populated to ensure correct parent-child matching
    - `sync_entity_relationship_ids`: Reconcile `Entity.relationship_ids[]` with actual graph state after cleanup
 8. **Embedding validation:** Comprehensive check across all node types (chunks, entities, communities)
    - Flags critical issues if communities missing embeddings (blocks DRIFT search)

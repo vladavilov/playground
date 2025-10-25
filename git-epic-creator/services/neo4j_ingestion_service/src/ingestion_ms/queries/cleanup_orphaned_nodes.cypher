@@ -5,61 +5,46 @@
 MATCH (p:__Project__ {id: $project_id})
 
 // Step 1: Remove orphaned __Chunk__ nodes (no HAS_CHUNK relationship from any document)
-WITH p
 MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p)
 WHERE NOT exists(()-[:HAS_CHUNK]->(ch))
-WITH collect(ch) AS orphaned_chunks
+WITH p, collect(ch) AS orphaned_chunks
 CALL (orphaned_chunks) {
   UNWIND orphaned_chunks AS ch
   DETACH DELETE ch
   RETURN count(*) AS deleted
 }
-WITH deleted AS total_orphaned_chunks
 
-// Step 2: Remove orphaned __Entity__ nodes (no HAS_ENTITY relationship from any chunk)
-MATCH (p:__Project__ {id: $project_id})
+// Step 2: Remove orphaned __Entity__ nodes (no HAS_ENTITY and no RELATED relationships)
+WITH p, deleted AS total_orphaned_chunks
 MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
 WHERE NOT exists(()-[:HAS_ENTITY]->(e))
-WITH total_orphaned_chunks, collect(e) AS orphaned_entities
+  AND NOT exists((e)-[:RELATED]-())
+  AND NOT exists(()-[:RELATED]->(e))
+WITH p, total_orphaned_chunks, collect(e) AS orphaned_entities
 CALL (orphaned_entities) {
   UNWIND orphaned_entities AS e
   DETACH DELETE e
   RETURN count(*) AS deleted
 }
-WITH total_orphaned_chunks, deleted AS total_orphaned_entities
 
-// Step 3: Remove orphaned __Community__ nodes (no entities AND no chunks)
-// Communities without parent communities are valid (top-level), so check for content instead
-MATCH (p:__Project__ {id: $project_id})
+// Step 3: Remove orphaned __Community__ nodes (pass p through)
+WITH p, total_orphaned_chunks, deleted AS total_orphaned_entities
 MATCH (c:__Community__)-[:IN_PROJECT]->(p)
 WHERE NOT exists((:__Entity__)-[:IN_COMMUNITY]->(c))
   AND NOT exists((:__Chunk__)-[:IN_COMMUNITY]->(c))
-WITH total_orphaned_chunks, total_orphaned_entities, collect(c) AS orphaned_communities
+WITH p, total_orphaned_chunks, total_orphaned_entities, collect(c) AS orphaned_communities
 CALL (orphaned_communities) {
   UNWIND orphaned_communities AS c
   DETACH DELETE c
   RETURN count(*) AS deleted
 }
-WITH total_orphaned_chunks, total_orphaned_entities, deleted AS total_orphaned_communities
 
 // Step 4: Remove any remaining nodes without IN_PROJECT relationship
-// (Safety net for nodes that lost project association during dedup)
-// Use UNION for better performance than OR on labels
+WITH total_orphaned_chunks, total_orphaned_entities, deleted AS total_orphaned_communities
 CALL () {
-  MATCH (n:__Document__)
-  WHERE NOT exists((n)-[:IN_PROJECT]->(:__Project__))
-  RETURN n
-  UNION
-  MATCH (n:__Chunk__)
-  WHERE NOT exists((n)-[:IN_PROJECT]->(:__Project__))
-  RETURN n
-  UNION
-  MATCH (n:__Entity__)
-  WHERE NOT exists((n)-[:IN_PROJECT]->(:__Project__))
-  RETURN n
-  UNION
-  MATCH (n:__Community__)
-  WHERE NOT exists((n)-[:IN_PROJECT]->(:__Project__))
+  MATCH (n)
+  WHERE (n:__Document__ OR n:__Chunk__ OR n:__Entity__ OR n:__Community__)
+    AND NOT exists((n)-[:IN_PROJECT]->(:__Project__))
   RETURN n
 }
 WITH total_orphaned_chunks, total_orphaned_entities, total_orphaned_communities, collect(n) AS unlinked_nodes

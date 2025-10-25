@@ -30,14 +30,14 @@ class ParquetReader:
         return self._prepare_rows(
             path=Path(output_dir) / TEXT_UNITS_FILE,
             required_cols=["id", "document_ids"],
-            transforms=None,
+            transforms=[self._normalize_list_column("document_ids")],
         )
 
     def read_entities(self, output_dir: Path) -> List[Dict[str, Any]]:
         return self._prepare_rows(
             path=Path(output_dir) / ENTITIES_FILE,
             required_cols=["id", "text_unit_ids"],
-            transforms=None,
+            transforms=[self._normalize_list_column("text_unit_ids")],
         )
 
     def read_entity_relationships(self, output_dir: Path) -> List[Dict[str, Any]]:
@@ -123,11 +123,71 @@ class ParquetReader:
         return _apply
 
     def _normalize_list_column(self, column: str) -> Callable[[pd.DataFrame], pd.DataFrame]:
+        """Normalize a column to list type, handling various input formats.
+        
+        Handles:
+        - Python lists (pass through)
+        - None/NaN (convert to [])
+        - JSON strings (parse)
+        - Comma-separated strings (split)
+        - Numpy arrays (convert)
+        - Pandas Series/arrays (convert)
+        - Numeric values (wrap in list)
+        """
+        def _parse_value(v: Any) -> list:
+            import json
+            import numpy as np
+            
+            # Already a list
+            if isinstance(v, list):
+                return v
+            
+            # None or NaN
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return []
+            
+            # Numpy array
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            
+            # Pandas array-like
+            if hasattr(v, 'tolist'):
+                return v.tolist()
+            
+            # String types - try JSON first, then comma-separated
+            if isinstance(v, str):
+                v = v.strip()
+                if not v:
+                    return []
+                
+                # Try parsing as JSON array
+                if v.startswith('[') and v.endswith(']'):
+                    try:
+                        parsed = json.loads(v)
+                        if isinstance(parsed, list):
+                            return parsed
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                
+                # Try comma-separated values
+                if ',' in v:
+                    return [item.strip() for item in v.split(',') if item.strip()]
+                
+                # Single string value -> wrap in list
+                return [v]
+            
+            # Numeric or other scalar -> wrap in list
+            return [v]
+        
         def _apply(df: pd.DataFrame) -> pd.DataFrame:
             if column in df.columns:
                 try:
-                    df[column] = df[column].apply(lambda v: v if isinstance(v, list) else ([] if v is None else ([])))
-                except Exception:
+                    df[column] = df[column].apply(_parse_value)
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to normalize list column {column}, defaulting to empty lists",
+                        error=str(exc)
+                    )
                     df[column] = [[] for _ in range(len(df))]
             return df
         return _apply
