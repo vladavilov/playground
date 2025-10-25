@@ -278,8 +278,8 @@ services:
         condition: service_healthy
       mock-auth-service:
         condition: service_healthy
-      gitlab-mock-service:
-        condition: service_healthy
+#      gitlab-mock-service:
+#        condition: service_healthy
     networks:
       - microservices_network
     healthcheck:
@@ -478,6 +478,8 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    profiles:
+      - e2e-tests
 
   gitlab-client-service:
     <<: *service_defaults
@@ -497,8 +499,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-      gitlab-mock-service:
-        condition: service_healthy
+#      gitlab-mock-service:
+#        condition: service_healthy
     networks:
       - microservices_network
     healthcheck:

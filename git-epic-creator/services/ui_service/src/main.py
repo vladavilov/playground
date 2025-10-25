@@ -93,7 +93,8 @@ async def _startup_load_gitlab_oauth_settings(_ui) -> None:
     client_secret = _ui.GITLAB_OAUTH_CLIENT_SECRET or ""
     redirect_uri = _ui.GITLAB_OAUTH_REDIRECT_URI or ""
     default_scopes = _ui.GITLAB_OAUTH_SCOPES or "read_api"
-    
+    ca_cert_path = _ui.GITLAB_CA_CERT_PATH or ""
+
     if base_url and client_id and client_secret and redirect_uri:
         app.state.gitlab_base_url = base_url
         app.state.gitlab_client_id = client_id
@@ -101,10 +102,31 @@ async def _startup_load_gitlab_oauth_settings(_ui) -> None:
         app.state.gitlab_redirect_uri = redirect_uri
         app.state.gitlab_scopes = default_scopes
         app.state.gitlab_verify_ssl = _ui.GITLAB_VERIFY_SSL
-        
+        app.state.gitlab_ca_cert_path = ca_cert_path
+
+        if ca_cert_path:
+            if os.path.isfile(ca_cert_path):
+                try:
+                    with open(ca_cert_path, "rb") as f:
+                        first_line = f.readline().decode(errors="ignore").strip()
+                    logger.info("Custom CA bundle detected: %s", first_line)
+                except Exception as e:
+                    logger.warning("Failed to read CA bundle from %s", ca_cert_path, error=str(e))
+            else:
+                logger.info("Custom CA bundle path not found: %s", ca_path=ca_cert_path)
+
         # Register GitLab OAuth client at startup (not on every request)
         oauth = getattr(app.state, "oauth", None)
         if oauth:
+            # Configure client_kwargs for SSL certificate if provided
+            client_kwargs = {}
+            if ca_cert_path and _ui.GITLAB_VERIFY_SSL:
+                client_kwargs["verify"] = ca_cert_path
+                logger.info("GitLab OAuth client configured with custom SSL certificate", cert_path=ca_cert_path)
+            elif not _ui.GITLAB_VERIFY_SSL:
+                client_kwargs["verify"] = False
+                logger.info("GitLab OAuth client configured with SSL verification disabled")
+            
             oauth.register(
                 name="gitlab",
                 client_id=client_id,
@@ -112,9 +134,8 @@ async def _startup_load_gitlab_oauth_settings(_ui) -> None:
                 access_token_url=f"{base_url}/oauth/token",
                 authorize_url=f"{client_base_url}/oauth/authorize",
                 api_base_url=f"{base_url}/api/v4/",
-                client_kwargs={
-                    "code_challenge_method": "S256",  # PKCE for security
-                },
+                scopes="api",
+                client_kwargs=client_kwargs
             )
             logger.info(
                 "GitLab OAuth client registered at startup",
