@@ -18,7 +18,7 @@ WHERE source_key <> '' AND target_key <> ''
 
 // Find source entity WITH project scoping to prevent cross-project matching
 CALL (source_key, p) {
-  MATCH (s:__Entity__)-[:IN_PROJECT]->(p)
+  OPTIONAL MATCH (s:__Entity__)-[:IN_PROJECT]->(p)
   WHERE toUpper(coalesce(s.norm_title, s.title, '')) = source_key
   RETURN s
   ORDER BY s.id
@@ -27,7 +27,7 @@ CALL (source_key, p) {
 
 // Find target entity WITH project scoping to prevent cross-project matching
 CALL (target_key, p) {
-  MATCH (t:__Entity__)-[:IN_PROJECT]->(p)
+  OPTIONAL MATCH (t:__Entity__)-[:IN_PROJECT]->(p)
   WHERE toUpper(coalesce(t.norm_title, t.title, '')) = target_key
   RETURN t
   ORDER BY t.id

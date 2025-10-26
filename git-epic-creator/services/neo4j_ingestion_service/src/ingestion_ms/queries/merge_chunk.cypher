@@ -13,13 +13,16 @@ MERGE (c)-[:IN_PROJECT]->(p)
 WITH c, p, pid, v, coalesce(v.document_ids,[]) AS dids
 UNWIND dids AS did
 WITH c, p, pid, did WHERE did IS NOT NULL
-// Add project scoping to document MATCH
-MATCH (d:__Document__)-[:IN_PROJECT]->(p)
+// Use OPTIONAL MATCH to preserve chunk even if document doesn't exist (should never happen in correct ingestion order)
+OPTIONAL MATCH (d:__Document__)-[:IN_PROJECT]->(p)
 WHERE d.id = did
-MERGE (d)-[:HAS_CHUNK]->(c)
+// Only create relationship if document exists
+FOREACH (ignored IN CASE WHEN d IS NOT NULL THEN [1] ELSE [] END |
+  MERGE (d)-[:HAS_CHUNK]->(c)
+)
 // Ensure no duplicate HAS_CHUNK relationships exist for this chunk even if input repeats
 WITH c, p, pid
-MATCH (a)-[r:HAS_CHUNK]->(c)
+OPTIONAL MATCH (a)-[r:HAS_CHUNK]->(c)
 WITH a,c,p,pid,collect(r) AS rs
 WHERE size(rs) > 1
 FOREACH (x IN rs[1..] | DELETE x)

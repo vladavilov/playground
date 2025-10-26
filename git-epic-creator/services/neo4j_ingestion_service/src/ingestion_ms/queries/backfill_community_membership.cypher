@@ -10,10 +10,12 @@ WITH c, p, coalesce(c.entity_ids, []) AS stored_entity_ids, coalesce(c.text_unit
 // Path 1: Use stored entity_ids if available
 CALL (c, p, stored_entity_ids) {
   WITH c, p, stored_entity_ids
-  MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
+  OPTIONAL MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
   WHERE size(stored_entity_ids) > 0 
     AND ANY(eid IN stored_entity_ids WHERE eid IN coalesce(e.merged_ids, [e.id]))
-  RETURN collect(DISTINCT e) AS entities_from_stored
+  // Filter out NULLs from collection (when OPTIONAL MATCH found nothing)
+  WITH collect(DISTINCT e) AS all_entities
+  RETURN [e IN all_entities WHERE e IS NOT NULL] AS entities_from_stored
 }
 
 // Path 2: Fallback to existing IN_COMMUNITY relationships
@@ -26,10 +28,12 @@ CALL (c, p) {
 // Path 3: Fallback to text_unit_ids -> chunks -> entities
 CALL (c, p, text_unit_ids) {
   WITH c, p, text_unit_ids
-  MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p)
+  OPTIONAL MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p)
   WHERE size(text_unit_ids) > 0 AND ch.id IN text_unit_ids
   OPTIONAL MATCH (ch)-[:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p)
-  RETURN collect(DISTINCT e) AS entities_from_chunks
+  // Filter out NULLs from collection (when OPTIONAL MATCH found nothing)
+  WITH collect(DISTINCT e) AS all_entities
+  RETURN [e IN all_entities WHERE e IS NOT NULL] AS entities_from_chunks
 }
 
 // Combine all sources (prioritize stored, then relationships, then chunks)

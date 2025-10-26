@@ -50,9 +50,12 @@ MERGE (e)-[:IN_PROJECT]->(p)
 // Create HAS_ENTITY relationships from chunks to entities WITH project scoping
 WITH e, p, value
 UNWIND coalesce(value.text_unit_ids,[]) AS chunk_id
-// Add project scoping to chunk MATCH to prevent cross-project contamination
-MATCH (c:__Chunk__)-[:IN_PROJECT]->(p)
+// Use OPTIONAL MATCH to preserve entity even if chunk doesn't exist yet (order dependency)
+OPTIONAL MATCH (c:__Chunk__)-[:IN_PROJECT]->(p)
 WHERE c.id = chunk_id
-MERGE (c)-[:HAS_ENTITY]->(e)
+// Only create relationship if chunk exists
+FOREACH (ignored IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
+  MERGE (c)-[:HAS_ENTITY]->(e)
+)
 WITH e
 RETURN count(DISTINCT e) AS entities_created
