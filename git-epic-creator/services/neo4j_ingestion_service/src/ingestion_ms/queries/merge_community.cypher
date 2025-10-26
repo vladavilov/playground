@@ -9,7 +9,7 @@ MERGE (c)-[:IN_PROJECT]->(p)
 WITH c, p, value
 OPTIONAL MATCH (e_id:__Entity__)-[:IN_PROJECT]->(p)
 WHERE size(coalesce(value.entity_ids, [])) > 0 
-  AND ANY(eid IN value.entity_ids WHERE eid IN coalesce(e_id.merged_ids, [e_id.id]))
+  AND ANY(eid IN value.entity_ids WHERE eid = e_id.id OR eid IN e_id.merged_ids)
 WITH c, p, value, collect(DISTINCT e_id) AS entities_from_ids
 
 // Match chunks and their entities from text_unit_ids
