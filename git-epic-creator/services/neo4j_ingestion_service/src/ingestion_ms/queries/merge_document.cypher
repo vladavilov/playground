@@ -16,3 +16,5 @@ END
 WITH d, value.project_id AS pid
 MERGE (p:__Project__ {id: pid})
 MERGE (d)-[:IN_PROJECT]->(p)
+WITH d
+RETURN count(DISTINCT d) AS documents_created

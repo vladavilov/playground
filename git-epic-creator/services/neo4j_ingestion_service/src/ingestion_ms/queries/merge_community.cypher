@@ -59,3 +59,5 @@ WITH c, p, related_chunks
 WHERE size(related_chunks) > 0
 UNWIND related_chunks AS ch
 MERGE (ch)-[:IN_COMMUNITY]->(c)
+WITH c
+RETURN count(DISTINCT c) AS communities_created

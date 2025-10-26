@@ -11,4 +11,6 @@ SET c.id = toString(value.community) + '_' + pid,
     c.summary = value.summary,
     c.full_content_json = value.full_content_json
 MERGE (c)-[:IN_PROJECT]->(p)
+WITH c
+RETURN count(DISTINCT c) AS community_reports_created
 

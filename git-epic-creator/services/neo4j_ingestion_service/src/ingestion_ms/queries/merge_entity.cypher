@@ -54,3 +54,5 @@ UNWIND coalesce(value.text_unit_ids,[]) AS chunk_id
 MATCH (c:__Chunk__)-[:IN_PROJECT]->(p)
 WHERE c.id = chunk_id
 MERGE (c)-[:HAS_ENTITY]->(e)
+WITH e
+RETURN count(DISTINCT e) AS entities_created

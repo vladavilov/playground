@@ -44,15 +44,94 @@ class Neo4jIngestor:
     # -----------------------
     # Generic batch runner
     # -----------------------
-    def _batched_run(self, statement: str, rows: List[dict], batch_size: int = 1000) -> int:
-        total = len(rows)
-        if total == 0:
-            return 0
-        with self._driver.session() as session:
-            for start in range(0, total, batch_size):
-                batch = rows[start : min(start + batch_size, total)]
-                session.run(statement, rows=batch)
-        return total
+    def _batched_run(self, statement: str, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
+        """
+        Execute Cypher statement in batches with error handling and accurate node counting.
+        
+        Args:
+            statement: Cypher query that must return count as first column
+            rows: Input rows to process
+            batch_size: Number of rows per batch
+            
+        Returns:
+            Tuple of (nodes_created, total_input_rows)
+            
+        Raises:
+            Exception: Re-raises database errors after logging
+        """
+        total_input = len(rows)
+        if total_input == 0:
+            return (0, 0)
+        
+        nodes_created = 0
+        batches_processed = 0
+        
+        try:
+            with self._driver.session() as session:
+                for start in range(0, total_input, batch_size):
+                    batch = rows[start : min(start + batch_size, total_input)]
+                    batch_num = (start // batch_size) + 1
+                    total_batches = (total_input + batch_size - 1) // batch_size
+                    
+                    try:
+                        import time
+                        batch_start = time.time()
+                        
+                        result = session.run(statement, rows=batch)
+                        record = result.single()
+                        
+                        # Extract count from first column of result (handles different return names)
+                        batch_count = 0
+                        if record:
+                            # Get first value regardless of column name
+                            batch_count = record[0] if record else 0
+                        
+                        nodes_created += batch_count
+                        batches_processed += 1
+                        
+                        batch_duration = time.time() - batch_start
+                        
+                        logger.info(
+                            "batch_completed",
+                            batch=f"{batch_num}/{total_batches}",
+                            input_rows=len(batch),
+                            nodes_created=batch_count,
+                            duration_ms=round(batch_duration * 1000, 2),
+                        )
+                        
+                        # Warn if batch created fewer nodes than input rows (may indicate skips or failures)
+                        if batch_count < len(batch):
+                            logger.warning(
+                                "batch_partial_success",
+                                batch=f"{batch_num}/{total_batches}",
+                                input_rows=len(batch),
+                                nodes_created=batch_count,
+                                missing=len(batch) - batch_count,
+                                message="Batch created fewer nodes than input rows - some may have been skipped or merged"
+                            )
+                    
+                    except Exception as batch_exc:
+                        logger.error(
+                            "batch_failed",
+                            batch=f"{batch_num}/{total_batches}",
+                            input_rows=len(batch),
+                            error=str(batch_exc),
+                            error_type=type(batch_exc).__name__,
+                        )
+                        raise
+                        
+        except Exception as exc:
+            logger.error(
+                "batched_run_failed",
+                total_input=total_input,
+                batches_processed=batches_processed,
+                nodes_created=nodes_created,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
+        
+        return (nodes_created, total_input)
 
     # -----------------------
     # Parquet entity ingestions
@@ -63,33 +142,161 @@ class Neo4jIngestor:
         pid = self._project_id
         return [{**r, "project_id": pid} for r in rows]
 
-    def ingest_documents(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_document_query(), self._attach_project_id(rows), batch_size)
+    def ingest_documents(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
+        """Ingest documents. Returns (nodes_created, total_input)."""
+        nodes_created, total_input = self._batched_run(
+            get_merge_document_query(), 
+            self._attach_project_id(rows), 
+            batch_size
+        )
+        logger.info("documents_ingestion_completed", nodes_created=nodes_created, total_input=total_input)
+        if nodes_created != total_input:
+            logger.warning(
+                "documents_ingestion_mismatch",
+                nodes_created=nodes_created,
+                total_input=total_input,
+                missing=total_input - nodes_created,
+            )
+        return (nodes_created, total_input)
 
-    def ingest_chunks(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_chunk_query(), self._attach_project_id(rows), batch_size)
+    def ingest_chunks(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
+        """Ingest chunks. Returns (nodes_created, total_input)."""
+        nodes_created, total_input = self._batched_run(
+            get_merge_chunk_query(), 
+            self._attach_project_id(rows), 
+            batch_size
+        )
+        logger.info("chunks_ingestion_completed", nodes_created=nodes_created, total_input=total_input)
+        if nodes_created != total_input:
+            logger.warning(
+                "chunks_ingestion_mismatch",
+                nodes_created=nodes_created,
+                total_input=total_input,
+                missing=total_input - nodes_created,
+            )
+        return (nodes_created, total_input)
 
-    def ingest_entities(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_entity_query(), self._attach_project_id(rows), batch_size)
+    def ingest_entities(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
+        """Ingest entities. Returns (nodes_created, total_input)."""
+        nodes_created, total_input = self._batched_run(
+            get_merge_entity_query(), 
+            self._attach_project_id(rows), 
+            batch_size
+        )
+        logger.info("entities_ingestion_completed", nodes_created=nodes_created, total_input=total_input)
+        if nodes_created != total_input:
+            logger.warning(
+                "entities_ingestion_mismatch",
+                nodes_created=nodes_created,
+                total_input=total_input,
+                missing=total_input - nodes_created,
+            )
+        return (nodes_created, total_input)
 
-    def ingest_entity_relationships(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_relationship_query(), self._attach_project_id(rows), batch_size)
+    def ingest_entity_relationships(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
+        """Ingest entity relationships. Returns (relationships_created, total_input)."""
+        rels_created, total_input = self._batched_run(
+            get_merge_relationship_query(), 
+            self._attach_project_id(rows), 
+            batch_size
+        )
+        logger.info("relationships_ingestion_completed", rels_created=rels_created, total_input=total_input)
+        if rels_created != total_input:
+            logger.warning(
+                "relationships_ingestion_mismatch",
+                rels_created=rels_created,
+                total_input=total_input,
+                missing=total_input - rels_created,
+            )
+        return (rels_created, total_input)
 
-    def ingest_community_reports(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_community_report_query(), self._attach_project_id(rows), batch_size)
+    def ingest_community_reports(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
+        """Ingest community reports. Returns (nodes_created, total_input)."""
+        nodes_created, total_input = self._batched_run(
+            get_merge_community_report_query(), 
+            self._attach_project_id(rows), 
+            batch_size
+        )
+        logger.info("community_reports_ingestion_completed", nodes_created=nodes_created, total_input=total_input)
+        if nodes_created != total_input:
+            logger.warning(
+                "community_reports_ingestion_mismatch",
+                nodes_created=nodes_created,
+                total_input=total_input,
+                missing=total_input - nodes_created,
+            )
+        return (nodes_created, total_input)
 
-    def ingest_communities(self, rows: List[dict], batch_size: int = 1000) -> int:
-        return self._batched_run(get_merge_community_query(), self._attach_project_id(rows), batch_size)
+    def ingest_communities(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
+        """Ingest communities. Returns (nodes_created, total_input)."""
+        nodes_created, total_input = self._batched_run(
+            get_merge_community_query(), 
+            self._attach_project_id(rows), 
+            batch_size
+        )
+        logger.info("communities_ingestion_completed", nodes_created=nodes_created, total_input=total_input)
+        if nodes_created != total_input:
+            logger.warning(
+                "communities_ingestion_mismatch",
+                nodes_created=nodes_created,
+                total_input=total_input,
+                missing=total_input - nodes_created,
+            )
+        return (nodes_created, total_input)
 
-    def ingest_all_parquet(self, records: Dict[str, List[dict]], batch_size: int = 1000) -> Dict[str, int]:
-        return {
-            "documents": self.ingest_documents(records.get("documents", []), batch_size),
-            "chunks": self.ingest_chunks(records.get("chunks", []), batch_size),
-            "entities": self.ingest_entities(records.get("entities", []), batch_size),
-            "entity_relationships": self.ingest_entity_relationships(records.get("entity_relationships", []), batch_size),
-            "community_reports": self.ingest_community_reports(records.get("community_reports", []), batch_size),
-            "communities": self.ingest_communities(records.get("communities", []), batch_size),
+    def ingest_all_parquet(self, records: Dict[str, List[dict]], batch_size: int = 1000) -> Dict[str, Any]:
+        """
+        Ingest all parquet records with detailed metrics.
+        
+        Returns:
+            Dict with format:
+            {
+                "documents": {"created": int, "input": int},
+                "chunks": {"created": int, "input": int},
+                ...
+                "summary": {
+                    "total_created": int,
+                    "total_input": int,
+                    "success_rate": float
+                }
+            }
+        """
+        doc_created, doc_input = self.ingest_documents(records.get("documents", []), batch_size)
+        chunk_created, chunk_input = self.ingest_chunks(records.get("chunks", []), batch_size)
+        entity_created, entity_input = self.ingest_entities(records.get("entities", []), batch_size)
+        rel_created, rel_input = self.ingest_entity_relationships(records.get("entity_relationships", []), batch_size)
+        report_created, report_input = self.ingest_community_reports(records.get("community_reports", []), batch_size)
+        comm_created, comm_input = self.ingest_communities(records.get("communities", []), batch_size)
+        
+        total_created = doc_created + chunk_created + entity_created + rel_created + report_created + comm_created
+        total_input = doc_input + chunk_input + entity_input + rel_input + report_input + comm_input
+        success_rate = (total_created / total_input * 100.0) if total_input > 0 else 0.0
+        
+        result = {
+            "documents": {"created": doc_created, "input": doc_input},
+            "chunks": {"created": chunk_created, "input": chunk_input},
+            "entities": {"created": entity_created, "input": entity_input},
+            "entity_relationships": {"created": rel_created, "input": rel_input},
+            "community_reports": {"created": report_created, "input": report_input},
+            "communities": {"created": comm_created, "input": comm_input},
+            "summary": {
+                "total_created": total_created,
+                "total_input": total_input,
+                "success_rate": round(success_rate, 2),
+            }
         }
+        
+        logger.info(
+            "parquet_ingestion_completed",
+            total_created=total_created,
+            total_input=total_input,
+            success_rate=round(success_rate, 2),
+            documents=result["documents"],
+            chunks=result["chunks"],
+            entities=result["entities"],
+        )
+        
+        return result
 
     # -----------------------
     # Vector ingestions
