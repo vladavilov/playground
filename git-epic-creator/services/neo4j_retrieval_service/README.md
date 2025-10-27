@@ -95,6 +95,12 @@ The service publishes real-time progress updates via Redis pub/sub during retrie
 
 These messages are consumed by `ui_service` and displayed in the agent thought panel for real-time user feedback.
 
+**Citation Display in Progress Messages:**
+- **Follow-up phase** (`executing_followup`): Citations shown with document name and text preview: `[document_name] "citation text excerpt"`
+- **Aggregation phase** (`aggregating_results`): Citations shown as deduplicated document names: `doc1, doc2, doc3`
+- **Completion phase** (`completed`): Citations shown as deduplicated document names in brackets: `[doc1], [doc2], [doc3]`
+- **Deduplication:** Document names appearing multiple times in citations are automatically deduplicated to prevent repetitive display
+
 ------------------------------------------------------------------------
 
 ## 1. Graph Schema

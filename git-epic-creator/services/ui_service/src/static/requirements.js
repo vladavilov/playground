@@ -59,7 +59,7 @@ function createThinkingBox(promptId = null) {
   summary.appendChild(label);
 
   const messages = document.createElement('div');
-  messages.className = 'mt-3 space-y-1.5 text-sm text-slate-600';
+  messages.className = 'mt-3 space-y-1.5 text-sm text-slate-600 break-words overflow-hidden';
 
   wrap.appendChild(summary);
   wrap.appendChild(messages);
@@ -78,7 +78,7 @@ function createThinkingBox(promptId = null) {
     appendStream(text) {
       if (!text) return;
       const line = document.createElement('div');
-      line.className = 'text-xs text-slate-500';
+      line.className = 'text-xs text-slate-500 break-words';
       line.textContent = String(text);
       messages.appendChild(line);
       scrollToBottom(chatOutput);
@@ -86,6 +86,7 @@ function createThinkingBox(promptId = null) {
     appendMarkdown(md) {
       if (!md) return;
       const line = document.createElement('div');
+      line.className = 'break-words';
       line.innerHTML = renderMarkdown(String(md));
       messages.appendChild(line);
       scrollToBottom(chatOutput);

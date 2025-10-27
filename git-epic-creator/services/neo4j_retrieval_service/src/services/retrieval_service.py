@@ -828,8 +828,8 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     phase=RetrievalStatus.RETRIEVING_COMMUNITIES,
                     thought_summary=f"🌐 **Retrieved {len(communities)} Knowledge Communities**",
                     details_md=(
-                        f"**Communities found:** {len(communities)}"
-                        + "\n\n**Follow-up questions:**\n"
+                        f"**Communities found:** {len(communities)}\n\n"
+                        + "**Follow-up questions:**\n"
                         + "\n".join([f"- {f.get('question','')}" for f in (followups or [])])
                         if followups else ""
                     ),
@@ -964,13 +964,13 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                                     phase=RetrievalStatus.EXECUTING_FOLLOWUP,
                                     thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
                                     details_md=(
-                                        f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n\n"
-                                        f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
+                                        f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n"
+                                        f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n"
                                         f"**Citations:**\n" +
                                         (
                                             "\n".join(
                                                 [
-                                                    f"- {c.get('document_name', 'Unknown')}: \"{c.get('text_preview', '')[:120]}\""
+                                                    f"- [{c.get('document_name', 'Unknown')}] \"{c.get('span', '')[:120]}\""
                                                     for c in minimal_result.get('citations', []) or []
                                                 ]
                                             )
@@ -1184,19 +1184,28 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     for idx, kf in enumerate(agg_validated.key_facts, 1):
                         facts_detail_md += f"{idx}. {kf.fact}\n"
                         if kf.citations:
+                            # Deduplicate document names
+                            seen_docs = set()
                             citation_displays = []
-                            for cit in kf.citations[:5]:  # Limit to 5 for readability
+                            for cit in kf.citations:
                                 if isinstance(cit, dict):
                                     # Enriched format with document name
                                     doc_name = cit.get("document_name", "unknown")
-                                    citation_displays.append(doc_name)
+                                    if doc_name not in seen_docs:
+                                        citation_displays.append(doc_name)
+                                        seen_docs.add(doc_name)
                                 else:
                                     # Legacy string format (chunk ID)
-                                    citation_displays.append(str(cit))
+                                    cit_str = str(cit)
+                                    if cit_str not in seen_docs:
+                                        citation_displays.append(cit_str)
+                                        seen_docs.add(cit_str)
                             
-                            facts_detail_md += f"   - *Sources:* {', '.join(citation_displays)}"
-                            if len(kf.citations) > 5:
-                                facts_detail_md += f" (and {len(kf.citations) - 5} more)"
+                            # Limit display to first 5 unique documents for readability
+                            display_count = min(5, len(citation_displays))
+                            facts_detail_md += f"   - *Sources:* {', '.join(citation_displays[:display_count])}"
+                            if len(citation_displays) > 5:
+                                facts_detail_md += f" (and {len(citation_displays) - 5} more)"
                             facts_detail_md += "\n"
                 else:
                     facts_detail_md = "No key facts found."
@@ -1229,15 +1238,22 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     for idx, kf in enumerate(agg_validated.key_facts, 1):
                         facts_md += f"{idx}. {kf.fact}\n"
                         if kf.citations:
+                            # Deduplicate document names
+                            seen_docs = set()
                             citation_displays = []
                             for cit in kf.citations:
                                 if isinstance(cit, dict):
                                     # Enriched format - show document name
                                     doc_name = cit.get("document_name", "unknown")
-                                    citation_displays.append(f"[{doc_name}]")
+                                    if doc_name not in seen_docs:
+                                        citation_displays.append(f"[{doc_name}]")
+                                        seen_docs.add(doc_name)
                                 else:
                                     # Legacy string format
-                                    citation_displays.append(str(cit))
+                                    cit_str = str(cit)
+                                    if cit_str not in seen_docs:
+                                        citation_displays.append(cit_str)
+                                        seen_docs.add(cit_str)
                             facts_md += f"   - *Citations:* {', '.join(citation_displays)}\n"
                 
                 await publisher.publish_retrieval_update(

@@ -37,17 +37,57 @@ export function formatDate(isoString) {
 
 export function renderMarkdown(md) {
   let html = escapeHtml(md || '');
+  
+  // 1. Code blocks (protect from other replacements)
+  html = html.replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-900 text-slate-100 p-3 rounded-lg overflow-auto text-xs font-mono mt-2 break-words"><code>$1</code></pre>');
+  
+  // 2. Headers (must be processed before other formatting)
   html = html
-    .replace(/^###\s+(.*)$/gm, '<h3 class="text-base font-semibold mt-3 text-slate-800">$1</h3>')
-    .replace(/^##\s+(.*)$/gm, '<h2 class="text-lg font-semibold mt-4 text-slate-800">$1</h2>')
-    .replace(/^#\s+(.*)$/gm, '<h1 class="text-xl font-bold mt-5 text-slate-800">$1</h1>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono">$1</code>')
-    .replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-900 text-slate-100 p-3 rounded-lg overflow-auto text-xs font-mono mt-2"><code>$1</code></pre>')
-    .replace(/^\s*[-*]\s+(.*)$/gm, '<li class="ml-6 list-disc text-slate-700">$1</li>')
-    .replace(/\[(.+?)\]\((https?:[^\s]+)\)/g, '<a href="$2" target="_blank" class="text-sky-600 underline hover:text-sky-700">$1</a>');
-  html = html.replace(/(<li[\s\S]*?<\/li>)/g, '<ul class="space-y-1">$1</ul>');
+    .replace(/^####\s+(.*)$/gm, '<h4 class="text-sm font-semibold mt-2 text-slate-800 break-words">$1</h4>')
+    .replace(/^###\s+(.*)$/gm, '<h3 class="text-base font-semibold mt-3 text-slate-800 break-words">$1</h3>')
+    .replace(/^##\s+(.*)$/gm, '<h2 class="text-lg font-semibold mt-4 text-slate-800 break-words">$1</h2>')
+    .replace(/^#\s+(.*)$/gm, '<h1 class="text-xl font-bold mt-5 text-slate-800 break-words">$1</h1>');
+  
+  // 3. Horizontal rules
+  html = html.replace(/^(?:---+|\*\*\*+|___+)$/gm, '<hr class="my-4 border-t border-slate-300">');
+  
+  // 4. Blockquotes
+  html = html.replace(/^>\s+(.*)$/gm, '<blockquote class="border-l-4 border-indigo-300 pl-3 py-1 text-slate-600 italic bg-indigo-50/30 break-words">$1</blockquote>');
+  
+  // 5. Lists - Ordered lists (must come before unordered to avoid conflicts)
+  html = html.replace(/^\s*(\d+)\.\s+(.*)$/gm, '<li class="ml-6 list-decimal text-slate-700 break-words">$2</li>');
+  
+  // 6. Lists - Unordered lists
+  html = html.replace(/^\s*[-*+]\s+(.*)$/gm, '<li class="ml-6 list-disc text-slate-700 break-words">$1</li>');
+  
+  // 7. Inline formatting - Bold and Italic (order matters: bold before italic)
+  html = html
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong class="font-bold italic">$1</strong>') // Bold + Italic
+    .replace(/___(.+?)___/g, '<strong class="font-bold italic">$1</strong>') // Bold + Italic
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>') // Bold
+    .replace(/__(.+?)__/g, '<strong class="font-semibold">$1</strong>') // Bold
+    .replace(/\*(.+?)\*/g, '<em class="italic">$1</em>') // Italic
+    .replace(/_(.+?)_/g, '<em class="italic">$1</em>'); // Italic
+  
+  // 8. Strikethrough
+  html = html.replace(/~~(.+?)~~/g, '<del class="line-through text-slate-500">$1</del>');
+  
+  // 9. Inline code
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono break-all">$1</code>');
+  
+  // 10. Links
+  html = html.replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-sky-600 underline hover:text-sky-700 break-all">$1</a>');
+  
+  // 11. Wrap consecutive list items in ul/ol tags
+  html = html.replace(/((?:<li class="ml-6 list-disc[\s\S]*?<\/li>\s*)+)/g, '<ul class="space-y-1 my-2">$1</ul>');
+  html = html.replace(/((?:<li class="ml-6 list-decimal[\s\S]*?<\/li>\s*)+)/g, '<ol class="space-y-1 my-2">$1</ol>');
+  
+  // 12. Paragraph breaks and line breaks
+  // Double newlines -> paragraph break
+  html = html.replace(/\n\n+/g, '<br><br>');
+  // Single newlines -> line break (but avoid breaking inside tags)
+  html = html.replace(/(?<!\>)\n(?!\<)/g, '<br>');
+  
   return html;
 }
 
