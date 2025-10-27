@@ -70,7 +70,7 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         # Build details_md with prompt preview
         prompt_text = state.get("prompt", "")
         prompt_preview = prompt_text[:200] + "..." if len(prompt_text) > 200 else prompt_text
-        details_md = f"Reasoning on user request... \n __{prompt_preview}__"
+        details_md = f"Reasoning on user request... \n *{prompt_preview}*"
         
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
@@ -104,10 +104,10 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         analysis = await analyst.analyze(state["prompt"])
         
         # Build details_md with analysis breakdown
-        md_lines = ["**Analysis Results**"]
+        md_lines = ["**Analysis Results**  "]
         if analysis.intents:
             intents_list = analysis.intents if isinstance(analysis.intents, list) else [analysis.intents]
-            md_lines.append(f"- Intents: {', '.join(intents_list)}")
+            md_lines.append(f"Intents:  \n {'- '.join(intents_list)}\n")
         details_md = "\n".join(md_lines)
         
         await publisher.publish_workflow_update(

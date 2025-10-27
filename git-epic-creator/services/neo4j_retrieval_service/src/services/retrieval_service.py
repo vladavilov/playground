@@ -734,7 +734,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     retrieval_id=retrieval_id,
                     phase=RetrievalStatus.INITIALIZING,
                     thought_summary="Agentic retrieval...",
-                    details_md=f"**Agentic retrieval**\nTo find relevant information from the knowledge graph by question:\n __{state['question'][:300]}__...\n",
+                    details_md=f"**Agentic retrieval**  \nTo find relevant information from the knowledge graph by provided question and intentions...  \n",
                     progress_pct=0.0,
                     prompt_id=prompt_id_uuid,
                 )
@@ -828,8 +828,8 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     phase=RetrievalStatus.RETRIEVING_COMMUNITIES,
                     thought_summary=f"🌐 **Retrieved {len(communities)} Knowledge Communities**",
                     details_md=(
-                        f"**Communities found:** {len(communities)}\n"
-                        + "__Follow-up questions:__\n"
+                        f"*Communities found:* {len(communities)}  \n"
+                        + "*Follow-up questions:*  \n"
                         + "\n".join([f"- {f.get('question','')}" for f in (followups or [])])
                         if followups else ""
                     ),
@@ -966,11 +966,11 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                                     details_md=(
                                         f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n\n"
                                         f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
-                                        f"**Citations:**\n" +
+                                        f"**Citations:**  \n" +
                                         (
                                             "\n".join(
                                                 [
-                                                    f"- [{c.get('document_name', 'Unknown')}] \"{c.get('span', '')[:120]}\""
+                                                    f"- [{c.get('document_name', 'Unknown')}] \"{c.get('span', '')[:120]}...\""
                                                     for c in minimal_result.get('citations', []) or []
                                                 ]
                                             )
