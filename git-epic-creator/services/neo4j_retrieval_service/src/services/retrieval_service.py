@@ -1181,7 +1181,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                 facts_detail_md = ""
                 if agg_validated.key_facts:
                     for kf in agg_validated.key_facts:
-                        facts_detail_md += f"  - {kf.fact}  \n"
+                        facts_detail_md += f"  - {kf.fact}\n"
                         if kf.citations:
                             # Deduplicate document names
                             seen_docs = set()
@@ -1202,7 +1202,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             
                             # Limit display to first 5 unique documents for readability
                             display_count = min(5, len(citation_displays))
-                            facts_detail_md += f"*Sources:* {', '.join(citation_displays[:display_count])}"
+                            facts_detail_md += f"    *Sources:* {', '.join(citation_displays[:display_count])}"
                             if len(citation_displays) > 5:
                                 facts_detail_md += f" (and {len(citation_displays) - 5} more)"
                             facts_detail_md += "\n"
