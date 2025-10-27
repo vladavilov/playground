@@ -70,13 +70,13 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         # Build details_md with prompt preview
         prompt_text = state.get("prompt", "")
         prompt_preview = prompt_text[:200] + "..." if len(prompt_text) > 200 else prompt_text
-        details_md = f"### User Prompt\n\n{prompt_preview}\n\n### Workflow Configuration\n- Target Score: **{target:.2f}**\n- Max Iterations: **{max_iters}**"
+        details_md = f"Reasoning on user request... \n __{prompt_preview}__"
         
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
             prompt_id=state.get("prompt_id"),
             status="analyzing_prompt",
-            thought_summary="Analyzing prompt and outlining initial intents.",
+            thought_summary="Reasoning on user request...",
             details_md=details_md,
         )
         incoming_msgs = state.get("messages") or []
@@ -104,10 +104,10 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         analysis = await analyst.analyze(state["prompt"])
         
         # Build details_md with analysis breakdown
-        md_lines = ["### Analysis Results"]
+        md_lines = ["**Analysis Results**"]
         if analysis.intents:
             intents_list = analysis.intents if isinstance(analysis.intents, list) else [analysis.intents]
-            md_lines.append(f"\n**Intents:** {', '.join(intents_list)}")
+            md_lines.append(f"- Intents: {', '.join(intents_list)}")
         details_md = "\n".join(md_lines)
         
         await publisher.publish_workflow_update(
@@ -129,11 +129,11 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
             total = len(citations)
             top = citations[:5]
             md_lines: list[str] = [
-                "### Retrieved context",
-                f"- Items: **{total}**",
+                "**Retrieved context**",
+                f"- Items: {total}",
             ]
             if top:
-                md_lines.append("- Top refs:")
+                md_lines.append("- Top references:")
                 # Format citations as: [Document Name] "text preview..."
                 for cit in top:
                     citation_display = f"[{cit.document_name}] \"{cit.text_preview}\""

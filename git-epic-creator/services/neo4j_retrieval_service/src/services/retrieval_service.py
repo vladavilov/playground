@@ -733,8 +733,8 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     project_id=UUID(state["project_id"]),
                     retrieval_id=retrieval_id,
                     phase=RetrievalStatus.INITIALIZING,
-                    thought_summary="🔍 **Initializing Context Retrieval**",
-                    details_md=f"**Starting DRIFT search**\n\nTo find relevant information from the knowledge graph by question: {state['question'][:300]}...",
+                    thought_summary="Agentic retrieval...",
+                    details_md=f"**Agentic retrieval**\nTo find relevant information from the knowledge graph by question:\n __{state['question'][:300]}__...\n",
                     progress_pct=0.0,
                     prompt_id=prompt_id_uuid,
                 )
@@ -828,8 +828,8 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     phase=RetrievalStatus.RETRIEVING_COMMUNITIES,
                     thought_summary=f"🌐 **Retrieved {len(communities)} Knowledge Communities**",
                     details_md=(
-                        f"**Communities found:** {len(communities)}\n\n"
-                        + "**Follow-up questions:**\n"
+                        f"**Communities found:** {len(communities)}\n"
+                        + "__Follow-up questions:__\n"
                         + "\n".join([f"- {f.get('question','')}" for f in (followups or [])])
                         if followups else ""
                     ),
@@ -964,8 +964,8 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                                     phase=RetrievalStatus.EXECUTING_FOLLOWUP,
                                     thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
                                     details_md=(
-                                        f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n"
-                                        f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n"
+                                        f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n\n"
+                                        f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
                                         f"**Citations:**\n" +
                                         (
                                             "\n".join(
@@ -977,11 +977,11 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                                             if minimal_result.get('citations') else "No citations."
                                         ) +
                                         (
-                                            f"\n\n**Confidence:** {minimal_result.get('confidence'):.2f}"
+                                            f"\n__Confidence:__ {minimal_result.get('confidence'):.2f}"
                                             if isinstance(minimal_result.get('confidence'), (float, int)) else ""
                                         ) +
                                         (
-                                            f"\n\n**New Follow-ups:** {len(minimal_result.get('new_followups', []))}"
+                                            f"\n__New Follow-ups:__ {len(minimal_result.get('new_followups', []))}"
                                             if 'new_followups' in minimal_result else ""
                                         )
                                     ),
