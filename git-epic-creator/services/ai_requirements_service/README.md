@@ -118,13 +118,14 @@ Agentic Pipeline (expanded, requirements‑focused)
 
 3) Requirement Synthesis (RequirementEngineer) — iterative agentic loop
    - Approach: iterative refinement with reflection, guided by prompt + RetrievedContext + prior iteration output.
-   - Orchestration: LangGraph state machine with nodes [synthesize → audit → revise] and checkpointing; optional human‑in‑the‑loop via interrupts.
+   - Orchestration: LangGraph state machine with nodes [synthesize → audit → supervisor] and checkpointing; optional human‑in‑the‑loop via interrupts.
    - Iteration i:
      1) Synthesize: produce BR/FR and ACs grounded in RetrievedContext with citations.
-     2) Audit (ConsistencyAuditor): detect conflicts, gaps, duplicates, non‑testable ACs, compliance issues.
-     3) Revise: apply audit diffs; if blocking issues remain, propose targeted clarifications.
-   - Stop when: score ≥ threshold, or max_iters reached, or no material diffs.
-   - Libraries: langgraph for iteration/checkpointing; prompts enforce citation and Given/When/Then ACs. Publish WorkflowProgressMessage on each iteration (status: drafting_requirements, stage: "draft_requirements", iteration).
+        * **Iterative Behavior**: First iteration generates initial requirements; subsequent iterations MUST apply findings.issues (fix defects) and findings.suggestions (incorporate improvements) from the prior audit. The LLM is explicitly instructed to preserve valid content and avoid regeneration from scratch.
+     2) Audit (ConsistencyAuditor): detect conflicts, gaps, duplicates, non‑testable ACs, compliance issues; produce AuditFindings with issues, suggestions, severity score, and component/axis scores.
+     3) Supervisor: compute evaluation score, check against target threshold, and route to finalize/clarify/synthesize based on score and iteration count.
+   - Stop when: score ≥ threshold, or max_iters reached, or workflow timeout threshold exceeded.
+   - Libraries: langgraph for iteration/checkpointing; prompts enforce citation, Given/When/Then ACs, and explicit iterative refinement. Publish WorkflowProgressMessage on each iteration (status: drafting_requirements, stage: "draft_requirements", iteration).
 
 4) Consistency, Constraints, and Compliance (ConsistencyAuditor)
    - Checks: contradiction detection, duplicate/overlap clustering, constraint coverage, AC testability (Given/When/Then presence), NFRs mapping, regulatory mapping.

@@ -40,10 +40,18 @@ REQUIREMENTS_ENGINEER = PromptSpec(
     system=(
         "You are a senior requirements engineer with BABOK certification, specializing in wealth management and banking systems. "
         "Transform intents into comprehensive, context-rich, testable requirements that are understandable by non-experts while maintaining technical precision.\n\n"
+        "ITERATIVE REFINEMENT (Priority: CRITICAL):\n"
+        "- **First Iteration** (findings empty): Generate initial requirements from intents and contexts\n"
+        "- **Subsequent Iterations** (findings present): MANDATORY refinement workflow:\n"
+        "  1. Review findings.issues: MUST fix all identified defects (contradictions, gaps, ambiguities, untestable criteria)\n"
+        "  2. Apply findings.suggestions: MUST incorporate all actionable improvements (missing assumptions, risks, domain concerns)\n"
+        "  3. Preserve valid content: Keep working elements from previous draft; DO NOT regenerate from scratch\n"
+        "  4. Evidence changes: Each modification MUST trace to a specific finding item\n"
+        "  5. Outcome: Measurably improved requirements addressing ALL findings\n\n"
         "Requirements Quality Standards:\n"
         "- ATOMIC: Each requirement addresses exactly one concern\n"
         "- TESTABLE: All acceptance criteria use Given/When/Then format with measurable outcomes and real-world scenarios\n"
-        "- GROUNDED: Every requirement must cite or derive from provided contexts/findings\n"
+        "- GROUNDED: Every requirement must cite or derive from provided contexts\n"
         "- UNAMBIGUOUS: Use precise language; avoid 'should be able to', 'user-friendly', 'fast'\n"
         "- COMPLETE: Address all intents; flag any missing information as assumptions\n"
         "- PRIORITIZED: Apply MoSCoW (Must/Should/Could/Won't) to each requirement\n"
@@ -113,7 +121,18 @@ REQUIREMENTS_ENGINEER = PromptSpec(
         "Remember: Write for an intelligent non-expert who understands business but may not know banking-specific terminology or technical implementation details. "
         "Provide enough context that each requirement stands alone as a complete, understandable specification."
     ),
-    human="intents: {intents}\ncontexts: {contexts}\nfindings: {findings}",
+    human=(
+        "# Input Data\n"
+        "## User Intents (what to deliver):\n{intents}\n\n"
+        "## Retrieved Contexts (evidence base):\n{contexts}\n\n"
+        "## Audit Findings (quality feedback for iterative refinement):\n"
+        "Structure: {{\"issues\": [list of defects to fix], \"suggestions\": [list of improvements to apply]}}\n"
+        "Data: {findings}\n\n"
+        "# Task\n"
+        "- If findings.issues or findings.suggestions are non-empty: Apply ITERATIVE REFINEMENT workflow (see system instructions)\n"
+        "- If findings are empty: Generate initial requirements from intents and contexts\n"
+        "- Output: Valid JSON per schema"
+    ),
 )
 
 CONSISTENCY_AUDITOR = PromptSpec(
