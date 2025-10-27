@@ -107,9 +107,9 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         md_lines = ["**Analysis Results**  "]
         if analysis.intents:
             intents_list = analysis.intents if isinstance(analysis.intents, list) else [analysis.intents]
-            md_lines.append(f"Intents:  \n {'- '.join(intents_list)}\n")
+            md_lines.append(f"Intents:  \n {'\n'.join([f"- {intent}" for intent in intents_list])}\n")
         details_md = "\n".join(md_lines)
-        
+
         await publisher.publish_workflow_update(
             project_id=state["project_id"],
             prompt_id=state.get("prompt_id"),

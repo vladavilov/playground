@@ -1180,8 +1180,8 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                 # Format key facts with nested citations (handle both dict and string formats)
                 facts_detail_md = ""
                 if agg_validated.key_facts:
-                    for idx, kf in enumerate(agg_validated.key_facts):
-                        facts_detail_md += f"{idx + 1}. {kf.fact}\n"
+                    for kf in agg_validated.key_facts:
+                        facts_detail_md += f"  - {kf.fact}  \n"
                         if kf.citations:
                             # Deduplicate document names
                             seen_docs = set()
