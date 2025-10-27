@@ -1180,9 +1180,8 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                 # Format key facts with nested citations (handle both dict and string formats)
                 facts_detail_md = ""
                 if agg_validated.key_facts:
-                    facts_detail_md = "**Validated key facts:**\n"
-                    for idx, kf in enumerate(agg_validated.key_facts, 1):
-                        facts_detail_md += f"{idx}. {kf.fact}\n"
+                    for idx, kf in enumerate(agg_validated.key_facts):
+                        facts_detail_md += f"{idx + 1}. {kf.fact}\n"
                         if kf.citations:
                             # Deduplicate document names
                             seen_docs = set()
@@ -1203,7 +1202,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             
                             # Limit display to first 5 unique documents for readability
                             display_count = min(5, len(citation_displays))
-                            facts_detail_md += f"   - *Sources:* {', '.join(citation_displays[:display_count])}"
+                            facts_detail_md += f"*Sources:* {', '.join(citation_displays[:display_count])}"
                             if len(citation_displays) > 5:
                                 facts_detail_md += f" (and {len(citation_displays) - 5} more)"
                             facts_detail_md += "\n"
@@ -1216,7 +1215,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                     phase=RetrievalStatus.AGGREGATING_RESULTS,
                     thought_summary="🧩 **Synthesizing Results**",
                     details_md=(
-                        f"**Key facts collected:** {len(agg_validated.key_facts)}\n\n"
+                        f"*Key facts collected:* {len(agg_validated.key_facts)}  \n"
                         + facts_detail_md
                         + "\n\nAggregating findings from all sources into cohesive context..."
                     ),
@@ -1231,37 +1230,12 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
             try:
                 prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
                 
-                # Format key facts with their nested citations for display (handle both dict and string formats)
-                facts_md = ""
-                if agg_validated.key_facts:
-                    facts_md = "\n\n**Key Facts:**\n"
-                    for idx, kf in enumerate(agg_validated.key_facts, 1):
-                        facts_md += f"{idx}. {kf.fact}\n"
-                        if kf.citations:
-                            # Deduplicate document names
-                            seen_docs = set()
-                            citation_displays = []
-                            for cit in kf.citations:
-                                if isinstance(cit, dict):
-                                    # Enriched format - show document name
-                                    doc_name = cit.get("document_name", "unknown")
-                                    if doc_name not in seen_docs:
-                                        citation_displays.append(f"[{doc_name}]")
-                                        seen_docs.add(doc_name)
-                                else:
-                                    # Legacy string format
-                                    cit_str = str(cit)
-                                    if cit_str not in seen_docs:
-                                        citation_displays.append(cit_str)
-                                        seen_docs.add(cit_str)
-                            facts_md += f"   - *Citations:* {', '.join(citation_displays)}\n"
-                
                 await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.COMPLETED,
                     thought_summary="✅ **Context Retrieval Complete**",
-                    details_md=f"**Final answer ready**{facts_md}\n\nProceeding with generation...",
+                    details_md=f"**Final answer ready.** Proceeding with generation...",
                     progress_pct=100.0,
                     prompt_id=prompt_id_uuid,
                 )
