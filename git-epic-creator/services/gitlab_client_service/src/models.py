@@ -39,8 +39,12 @@ class ApplyBacklogIssue(ApplyBacklogWorkItem):
 
 
 class ApplyBacklogRequest(BaseModel):
-    project_id: str
-    prompt_id: str
+    project_id: str = Field(description="GitLab project ID (numeric or path)")
+    prompt_id: str = Field(description="Unique prompt/generation ID for idempotency")
+    internal_project_id: Optional[str] = Field(
+        default=None,
+        description="Internal project management service ID (UUID) for tracking"
+    )
     epics: List[ApplyBacklogWorkItem] = Field(default_factory=list)
     issues: List[ApplyBacklogIssue] = Field(default_factory=list)
 
@@ -67,5 +71,20 @@ class ApplyBacklogError(BaseModel):
 class ApplyBacklogResponse(BaseModel):
     results: ApplyBacklogResults
     errors: List[ApplyBacklogError] = Field(default_factory=list)
+
+
+class ResolveProjectRequest(BaseModel):
+    """Request to resolve GitLab project path to project ID."""
+    gitlab_path: str = Field(
+        description="GitLab project path in format: namespace/project"
+    )
+
+
+class ResolveProjectResponse(BaseModel):
+    """Response with resolved GitLab project details."""
+    project_id: str = Field(description="Numeric GitLab project ID")
+    path: str = Field(description="Full project path: namespace/project")
+    name: str = Field(description="Project name")
+    web_url: str = Field(description="Project web URL")
 
 

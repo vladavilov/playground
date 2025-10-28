@@ -8,7 +8,6 @@ import structlog
 import httpx
 import logging
 from starlette.middleware.sessions import SessionMiddleware
-from authlib.integrations.starlette_client import OAuth
 from configuration.common_config import get_app_settings
 from configuration.azure_auth_config import get_azure_auth_settings
 from ui_config import get_ui_settings
@@ -16,7 +15,6 @@ from configuration.logging_config import configure_logging
 from utils.app_factory import FastAPIFactory
 from routers.sse_router import router as sse_router
 from routers.auth_router import router as auth_router
-from routers.gitlab_auth_router import router as gitlab_auth_router
 from routers.proxy_router import router as proxy_router
 
 configure_logging()
@@ -50,13 +48,6 @@ app.add_middleware(
     https_only=not ui_settings.ALLOW_INSECURE_SESSION,
 )
 
-async def _startup_configure_oauth_on_app() -> None:
-    """Configure OAuth for GitLab (MSAL is configured per-request in auth_router)."""
-    oauth = OAuth()
-    app.state.oauth = oauth
-    logger.info("OAuth configured on app.state (for GitLab)")
-
-
 async def _startup_configure_msal_logging() -> None:
     """Configure MSAL logging integration."""
     try:
@@ -83,70 +74,6 @@ async def _startup_store_azure_settings(_azure) -> None:
     """Store Azure auth settings on app state for MSAL."""
     app.state.azure_auth_settings = _azure
     logger.info("Azure auth settings stored on app.state")
-
-
-async def _startup_load_gitlab_oauth_settings(_ui) -> None:
-    """Load GitLab OAuth settings and register OAuth client at startup."""
-    base_url = (_ui.GITLAB_BASE_URL or "").rstrip("/")
-    client_base_url = (_ui.GITLAB_CLIENT_BASE_URL or base_url or "").rstrip("/")
-    client_id = _ui.GITLAB_OAUTH_CLIENT_ID or ""
-    client_secret = _ui.GITLAB_OAUTH_CLIENT_SECRET or ""
-    redirect_uri = _ui.GITLAB_OAUTH_REDIRECT_URI or ""
-    default_scopes = _ui.GITLAB_OAUTH_SCOPES or "read_api"
-    ca_cert_path = _ui.GITLAB_CA_CERT_PATH or ""
-
-    if base_url and client_id and client_secret and redirect_uri:
-        app.state.gitlab_base_url = base_url
-        app.state.gitlab_client_id = client_id
-        app.state.gitlab_client_secret = client_secret
-        app.state.gitlab_redirect_uri = redirect_uri
-        app.state.gitlab_scopes = default_scopes
-        app.state.gitlab_verify_ssl = _ui.GITLAB_VERIFY_SSL
-        app.state.gitlab_ca_cert_path = ca_cert_path
-
-        if ca_cert_path:
-            if os.path.isfile(ca_cert_path):
-                try:
-                    with open(ca_cert_path, "rb") as f:
-                        first_line = f.readline().decode(errors="ignore").strip()
-                    logger.info("Custom CA bundle detected: %s", first_line)
-                except Exception as e:
-                    logger.warning("Failed to read CA bundle from %s", ca_cert_path, error=str(e))
-            else:
-                logger.info("Custom CA bundle path not found: %s", ca_path=ca_cert_path)
-
-        # Register GitLab OAuth client at startup (not on every request)
-        oauth = getattr(app.state, "oauth", None)
-        if oauth:
-            # Configure client_kwargs for SSL certificate if provided
-            client_kwargs = {}
-            if ca_cert_path and _ui.GITLAB_VERIFY_SSL:
-                client_kwargs["verify"] = ca_cert_path
-                logger.info("GitLab OAuth client configured with custom SSL certificate", cert_path=ca_cert_path)
-            elif not _ui.GITLAB_VERIFY_SSL:
-                client_kwargs["verify"] = False
-                logger.info("GitLab OAuth client configured with SSL verification disabled")
-            
-            oauth.register(
-                name="gitlab",
-                client_id=client_id,
-                client_secret=client_secret,
-                access_token_url=f"{base_url}/oauth/token",
-                authorize_url=f"{client_base_url}/oauth/authorize",
-                api_base_url=f"{base_url}/api/v4/",
-                scopes="api",
-                client_kwargs=client_kwargs
-            )
-            logger.info(
-                "GitLab OAuth client registered at startup",
-                base_url=base_url,
-                client_base_url=client_base_url,
-                scopes=default_scopes
-            )
-        else:
-            logger.warning("OAuth not initialized, cannot register GitLab client")
-    else:
-        logger.warning("GitLab OAuth settings not fully configured; GitLab SSO disabled")
 
 
 async def _startup_init_upstream_http_client(http_settings) -> None:
@@ -179,10 +106,8 @@ async def _ui_lifespan(_app: FastAPI):
         logger.warning("Failed to read HTTP client settings", error=str(e))
 
     steps = [
-        ("configure_oauth_on_app", lambda: _startup_configure_oauth_on_app()),
         ("configure_msal_logging", lambda: _startup_configure_msal_logging()),
         ("store_azure_settings", (lambda: _startup_store_azure_settings(azure)) if azure else None),
-        ("load_gitlab_oauth_settings", lambda: _startup_load_gitlab_oauth_settings(ui)),
         ("init_upstream_http_client", (lambda: _startup_init_upstream_http_client(http_settings)) if http_settings else None),
     ]
 
@@ -209,7 +134,6 @@ async def _ui_lifespan(_app: FastAPI):
 ## Routers
 app.include_router(sse_router)
 app.include_router(auth_router)
-app.include_router(gitlab_auth_router)
 app.include_router(proxy_router)
 
 # Register UI-specific lifespan without overriding app-level lifespan

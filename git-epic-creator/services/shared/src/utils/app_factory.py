@@ -76,20 +76,46 @@ class FastAPIFactory:
         enable_blob_storage: bool = False,
         openapi_url: str = "/openapi.json",
         docs_url: str = "/docs",
-        redoc_url: str = "/redoc"
+        redoc_url: str = "/redoc",
+        custom_lifespan = None
     ) -> FastAPI:
-        """Create a FastAPI application with standard configuration."""
+        """
+        Create a FastAPI application with standard configuration.
+        
+        Args:
+            title: Application title
+            description: Application description
+            version: Application version
+            enable_cors: Enable CORS middleware
+            enable_postgres: Enable PostgreSQL client
+            enable_neo4j: Enable Neo4j client
+            enable_redis: Enable Redis client
+            enable_blob_storage: Enable Blob Storage client
+            openapi_url: OpenAPI schema URL
+            docs_url: Swagger UI docs URL
+            redoc_url: ReDoc docs URL
+            custom_lifespan: Optional custom lifespan async context manager.
+                           Will be called before factory's cleanup logic.
+        
+        Returns:
+            Configured FastAPI application
+        """
         postgres_client: PostgresClient = get_postgres_client() if enable_postgres else None
         neo4j_client: Neo4jClient = get_neo4j_client() if enable_neo4j else None
         redis_client: redis.Redis = get_redis_client() if enable_redis else None
         blob_storage_client: BlobStorageClient = get_blob_storage_client() if enable_blob_storage else None
 
-        # Create lifespan context manager
+        # Create composed lifespan context manager
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            yield
+            # Execute custom startup logic if provided
+            if custom_lifespan:
+                async with custom_lifespan(app):
+                    yield
+            else:
+                yield
 
-            # Shutdown logic
+            # Factory's shutdown logic (always runs)
             if hasattr(app.state, 'neo4j_client'):
                 try:
                     app.state.neo4j_client.close()

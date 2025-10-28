@@ -1,26 +1,78 @@
 import structlog
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from authlib.integrations.starlette_client import OAuth
 
 from configuration.logging_config import configure_logging
 from configuration.common_config import get_app_settings
 from utils.app_factory import FastAPIFactory
+from config import get_gitlab_client_settings
 
 from routers.gitlab_router import router as gitlab_router
+from routers.gitlab_auth_router import router as gitlab_auth_router
+from services.gitlab_token_manager import create_update_token_callback
+from utils.redis_client import get_redis_client
 
 
 configure_logging()
 logger = structlog.get_logger(__name__)
+
+
+@asynccontextmanager
+async def gitlab_lifespan(app: FastAPI):
+    """GitLab-specific startup/shutdown logic."""
+    # Startup: Configure GitLab OAuth
+    redis_client = get_redis_client()
+    
+    # Create update_token callback for automatic token refresh
+    update_token = create_update_token_callback(redis_client)
+    
+    # Initialize OAuth with update_token callback
+    oauth = OAuth(update_token=update_token)
+    settings = get_gitlab_client_settings()
+    
+    if settings.GITLAB_OAUTH_CLIENT_ID and settings.GITLAB_OAUTH_CLIENT_SECRET:
+        oauth.register(
+            name="gitlab",
+            client_id=settings.GITLAB_OAUTH_CLIENT_ID,
+            client_secret=settings.GITLAB_OAUTH_CLIENT_SECRET,
+            access_token_url=f"{settings.GITLAB_BASE_URL}/oauth/token",
+            access_token_params=None,
+            authorize_url=f"{settings.GITLAB_BASE_URL}/oauth/authorize",
+            authorize_params=None,
+            api_base_url=f"{settings.GITLAB_BASE_URL}/api/v4/",
+            client_kwargs={
+                'scope': settings.GITLAB_OAUTH_SCOPES,
+            }
+        )
+        app.state.oauth = oauth
+        app.state.gitlab_settings = settings
+        logger.info(
+            "GitLab OAuth configured with automatic token refresh",
+            client_id=settings.GITLAB_OAUTH_CLIENT_ID[:10] + "...",
+            redirect_uri=settings.GITLAB_OAUTH_REDIRECT_URI
+        )
+    else:
+        logger.warning("GitLab OAuth not configured - missing CLIENT_ID or CLIENT_SECRET")
+    
+    yield
+    
+    # Shutdown: cleanup (if needed)
+    logger.info("GitLab Client Service shutting down")
+
 
 app: FastAPI = FastAPIFactory.create_app(
     title="GitLab Client Service",
     description="Thin REST facade over GitLab with normalized models",
     version="1.0.0",
     enable_cors=True,
-    enable_redis=True
+    enable_redis=True,
+    custom_lifespan=gitlab_lifespan
 )
 
 app.include_router(gitlab_router)
+app.include_router(gitlab_auth_router)
 
 logger.info("GitLab Client Service ready")
 

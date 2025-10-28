@@ -16,7 +16,8 @@ import {
 // Application State
 const state = {
   config: null,
-  projectId: null,
+  projectId: null,  // Internal project management service ID
+  gitlabProjectId: null,  // GitLab project ID (resolved from project)
   promptId: null,
   authenticated: false,
   backlogBundle: null,
@@ -433,10 +434,18 @@ async function submitToGitLab() {
     return;
   }
   
+  // Check if GitLab project ID is available
+  if (!state.gitlabProjectId) {
+    appendAssistantMessage('<div class="text-sm text-rose-700">Error: Project does not have a GitLab project ID. Please set the GitLab project path first.</div>', 'System Error');
+    return;
+  }
+  
   try {
     // Transform backlog bundle to GitLab API format
+    // Use gitlabProjectId for GitLab API calls
     const payload = {
-      project_id: state.projectId,
+      project_id: state.gitlabProjectId,  // GitLab project ID (for GitLab API)
+      internal_project_id: state.projectId,  // Internal project management ID (for tracking)
       prompt_id: state.promptId || state.backlogBundle.prompt_id || '',
       epics: [],
       issues: []
@@ -467,8 +476,9 @@ async function submitToGitLab() {
     });
     
     // Call GitLab client service via proxy
+    // Use gitlabProjectId instead of internal projectId
     const base = state.config.gitlabApiBase.replace(/\/$/, '');
-    const url = `${base}/projects/${state.projectId}/apply-backlog`;
+    const url = `${base}/projects/${state.gitlabProjectId}/apply-backlog`;
     
     const res = await fetch(url, {
       method: 'POST',
@@ -806,6 +816,31 @@ async function init() {
   
   const authenticated = await checkAuthStatus();
   if (!authenticated) return;
+  
+  // Fetch project details to get GitLab project ID
+  try {
+    const base = state.config.projectManagementApiBase.replace(/\/$/, '');
+    const projectUrl = `${base}/projects/${state.projectId}`;
+    const response = await fetch(projectUrl);
+    
+    if (response.ok) {
+      const project = await response.json();
+      state.gitlabProjectId = project.gitlab_project_id;
+      
+      if (!state.gitlabProjectId) {
+        appendSystemMessage('Warning: Project does not have a GitLab project ID configured. GitLab features will be unavailable.');
+        console.warn('Project missing gitlab_project_id:', project);
+      } else {
+        console.log('GitLab project ID loaded:', state.gitlabProjectId);
+      }
+    } else {
+      console.error('Failed to fetch project details:', response.status);
+      appendSystemMessage('Warning: Could not load project details. GitLab features may not work.');
+    }
+  } catch (err) {
+    console.error('Error fetching project:', err);
+    appendSystemMessage('Warning: Could not load project details. GitLab features may not work.');
+  }
   
   connectSSE();
   

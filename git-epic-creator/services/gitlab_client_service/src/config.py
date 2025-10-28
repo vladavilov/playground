@@ -14,13 +14,19 @@ class GitLabClientSettings(BaseSettings):
     Only GitLab-specific settings are defined here.
     """
     
-    # GitLab Configuration
-    GITLAB_BASE_URL: str = Field(default="", description="Base URL of GitLab instance")
+    # GitLab Instance Configuration
+    GITLAB_BASE_URL: str = Field(default="", description="Base URL of GitLab instance (e.g., https://gitlab.com)")
     GITLAB_VERIFY_SSL: bool = Field(default=True, description="Verify SSL certificates for GitLab")
     HTTP_CONNECTION_TIMEOUT: float = Field(default=30.0, description="HTTP connection timeout in seconds")
     RETRY_MAX_ATTEMPTS: int = Field(default=3, description="Maximum number of HTTP retries")
     RETRY_BACKOFF_FACTOR: float = Field(default=2.0, description="Exponential backoff factor for retries")
     DEFAULT_PAGE_SIZE: int = Field(default=100, description="Default page size for GitLab API pagination")
+    
+    # GitLab OAuth Configuration
+    GITLAB_OAUTH_CLIENT_ID: str = Field(default="", description="GitLab OAuth application client ID")
+    GITLAB_OAUTH_CLIENT_SECRET: str = Field(default="", description="GitLab OAuth application client secret")
+    GITLAB_OAUTH_REDIRECT_URI: str = Field(default="", description="GitLab OAuth callback URI pointing to this service")
+    GITLAB_OAUTH_SCOPES: str = Field(default="read_api api", description="GitLab OAuth scopes")
     
     # Embedding Batch Configuration (extends LlmConfig)
     OAI_EMBED_BATCH: int = Field(default=16, description="Batch size for embedding requests")

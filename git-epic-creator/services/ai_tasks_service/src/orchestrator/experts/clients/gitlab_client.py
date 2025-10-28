@@ -23,19 +23,20 @@ class GitLabClient:
         self.max_attempts = max_attempts
         self.backoff_base = backoff_base_sec
 
-    def _build_url(self, project_id: str) -> str:
-        return f"{self.base_url}/gitlab/projects/{project_id}/backlog"
+    def _build_url(self, gitlab_project_id: str) -> str:
+        """Build GitLab backlog URL using GitLab project ID."""
+        return f"{self.base_url}/gitlab/projects/{gitlab_project_id}/backlog"
 
     async def fetch_backlog(
         self,
-        project_id: str,
+        gitlab_project_id: str,
         auth_header: str | None = None,
         gitlab_token: str | None = None,
     ) -> Dict[str, Any]:
         """Fetch existing epics and issues from GitLab.
         
         Args:
-            project_id: GitLab project identifier
+            gitlab_project_id: GitLab project identifier (numeric GitLab project ID)
             auth_header: Optional authorization header value (JWT)
             gitlab_token: Optional GitLab access token
             
@@ -58,11 +59,11 @@ class GitLabClient:
                     
                     logger.info(
                         "Fetching backlog from GitLab client",
-                        url=self._build_url(project_id),
-                        project_id=project_id,
+                        url=self._build_url(gitlab_project_id),
+                        gitlab_project_id=gitlab_project_id,
                     )
                     
-                    resp = await client.get(self._build_url(project_id), headers=headers)
+                    resp = await client.get(self._build_url(gitlab_project_id), headers=headers)
                     
                 try:
                     resp.raise_for_status()

@@ -20,15 +20,8 @@ class UiSettings(BaseConfig):
     SESSION_SAME_SITE: str = Field(default="lax", description="Session SameSite policy")
     ALLOW_INSECURE_SESSION: bool = Field(default=False, description="Allow ephemeral secret in dev")
 
-    # GitLab OAuth (managed in UI service)
-    GITLAB_BASE_URL: str = Field(default="", description="Base URL of GitLab instance for server-side API calls")
-    GITLAB_CLIENT_BASE_URL: str = Field(default="", description="Base URL of GitLab for browser redirects (falls back to GITLAB_BASE_URL)")
-    GITLAB_OAUTH_CLIENT_ID: str = Field(default="", description="GitLab OAuth client id")
-    GITLAB_OAUTH_CLIENT_SECRET: str = Field(default="", description="GitLab OAuth client secret")
-    GITLAB_OAUTH_REDIRECT_URI: str = Field(default="", description="GitLab OAuth redirect URI")
-    GITLAB_OAUTH_SCOPES: str = Field(default="read_api", description="Space/comma separated scopes")
-    GITLAB_VERIFY_SSL: bool = Field(default=True, description="Verify TLS for GitLab calls")
-    GITLAB_CA_CERT_PATH: str = Field(default="", description="Path to PEM bundle of CA certificates")
+    # GitLab Client Service URL (for proxying GitLab-related requests)
+    GITLAB_CLIENT_BASE_URL: str = Field(default="http://gitlab-client-service:8000", description="Base URL of gitlab-client-service for proxying")
 
 
 @lru_cache()

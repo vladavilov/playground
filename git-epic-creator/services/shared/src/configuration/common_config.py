@@ -12,6 +12,7 @@ from .celery_config import CelerySettings
 from .http_client_config import HTTPClientSettings
 from .blob_storage_config import BlobStorageSettings
 from .llm_config import LlmConfig
+from .gitlab_config import GitLabSettings
 
 # Explicitly load .env file at the module level.
 load_dotenv()
@@ -33,6 +34,7 @@ class AppSettings(BaseConfig):
     http_client: HTTPClientSettings = Field(default_factory=HTTPClientSettings)
     blob_storage: BlobStorageSettings = Field(default_factory=BlobStorageSettings)
     llm: LlmConfig = Field(default_factory=LlmConfig)
+    gitlab: GitLabSettings = Field(default_factory=GitLabSettings)
 
 @lru_cache()
 def get_app_settings() -> AppSettings:

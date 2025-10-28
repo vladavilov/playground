@@ -22,7 +22,8 @@ class Project(BaseModel):
 
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    gitlab_url = Column(Text, nullable=True)
+    gitlab_path = Column(String(512), nullable=True)  # namespace/project format
+    gitlab_project_id = Column(String(255), nullable=True)  # Resolved GitLab project ID
     gitlab_repository_url = Column(Text, nullable=True)
     status = Column(String(50), default='active')  # Supports: active, processing, inactive
     processed_pct = Column(Float, default=0.0, nullable=False)  # Percentage (0.0-100.0)

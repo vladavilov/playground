@@ -44,17 +44,13 @@ class ProjectSet(BaseModel):
         None,
         description="Optional project description"
     )
-    gitlab_url: Optional[AnyUrl] = Field(
+    gitlab_path: Optional[str] = Field(
         None,
-        description="GitLab project URL"
+        description="GitLab project path (namespace/project format)"
     )
     gitlab_repository_url: Optional[AnyUrl] = Field(
         None,
         description="GitLab repository URL"
-    )
-    status: ProjectStatus = Field(
-        default=ProjectStatus.ACTIVE,
-        description="Project status"
     )
 
 
@@ -69,7 +65,8 @@ class ProjectResponse(BaseModel):
     id: UUID = Field(description="Unique project identifier")
     name: str = Field(description="Project name")
     description: Optional[str] = Field(description="Project description")
-    gitlab_url: Optional[str] = Field(description="GitLab project URL")
+    gitlab_path: Optional[str] = Field(description="GitLab project path (namespace/project)")
+    gitlab_project_id: Optional[str] = Field(description="Resolved GitLab project ID")
     gitlab_repository_url: Optional[str] = Field(description="GitLab repository URL")
     status: str = Field(description="Project status")
     created_by: str = Field(description="User ID who created the project")

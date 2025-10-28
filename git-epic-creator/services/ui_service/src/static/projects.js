@@ -167,7 +167,7 @@ function renderDetails() {
       ])
     ]),
     el('div', { class: 'mt-3 space-y-1' }, [
-      el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_url, 'project')]),
+      el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_path, p.gitlab_project_id, 'project')]),
       el('div', { class: 'text-sm' }, [renderGitRepoLine(p.gitlab_repository_url)])
     ]),
     el('div', { class: 'mt-4 flex items-center justify-between flex-wrap gap-2' }, [
@@ -190,18 +190,31 @@ async function fetchProjects() {
 }
 
 // UI helpers
-function renderGitInfoLine(value, type) {
-  const has = value && String(value).trim() !== '';
-  if (has && type === 'project') {
-    // For GitLab project link, include the cache embeddings button
-    return el('div', { class: 'flex items-center gap-2' }, [
-      el('a', { class: 'text-sm text-sky-600 underline', href: value, target: '_blank' }, 'GitLab Project'),
-      renderCacheEmbeddingsButton()
-    ]);
+function renderGitInfoLine(gitlabPath, gitlabProjectId, type) {
+  const hasPath = gitlabPath && String(gitlabPath).trim() !== '';
+  const hasId = gitlabProjectId && String(gitlabProjectId).trim() !== '';
+  
+  if (hasPath && type === 'project') {
+    // Display GitLab path with project ID badge and cache button
+    const elements = [
+      el('span', { class: 'text-sm text-slate-700' }, `GitLab: ${gitlabPath}`)
+    ];
+    
+    if (hasId) {
+      elements.push(
+        el('span', { class: 'text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded' }, `ID: ${gitlabProjectId}`)
+      );
+    }
+    
+    elements.push(renderCacheEmbeddingsButton());
+    
+    return el('div', { class: 'flex items-center gap-2' }, elements);
   }
-  if (has) {
-    return el('a', { class: 'text-sm text-sky-600 underline block', href: value, target: '_blank' }, 'Repository');
+  
+  if (hasPath) {
+    return el('span', { class: 'text-sm text-slate-700' }, gitlabPath);
   }
+  
   return el('div', { class: 'text-sm text-slate-500' }, type === 'project' ? 'N/A project' : 'N/A repository');
 }
 
@@ -420,13 +433,19 @@ async function handleCacheEmbeddings() {
     state.cachingEmbeddings = true;
     renderDetails(); // Re-render to show loading state
     
+    // Check if project has GitLab project ID
+    if (!state.selected.gitlab_project_id) {
+      throw new Error('Project does not have a GitLab project ID. Please set the GitLab project path first.');
+    }
+    
     const cfg = state.config || {};
     const gitlabApiBase = (cfg.gitlabApiBase || '').replace(/\/$/, '');
     if (!gitlabApiBase) {
       throw new Error('GitLab API base not configured');
     }
     
-    const url = `${gitlabApiBase}/projects/${state.selected.id}/cache-embeddings`;
+    // Use gitlab_project_id instead of internal project ID
+    const url = `${gitlabApiBase}/projects/${state.selected.gitlab_project_id}/cache-embeddings`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
@@ -448,7 +467,7 @@ async function handleCacheEmbeddings() {
     }
   } catch (err) {
     console.error('Failed to cache embeddings:', err);
-    alert('Failed to cache embeddings. Please check the console for details.');
+    alert(`Failed to cache embeddings: ${err.message}`);
   } finally {
     state.cachingEmbeddings = false;
     renderDetails(); // Re-render to hide loading state
@@ -669,7 +688,7 @@ function openProjectModal(project) {
   if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
   document.getElementById('f_name').value = project?.name || '';
   document.getElementById('f_description').value = project?.description || '';
-  document.getElementById('f_gitlab_url').value = project?.gitlab_url || '';
+  document.getElementById('f_gitlab_path').value = project?.gitlab_path || '';
   document.getElementById('f_gitlab_repository_url').value = project?.gitlab_repository_url || '';
   toggleProjectModal(true);
 }
@@ -692,7 +711,7 @@ async function submitProjectForm(ev) {
   const payload = {
     name: document.getElementById('f_name').value.trim(),
     description: valOrNull(document.getElementById('f_description').value),
-    gitlab_url: emptyToNull(document.getElementById('f_gitlab_url').value),
+    gitlab_path: emptyToNull(document.getElementById('f_gitlab_path').value),
     gitlab_repository_url: emptyToNull(document.getElementById('f_gitlab_repository_url').value),
   };
   if (!payload.name) { alert('Name is required'); return; }

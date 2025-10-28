@@ -108,22 +108,41 @@ From shared library:
 
 ## Configuration
 
+### Configuration Separation
+
+This service uses two distinct URL concepts:
+
+1. **`GITLAB_BASE_URL`**: The actual GitLab instance URL (e.g., `https://gitlab.com`)
+   - Used for GitLab API calls
+   - Used for OAuth authorization and token exchange
+   - Used by `python-gitlab` client
+
+2. **`GITLAB_CLIENT_BASE_URL`**: The internal gitlab-client-service URL (e.g., `http://gitlab-client-service:8000`)
+   - Used by other services (ui-service, project-management-service) to communicate with this service
+   - **Not** used within gitlab-client-service itself
+
+> **Important:** Do not confuse these two URLs. `GITLAB_CLIENT_BASE_URL` is the URL of *this microservice*, not the GitLab instance.
+
 ### Environment Variables
 
 Configuration is centralized in `src/config.py` and reuses shared library configs:
 
-**GitLab-specific settings:**
+**GitLab Instance settings:**
 ```env
-GITLAB_BASE_URL=""                     # Required: e.g., https://gitlab.example.com
-GITLAB_VERIFY_SSL=true                 # Verify SSL certificates
+GITLAB_BASE_URL=""                     # Required: GitLab instance URL (e.g., https://gitlab.com)
+GITLAB_VERIFY_SSL=true                 # Verify SSL certificates for GitLab instance
 HTTP_CONNECTION_TIMEOUT=30.0           # HTTP connection timeout
 RETRY_MAX_ATTEMPTS=3                   # Maximum HTTP retries
 RETRY_BACKOFF_FACTOR=2.0              # Exponential backoff factor
 DEFAULT_PAGE_SIZE=100                  # Default pagination size
-OAI_EMBED_BATCH=16                    # Batch size for embeddings
-OAI_EMBED_CONCURRENCY=2               # Concurrent embedding requests
+```
+
+**GitLab Client Service settings:**
+```env
 EMBEDDINGS_PUBSUB_PREFIX="embeddings:projects:"  # Redis pub/sub prefix
 IDEMPOTENCY_TTL_SECONDS=86400         # 24 hours default
+OAI_EMBED_BATCH=16                    # Batch size for embeddings
+OAI_EMBED_CONCURRENCY=2               # Concurrent embedding requests
 ```
 
 **Shared Redis configuration (from `RedisSettings`):**
@@ -152,6 +171,18 @@ OAI_EMBED_MODEL_NAME="text-embedding-3-small"
 OAI_EMBED_DEPLOYMENT_NAME="text-embedding-3-small"
 ```
 
+**GitLab OAuth Configuration:**
+```env
+GITLAB_OAUTH_CLIENT_ID=""               # GitLab OAuth application client ID
+GITLAB_OAUTH_CLIENT_SECRET=""           # GitLab OAuth application client secret
+GITLAB_OAUTH_REDIRECT_URI=""            # OAuth callback URI (points to ui-service which proxies to this service)
+GITLAB_OAUTH_SCOPES="read_api api"      # OAuth scopes (space-separated)
+```
+
+> **Important:** `GITLAB_OAUTH_REDIRECT_URI` should point to ui-service (e.g., `http://localhost:8007/auth/gitlab/callback`), not directly to gitlab-client-service. ui-service acts as a transparent proxy, forwarding all OAuth requests and responses between the browser and gitlab-client-service.
+
+> **Note:** OAuth URLs are constructed using `GITLAB_BASE_URL`. There is no need for a separate `GITLAB_CLIENT_BASE_URL` in gitlab-client-service configuration.
+
 **Local JWT (for service-to-service auth):**
 ```env
 LOCAL_JWT_SECRET="dev-local-jwt-secret"
@@ -167,57 +198,238 @@ The service auto-detects Azure OpenAI vs standard OpenAI:
 
 ## Authentication & Authorization
 
-### Mechanism for GitLab Integration
+### GitLab OAuth Integration
 
-Delegated user mode:
+gitlab-client-service handles the complete GitLab OAuth flow, including:
+- OAuth authorization and callback endpoints
+- Token storage in Redis (session-based)
+- Token refresh management
+- Connection status checking
 
-1. User signs in via Azure AD (Azure token is in session)
-2. `ui-service` initiates GitLab OAuth Authorization Code flow (PKCE). With GitLab Azure SSO, the user typically isn't prompted again
-3. `ui-service` receives GitLab `access_token` (+ `refresh_token`) with required scopes:
-   - `read_api` for read-only operations
-   - `api` for write operations
-4. `ui-service` stores tokens server-side keyed by the app's user id (`oid`) and refreshes them proactively
-5. `ui-service` calls `gitlab-client-service` with two headers:
-   - `GitLab-Access-Token: <gitlab_access_token>` - for GitLab API access
-   - `Authorization: Bearer <local_jwt>` - for intra-platform authentication
-6. `gitlab-client-service` uses the GitLab access token to call GitLab APIs
+### OAuth Flow
 
-All endpoints use the same authentication headers: `GitLab-Access-Token` for GitLab access, and `Authorization: Bearer <local_jwt>` for intra-platform auth.
-
-### Authentication Flow Diagram
+ui-service acts as a transparent proxy for all GitLab OAuth endpoints. Requests flow through ui-service to gitlab-client-service and responses flow back.
 
 ```mermaid
 sequenceDiagram
-    participant User
     participant Browser
-    participant AzureAD
-    participant UIService as ui-service
-    participant GitLabOAuth as GitLab OAuth
-    participant GitLabClient as gitlab-client-service
-    participant GitLabAPI as GitLab API
+    participant UI as ui-service (proxy)
+    participant GCS as gitlab-client-service
+    participant GitLab
+    participant Redis
 
-    User->>Browser: Access Application
-    Browser->>UIService: Request Access
-    UIService->>AzureAD: Initiate Azure AD Login
-    AzureAD->>User: Request Authentication
-    User->>AzureAD: Provide Credentials
-    AzureAD->>UIService: Return Azure Token
+    Browser->>UI: Click "Connect GitLab"<br/>GET /auth/gitlab/authorize
+    Note over Browser,UI: With redirect_uri query param
     
-    UIService->>GitLabOAuth: Initiate OAuth PKCE Flow
-    Note over GitLabOAuth: Azure SSO enabled<br/>No additional prompt
-    GitLabOAuth->>UIService: Return access_token + refresh_token<br/>Scopes: read_api, api
+    UI->>UI: Extract session_id from session cookie
+    UI->>GCS: Forward: GET /auth/gitlab/authorize<br/>?session_id=abc&redirect_uri=/projects
+    GCS->>GCS: Generate OAuth state with session_id
+    GCS->>UI: 302 Redirect to GitLab OAuth
+    UI->>Browser: Forward: 302 Redirect to GitLab
     
-    UIService->>UIService: Store tokens by user oid<br/>Manage refresh
+    Browser->>GitLab: Authorize application
+    GitLab->>Browser: 302 Redirect to ui-service callback<br/>(localhost:8007/auth/gitlab/callback)
     
-    Browser->>UIService: API Request
-    UIService->>GitLabClient: Forward Request<br/>Headers:<br/>- GitLab-Access-Token: <token><br/>- Authorization: Bearer <jwt>
+    Browser->>UI: GET /auth/gitlab/callback<br/>?code=xxx&state=yyy
+    UI->>GCS: Forward: GET /auth/gitlab/callback<br/>?code=xxx&state=yyy
+    GCS->>GitLab: Exchange code for token (OAuth2)
+    GitLab->>GCS: Access token + refresh token
     
-    GitLabClient->>GitLabClient: Validate local JWT
-    GitLabClient->>GitLabAPI: Call GitLab API<br/>Using access_token
-    GitLabAPI->>GitLabClient: Return Data
-    GitLabClient->>UIService: Normalized Response
-    UIService->>Browser: Response
+    GCS->>Redis: Store token<br/>(key: gitlab:oauth:{session_id})
+    GCS->>UI: 302 Redirect to /projects
+    UI->>Browser: Forward: 302 Redirect to /projects
+    
+    Note over Browser,Redis: Token stored and ready for API calls
 ```
+
+### OAuth Endpoints
+
+#### GET /auth/gitlab/authorize
+
+Initiate GitLab OAuth flow.
+
+**Query Parameters:**
+- `session_id` (required): User session ID from ui-service
+- `redirect_uri` (required): URL to redirect user after OAuth completes
+
+**Response:** 302 Redirect to GitLab authorization page
+
+**Note:** This endpoint uses query parameters for compatibility with browser redirects.
+
+#### GET /auth/gitlab/callback
+
+OAuth callback handler (called by GitLab).
+
+**Query Parameters:**
+- `code`: Authorization code from GitLab
+- `state`: State parameter (contains session_id)
+
+**Response:** 302 Redirect to original redirect_uri
+
+#### GET /auth/gitlab/status
+
+Check GitLab connection status for a session.
+
+**Authentication:** S2S JWT in Authorization header (extracts session_id from `oid` claim)
+
+**Response:**
+```json
+{
+  "connected": true,
+  "configured": true
+}
+```
+
+**Example:**
+```http
+GET /auth/gitlab/status
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### POST /auth/gitlab/disconnect
+
+Disconnect GitLab integration for a session.
+
+**Authentication:** S2S JWT in Authorization header (extracts session_id from `oid` claim)
+
+**Response:**
+```json
+{
+  "disconnected": true
+}
+```
+
+**Example:**
+```http
+POST /auth/gitlab/disconnect
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Token Management
+
+**Redis Storage:**
+- Key pattern: `gitlab:oauth:{session_id}`
+- TTL: Token expires_in + 10 minutes buffer
+- Automatic refresh via Authlib when expired (if refresh_token available)
+
+**Token Format:**
+```json
+{
+  "access_token": "glpat-xxxxx",
+  "token_type": "Bearer",
+  "expires_in": 7200,
+  "refresh_token": "glprt-xxxxx",
+  "scope": "read_api api",
+  "created_at": 1234567890
+}
+```
+
+**Automatic Token Refresh:**
+
+The service uses Authlib's built-in automatic token refresh mechanism. When a token expires, Authlib automatically:
+1. Detects expiration during API calls
+2. Refreshes the token using the refresh_token grant
+3. Invokes `update_token` callback to save the new token to Redis
+4. Retries the API call with the new token
+
+```mermaid
+sequenceDiagram
+    participant API as API Request
+    participant Authlib
+    participant GitLab
+    participant Redis
+    participant Callback as update_token callback
+
+    API->>Authlib: Make API call (expired token)
+    Authlib->>Authlib: Detect token expiry
+    Authlib->>GitLab: Refresh token request
+    GitLab->>Authlib: New access token + refresh token
+    Authlib->>Callback: Invoke update_token(new_token)
+    Callback->>Redis: Save token under session_id
+    Redis->>Callback: Saved
+    Authlib->>API: Retry API call with new token
+    API->>API: Success
+```
+
+**Session Context Pattern:**
+
+Before making API calls, set the session context to associate refreshed tokens with the correct user:
+
+```python
+from services.gitlab_token_manager import set_session_context
+
+# Set context before API calls
+set_session_context(session_id)
+
+# Make API calls - token refresh happens automatically if needed
+projects = gitlab_client.projects.list()
+```
+
+This approach follows SOLID/DRY principles by:
+- Eliminating manual token expiry checks
+- Centralizing token refresh logic in Authlib
+- Reducing code duplication and maintenance overhead
+
+### Session-Based Authentication
+
+All GitLab API endpoints use session-based authentication:
+
+1. Client sends S2S JWT with `session_id` in claims (oid field)
+2. gitlab-client-service extracts session_id from JWT
+3. Looks up GitLab token from Redis
+4. Uses token to call GitLab API
+
+**Example Request:**
+```http
+GET /gitlab/projects/123/backlog
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**JWT Claims:**
+```json
+{
+  "oid": "abc-123-session-id",
+  "iss": "ui-service",
+  "aud": "gitlab-service",
+  "exp": 1234567890
+}
+```
+
+### Project Resolution Endpoint
+
+#### POST /gitlab/projects/resolve
+
+Resolve GitLab project path or URL to numeric project ID.
+
+**Request Body:**
+```json
+{
+  "gitlab_path": "my-group/my-project"
+}
+```
+
+Or:
+```json
+{
+  "gitlab_url": "https://gitlab.com/my-group/my-project"
+}
+```
+
+**Response:**
+```json
+{
+  "project_id": "123",
+  "path": "my-group/my-project",
+  "name": "My Project",
+  "web_url": "https://gitlab.com/my-group/my-project"
+}
+```
+
+**Error Responses:**
+- 400: Invalid path format
+- 401: GitLab authentication required
+- 404: Project not found
+- 500: GitLab API error
 
 ## Data Models
 
@@ -695,9 +907,21 @@ gitlab-client-service:
 From `docker-compose.env`:
 
 ```env
-# GitLab Configuration
-GITLAB_BASE_URL=http://gitlab-mock-service:8000
-GITLAB_VERIFY_SSL=false
+# GitLab Instance Configuration
+GITLAB_BASE_URL=https://gitlab.com
+GITLAB_VERIFY_SSL=true
+
+# GitLab OAuth Configuration
+# Note: Redirect URI points to ui-service (port 8007) which proxies to gitlab-client-service (port 8012)
+GITLAB_OAUTH_CLIENT_ID=your-gitlab-oauth-client-id
+GITLAB_OAUTH_CLIENT_SECRET=your-gitlab-oauth-client-secret
+GITLAB_OAUTH_REDIRECT_URI=http://localhost:8007/auth/gitlab/callback
+GITLAB_OAUTH_SCOPES=read_api api
+
+# GitLab Client Service Configuration
+DEFAULT_PAGE_SIZE=100
+EMBEDDINGS_PUBSUB_PREFIX=embeddings:projects:
+IDEMPOTENCY_TTL_SECONDS=86400
 
 # Redis Configuration
 REDIS_URL=redis://redis:6379
