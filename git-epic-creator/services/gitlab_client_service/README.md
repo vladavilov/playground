@@ -200,71 +200,140 @@ The service auto-detects Azure OpenAI vs standard OpenAI:
 
 ### GitLab OAuth Integration
 
-gitlab-client-service handles the complete GitLab OAuth flow, including:
-- OAuth authorization and callback endpoints
-- Token storage in Redis (session-based)
-- Token refresh management
+gitlab-client-service implements a **fully stateless** GitLab OAuth flow optimized for horizontal scalability:
+
+**Key Features:**
+- Stateless OAuth state management (Base64-encoded JSON with session_id, redirect_uri, CSRF token)
+- Token storage in Redis keyed by session_id
+- Automatic token refresh via Authlib
 - Connection status checking
+- **No SessionMiddleware required** - completely stateless architecture
+
+**Stateless Design Benefits:**
+- Horizontally scalable (any instance can handle any request)
+- No server-side session storage (all state in URLs or Redis)
+- Proxy-friendly (works through ui-service without cookie forwarding)
+- Survives service restarts (no in-memory state)
 
 ### OAuth Flow
 
-ui-service acts as a transparent proxy for all GitLab OAuth endpoints. Requests flow through ui-service to gitlab-client-service and responses flow back.
+ui-service acts as a transparent proxy for all GitLab OAuth endpoints. All OAuth logic is handled by gitlab-client-service using a stateless approach.
 
 ```mermaid
 sequenceDiagram
     participant Browser
-    participant UI as ui-service (proxy)
-    participant GCS as gitlab-client-service
+    participant UI as ui-service<br/>(transparent proxy)
+    participant GCS as gitlab-client-service<br/>(stateless OAuth)
     participant GitLab
     participant Redis
 
-    Browser->>UI: Click "Connect GitLab"<br/>GET /auth/gitlab/authorize
-    Note over Browser,UI: With redirect_uri query param
+    Browser->>UI: Click "Connect GitLab"<br/>GET /auth/gitlab/authorize?redirect_uri=...
+    Note over Browser,UI: Browser request with session cookie
     
-    UI->>UI: Extract session_id from session cookie
-    UI->>GCS: Forward: GET /auth/gitlab/authorize<br/>?session_id=abc&redirect_uri=/projects
-    GCS->>GCS: Generate OAuth state with session_id
-    GCS->>UI: 302 Redirect to GitLab OAuth
-    UI->>Browser: Forward: 302 Redirect to GitLab
+    UI->>UI: Extract session_id from cookie
+    UI->>GCS: Proxy: GET /auth/gitlab/authorize<br/>?session_id=abc&redirect_uri=/projects
+    Note over UI,GCS: S2S JWT authentication
+    
+    Note over GCS: Stateless OAuth - No session storage
+    GCS->>GCS: Generate CSRF token<br/>Encode state={sid, redirect, csrf}
+    GCS->>GCS: Build OAuth URL with state param
+    GCS-->>UI: 302 Redirect to GitLab<br/>(state encoded in URL)
+    UI-->>Browser: Forward: 302 Redirect to GitLab
     
     Browser->>GitLab: Authorize application
-    GitLab->>Browser: 302 Redirect to ui-service callback<br/>(localhost:8007/auth/gitlab/callback)
+    Note over Browser,GitLab: User grants permission
+    GitLab-->>Browser: 302 Redirect to callback<br/>?code=xxx&state=yyy
     
     Browser->>UI: GET /auth/gitlab/callback<br/>?code=xxx&state=yyy
-    UI->>GCS: Forward: GET /auth/gitlab/callback<br/>?code=xxx&state=yyy
-    GCS->>GitLab: Exchange code for token (OAuth2)
-    GitLab->>GCS: Access token + refresh token
+    UI->>GCS: Proxy: GET /auth/gitlab/callback<br/>?code=xxx&state=yyy
+    
+    Note over GCS: Stateless token exchange
+    GCS->>GCS: Decode state → (sid, redirect, csrf)
+    GCS->>GCS: Validate CSRF token
+    GCS->>GitLab: fetch_access_token(code, redirect_uri)
+    Note over GCS,GitLab: Bypass Authlib session validation
+    GitLab-->>GCS: Access token + refresh token
     
     GCS->>Redis: Store token<br/>(key: gitlab:oauth:{session_id})
-    GCS->>UI: 302 Redirect to /projects
-    UI->>Browser: Forward: 302 Redirect to /projects
+    GCS-->>UI: 302 Redirect to /projects
+    UI-->>Browser: Forward: 302 Redirect
     
-    Note over Browser,Redis: Token stored and ready for API calls
+    Note over Browser,Redis: Token stored, OAuth complete
 ```
 
 ### OAuth Endpoints
 
+All GitLab OAuth endpoints are accessed through ui-service proxy, which forwards requests with S2S JWT authentication.
+
 #### GET /auth/gitlab/authorize
 
-Initiate GitLab OAuth flow.
+Initiate stateless GitLab OAuth flow.
 
 **Query Parameters:**
-- `session_id` (required): User session ID from ui-service
-- `redirect_uri` (required): URL to redirect user after OAuth completes
+- `session_id` (required): User session ID from ui-service (added by proxy)
+- `redirect_uri` (required): Application URL to redirect to after OAuth completes
 
 **Response:** 302 Redirect to GitLab authorization page
 
-**Note:** This endpoint uses query parameters for compatibility with browser redirects.
+**Stateless Implementation:**
+```python
+# Generate CSRF token
+csrf_token = secrets.token_urlsafe(32)
+
+# Encode state with all necessary data (no session storage)
+state = base64.urlsafe_b64encode(json.dumps({
+    "sid": session_id,
+    "redirect": redirect_uri,
+    "csrf": csrf_token
+}).encode()).decode()
+
+# Build OAuth URL manually (bypasses Authlib session)
+auth_url = f"{GITLAB_BASE_URL}/oauth/authorize?{urlencode({
+    'client_id': CLIENT_ID,
+    'redirect_uri': CALLBACK_URI,
+    'response_type': 'code',
+    'scope': SCOPES,
+    'state': state
+})}"
+
+return RedirectResponse(auth_url)
+```
+
+**Note:** This endpoint uses query parameters for browser redirect compatibility. No server-side session state is stored.
 
 #### GET /auth/gitlab/callback
 
-OAuth callback handler (called by GitLab).
+OAuth callback handler (called by GitLab after user authorization).
 
 **Query Parameters:**
 - `code`: Authorization code from GitLab
-- `state`: State parameter (contains session_id)
+- `state`: Base64-encoded JSON with session_id, redirect_uri, and CSRF token
 
 **Response:** 302 Redirect to original redirect_uri
+
+**Stateless Implementation:**
+```python
+# Decode state from URL parameter
+state_data = json.loads(base64.urlsafe_b64decode(state))
+session_id = state_data["sid"]
+redirect_uri = state_data["redirect"]
+csrf_token = state_data["csrf"]
+
+# Validate CSRF token (custom validation)
+# ... csrf validation logic ...
+
+# Exchange code for token using stateless fetch (bypasses Authlib session)
+token = await oauth.gitlab.fetch_access_token(
+    code=code,
+    redirect_uri=settings.GITLAB_OAUTH_REDIRECT_URI,
+)
+
+# Store token in Redis
+await save_token(session_id, redis_client, token)
+
+# Redirect to application
+return RedirectResponse(redirect_uri)
+```
 
 #### GET /auth/gitlab/status
 
@@ -286,6 +355,16 @@ GET /auth/gitlab/status
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
+**Implementation:**
+```python
+# Extract session_id from JWT (not from session)
+session_id = get_session_id_from_jwt(request)
+
+# Check Redis for token
+token = await get_token(session_id, redis_client)
+connected = bool(token and token.get("access_token"))
+```
+
 #### POST /auth/gitlab/disconnect
 
 Disconnect GitLab integration for a session.
@@ -305,11 +384,21 @@ POST /auth/gitlab/disconnect
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
+**Implementation:**
+```python
+# Extract session_id from JWT
+session_id = get_session_id_from_jwt(request)
+
+# Clear token from Redis
+await clear_token(session_id, redis_client)
+```
+
 ### Token Management
 
 **Redis Storage:**
 - Key pattern: `gitlab:oauth:{session_id}`
 - TTL: Token expires_in + 10 minutes buffer
+- Stateless storage (no server-side sessions)
 - Automatic refresh via Authlib when expired (if refresh_token available)
 
 **Token Format:**
@@ -369,6 +458,7 @@ This approach follows SOLID/DRY principles by:
 - Eliminating manual token expiry checks
 - Centralizing token refresh logic in Authlib
 - Reducing code duplication and maintenance overhead
+- **Stateless token storage** (no in-memory session state)
 
 ### Session-Based Authentication
 
@@ -1233,3 +1323,30 @@ Planned metrics:
 - Retry counts
 - Cache hit/miss rates
 - Embedding generation latency
+
+## Summary: Stateless OAuth Architecture
+
+The gitlab-client-service implements a **production-ready, stateless OAuth 2.0 flow** optimized for modern cloud deployments:
+
+### Key Implementation Details
+
+**Stateless OAuth Flow:**
+```python
+# /authorize endpoint - No session storage
+state = encode_state(session_id=sid, redirect_uri=uri, csrf=token)
+return RedirectResponse(f"{GITLAB_URL}/oauth/authorize?state={state}")
+
+# /callback endpoint - Decode state from URL
+session_id, redirect_uri, csrf = decode_state(request.query_params["state"])
+validate_csrf(csrf)
+token = await oauth.gitlab.fetch_access_token(code=code, redirect_uri=callback_uri)
+await save_token(session_id, redis_client, token)
+```
+
+### Related Documentation
+
+- **UI Service README** - [Proxy architecture and S2S authentication](../ui_service/README.md#gitlab-integration-proxied)
+- **Authlib Documentation** - [OAuth 2.0 Client](https://docs.authlib.org/en/latest/client/starlette.html)
+- **GitLab OAuth API** - [Official documentation](https://docs.gitlab.com/ee/api/oauth2.html)
+
+---

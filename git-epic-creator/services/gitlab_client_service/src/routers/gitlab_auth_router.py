@@ -1,13 +1,15 @@
 """
 GitLab OAuth Authentication Router for gitlab-client-service
 
-This module handles GitLab OAuth authentication flow using Authlib.
-Tokens are stored in Redis for session-based authentication.
+This module implements a fully stateless GitLab OAuth flow.
+Tokens are stored in Redis keyed by session_id for stateless authentication.
 
-State Management:
-- Uses stateless OAuth state parameter (Base64-encoded JSON)
-- Encodes session_id, redirect_uri, and CSRF token into state
-- No server-side storage needed - fully scalable and persistent across restarts
+Stateless OAuth Implementation:
+- Custom state encoding/decoding with session_id, redirect_uri, and CSRF token
+- Bypasses Authlib's session-based state management
+- Uses fetch_access_token() directly instead of authorize_access_token(request)
+- No SessionMiddleware required - fully stateless and horizontally scalable
+- All OAuth state encoded in URL parameters, not server-side sessions
 
 Authentication Patterns:
 - /authorize: Query parameters (session_id) - browser redirects can't carry headers
@@ -15,8 +17,8 @@ Authentication Patterns:
 - /status: S2S JWT - secure token in Authorization header
 - /disconnect: S2S JWT - secure token in Authorization header
 
-This hybrid approach balances security (JWT for API calls) with
-OAuth standards (query params for browser redirects).
+This approach balances security (JWT for API calls, custom CSRF validation) with
+OAuth standards (query params for browser redirects) while maintaining stateless design.
 
 Endpoints:
 - GET /auth/gitlab/authorize - Initiate OAuth flow (query params)
@@ -243,14 +245,30 @@ async def gitlab_callback(request: Request):
                 status_code=501
             )
         
-        # Exchange code for token using Authlib
-        # Use Authlib's authorize_access_token which handles the full OAuth callback
-        token = await oauth.gitlab.authorize_access_token(request)
+        # Get OAuth settings for manual token exchange
+        settings = getattr(request.app.state, "gitlab_settings", None)
+        if not settings:
+            from config import get_gitlab_client_settings
+            settings = get_gitlab_client_settings()
+        
+        # Exchange code for token using Authlib's fetch_access_token (stateless)
+        # This bypasses Authlib's session-based state validation since we handle state ourselves
+        try:
+            token = await oauth.gitlab.fetch_access_token(
+                code=code,
+                redirect_uri=settings.GITLAB_OAUTH_REDIRECT_URI,
+            )
+        except Exception as e:
+            logger.error("Token exchange failed", error=str(e), exc_info=True)
+            return JSONResponse(
+                {"detail": f"Token exchange failed: {str(e)}"},
+                status_code=500
+            )
         
         if not token or not token.get('access_token'):
             logger.error("GitLab token response missing access_token")
             return JSONResponse(
-                {"detail": "Token exchange failed"},
+                {"detail": "Token exchange failed - no access_token in response"},
                 status_code=500
             )
         
