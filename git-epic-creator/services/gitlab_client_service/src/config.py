@@ -28,6 +28,10 @@ class GitLabClientSettings(BaseSettings):
     GITLAB_OAUTH_REDIRECT_URI: str = Field(default="", description="GitLab OAuth callback URI pointing to this service")
     GITLAB_OAUTH_SCOPES: str = Field(default="read_api api", description="GitLab OAuth scopes")
     
+    # Session Configuration (required by Authlib OAuth flow)
+    SESSION_SECRET_KEY: str = Field(default="", description="Secret key for session cookie HMAC (required for OAuth)")
+    ALLOW_INSECURE_SESSION: bool = Field(default=False, description="Allow ephemeral secret in dev (NOT for production)")
+    
     # Embedding Batch Configuration (extends LlmConfig)
     OAI_EMBED_BATCH: int = Field(default=16, description="Batch size for embedding requests")
     OAI_EMBED_CONCURRENCY: int = Field(default=2, description="Concurrent embedding requests")

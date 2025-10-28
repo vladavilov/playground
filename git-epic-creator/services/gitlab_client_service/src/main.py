@@ -3,6 +3,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from authlib.integrations.starlette_client import OAuth
+from starlette.middleware.sessions import SessionMiddleware
 
 from configuration.logging_config import configure_logging
 from configuration.common_config import get_app_settings
@@ -70,6 +71,26 @@ app: FastAPI = FastAPIFactory.create_app(
     enable_redis=True,
     custom_lifespan=gitlab_lifespan
 )
+
+# Configure SessionMiddleware (required by Authlib OAuth flow)
+settings = get_gitlab_client_settings()
+session_secret = (settings.SESSION_SECRET_KEY or "").strip()
+if not session_secret:
+    if settings.ALLOW_INSECURE_SESSION:
+        import secrets
+        session_secret = secrets.token_urlsafe(48)
+        logger.warning("SESSION_SECRET_KEY not set; generated ephemeral dev secret")
+    else:
+        raise RuntimeError("SESSION_SECRET_KEY must be set for OAuth to work")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=session_secret,
+    max_age=3600,  # 1 hour - OAuth flow is short-lived
+    same_site="lax",
+    https_only=not settings.ALLOW_INSECURE_SESSION,
+)
+logger.info("SessionMiddleware configured for OAuth flow")
 
 app.include_router(gitlab_router)
 app.include_router(gitlab_auth_router)
