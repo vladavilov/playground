@@ -129,6 +129,49 @@ class ProjectService:
     ) -> Optional[Project]:
         logger.info("Updating project", project_id=str(project_id))
 
+        # First, check if we need to resolve GitLab project ID (outside DB session)
+        update_dict = update_data.model_dump(exclude_unset=True)
+        resolved_gitlab_project_id = None
+        needs_gitlab_resolution = False
+        
+        if 'gitlab_path' in update_dict:
+            # Check current path to determine if resolution is needed
+            with self.postgres_client.get_sync_session() as session:
+                project = session.query(Project).filter(Project.id == project_id).first()
+                if not project:
+                    logger.warning("Project not found for update", project_id=str(project_id))
+                    return None
+                
+                new_path = update_dict['gitlab_path']
+                if new_path != project.gitlab_path:
+                    needs_gitlab_resolution = True
+            
+            # Resolve GitLab project ID outside of DB session
+            if needs_gitlab_resolution and new_path and s2s_token:
+                try:
+                    resolved_gitlab_project_id = await self.gitlab_client_adapter.resolve_project_id(
+                        new_path,
+                        s2s_token
+                    )
+                    if resolved_gitlab_project_id:
+                        logger.info(
+                            "Re-resolved GitLab project ID",
+                            gitlab_path=new_path,
+                            gitlab_project_id=resolved_gitlab_project_id
+                        )
+                    else:
+                        logger.warning(
+                            "Failed to resolve new GitLab project ID",
+                            gitlab_path=new_path
+                        )
+                except Exception as e:
+                    logger.error(
+                        "Error resolving GitLab project ID",
+                        gitlab_path=new_path,
+                        error=str(e)
+                    )
+
+        # Now perform the actual update within DB session
         with self.postgres_client.get_sync_session() as session:
             project = session.query(Project).filter(Project.id == project_id).first()
 
@@ -137,44 +180,13 @@ class ProjectService:
                 return None
 
             try:
-                update_dict = update_data.model_dump(exclude_unset=True)
-                
-                # Check if gitlab_path changed - if so, re-resolve gitlab_project_id
-                gitlab_path_changed = False
-                if 'gitlab_path' in update_dict:
-                    new_path = update_dict['gitlab_path']
-                    if new_path != project.gitlab_path:
-                        gitlab_path_changed = True
-                        
-                        # Resolve new GitLab project ID
-                        if new_path and s2s_token:
-                            try:
-                                gitlab_project_id = await self.gitlab_client_adapter.resolve_project_id(
-                                    new_path,
-                                    s2s_token
-                                )
-                                if gitlab_project_id:
-                                    project.gitlab_project_id = gitlab_project_id
-                                    logger.info(
-                                        "Re-resolved GitLab project ID",
-                                        gitlab_path=new_path,
-                                        gitlab_project_id=gitlab_project_id
-                                    )
-                                else:
-                                    # Clear project ID if path changed but resolution failed
-                                    project.gitlab_project_id = None
-                                    logger.warning(
-                                        "Failed to resolve new GitLab project ID",
-                                        gitlab_path=new_path
-                                    )
-                            except Exception as e:
-                                logger.error(
-                                    "Error resolving GitLab project ID",
-                                    gitlab_path=new_path,
-                                    error=str(e)
-                                )
-                                project.gitlab_project_id = None
-                        else:
+                # Apply GitLab project ID if it was resolved
+                if needs_gitlab_resolution:
+                    if 'gitlab_path' in update_dict:
+                        new_path = update_dict['gitlab_path']
+                        if new_path and new_path != project.gitlab_path:
+                            project.gitlab_project_id = resolved_gitlab_project_id
+                        elif not new_path:
                             # Clear project ID if path is being removed
                             project.gitlab_project_id = None
                 
