@@ -51,8 +51,13 @@ UNSUPPORTED_ERR = "Unsupported format for Docling"
 PROCESSOR_VERSION = "docling-1.0"
 
 
-# Reusable Markdown picture serializer that appends picture descriptions
+# Reusable Markdown picture serializer that replaces placeholders with descriptions
 class _AnnotationPictureSerializer(MarkdownPictureSerializer):
+    """Custom serializer that outputs picture descriptions instead of generic placeholders.
+    
+    When picture descriptions are available, they replace the generic 'Image' placeholder.
+    When descriptions are missing (e.g., VLM not configured or failed), outputs the base placeholder.
+    """
     def serialize(
         self,
         *,
@@ -61,13 +66,31 @@ class _AnnotationPictureSerializer(MarkdownPictureSerializer):
         doc: DoclingDocument,
         **kwargs: Any,
     ) -> SerializationResult:
+        # Check if we have picture description annotations
+        annotations = getattr(item, "annotations", []) or []
+        picture_descriptions = [
+            annotation for annotation in annotations 
+            if isinstance(annotation, PictureDescriptionData)
+        ]
+        
+        if picture_descriptions:
+            # Use picture descriptions instead of placeholder
+            # Format: [Image Description: <description>]
+            description_texts = []
+            for desc in picture_descriptions:
+                if desc.text and desc.text.strip():
+                    description_texts.append(desc.text.strip())
+            
+            if description_texts:
+                # Combine multiple descriptions with line breaks
+                combined_description = "\n".join(description_texts)
+                text = f"[Image Description: {combined_description}]"
+                text = doc_serializer.post_process(text=text)
+                return create_ser_result(text=text, span_source=item)
+        
+        # Fallback: use base serialization (placeholder) if no descriptions available
         base_res = super().serialize(item=item, doc_serializer=doc_serializer, doc=doc, **kwargs)
-        parts: List[str] = [base_res.text or ""]
-        for annotation in getattr(item, "annotations", []) or []:
-            if isinstance(annotation, PictureDescriptionData):
-                parts.append(f"\n\n{annotation.text}\n")
-        text = doc_serializer.post_process(text="".join(parts))
-        return create_ser_result(text=text, span_source=item)
+        return base_res
 
 
 _ANNOTATION_PICTURE_SERIALIZER = _AnnotationPictureSerializer()
@@ -118,6 +141,69 @@ class DoclingProcessor:
         
         # Return configured path even if it doesn't exist (let RapidOCR handle the error)
         return self.settings.RAPIDOCR_FONT_PATH
+
+    def _create_rapidocr_options(self) -> RapidOcrOptions:
+        """Create RapidOCR options with pre-downloaded models for offline operation.
+        
+        This method centralizes the RapidOCR configuration to avoid code duplication.
+        Used by both PDF and Image pipeline configurations.
+        
+        Returns:
+            RapidOcrOptions: Configured OCR options with model paths, languages, and font
+        """
+        models_path = self.settings.RAPIDOCR_MODELS_PATH
+        font_path = self._get_font_path()
+        ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
+        lang_list = [lang.strip() for lang in ocr_langs.split(",") if lang.strip()]
+        
+        ocr_options = RapidOcrOptions(
+            det_model_path=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
+            rec_model_path=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
+            cls_model_path=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+            lang=lang_list,
+            font_path=font_path,
+        )
+        
+        logger.info("RAPIDOCR_OPTIONS_CREATED",
+                   det_model=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
+                   rec_model=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
+                   cls_model=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
+                   languages=lang_list)
+        
+        return ocr_options
+
+    def _create_image_pipeline_options(
+        self, 
+        picture_description_options: Any,
+        images_scale: float,
+        enable_remote_services: bool = False
+    ) -> PdfPipelineOptions:
+        """Create pipeline options for standalone image processing.
+        
+        Centralizes image pipeline configuration to avoid code duplication between
+        local and remote VLM modes.
+        
+        Args:
+            picture_description_options: VLM options (local SmolVLM or remote API)
+            images_scale: Image scaling factor for better VLM performance
+            enable_remote_services: Whether to enable remote API services
+            
+        Returns:
+            PdfPipelineOptions: Configured pipeline options for image processing
+        """
+        img_opts = PdfPipelineOptions(artifacts_path=self.settings.DOCLING_ARTIFACTS_PATH)
+        img_opts.do_ocr = bool(self.settings.DOCLING_USE_OCR)
+        img_opts.do_picture_description = True
+        img_opts.picture_description_options = picture_description_options
+        img_opts.images_scale = images_scale
+        img_opts.generate_picture_images = True
+        img_opts.enable_remote_services = enable_remote_services
+        
+        # Configure RapidOCR with explicit model paths
+        # Without this, RapidOCR falls back to default paths looking for v4 models
+        img_opts.ocr_options = self._create_rapidocr_options()
+        
+        return img_opts
 
     def _create_azure_openai_vlm_options(self) -> PictureDescriptionApiOptions:
         """Create Azure OpenAI VLM options for Llama 3.2 Vision or GPT-4o (PRIMARY remote provider)."""
@@ -573,31 +659,23 @@ class DoclingProcessor:
             pdf_opts.images_scale = images_scale
             pdf_opts.generate_picture_images = True
             
-            # Configure OCR languages
-            ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
-            pdf_opts.ocr_options.lang = [lang.strip() for lang in ocr_langs.split(",") if lang.strip()]
-            
-            # Configure RapidOCR to use pre-downloaded models for offline operation
-            models_path = self.settings.RAPIDOCR_MODELS_PATH
-            font_path = self._get_font_path()
-            pdf_opts.ocr_options = RapidOcrOptions(
-                det_model_path=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
-                rec_model_path=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
-                cls_model_path=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
-                lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
-                font_path=font_path,
+            # Configure RapidOCR with pre-downloaded models for offline operation
+            # Reuse centralized configuration for both PDFs and images
+            pdf_opts.ocr_options = self._create_rapidocr_options()
+
+            # Configure standalone image processing with same settings
+            # Reuse centralized image pipeline configuration
+            img_opts = self._create_image_pipeline_options(
+                picture_description_options=smolvlm_picture_description,
+                images_scale=images_scale,
+                enable_remote_services=False
             )
-            
-            logger.info("RAPIDOCR_MODELS_CONFIGURED",
-                       det_model=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
-                       rec_model=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
-                       cls_model=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"))
 
             converter = DocumentConverter(
                 allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
                 format_options={
                     InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts),
-                    InputFormat.IMAGE: ImageFormatOption(),
+                    InputFormat.IMAGE: ImageFormatOption(pipeline_options=img_opts),
                 },
             )
             
@@ -629,31 +707,24 @@ class DoclingProcessor:
             pdf_opts.images_scale = images_scale
             pdf_opts.generate_picture_images = True
             
-            # Configure OCR languages
-            ocr_langs = (self.settings.DOCLING_OCR_LANGS or "").strip()
-            
-            # Configure RapidOCR to use pre-downloaded models for offline operation
-            models_path = self.settings.RAPIDOCR_MODELS_PATH
-            font_path = self._get_font_path()
-            pdf_opts.ocr_options = RapidOcrOptions(
-                det_model_path=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
-                rec_model_path=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
-                cls_model_path=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"),
-                lang=[lang.strip() for lang in ocr_langs.split(",") if lang.strip()],
-                font_path=font_path,
+            # Configure RapidOCR with pre-downloaded models for offline operation
+            # Reuse centralized configuration for both PDFs and images
+            pdf_opts.ocr_options = self._create_rapidocr_options()
+
+            # Configure standalone image processing with remote VLM settings
+            # Reuse centralized image pipeline configuration
+            img_opts = self._create_image_pipeline_options(
+                picture_description_options=self._get_remote_vlm_options(),
+                images_scale=images_scale,
+                enable_remote_services=True
             )
-            
-            logger.info("RAPIDOCR_MODELS_CONFIGURED",
-                       det_model=os.path.join(models_path, "ch_PP-OCRv3_det_infer.onnx"),
-                       rec_model=os.path.join(models_path, "ch_PP-OCRv3_rec_infer.onnx"),
-                       cls_model=os.path.join(models_path, "ch_ppocr_mobile_v2.0_cls_infer.onnx"))
 
             # Create converter with hybrid pipeline (text + remote vision)
             converter = DocumentConverter(
                 allowed_formats=[InputFormat.PDF, InputFormat.IMAGE],
                 format_options={
                     InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts),
-                    InputFormat.IMAGE: ImageFormatOption(),
+                    InputFormat.IMAGE: ImageFormatOption(pipeline_options=img_opts),
                 },
             )
             
@@ -669,10 +740,36 @@ class DoclingProcessor:
         """Serialize to Markdown ensuring picture descriptions are included."""
         serializer = MarkdownDocSerializer(doc=doc, picture_serializer=_ANNOTATION_PICTURE_SERIALIZER)
         try:
+            # Count pictures and descriptions for diagnostics
+            picture_count = 0
+            pictures_with_descriptions = 0
+            
+            # Iterate through document items to count pictures and descriptions
+            for item, level in doc.iterate_items():
+                if isinstance(item, PictureItem):
+                    picture_count += 1
+                    annotations = getattr(item, "annotations", []) or []
+                    has_description = any(
+                        isinstance(ann, PictureDescriptionData) and ann.text 
+                        for ann in annotations
+                    )
+                    if has_description:
+                        pictures_with_descriptions += 1
+            
+            if picture_count > 0:
+                logger.info("DOCUMENT_PICTURES_SERIALIZATION",
+                           total_pictures=picture_count,
+                           pictures_with_descriptions=pictures_with_descriptions,
+                           pictures_without_descriptions=picture_count - pictures_with_descriptions,
+                           vlm_mode=self.settings.DOCLING_VLM_MODE)
+            
             ser_res = serializer.serialize()
             return (ser_res.text or "").strip()
-        except Exception:
+        except Exception as exc:
             # Fallback to built-in markdown export if custom serialization fails
+            logger.warning("CUSTOM_SERIALIZATION_FAILED",
+                          error=str(exc),
+                          fallback="using built-in markdown export")
             return (getattr(doc, "export_to_markdown", lambda: "")() or "").strip()
 
     def check_health(self) -> Dict[str, Any]:

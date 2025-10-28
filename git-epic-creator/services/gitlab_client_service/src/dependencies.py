@@ -5,35 +5,63 @@ import gitlab
 import redis.asyncio as redis
 from fastapi import Request, HTTPException, status, Depends
 
+from services.gitlab_token_manager import get_token
 from utils.redis_client import get_redis_client
+from utils.jwt_utils import verify_jwt
 from config import GitLabClientSettings, get_gitlab_client_settings
 
 logger = structlog.get_logger(__name__)
 
 
-def get_gitlab_access_token(request: Request) -> str:
+
+def get_session_id_from_jwt(request: Request) -> str:
     """
-    Extract GitLab access token from request header.
+    Extract session_id from S2S JWT token.
+    
+    Expects JWT in Authorization header with claim 'oid', 'session_id', or 'sid'.
+    This enables session-based authentication where GitLab tokens are stored
+    in Redis and looked up by session ID.
     
     Args:
         request: FastAPI request object
         
     Returns:
-        GitLab access token
+        Session ID extracted from JWT claims
         
     Raises:
-        HTTPException: If header is missing or empty
+        HTTPException: If JWT is invalid or missing session_id claim
     """
-    token = request.headers.get("GitLab-Access-Token", "").strip()
-    
-    if not token:
-        logger.warning("GitLab access token missing in request")
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        logger.warning("Missing or invalid Authorization header")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="GitLab-Access-Token header required"
+            detail="Missing or invalid Authorization header"
         )
     
-    return token
+    token = auth_header.replace("Bearer ", "")
+    
+    try:
+        claims = verify_jwt(token, verify_exp=True)
+        session_id = claims.get("oid") or claims.get("session_id") or claims.get("sid")
+        
+        if not session_id:
+            logger.warning("JWT missing session_id claim", claims=list(claims.keys()))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="JWT missing session_id claim"
+            )
+        
+        logger.debug("Extracted session_id from JWT", session_id=session_id)
+        return session_id
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("JWT verification failed", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid JWT token"
+        )
 
 
 def get_gitlab_client(
@@ -79,22 +107,55 @@ def get_redis_client_dep() -> redis.Redis:
     return get_redis_client()
 
 
-def get_gitlab_client_dep(
-    gitlab_token: str = Depends(get_gitlab_access_token),
-    settings: GitLabClientSettings = Depends(get_gitlab_client_settings)
+async def get_gitlab_client_dep(
+    request: Request,
+    session_id: str = Depends(get_session_id_from_jwt),
+    settings: GitLabClientSettings = Depends(get_gitlab_client_settings),
+    redis_client: redis.Redis = Depends(get_redis_client_dep)
 ) -> gitlab.Gitlab:
     """
     FastAPI dependency for injecting configured GitLab client.
     
-    This combines token extraction and client creation for use in endpoints.
+    Uses session-based authentication: looks up GitLab token from Redis
+    using session_id extracted from S2S JWT.
     
     Args:
-        gitlab_token: Extracted from GitLab-Access-Token header
+        request: FastAPI request object (for accessing app state)
+        session_id: Extracted from JWT Authorization header
         settings: GitLab client settings
+        redis_client: Redis client for token lookup
         
     Returns:
-        Configured GitLab client
+        Configured GitLab client authenticated with user's token
+        
+    Raises:
+        HTTPException: If GitLab token not found in Redis or expired
+    
+    Note:
+        Token refresh is handled automatically by Authlib when making API calls.
+        The update_token callback uses token-to-session reverse mapping to
+        identify which session to update without manual context management.
     """
+    
+    
+    # Load token from Redis
+    token_data = await get_token(session_id, redis_client)
+    
+    if not token_data or not token_data.get("access_token"):
+        logger.warning("GitLab token not found for session", session_id=session_id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitLab not connected. Please authenticate with GitLab."
+        )
+    
+    gitlab_token = token_data["access_token"]
+    
+    logger.debug(
+        "GitLab client created for session",
+        session_id=session_id,
+        token_expires_at=token_data.get('expires_at') or token_data.get('created_at', 0) + token_data.get('expires_in', 0)
+    )
+    
     return get_gitlab_client(gitlab_token, settings)
 
 

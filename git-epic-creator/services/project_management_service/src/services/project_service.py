@@ -14,6 +14,7 @@ from sqlalchemy.exc import OperationalError
 from models.project_db import Project, ProjectMember
 from utils.postgres_client import PostgresClient
 from models.project_rest import ProjectSet, ProjectMemberSet, ProjectStatus
+from services.gitlab_client_adapter import GitLabClientAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -21,20 +22,57 @@ logger = structlog.get_logger(__name__)
 class ProjectService:
     """Business logic and DB interactions for projects."""
 
-    def __init__(self, postgres_client: PostgresClient):
+    def __init__(
+        self,
+        postgres_client: PostgresClient,
+        gitlab_client_adapter: GitLabClientAdapter
+    ):
         self.postgres_client = postgres_client
+        self.gitlab_client_adapter = gitlab_client_adapter
 
-    def create_project(self, project_data: ProjectSet, user_id: str) -> Project:
+    async def create_project(
+        self,
+        project_data: ProjectSet,
+        user_id: str,
+        s2s_token: Optional[str] = None
+    ) -> Project:
         logger.info("Creating new project", project_name=project_data.name, user_id=user_id)
+
+        # Resolve GitLab project ID if path is provided
+        gitlab_project_id = None
+        if project_data.gitlab_path and s2s_token:
+            try:
+                gitlab_project_id = await self.gitlab_client_adapter.resolve_project_id(
+                    project_data.gitlab_path,
+                    s2s_token
+                )
+                if gitlab_project_id:
+                    logger.info(
+                        "Resolved GitLab project ID",
+                        gitlab_path=project_data.gitlab_path,
+                        gitlab_project_id=gitlab_project_id
+                    )
+                else:
+                    logger.warning(
+                        "Failed to resolve GitLab project ID",
+                        gitlab_path=project_data.gitlab_path
+                    )
+            except Exception as e:
+                logger.error(
+                    "Error resolving GitLab project ID",
+                    gitlab_path=project_data.gitlab_path,
+                    error=str(e)
+                )
 
         with self.postgres_client.get_sync_session() as session:
             try:
                 project = Project(
                     name=project_data.name,
                     description=project_data.description,
-                    gitlab_url=str(project_data.gitlab_url) if project_data.gitlab_url else None,
+                    gitlab_path=project_data.gitlab_path,
+                    gitlab_project_id=gitlab_project_id,
                     gitlab_repository_url=str(project_data.gitlab_repository_url) if project_data.gitlab_repository_url else None,
-                    status=project_data.status.value,
+                    status=ProjectStatus.ACTIVE.value,
                     created_by=user_id,
                 )
             except Exception as e:
@@ -83,9 +121,57 @@ class ProjectService:
 
             return projects
 
-    def update_project(self, project_id: UUID, update_data: ProjectSet) -> Optional[Project]:
+    async def update_project(
+        self,
+        project_id: UUID,
+        update_data: ProjectSet,
+        s2s_token: Optional[str] = None
+    ) -> Optional[Project]:
         logger.info("Updating project", project_id=str(project_id))
 
+        # First, check if we need to resolve GitLab project ID (outside DB session)
+        update_dict = update_data.model_dump(exclude_unset=True)
+        resolved_gitlab_project_id = None
+        needs_gitlab_resolution = False
+        
+        if 'gitlab_path' in update_dict:
+            # Check current path to determine if resolution is needed
+            with self.postgres_client.get_sync_session() as session:
+                project = session.query(Project).filter(Project.id == project_id).first()
+                if not project:
+                    logger.warning("Project not found for update", project_id=str(project_id))
+                    return None
+                
+                new_path = update_dict['gitlab_path']
+                if new_path != project.gitlab_path:
+                    needs_gitlab_resolution = True
+            
+            # Resolve GitLab project ID outside of DB session
+            if needs_gitlab_resolution and new_path and s2s_token:
+                try:
+                    resolved_gitlab_project_id = await self.gitlab_client_adapter.resolve_project_id(
+                        new_path,
+                        s2s_token
+                    )
+                    if resolved_gitlab_project_id:
+                        logger.info(
+                            "Re-resolved GitLab project ID",
+                            gitlab_path=new_path,
+                            gitlab_project_id=resolved_gitlab_project_id
+                        )
+                    else:
+                        logger.warning(
+                            "Failed to resolve new GitLab project ID",
+                            gitlab_path=new_path
+                        )
+                except Exception as e:
+                    logger.error(
+                        "Error resolving GitLab project ID",
+                        gitlab_path=new_path,
+                        error=str(e)
+                    )
+
+        # Now perform the actual update within DB session
         with self.postgres_client.get_sync_session() as session:
             project = session.query(Project).filter(Project.id == project_id).first()
 
@@ -94,11 +180,18 @@ class ProjectService:
                 return None
 
             try:
-                update_dict = update_data.model_dump(exclude_unset=True)
+                # Apply GitLab project ID if it was resolved
+                if needs_gitlab_resolution:
+                    if 'gitlab_path' in update_dict:
+                        new_path = update_dict['gitlab_path']
+                        if new_path and new_path != project.gitlab_path:
+                            project.gitlab_project_id = resolved_gitlab_project_id
+                        elif not new_path:
+                            # Clear project ID if path is being removed
+                            project.gitlab_project_id = None
+                
                 for field, value in update_dict.items():
-                    if field == 'gitlab_url' and value is not None:
-                        setattr(project, field, str(value))
-                    elif field == 'gitlab_repository_url' and value is not None:
+                    if field == 'gitlab_repository_url' and value is not None:
                         setattr(project, field, str(value))
                     elif field == 'status':
                         setattr(project, field, value if isinstance(value, str) else value.value)
@@ -108,6 +201,7 @@ class ProjectService:
                 logger.error("Invalid update data", error=str(e), project_id=str(project_id))
                 raise ValueError(f"Invalid update data: {str(e)}") from e
 
+            session.flush()  # Flush pending changes to database before refresh
             session.refresh(project)
 
             logger.info("Project updated", project_id=str(project_id), project_name=project.name)

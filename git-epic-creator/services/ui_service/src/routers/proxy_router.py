@@ -16,7 +16,6 @@ from configuration.common_config import get_app_settings
 from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
-from services.gitlab_token_manager import get_gitlab_token_manager
 from utils.jwt_utils import sign_jwt
 from utils.redis_client import get_redis_client
 
@@ -198,45 +197,10 @@ async def _forward(
         logger.error("Failed to mint S2S token", error=str(e), error_type=type(e).__name__)
         return JSONResponse({"detail": "Server auth not configured"}, status_code=500)
 
-    # Build forward headers
+    # Build forward headers with S2S JWT
     forward_headers: Dict[str, str] = {
         "Authorization": f"Bearer {s2s_token}"
     }
-
-    is_gitlab_route = (GITLAB_ROUTE_SEGMENT in (target_url or ""))
-    is_tasks_service = (target_service == "tasks-service")
-    requires_gitlab_token = is_gitlab_route or is_tasks_service
-
-    if requires_gitlab_token:
-        try:
-            redis_client = getattr(request.app.state, "redis_client", None) or get_redis_client()
-
-            gitlab_base_url = getattr(request.app.state, "gitlab_base_url", "")
-            client_id = getattr(request.app.state, "gitlab_client_id", "")
-            client_secret = getattr(request.app.state, "gitlab_client_secret", "")
-            verify_ssl = getattr(request.app.state, "gitlab_verify_ssl", True)
-            ca_cert_path = getattr(request.app.state, "gitlab_ca_cert_path", "")
-
-            token_manager = await get_gitlab_token_manager(
-                session_id=session_id,
-                redis_client=redis_client,
-                gitlab_base_url=gitlab_base_url,
-                client_id=client_id,
-                client_secret=client_secret,
-                verify_ssl=verify_ssl,
-                ca_cert_path=ca_cert_path
-            )
-
-            gitlab_token = await token_manager.get_valid_token()
-            if gitlab_token:
-                forward_headers["GitLab-Access-Token"] = gitlab_token
-                logger.debug("Added GitLab token to request", target_service=target_service)
-            else:
-                logger.warning("GitLab token not found for user", session_id=session_id, target_service=target_service)
-                return JSONResponse({"detail": "GitLab access token not found. Please connect GitLab account."}, status_code=401)
-        except Exception as e:
-            logger.error("Failed to get GitLab token", error=str(e), target_service=target_service)
-            return JSONResponse({"detail": "GitLab authentication error"}, status_code=500)
 
     # Preserve content headers
     ct = request.headers.get("content-type")
@@ -269,7 +233,7 @@ async def _forward(
             logger.debug(
                 "Proxied request",
                 method=request.method,
-                target_service=target_service,
+                target_url=target_url,
                 status_code=resp.status_code
             )
 
@@ -283,11 +247,10 @@ async def _forward(
             "Upstream request timeout",
             error=str(exc),
             target_url=target_url,
-            target_service=target_service,
             message="Request timed out waiting for upstream service"
         )
         return JSONResponse(
-            {"detail": f"Upstream service timeout: {target_service} took too long to respond"},
+            {"detail": "Upstream service timeout"},
             status_code=504
         )
     except httpx.RequestError as exc:
@@ -297,39 +260,12 @@ async def _forward(
             error=str(exc),
             error_type=type(exc).__name__,
             target_url=target_url,
-            target_service=target_service,
             message="Connection or network error communicating with upstream"
         )
         return JSONResponse(
             {"detail": f"Upstream connection failed: {type(exc).__name__}"},
             status_code=502
         )
-
-    # Handle 401 Unauthorized from GitLab-related services
-    # This indicates the GitLab token is invalid (e.g., after mock service restart)
-    if resp.status_code == 401 and requires_gitlab_token:
-        try:
-            logger.warning(
-                "Received 401 from GitLab-related service, clearing GitLab token",
-                session_id=session_id,
-                target_service=target_service
-            )
-
-            # Clear the invalid GitLab token from Redis
-            # Note: token_manager was already initialized earlier in this function
-            await token_manager.clear_token()
-
-            logger.info(
-                "GitLab token cleared due to 401 response",
-                session_id=session_id,
-                target_service=target_service
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to clear GitLab token after 401",
-                session_id=session_id,
-                error=str(e)
-            )
 
     # Return response
     headers = _preserve_headers(resp)
@@ -391,4 +327,27 @@ async def proxy_to_gitlab_client(path: str, request: Request):
     target_url = f"{upstream_base}/gitlab/{path}"
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"
+    return await _forward(request, target_url)
+
+
+@router.api_route("/auth/gitlab/{path:path}", methods=["GET", "POST"])
+async def proxy_gitlab_auth(request: Request, path: str):
+    """
+    Proxy GitLab OAuth endpoints to gitlab-client-service.
+    
+    For /authorize endpoint, adds session_id as query parameter for OAuth state correlation.
+    All other endpoints are forwarded as-is with S2S JWT authentication.
+    """
+    gitlab_client_url = get_app_settings().http_client.GITLAB_CLIENT_SERVICE_URL.rstrip("/")
+    target_url = f"{gitlab_client_url}/auth/gitlab/{path}"
+    
+    # Add session_id to authorize endpoint for OAuth state correlation
+    if path == "authorize":
+        from urllib.parse import urlencode
+        query_params = dict(request.query_params)
+        query_params["session_id"] = request.session.get("sid", "")
+        target_url += f"?{urlencode(query_params)}"
+    elif request.url.query:
+        target_url += f"?{request.url.query}"
+    
     return await _forward(request, target_url)

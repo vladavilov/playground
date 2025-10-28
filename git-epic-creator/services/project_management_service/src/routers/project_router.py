@@ -10,6 +10,7 @@ from utils.local_auth import (
     require_roles_local,
 )
 import structlog
+from configuration.common_config import get_app_settings
 
  
 from models.project_rest import (
@@ -24,13 +25,23 @@ from utils.redis_client import get_redis_client
 from services.project_service import ProjectService
 from services.document_upload_service import DocumentUploadService
 from services.project_status_publisher import ProjectStatusPublisher
+from services.gitlab_client_adapter import GitLabClientAdapter
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
 def get_project_service(request: Request) -> ProjectService:
-    return ProjectService(request.app.state.postgres_client)
+    settings = get_app_settings()
+    
+    gitlab_client_adapter = GitLabClientAdapter(
+        http_client_config=settings.http_client
+    )
+    
+    return ProjectService(
+        postgres_client=request.app.state.postgres_client,
+        gitlab_client_adapter=gitlab_client_adapter
+    )
 
 def get_document_upload_service(request: Request) -> DocumentUploadService:
     return DocumentUploadService(request.app.state.blob_storage_client)
@@ -44,6 +55,7 @@ def get_project_status_publisher() -> ProjectStatusPublisher:
 )
 async def create_project(
     project: ProjectSet,
+    request: Request,
     current_user: LocalUser = Depends(require_roles_local(["Admin"])),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
@@ -54,7 +66,13 @@ async def create_project(
         user_id=current_user.oid
     )
 
-    created_project = project_service.create_project(project, current_user.oid)
+    s2s_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+
+    created_project = await project_service.create_project(
+        project,
+        current_user.oid,
+        s2s_token=s2s_token
+    )
     return ProjectResponse.model_validate(created_project)
 
 
@@ -104,6 +122,7 @@ async def get_project(
 async def update_project(
     project_id: UUID,
     project: ProjectSet,
+    request: Request,
     current_user: LocalUser = Depends(get_local_user_verified),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
@@ -114,7 +133,13 @@ async def update_project(
         user_id=current_user.oid
     )
 
-    updated_project = project_service.update_project(project_id, project)
+    s2s_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+
+    updated_project = await project_service.update_project(
+        project_id,
+        project,
+        s2s_token=s2s_token
+    )
     if not updated_project:
         logger.warning(
             "Project not found for update",

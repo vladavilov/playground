@@ -1,47 +1,10 @@
 """Tests for GitLab Client Service dependencies."""
 
-import pytest
-from unittest.mock import Mock, MagicMock
-from fastapi import HTTPException, Request
+from unittest.mock import MagicMock
 from dependencies import (
-    get_gitlab_access_token,
     get_gitlab_client,
     get_redis_client_dep,
 )
-
-
-def test_get_gitlab_access_token_success():
-    """Test successful extraction of GitLab access token from header."""
-    request = Mock(spec=Request)
-    request.headers = {"GitLab-Access-Token": "test-gitlab-token-123"}
-    
-    token = get_gitlab_access_token(request)
-    
-    assert token == "test-gitlab-token-123"
-
-
-def test_get_gitlab_access_token_missing():
-    """Test error when GitLab access token header is missing."""
-    request = Mock(spec=Request)
-    request.headers = {}
-    
-    with pytest.raises(HTTPException) as exc_info:
-        get_gitlab_access_token(request)
-    
-    assert exc_info.value.status_code == 401
-    assert "GitLab-Access-Token header required" in str(exc_info.value.detail)
-
-
-def test_get_gitlab_access_token_empty():
-    """Test error when GitLab access token header is empty."""
-    request = Mock(spec=Request)
-    request.headers = {"GitLab-Access-Token": ""}
-    
-    with pytest.raises(HTTPException) as exc_info:
-        get_gitlab_access_token(request)
-    
-    assert exc_info.value.status_code == 401
-    assert "GitLab-Access-Token header required" in str(exc_info.value.detail)
 
 
 def test_get_gitlab_client_creates_client(monkeypatch):

@@ -1,9 +1,10 @@
 """GitLab client wrapper for normalized API access."""
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Any, Optional
 import structlog
 import gitlab
 from gitlab.v4.objects import Group, Project, ProjectIssue, GroupEpic
+from gitlab.exceptions import GitlabGetError, GitlabAuthenticationError
 
 from models import GitLabWorkItem, Pagination, ListResponse
 from config import GitLabClientSettings
@@ -402,5 +403,52 @@ class GitLabClientService:
             )
         
         return self._normalize_issue(issue)
+
+    def resolve_project(self, gitlab_path: str) -> dict[str, Any]:
+        """
+        Resolve GitLab project path to project details.
+        
+        Args:
+            gitlab_path: Project path in namespace/project format
+            
+        Returns:
+            Dict with project_id, path, name, web_url
+            
+        Raises:
+            ValueError: If path is empty
+            GitlabGetError: If project not found
+            GitlabAuthenticationError: If token invalid
+        """
+        
+        if not gitlab_path or not gitlab_path.strip():
+            raise ValueError("GitLab path is required")
+        
+        gitlab_path = gitlab_path.strip()
+        
+        logger.info("Resolving GitLab project", gitlab_path=gitlab_path)
+        
+        try:
+            # Get project using python-gitlab (handles URL encoding)
+            project = self.client.projects.get(gitlab_path)
+            
+            result = {
+                "project_id": str(project.id),
+                "path": project.path_with_namespace,
+                "name": project.name,
+                "web_url": project.web_url
+            }
+            
+            logger.info("Project resolved", **result)
+            return result
+            
+        except GitlabAuthenticationError as e:
+            logger.error("GitLab authentication failed", gitlab_path=gitlab_path, error=str(e))
+            raise
+        except GitlabGetError as e:
+            if e.response_code == 404:
+                logger.warning("GitLab project not found", gitlab_path=gitlab_path)
+            else:
+                logger.error("GitLab API error", gitlab_path=gitlab_path, status=e.response_code, error=str(e))
+            raise
 
 

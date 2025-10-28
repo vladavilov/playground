@@ -43,7 +43,7 @@ graph TB
 
 1. **Azure SSO** - MSAL Python-based Microsoft identity platform integration
 2. **Internal S2S Authentication** - Enhanced JWT tokens with comprehensive claims
-3. **GitLab Integration** - Dedicated OAuth flow with automatic token refresh and revocation
+3. **GitLab Integration** - Proxies OAuth and API calls to gitlab-client-service
 4. **Task Generation UI** - AI-powered backlog creation with real-time agent thought streaming
 5. **SSE Bridge** - Real-time event streaming from Redis pubsub to browser
 
@@ -53,9 +53,9 @@ graph TB
 - **MSAL Python Integration**: Official Microsoft library for Azure AD authentication
 - **Redis-backed Token Cache**: Distributed, scalable session management (key: `msal_cache:{session_id}`)
 - **Enhanced S2S Tokens**: Comprehensive claims including oid, tid, aud, iss, roles
-- **Automatic Token Refresh**: Proactive refresh for Azure and GitLab tokens (5-minute threshold)
+- **Automatic Token Refresh**: Proactive refresh for Azure tokens via MSAL
 - **Conditional Access Support**: Proper handling of MFA and CA challenges
-- **GitLab Token Management**: Automatic refresh, validation via `/oauth/token/info`, revocation via `/oauth/revoke`
+- **GitLab Integration (Proxied)**: All GitLab OAuth and API interactions proxied to gitlab-client-service
 
 ### Task Generation Interface
 - **Seamless Navigation Flow**: Requirements gathering → AI task generation → backlog review
@@ -92,13 +92,6 @@ graph TB
 - `AZURE_SCOPE_DESCRIPTION` - Scope description (default: `user_impersonation`)
 - `AZURE_AD_AUTHORITY` - Azure AD authority URL (default: `https://login.microsoftonline.com`)
 
-### GitLab OAuth
-- `GITLAB_BASE_URL` - Base URL of GitLab instance
-- `GITLAB_OAUTH_CLIENT_ID` - GitLab OAuth client ID
-- `GITLAB_OAUTH_CLIENT_SECRET` - GitLab OAuth client secret
-- `GITLAB_OAUTH_REDIRECT_URI` - GitLab OAuth redirect URI
-- `GITLAB_OAUTH_SCOPES` - Space/comma separated scopes (default: `read_api`)
-- `GITLAB_VERIFY_SSL` - Verify TLS for GitLab calls (default: `true`)
 
 ### S2S Authentication
 - `LOCAL_JWT_SECRET` - Shared secret for S2S JWT tokens (required)
@@ -111,6 +104,7 @@ graph TB
 - `PROJECT_MANAGEMENT_SERVICE_URL` - Project management service URL
 - `AI_WORKFLOW_SERVICE_URL` - AI workflow service URL
 - `AI_TASKS_SERVICE_URL` - AI tasks/backlog generation service URL (default: `http://localhost:8003`)
+- `GITLAB_CLIENT_SERVICE_URL` - GitLab client service URL for OAuth and API proxying
 
 ## API Endpoints
 
@@ -122,11 +116,62 @@ graph TB
 - `GET /auth/me` - Get current user authentication status
 - `POST /auth/logout` - Logout and clear tokens
 
-### GitLab Integration
-- `GET /auth/gitlab/authorize` - Initiate GitLab OAuth flow
-- `GET /auth/gitlab/callback` - GitLab OAuth callback handler
-- `GET /auth/gitlab/status` - Check GitLab connection status
-- `POST /auth/gitlab/disconnect` - Disconnect GitLab integration
+### GitLab Integration (Proxied)
+
+ui-service proxies all GitLab OAuth and API interactions to gitlab-client-service:
+
+- `GET /auth/gitlab/authorize?redirect_uri=<url>` - Proxy GitLab OAuth authorization
+  - Forwards to gitlab-client-service with session_id
+- `GET /auth/gitlab/callback` - Proxy GitLab OAuth callback
+  - Optional proxy for development (GitLab should callback directly to gitlab-client-service in production)
+- `GET /auth/gitlab/status` - Proxy GitLab connection status check
+  - Returns: `{"connected": bool, "configured": bool}`
+- `POST /auth/gitlab/disconnect` - Proxy GitLab disconnect request
+- `GET/POST/PUT/DELETE /gitlab/*` - Proxy GitLab API requests to gitlab-client-service
+
+**Authentication Flow:**
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant UI as ui-service<br/>(Proxy Only)
+    participant GCS as gitlab-client-service<br/>(GitLab Logic)
+    participant GitLab
+
+    Browser->>UI: Click "Connect GitLab"
+    UI->>Browser: 302 → GCS /auth/gitlab/authorize<br/>?session_id=...
+    Browser->>GCS: GET /auth/gitlab/authorize
+    GCS->>Browser: 302 → GitLab OAuth
+    Browser->>GitLab: Authorize
+    GitLab->>Browser: 302 → GCS callback
+    Browser->>GCS: GET /auth/gitlab/callback?code=...
+    GCS->>GCS: Store token in Redis
+    GCS->>Browser: 302 → UI redirect_uri
+    
+    Note over Browser,GitLab: Token stored in Redis by gitlab-client-service
+    
+    Browser->>UI: API request
+    UI->>GCS: Proxy with S2S JWT (contains session_id)
+    GCS->>GCS: Lookup token from Redis
+    GCS->>GitLab: API call with token
+    GitLab->>GCS: Response
+    GCS->>UI: Response
+    UI->>Browser: Response
+```
+
+**S2S JWT Claims:**
+```json
+{
+  "oid": "user-session-id",
+  "tid": "tenant-id",
+  "preferred_username": "user@example.com",
+  "roles": ["Admin"],
+  "iss": "ui-service",
+  "aud": "gitlab-service",
+  "exp": 1234567890
+}
+```
+
+**Note:** ui-service has no direct GitLab dependencies (no python-gitlab, no authlib). All GitLab OAuth and API interactions are proxied to gitlab-client-service.
 
 ### API Proxying
 - `GET/POST/PUT/DELETE /project/*` - Proxy to project management service
@@ -240,59 +285,60 @@ sequenceDiagram
 sequenceDiagram
     participant User
     participant Browser
-    participant UI as UI Service
+    participant UI as UI Service<br/>(Proxy)
+    participant GCS as GitLab Client Service<br/>(Authlib + python-gitlab)
     participant Redis
     participant GitLab
 
-    Note over UI: Startup: Register OAuth client (PKCE)
-    
     User->>Browser: Connect to GitLab
     Browser->>UI: GET /auth/gitlab/authorize
-    UI->>UI: Generate state (CSRF)
-    UI->>UI: Generate PKCE challenge
+    UI->>GCS: Proxy request with session_id
+    GCS->>GCS: Authlib generates state (CSRF)
+    GCS->>GCS: Authlib generates PKCE challenge (S256)
+    GCS-->>UI: Redirect to GitLab OAuth
     UI-->>Browser: Redirect to GitLab OAuth
-    Browser->>GitLab: OAuth authorize?state=xxx
+    Browser->>GitLab: OAuth authorize?state=xxx&code_challenge=xxx
     GitLab->>User: Request permission
     User->>GitLab: Grant access
     GitLab-->>Browser: Redirect with auth code
     
     Browser->>UI: GET /auth/gitlab/callback?code=xxx&state=xxx
-    UI->>UI: Validate state (CSRF check)
-    UI->>GitLab: POST /oauth/token<br/>(exchange code)
-    GitLab-->>UI: Access + Refresh tokens
-    UI->>Redis: Store tokens<br/>gitlab_token:{session_id}
-    UI-->>Browser: Success response
+    UI->>GCS: Proxy callback request
+    GCS->>GCS: Authlib validates state (CSRF check)
+    GCS->>GCS: Authlib validates PKCE (code_verifier)
+    GCS->>GitLab: POST /oauth/token<br/>(exchange code + verifier)
+    GitLab-->>GCS: Access token (OAuth2 response)
+    GCS->>Redis: Store token<br/>gitlab:oauth:{session_id}
+    GCS-->>UI: Redirect to application
+    UI-->>Browser: Redirect to application
     
-    Note over UI,Redis: Token Usage & Refresh
+    Note over UI,GCS: API Requests
     Browser->>UI: API request needing GitLab
-    UI->>Redis: Get GitLab token
-    Redis-->>UI: Token + expiration
+    UI->>GCS: Proxy with S2S JWT
+    GCS->>Redis: Load OAuth token
+    Redis-->>GCS: Token dictionary
+    GCS->>GCS: Create gitlab.Gitlab(oauth_token=token)
+    GCS->>GitLab: API request via python-gitlab
+    GitLab-->>GCS: Response
+    GCS-->>UI: Response
+    UI-->>Browser: Response
     
-    alt Token expires < 5 min
-        UI->>GitLab: POST /oauth/token<br/>(refresh)
-        GitLab-->>UI: New tokens
-        UI->>Redis: Update stored tokens
-    end
-    
-    UI->>GitLab: API request with token
-    GitLab-->>UI: Response
-    
-    Note over UI,GitLab: Disconnect/Revoke
+    Note over UI,GCS: Disconnect
     User->>Browser: Disconnect GitLab
     Browser->>UI: POST /auth/gitlab/disconnect
-    UI->>GitLab: POST /oauth/revoke
-    GitLab-->>UI: Token revoked
-    UI->>Redis: Delete gitlab_token:{session_id}
+    UI->>GCS: Proxy disconnect request
+    GCS->>Redis: Delete gitlab:oauth:{session_id}
+    GCS-->>UI: Disconnected
     UI-->>Browser: Disconnected
 ```
 
 **Key Steps**:
 
-1. **Authorization**: OAuth client registered at service startup, user initiates `/auth/gitlab/authorize`, redirects to GitLab OAuth with PKCE, state parameter validated for CSRF protection
-2. **Token Storage**: GitLab tokens stored separately in Redis (key: `gitlab_token:{session_id}`), includes access token, refresh token, expiration, and scopes
-3. **Automatic Refresh**: Token manager checks expiration before use, proactively refreshes if expiring within 5 minutes
-4. **Token Validation**: Uses GitLab's `/oauth/token/info` endpoint, returns token metadata (scopes, resource owner ID, expiration)
-5. **Token Revocation**: On disconnect, calls GitLab's `/oauth/revoke` endpoint to ensure server-side invalidation
+1. **Authorization**: ui-service proxies `/auth/gitlab/authorize` to gitlab-client-service with session_id, gitlab-client-service uses Authlib for OAuth with PKCE (S256)
+2. **Token Exchange**: gitlab-client-service validates state and exchanges authorization code with PKCE verifier, tokens stored in Redis (key: `gitlab:oauth:{session_id}`)
+3. **API Access**: ui-service proxies all GitLab API requests to gitlab-client-service with S2S JWT authentication, gitlab-client-service handles OAuth token management and API calls
+4. **Disconnect**: Token cleared from Redis via proxied request
+5. **Security**: PKCE prevents authorization code interception, state provides CSRF protection, S2S JWT secures proxy communication
 
 ### 4. Task Generation Workflow
 
@@ -550,11 +596,37 @@ graph TB
 - Proper Conditional Access and MFA handling
 - Session-based cache isolation (one cache per session)
 
-### GitLab OAuth (Authlib)
-- Dedicated router and token manager
-- OAuth client registered once at startup (not per-request)
-- PKCE for enhanced security
-- Separate token storage from Azure tokens
+### GitLab Integration (Proxied)
+
+**Architecture**: ui-service acts as a transparent proxy to gitlab-client-service
+
+**Proxy Endpoints**:
+- `GET/POST /auth/gitlab/*` - Proxy GitLab OAuth flow to gitlab-client-service
+- `GET/POST/PUT/DELETE /gitlab/*` - Proxy GitLab API requests to gitlab-client-service
+
+**Features**:
+- Transparent proxying of all GitLab OAuth and API requests
+- S2S JWT authentication for proxy communication
+- Session ID correlation for OAuth state management
+- No direct GitLab dependencies in ui-service
+- All OAuth token management handled by gitlab-client-service
+
+**Flow**:
+1. Browser makes request to ui-service
+2. ui-service adds S2S JWT with user claims
+3. Request proxied to gitlab-client-service
+4. gitlab-client-service handles OAuth/API logic with GitLab
+5. Response flows back through ui-service to browser
+
+**Example Proxy Configuration**:
+```python
+# ui-service proxies to gitlab-client-service
+@router.api_route("/gitlab/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_to_gitlab_client(path: str, request: Request):
+    upstream_base = get_app_settings().http_client.GITLAB_CLIENT_SERVICE_URL
+    target_url = f"{upstream_base}/gitlab/{path}"
+    return await _forward(request, target_url)
+```
 
 ### S2S Authentication
 
@@ -967,14 +1039,35 @@ ui-service:
 - Cached selectors where appropriate
 - S2S token caching (60s TTL)
 
-## GitLab API Endpoints Used
+## GitLab Integration Details
 
-| Endpoint | Purpose | When Used |
-|----------|---------|-----------|
-| `/oauth/authorize` | Initial authorization | User initiates GitLab connection |
-| `/oauth/token` | Token exchange & refresh | After authorization code received |
-| `/oauth/revoke` | Token revocation | User disconnects GitLab |
-| `/oauth/token/info` | Token validation | Validating token status (efficient) |
+### OAuth Endpoints
+
+| Endpoint | Purpose | Handled By |
+|----------|---------|------------|
+| `/oauth/authorize` | Initial authorization | Authlib OAuth client |
+| `/oauth/token` | Token exchange | Authlib OAuth client |
+
+### API Access via python-gitlab
+
+All GitLab API operations use the `python-gitlab` library:
+
+```python
+gl = gitlab.Gitlab(url="https://gitlab.example.com", oauth_token=token)
+
+# Projects API
+projects = gl.projects.list()
+project = gl.projects.get(project_id)
+
+# Issues API
+issues = project.issues.list()
+issue = project.issues.create({'title': 'Bug fix', 'description': '...'})
+
+# Merge Requests API
+mrs = project.mergerequests.list(state='opened')
+```
+
+Refer to [python-gitlab documentation](https://python-gitlab.readthedocs.io/) for full API coverage.
 
 ## Troubleshooting
 
@@ -1011,9 +1104,13 @@ export MSAL_LOG_LEVEL=DEBUG
 
 ### OAuth & Security
 - [OAuth 2.0 PKCE](https://oauth.net/2/pkce/)
+- [GitLab Client Service](../gitlab_client_service/README.md) - Handles GitLab OAuth and API integration
 - [GitLab OAuth 2.0 API](https://docs.gitlab.com/ee/api/oauth2.html)
-- [GitLab Token Revocation](https://docs.gitlab.com/api/oauth2/#revoke-a-token)
-- [GitLab Token Information](https://docs.gitlab.com/api/oauth2/#retrieve-the-token-information)
+
+### GitLab Integration
+- [python-gitlab Documentation](https://python-gitlab.readthedocs.io/)
+- [python-gitlab OAuth Authentication](https://python-gitlab.readthedocs.io/en/stable/gl_objects/users.html#authentication)
+- [GitLab API Documentation](https://docs.gitlab.com/ee/api/)
 
 ### UI/UX
 - [Tailwind CSS Documentation](https://tailwindcss.com/docs)

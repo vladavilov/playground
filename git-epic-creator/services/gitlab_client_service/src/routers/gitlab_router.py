@@ -5,7 +5,14 @@ import structlog
 from fastapi import APIRouter, Depends, Query, HTTPException, status, BackgroundTasks
 import gitlab
 
-from models import ListResponse, ApplyBacklogRequest, ApplyBacklogResponse, ApplyBacklogResults, ApplyBacklogError
+from models import (
+    ListResponse, 
+    ApplyBacklogRequest, 
+    ApplyBacklogResponse, 
+    ApplyBacklogResults, 
+    ResolveProjectRequest,
+    ResolveProjectResponse
+)
 from config import GitLabClientSettings, get_gitlab_client_settings
 from dependencies import get_gitlab_client_dep, get_redis_client_dep
 from services.gitlab_client_service import GitLabClientService
@@ -221,7 +228,23 @@ async def apply_backlog(
     
     Creates or updates epics and issues based on provided data.
     Returns results indicating which items were created, updated, or unchanged.
+    
+    Args:
+        project_id: GitLab project ID (numeric or namespace/project path) - used in URL
+        request: Backlog application request with epics, issues, and tracking IDs
+    
+    Note: request.internal_project_id can be used for tracking and logging operations
+    back to the internal project management system.
     """
+    logger.info(
+        "Applying backlog to GitLab",
+        gitlab_project_id=project_id,
+        internal_project_id=request.internal_project_id,
+        prompt_id=request.prompt_id,
+        epics_count=len(request.epics),
+        issues_count=len(request.issues)
+    )
+    
     try:
         # Check idempotency
         if request.prompt_id:
@@ -373,8 +396,10 @@ async def apply_backlog(
             idempotency_store.set(project_id, request.prompt_id, response)
         
         logger.info(
-            "Backlog applied",
-            project_id=project_id,
+            "Backlog applied successfully",
+            gitlab_project_id=project_id,
+            internal_project_id=request.internal_project_id,
+            prompt_id=request.prompt_id,
             epics_created=sum(1 for e in results.epics if e["action"] == "created"),
             epics_updated=sum(1 for e in results.epics if e["action"] == "updated"),
             issues_created=sum(1 for i in results.issues if i["action"] == "created"),
@@ -391,6 +416,71 @@ async def apply_backlog(
             error=str(e),
             error_type=type(e).__name__
         )
+        error_response = map_gitlab_error(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_response["error"]
+        )
+
+
+@router.post("/projects/resolve", response_model=ResolveProjectResponse)
+async def resolve_project(
+    request: ResolveProjectRequest,
+    gitlab_client: gitlab.Gitlab = Depends(get_gitlab_client_dep),
+    settings: GitLabClientSettings = Depends(get_gitlab_client_settings)
+):
+    """
+    Resolve GitLab project path to numeric project ID.
+    
+    Accepts gitlab_path in namespace/project format.
+    Returns project details including numeric ID.
+    
+    Example request:
+    ```json
+    {
+      "gitlab_path": "my-group/my-project"
+    }
+    ```
+    
+    Example response:
+    ```json
+    {
+      "project_id": "123",
+      "path": "my-group/my-project",
+      "name": "My Project",
+      "web_url": "https://gitlab.com/my-group/my-project"
+    }
+    ```
+    """
+    try:
+        gitlab_service = GitLabClientService(gitlab_client, settings)
+        result = gitlab_service.resolve_project(request.gitlab_path)
+        
+        return ResolveProjectResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except gitlab.exceptions.GitlabAuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitLab authentication failed"
+        )
+    except gitlab.exceptions.GitlabGetError as e:
+        if e.response_code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"GitLab project not found: {request.gitlab_path}"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"GitLab API error: {e.response_code}"
+            )
+    except Exception as e:
+        logger.error("Failed to resolve project", error=str(e), error_type=type(e).__name__)
         error_response = map_gitlab_error(e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
