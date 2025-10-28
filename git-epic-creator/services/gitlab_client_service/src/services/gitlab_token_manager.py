@@ -5,8 +5,11 @@ This module manages GitLab OAuth tokens in Redis, providing storage,
 retrieval, and clearing capabilities for session-based authentication.
 
 Integrates with Authlib's automatic token refresh via update_token callback.
+Uses token-to-session reverse mapping for automatic session identification.
 
-Redis key pattern: gitlab:oauth:{session_id}
+Redis key patterns:
+- gitlab:oauth:{session_id} - Token storage
+- gitlab:token_to_session:{access_token} - Reverse lookup for token refresh
 """
 
 from __future__ import annotations
@@ -18,10 +21,8 @@ from typing import Optional, Dict, Any, Callable
 logger = structlog.get_logger(__name__)
 
 TOKEN_KEY_PREFIX = "gitlab:oauth:"
+TOKEN_TO_SESSION_PREFIX = "gitlab:token_to_session:"
 DEFAULT_TTL = 7200  # 2 hours
-
-# Global storage for session_id context during token updates
-_current_session_id: Optional[str] = None
 
 
 async def get_token(
@@ -74,7 +75,11 @@ async def save_token(
     token: Dict[str, Any]
 ) -> None:
     """
-    Save OAuth token to Redis.
+    Save OAuth token to Redis with reverse mapping.
+    
+    Stores both:
+    1. Token data under session_id
+    2. Reverse mapping from token hash to session_id (for automatic refresh)
     
     Args:
         session_id: User session identifier
@@ -85,18 +90,30 @@ async def save_token(
         Exception: If Redis operation fails
     """
     try:
-        key = f"{TOKEN_KEY_PREFIX}{session_id}"
         ttl = token.get('expires_in', DEFAULT_TTL)
+        ttl_with_buffer = int(ttl) + 600  # 10 minute buffer
         
-        # Store token with TTL plus buffer for refresh window
+        # Store token under session_id
+        token_key = f"{TOKEN_KEY_PREFIX}{session_id}"
         await redis_client.set(
-            key,
+            token_key,
             json.dumps(token),
-            ex=int(ttl) + 600  # 10 minute buffer
+            ex=ttl_with_buffer
         )
         
+        # Store reverse mapping: token -> session_id
+        # This enables automatic session lookup during token refresh
+        access_token = token.get('access_token')
+        if access_token:
+            reverse_key = f"{TOKEN_TO_SESSION_PREFIX}{access_token}"
+            await redis_client.set(
+                reverse_key,
+                session_id,
+                ex=ttl_with_buffer  # Same TTL as token
+            )
+        
         logger.info(
-            "Saved GitLab OAuth token",
+            "Saved GitLab OAuth token with reverse mapping",
             session_id=session_id,
             expires_in=ttl,
             has_refresh_token=bool(token.get('refresh_token'))
@@ -112,7 +129,7 @@ async def clear_token(
     redis_client
 ) -> None:
     """
-    Clear OAuth token from Redis.
+    Clear OAuth token and reverse mapping from Redis.
     
     Called during logout or explicit GitLab account disconnection.
     
@@ -121,9 +138,20 @@ async def clear_token(
         redis_client: Async Redis client
     """
     try:
-        key = f"{TOKEN_KEY_PREFIX}{session_id}"
-        await redis_client.delete(key)
-        logger.info("Cleared GitLab OAuth token", session_id=session_id)
+        token_key = f"{TOKEN_KEY_PREFIX}{session_id}"
+        
+        # Get token to find reverse mapping
+        token_data = await get_token(session_id, redis_client)
+        
+        # Delete token
+        await redis_client.delete(token_key)
+        
+        # Delete reverse mapping if token exists
+        if token_data and token_data.get('access_token'):
+            reverse_key = f"{TOKEN_TO_SESSION_PREFIX}{token_data['access_token']}"
+            await redis_client.delete(reverse_key)
+        
+        logger.info("Cleared GitLab OAuth token and reverse mapping", session_id=session_id)
         
     except Exception as e:
         logger.error("Failed to clear GitLab OAuth token", session_id=session_id, error=str(e))
@@ -134,7 +162,7 @@ def create_update_token_callback(redis_client) -> Callable:
     Create an Authlib-compatible update_token callback for automatic token refresh.
     
     This callback is invoked by Authlib when tokens are refreshed automatically.
-    It saves the new token to Redis under the current session context.
+    Uses the old access_token to look up which session owns it via reverse mapping.
     
     Args:
         redis_client: Async Redis client for token storage
@@ -149,33 +177,50 @@ def create_update_token_callback(redis_client) -> Callable:
         """
         Authlib callback invoked when token is refreshed.
         
+        Uses old access_token to identify session via reverse mapping in Redis.
+        No manual context management needed!
+        
         Args:
             token: New token dictionary from OAuth provider
-            refresh_token: Previous refresh_token (for identifying which token to update)
-            access_token: Previous access_token (alternative identifier)
+            refresh_token: Previous refresh_token (unused)
+            access_token: Previous access_token (used for session lookup)
         """
-        global _current_session_id
-        
-        session_id = _current_session_id
-        if not session_id:
+        if not access_token:
             logger.warning(
-                "Token update callback invoked but no session_id in context",
-                has_refresh_token=bool(refresh_token),
-                has_access_token=bool(access_token)
+                "Token update callback invoked without access_token",
+                has_refresh_token=bool(refresh_token)
             )
             return
         
         try:
+            # Look up session_id using old access_token
+            reverse_key = f"{TOKEN_TO_SESSION_PREFIX}{access_token}"
+            session_id = await redis_client.get(reverse_key)
+            
+            if not session_id:
+                logger.warning(
+                    "Cannot find session for refreshed token",
+                    token_prefix=access_token[:16] + "..."
+                )
+                return
+            
+            # Decode if bytes
+            if isinstance(session_id, bytes):
+                session_id = session_id.decode('utf-8')
+            
             # Ensure created_at is set for expiry tracking
             if 'created_at' not in token:
                 import time
                 token['created_at'] = int(time.time())
             
-            # Save updated token to Redis
+            # Delete old token's reverse mapping
+            await redis_client.delete(reverse_key)
+            
+            # Save updated token with new reverse mapping
             await save_token(session_id, redis_client, token)
             
             logger.info(
-                "Token automatically updated by Authlib",
+                "Token automatically refreshed by Authlib",
                 session_id=session_id,
                 has_refresh_token=bool(token.get('refresh_token'))
             )
@@ -183,29 +228,9 @@ def create_update_token_callback(redis_client) -> Callable:
         except Exception as e:
             logger.error(
                 "Failed to save automatically refreshed token",
-                session_id=session_id,
                 error=str(e),
                 error_type=type(e).__name__
             )
     
     return update_token_callback
-
-
-def set_session_context(session_id: str) -> None:
-    """
-    Set the current session_id context for token updates.
-    
-    Must be called before making API calls that may trigger token refresh.
-    
-    Args:
-        session_id: Current user session identifier
-    """
-    global _current_session_id
-    _current_session_id = session_id
-
-
-def clear_session_context() -> None:
-    """Clear the session_id context after API calls complete."""
-    global _current_session_id
-    _current_session_id = None
 

@@ -10,7 +10,8 @@ COPY ./shared/ ./shared/
 COPY ./ai_tasks_service/ ./ai_tasks_service/
 
 WORKDIR /app/shared
-RUN pip install --no-cache-dir .
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install .
 
 WORKDIR /app/ai_tasks_service
 RUN pip install --no-cache-dir .

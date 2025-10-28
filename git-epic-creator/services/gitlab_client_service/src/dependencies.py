@@ -5,7 +5,9 @@ import gitlab
 import redis.asyncio as redis
 from fastapi import Request, HTTPException, status, Depends
 
+from services.gitlab_token_manager import get_token
 from utils.redis_client import get_redis_client
+from utils.jwt_utils import verify_jwt
 from config import GitLabClientSettings, get_gitlab_client_settings
 
 logger = structlog.get_logger(__name__)
@@ -38,9 +40,6 @@ def get_session_id_from_jwt(request: Request) -> str:
         )
     
     token = auth_header.replace("Bearer ", "")
-    
-    # Import from shared library
-    from utils.jwt_utils import verify_jwt
     
     try:
         claims = verify_jwt(token, verify_exp=True)
@@ -134,9 +133,10 @@ async def get_gitlab_client_dep(
     
     Note:
         Token refresh is handled automatically by Authlib when making API calls.
-        The update_token callback will save refreshed tokens to Redis.
+        The update_token callback uses token-to-session reverse mapping to
+        identify which session to update without manual context management.
     """
-    from services.gitlab_token_manager import get_token, set_session_context
+    
     
     # Load token from Redis
     token_data = await get_token(session_id, redis_client)
@@ -147,9 +147,6 @@ async def get_gitlab_client_dep(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="GitLab not connected. Please authenticate with GitLab."
         )
-    
-    # Set session context for automatic token refresh callback
-    set_session_context(session_id)
     
     gitlab_token = token_data["access_token"]
     
