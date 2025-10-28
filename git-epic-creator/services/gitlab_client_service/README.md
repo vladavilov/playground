@@ -131,11 +131,17 @@ Configuration is centralized in `src/config.py` and reuses shared library config
 ```env
 GITLAB_BASE_URL=""                     # Required: GitLab instance URL (e.g., https://gitlab.com)
 GITLAB_VERIFY_SSL=true                 # Verify SSL certificates for GitLab instance
+GITLAB_CA_CERT_PATH=""                 # Custom CA certificate path for internal GitLab instances
 HTTP_CONNECTION_TIMEOUT=30.0           # HTTP connection timeout
 RETRY_MAX_ATTEMPTS=3                   # Maximum HTTP retries
 RETRY_BACKOFF_FACTOR=2.0              # Exponential backoff factor
 DEFAULT_PAGE_SIZE=100                  # Default pagination size
 ```
+
+**SSL Certificate Configuration:**
+- **System CA Bundle (Default)**: Leave `GITLAB_CA_CERT_PATH` empty and set `GITLAB_VERIFY_SSL=true`
+- **Custom CA Certificate**: Set `GITLAB_CA_CERT_PATH=/path/to/certificate.pem` for internal GitLab instances
+- **Disabled (Development Only)**: Set `GITLAB_VERIFY_SSL=false` (not recommended for production)
 
 **GitLab Client Service settings:**
 ```env

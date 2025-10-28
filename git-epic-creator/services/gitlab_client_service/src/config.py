@@ -17,6 +17,7 @@ class GitLabClientSettings(BaseSettings):
     # GitLab Instance Configuration
     GITLAB_BASE_URL: str = Field(default="", description="Base URL of GitLab instance (e.g., https://gitlab.com)")
     GITLAB_VERIFY_SSL: bool = Field(default=True, description="Verify SSL certificates for GitLab")
+    GITLAB_CA_CERT_PATH: str = Field(default="", description="Custom CA certificate path for GitLab SSL verification")
     HTTP_CONNECTION_TIMEOUT: float = Field(default=30.0, description="HTTP connection timeout in seconds")
     RETRY_MAX_ATTEMPTS: int = Field(default=3, description="Maximum number of HTTP retries")
     RETRY_BACKOFF_FACTOR: float = Field(default=2.0, description="Exponential backoff factor for retries")

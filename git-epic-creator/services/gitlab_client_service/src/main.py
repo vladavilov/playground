@@ -33,6 +33,27 @@ async def gitlab_lifespan(app: FastAPI):
     settings = get_gitlab_client_settings()
     
     if settings.GITLAB_OAUTH_CLIENT_ID and settings.GITLAB_OAUTH_CLIENT_SECRET:
+        # Configure SSL verification for OAuth httpx client
+        client_kwargs = {
+            'scope': settings.GITLAB_OAUTH_SCOPES,
+        }
+        
+        # Set verify parameter based on configuration
+        if settings.GITLAB_CA_CERT_PATH:
+            # Use custom CA certificate for internal GitLab instances
+            client_kwargs['verify'] = settings.GITLAB_CA_CERT_PATH
+            logger.info(
+                "GitLab OAuth SSL verification using custom CA certificate",
+                ca_cert_path=settings.GITLAB_CA_CERT_PATH
+            )
+        elif not settings.GITLAB_VERIFY_SSL:
+            # Disable SSL verification (development only)
+            client_kwargs['verify'] = False
+            logger.warning("GitLab OAuth SSL verification disabled (insecure, development only)")
+        else:
+            # Use system CA bundle (default)
+            logger.info("GitLab OAuth SSL verification using system CA bundle")
+        
         oauth.register(
             name="gitlab",
             client_id=settings.GITLAB_OAUTH_CLIENT_ID,
@@ -42,9 +63,7 @@ async def gitlab_lifespan(app: FastAPI):
             authorize_url=f"{settings.GITLAB_BASE_URL}/oauth/authorize",
             authorize_params=None,
             api_base_url=f"{settings.GITLAB_BASE_URL}/api/v4/",
-            client_kwargs={
-                'scope': settings.GITLAB_OAUTH_SCOPES,
-            }
+            client_kwargs=client_kwargs
         )
         app.state.oauth = oauth
         app.state.gitlab_settings = settings

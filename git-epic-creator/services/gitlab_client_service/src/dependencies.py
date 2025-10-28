@@ -78,12 +78,21 @@ def get_gitlab_client(
     Returns:
         Configured python-gitlab Gitlab client
     """
+    # Configure SSL verification
+    ssl_verify: bool | str = True  # Default: use system CA bundle
+    if settings.GITLAB_CA_CERT_PATH:
+        # Use custom CA certificate for internal GitLab instances
+        ssl_verify = settings.GITLAB_CA_CERT_PATH
+    elif not settings.GITLAB_VERIFY_SSL:
+        # Disable SSL verification (development only)
+        ssl_verify = False
+    
     client = gitlab.Gitlab(
         url=settings.GITLAB_BASE_URL,
         private_token=gitlab_token,
         timeout=settings.HTTP_CONNECTION_TIMEOUT,
         retry_transient_errors=True,
-        ssl_verify=settings.GITLAB_VERIFY_SSL,
+        ssl_verify=ssl_verify,
     )
     
     logger.debug(
