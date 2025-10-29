@@ -493,21 +493,16 @@ export class TypewriterBox {
           return;
         }
         
-        // Add visible cursor to container immediately
-        const cursorSpan = document.createElement('span');
-        cursorSpan.className = 'typewriter-cursor';
-        cursorSpan.textContent = '▎';
-        container.appendChild(cursorSpan);
-        
-        // Scroll to show cursor
+        // Scroll to show initial state
         scrollToBottom(this.containerElement);
         
-        // Create typewriter instance
+        // Create typewriter instance with built-in cursor
         this.currentTypewriter = new Typewriter(container, {
           loop: false,
-          delay: 5, // 5ms per character = 200 chars/second
-          cursor: '', // Disable default cursor
-          html: true
+          cursor: '▎', // Use custom cursor character
+          html: true,
+          cursorClassName: 'typewriter-cursor',
+          delay: 'natural' // Natural typing variation
         });
         
         // Periodically scroll during typing to keep content visible
@@ -515,11 +510,12 @@ export class TypewriterBox {
           scrollToBottom(this.containerElement);
         }, 150);
         
-        // Type the HTML content, cursor stays at end
+        // Type the HTML content with controlled speed
         this.currentTypewriter
+          .changeDelay(5) // 5ms per character = 200 chars/second
           .typeString(htmlContent)
           .callFunction(() => {
-            // Clear scroll interval and remove cursor
+            // Clear scroll interval and remove cursor after typing completes
             clearInterval(scrollInterval);
             this._removeCursor(container);
             scrollToBottom(this.containerElement);
