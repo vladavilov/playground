@@ -552,21 +552,18 @@ export class TypewriterBox {
           loop: false,
           delay: 0.1,
           cursor: '▎', // Custom cursor
-          html: true,
-          onComplete: () => {
-            // Clear scroll interval
-            clearInterval(scrollInterval);
-            
-            // Remove cursor after typing completes using proper API callback
-            this._removeCursor(container);
-            
-            resolve();
-          }
+          html: true
         });
         
         // Type the HTML content
         this.currentTypewriter
           .typeString(htmlContent)
+          .callFunction(() => {
+            // Clear scroll interval and remove cursor after typing completes
+            clearInterval(scrollInterval);
+            this._removeCursor(container);
+            resolve();
+          })
           .start();
           
       } catch (error) {
