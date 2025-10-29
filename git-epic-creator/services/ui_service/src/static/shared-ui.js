@@ -411,12 +411,42 @@ export class TypewriterBox {
   
   /**
    * Removes cursor from container
+   * Handles both custom cursor class and Typewriter library's cursor
    */
   _removeCursor(container) {
     if (!container) return;
-    const cursor = container.querySelector('.typewriter-cursor');
-    if (cursor) {
-      cursor.remove();
+    
+    // Try to find and remove custom cursor class inside container
+    const customCursor = container.querySelector('.typewriter-cursor');
+    if (customCursor) {
+      customCursor.remove();
+    }
+    
+    // Try to find and remove Typewriter library's cursor class inside container
+    const libraryCursor = container.querySelector('.Typewriter__cursor');
+    if (libraryCursor) {
+      libraryCursor.remove();
+    }
+    
+    // Check for cursor as next sibling (library sometimes adds it as sibling)
+    if (container.nextSibling) {
+      const nextEl = container.nextSibling;
+      if (nextEl.nodeType === 1) { // Element node
+        if (nextEl.classList && (nextEl.classList.contains('Typewriter__cursor') || nextEl.classList.contains('typewriter-cursor'))) {
+          nextEl.remove();
+        }
+      }
+    }
+    
+    // Comprehensive cleanup: find all cursors in parent container
+    if (container.parentElement) {
+      const allCursors = container.parentElement.querySelectorAll('.Typewriter__cursor, .typewriter-cursor');
+      allCursors.forEach(cursor => {
+        // Only remove if it's related to this container or has no content
+        if (!cursor.previousSibling || cursor.previousSibling === container || cursor.textContent.trim() === '▎' || cursor.textContent.trim() === '|') {
+          cursor.remove();
+        }
+      });
     }
   }
   
@@ -512,27 +542,31 @@ export class TypewriterBox {
         // Initial scroll (smart scroll - only if user is near bottom)
         smartScrollToBottom(this.containerElement);
         
-        // Create typewriter instance with proper options
-        this.currentTypewriter = new Typewriter(container, {
-          loop: false,
-          delay: 5, // 5ms per character = 200 chars/second (typeSpeed)
-          html: true
-        });
-        
         // Periodically scroll during typing (smart scroll - respects user position)
         const scrollInterval = setInterval(() => {
           smartScrollToBottom(this.containerElement);
         }, 150);
         
+        // Create typewriter instance with proper options including onComplete callback
+        this.currentTypewriter = new Typewriter(container, {
+          loop: false,
+          delay: 0.1,
+          cursor: '▎', // Custom cursor
+          html: true,
+          onComplete: () => {
+            // Clear scroll interval
+            clearInterval(scrollInterval);
+            
+            // Remove cursor after typing completes using proper API callback
+            this._removeCursor(container);
+            
+            resolve();
+          }
+        });
+        
         // Type the HTML content
         this.currentTypewriter
           .typeString(htmlContent)
-          .callFunction(() => {
-            // Clear scroll interval and remove cursor after typing completes
-            clearInterval(scrollInterval);
-            this._removeCursor(container);
-            resolve();
-          })
           .start();
           
       } catch (error) {
