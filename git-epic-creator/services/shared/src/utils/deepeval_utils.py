@@ -161,9 +161,14 @@ class StrictGEval:
         # Add strict JSON instruction to criteria
         criteria = geval_kwargs.get("criteria", "")
         strict_suffix = (
-            "\n\nIMPORTANT: Output ONLY valid JSON with format: "
-            '{"score": <float between 0 and 1>, "reason": "<explanation>"}. '
-            "No markdown, no code blocks, no commentary."
+            "\n\nIMPORTANT OUTPUT INSTRUCTIONS:\n"
+            "1. Follow the evaluation steps PRECISELY - count and calculate as instructed\n"
+            "2. Use the scoring scaled provided - DO NOT default to 0.5 or round numbers\n"
+            "3. Calculate the score based on actual percentages/coverage (e.g., if 5 out of 20 items pass, score 0.25)\n"
+            "4. Output ONLY valid JSON with exact format: "
+            '{"score": <precise_float_between_0_and_1>, "reason": "<detailed explanation with calculations>"}.\n'
+            "5. In your reason, show your work: state counts, percentages, and how you arrived at the score\n"
+            "6. No markdown, no code blocks, no commentary outside the JSON object."
         )
         geval_kwargs["criteria"] = criteria + strict_suffix
         
@@ -346,11 +351,13 @@ async def _execute_metric_with_timeout(
         )
         
         score = float(getattr(metric, "score", 0.0) or 0.0)
-        
+        reason = str(getattr(metric, "reason", "No reason provided"))
+
         logger.debug(
             "metric_execution_completed",
             metric=metric_name,
             score=score,
+            reason=reason[:500],
         )
         
         return score
