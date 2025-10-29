@@ -4,14 +4,14 @@
 import {
   escapeHtml as esc,
   scrollToBottom,
-  renderMarkdown,
   getStatusBadge,
   createLoadingManager,
   checkAuthStatus,
   fetchGitLabStatus,
   startGitLabSSO as sharedStartGitLabSSO,
   connectSSE as sharedConnectSSE,
-  fetchConfig
+  fetchConfig,
+  TypewriterBox
 } from './shared-ui.js';
 
 // Application State
@@ -38,73 +38,38 @@ const loadingManager = createLoadingManager();
 let chatOutput, chatForm, chatInput, projectTitleEl, projectStatusEl, requirementsContent, requirementsSummary, editRequirementsBtn, confirmRequirementsBtn;
 
 // ============================================================================
-// Thinking Box UI
+// Thinking Box UI (Using Shared TypewriterBox Component)
 // ============================================================================
 
 function createThinkingBox(promptId = null) {
-  const wrap = document.createElement('details');
-  wrap.className = 'thinking-box border border-indigo-200 rounded-lg p-4 bg-indigo-50/50 backdrop-blur-sm my-3';
-  wrap.open = true;
-
-  const summary = document.createElement('summary');
-  summary.className = 'cursor-pointer select-none text-sm font-medium text-indigo-700 flex items-center gap-2';
+  const box = new TypewriterBox(chatOutput, promptId);
   
-  const icon = document.createElement('span');
-  icon.className = 'thinking-indicator inline-block w-2 h-2 rounded-full bg-indigo-500 animate-pulse';
-  
-  const label = document.createElement('span');
-  label.textContent = 'Agent thought stream';
-  
-  summary.appendChild(icon);
-  summary.appendChild(label);
-
-  const messages = document.createElement('div');
-  messages.className = 'mt-3 space-y-1.5 text-sm text-slate-600 break-words overflow-hidden';
-
-  wrap.appendChild(summary);
-  wrap.appendChild(messages);
-  chatOutput.appendChild(wrap);
-  scrollToBottom(chatOutput);
-
-  const startedAt = Date.now();
-  const box = {
-    promptId: promptId,
-    element: wrap,
+  // Wrap the TypewriterBox instance to maintain compatibility with existing code
+  const boxWrapper = {
+    promptId: box.promptId,
+    element: box.getElement(),
     setPromptId(newId) {
-      if (!newId) return;
-      this.promptId = newId;
-      state.boxesByPromptId[newId] = this;
+      box.setPromptId(newId);
+      if (newId) {
+        this.promptId = newId;
+        state.boxesByPromptId[newId] = this;
+      }
     },
     appendStream(text) {
-      if (!text) return;
-      const line = document.createElement('div');
-      line.className = 'text-xs text-slate-500 break-words';
-      line.textContent = String(text);
-      messages.appendChild(line);
-      scrollToBottom(chatOutput);
+      box.appendStream(text);
     },
     appendMarkdown(md) {
-      if (!md) return;
-      const line = document.createElement('div');
-      line.className = 'break-words';
-      line.innerHTML = renderMarkdown(String(md));
-      messages.appendChild(line);
-      scrollToBottom(chatOutput);
+      box.appendMarkdown(md);
     },
     finish(status = 'ok') {
-      const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
-      label.textContent = `Agent completed in ${seconds}s`;
-      icon.className = status === 'ok' 
-        ? 'inline-block w-2 h-2 rounded-full bg-emerald-500' 
-        : 'inline-block w-2 h-2 rounded-full bg-rose-500';
-      wrap.open = false;
+      box.finish(status);
     }
   };
 
-  state.thinkingBoxes.push(box);
-  if (promptId) state.boxesByPromptId[promptId] = box;
-  state.activeBox = box;
-  return box;
+  state.thinkingBoxes.push(boxWrapper);
+  if (promptId) state.boxesByPromptId[promptId] = boxWrapper;
+  state.activeBox = boxWrapper;
+  return boxWrapper;
 }
 
 function getOrCreateBoxForPromptId(promptId) {

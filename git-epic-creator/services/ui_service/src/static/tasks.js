@@ -4,13 +4,13 @@
 import {
   escapeHtml as esc,
   scrollToBottom,
-  renderMarkdown,
   getStatusBadge,
   checkAuthStatus as sharedCheckAuthStatus,
   fetchGitLabStatus as sharedFetchGitLabStatus,
   startGitLabSSO as sharedStartGitLabSSO,
   connectSSE as sharedConnectSSE,
-  fetchConfig as sharedFetchConfig
+  fetchConfig as sharedFetchConfig,
+  TypewriterBox
 } from './shared-ui.js';
 
 // Application State
@@ -31,76 +31,39 @@ const state = {
 };
 
 // ============================================================================
-// Thinking Box (Agent Stream Visualization)
+// Thinking Box (Using Shared TypewriterBox Component)
 // ============================================================================
 
 function createThinkingBox(promptId = null) {
   const chatOutput = document.getElementById('chatOutput');
+  const box = new TypewriterBox(chatOutput, promptId);
   
-  const wrap = document.createElement('details');
-  wrap.className = 'thinking-box border border-indigo-200 rounded-lg p-4 bg-indigo-50/50 backdrop-blur-sm';
-  wrap.open = true;
-
-  const summary = document.createElement('summary');
-  summary.className = 'cursor-pointer select-none text-sm font-medium text-indigo-700 flex items-center gap-2';
-  
-  const icon = document.createElement('span');
-  icon.className = 'thinking-indicator inline-block w-2 h-2 rounded-full bg-indigo-500';
-  
-  const label = document.createElement('span');
-  label.textContent = 'Agent thought stream';
-  
-  summary.appendChild(icon);
-  summary.appendChild(label);
-
-  const messages = document.createElement('div');
-  messages.className = 'mt-3 space-y-1.5 text-sm text-slate-600';
-
-  wrap.appendChild(summary);
-  wrap.appendChild(messages);
-  chatOutput.appendChild(wrap);
-  scrollToBottom(chatOutput);
-
-  const startedAt = Date.now();
-  const box = {
-    promptId: promptId,
-    element: wrap,
-    icon: icon,
+  // Wrap the TypewriterBox instance to maintain compatibility with existing code
+  const boxWrapper = {
+    promptId: box.promptId,
+    element: box.getElement(),
     setPromptId(newId) {
-      if (!newId) return;
-      this.promptId = newId;
-      state.boxesByPromptId[newId] = this;
+      box.setPromptId(newId);
+      if (newId) {
+        this.promptId = newId;
+        state.boxesByPromptId[newId] = this;
+      }
     },
     appendStream(text) {
-      if (!text) return;
-      const line = document.createElement('div');
-      line.className = 'text-xs text-slate-500';
-      line.textContent = String(text);
-      messages.appendChild(line);
-      scrollToBottom(chatOutput);
+      box.appendStream(text);
     },
     appendMarkdown(md) {
-      if (!md) return;
-      const line = document.createElement('div');
-      line.className = 'text-sm';
-      line.innerHTML = renderMarkdown(String(md));
-      messages.appendChild(line);
-      scrollToBottom(chatOutput);
+      box.appendMarkdown(md);
     },
     finish(status = 'ok') {
-      const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
-      label.textContent = `Agent completed in ${seconds}s`;
-      icon.className = status === 'ok' 
-        ? 'inline-block w-2 h-2 rounded-full bg-emerald-500' 
-        : 'inline-block w-2 h-2 rounded-full bg-rose-500';
-      wrap.open = false;
+      box.finish(status);
     }
   };
 
-  state.thinkingBoxes.push(box);
-  if (promptId) state.boxesByPromptId[promptId] = box;
-  state.activeBox = box;
-  return box;
+  state.thinkingBoxes.push(boxWrapper);
+  if (promptId) state.boxesByPromptId[promptId] = boxWrapper;
+  state.activeBox = boxWrapper;
+  return boxWrapper;
 }
 
 function getOrCreateBoxForPromptId(promptId) {
@@ -711,8 +674,8 @@ function connectSSE() {
         console.log('[Tasks] Got thinking box for prompt_id:', promptId, 'box exists:', !!box);
         
         if (box) {
-          // Add thought message if present
-          const thoughtText = msg.thought_summary || msg.details_md;
+          // Add thought message if present - prioritize details_md for richer content
+          const thoughtText = msg.details_md || msg.thought_summary;
           if (thoughtText) {
             console.log('[Tasks] Adding message to box:', thoughtText.substring(0, 100));
             box.appendMarkdown(thoughtText);

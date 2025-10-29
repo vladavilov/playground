@@ -32,66 +32,6 @@ export function formatDate(isoString) {
 }
 
 // ============================================================================
-// Markdown Rendering
-// ============================================================================
-
-export function renderMarkdown(md) {
-  let html = escapeHtml(md || '');
-  
-  // 1. Code blocks (protect from other replacements)
-  html = html.replace(/```([\s\S]*?)```/g, '<pre class="bg-slate-900 text-slate-100 p-3 rounded-lg overflow-auto text-xs font-mono mt-2 break-words"><code>$1</code></pre>');
-  
-  // 2. Headers (must be processed before other formatting)
-  html = html
-    .replace(/^####\s+(.*)$/gm, '<h4 class="text-sm font-semibold mt-2 text-slate-800 break-words">$1</h4>')
-    .replace(/^###\s+(.*)$/gm, '<h3 class="text-base font-semibold mt-3 text-slate-800 break-words">$1</h3>')
-    .replace(/^##\s+(.*)$/gm, '<h2 class="text-lg font-semibold mt-4 text-slate-800 break-words">$1</h2>')
-    .replace(/^#\s+(.*)$/gm, '<h1 class="text-xl font-bold mt-5 text-slate-800 break-words">$1</h1>');
-  
-  // 3. Horizontal rules
-  html = html.replace(/^(?:---+|\*\*\*+|___+)$/gm, '<hr class="my-4 border-t border-slate-300">');
-  
-  // 4. Blockquotes
-  html = html.replace(/^>\s+(.*)$/gm, '<blockquote class="border-l-4 border-indigo-300 pl-3 py-1 text-slate-600 italic bg-indigo-50/30 break-words">$1</blockquote>');
-  
-  // 5. Lists - Ordered lists (must come before unordered to avoid conflicts)
-  html = html.replace(/^\s*(\d+)\.\s+(.*)$/gm, '<li class="ml-6 list-decimal text-slate-700 break-words">$2</li>');
-  
-  // 6. Lists - Unordered lists
-  html = html.replace(/^\s*[-*+]\s+(.*)$/gm, '<li class="ml-6 list-disc text-slate-700 break-words">$1</li>');
-  
-  // 7. Inline formatting - Bold and Italic (order matters: bold before italic)
-  html = html
-    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong class="font-bold italic">$1</strong>') // Bold + Italic
-    .replace(/___(.+?)___/g, '<strong class="font-bold italic">$1</strong>') // Bold + Italic
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>') // Bold
-    .replace(/__(.+?)__/g, '<strong class="font-semibold">$1</strong>') // Bold
-    .replace(/\*(.+?)\*/g, '<em class="italic">$1</em>') // Italic
-    .replace(/_(.+?)_/g, '<em class="italic">$1</em>'); // Italic
-  
-  // 8. Strikethrough
-  html = html.replace(/~~(.+?)~~/g, '<del class="line-through text-slate-500">$1</del>');
-  
-  // 9. Inline code
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono break-all">$1</code>');
-  
-  // 10. Links
-  html = html.replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-sky-600 underline hover:text-sky-700 break-all">$1</a>');
-  
-  // 11. Wrap consecutive list items in ul/ol tags
-  html = html.replace(/((?:<li class="ml-6 list-disc[\s\S]*?<\/li>\s*)+)/g, '<ul class="space-y-1 my-2">$1</ul>');
-  html = html.replace(/((?:<li class="ml-6 list-decimal[\s\S]*?<\/li>\s*)+)/g, '<ol class="space-y-1 my-2">$1</ol>');
-  
-  // 12. Paragraph breaks and line breaks
-  // Double newlines -> paragraph break
-  html = html.replace(/\n\n+/g, '<br><br>');
-  // Single newlines -> line break (but avoid breaking inside tags)
-  html = html.replace(/(?<!\>)\n(?!\<)/g, '<br>');
-  
-  return html;
-}
-
-// ============================================================================
 // Status Badges
 // ============================================================================
 
@@ -357,5 +297,239 @@ export function connectSSE(state, eventHandlers = {}) {
 export async function fetchConfig() {
   const res = await fetch('/config');
   return await res.json();
+}
+
+// ============================================================================
+// TypewriterBox Component (Using marked.js + TypewriterJS)
+// ============================================================================
+
+/**
+ * Creates a reusable thinking box with typewriter effect for agent messages.
+ * Uses marked.js for markdown-to-HTML conversion and TypewriterJS for typing animation.
+ * Displays text character by character with smooth cursor effect.
+ */
+export class TypewriterBox {
+  constructor(containerElement, promptId = null) {
+    this.containerElement = containerElement;
+    this.promptId = promptId;
+    this.element = null;
+    this.messagesContainer = null;
+    this.summaryLabel = null;
+    this.summaryIcon = null;
+    this.startedAt = Date.now();
+    this.messageQueue = [];
+    this.isTyping = false;
+    this.currentTypewriter = null;
+    
+    this._createElements();
+    this._configureMarked();
+  }
+  
+  _configureMarked() {
+    // Configure marked.js for safe rendering with proper styling
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({
+        breaks: true,
+        gfm: true,
+        headerIds: false,
+        mangle: false
+      });
+    }
+  }
+  
+  _createElements() {
+    // Create details/summary structure
+    const wrap = document.createElement('details');
+    wrap.className = 'thinking-box border border-indigo-200 rounded-lg p-4 bg-indigo-50/50 backdrop-blur-sm my-3';
+    wrap.open = true;
+    
+    const summary = document.createElement('summary');
+    summary.className = 'cursor-pointer select-none text-sm font-medium text-indigo-700 flex items-center gap-2';
+    
+    const icon = document.createElement('span');
+    icon.className = 'thinking-indicator inline-block w-2 h-2 rounded-full bg-indigo-500 animate-pulse';
+    
+    const label = document.createElement('span');
+    label.textContent = 'Agent thought stream';
+    
+    summary.appendChild(icon);
+    summary.appendChild(label);
+    
+    const messages = document.createElement('div');
+    messages.className = 'mt-3 space-y-1.5 text-sm text-slate-600 break-words overflow-hidden';
+    
+    // Create animated thinking footer
+    const thinkingFooter = document.createElement('div');
+    thinkingFooter.className = 'thinking-footer mt-3 pt-3 border-t border-indigo-200/50 flex items-center justify-center gap-2 opacity-70';
+    
+    const spinner = document.createElement('div');
+    spinner.className = 'thinking-spinner';
+    
+    const thinkingText = document.createElement('span');
+    thinkingText.className = 'text-xs text-indigo-600 font-medium';
+    thinkingText.textContent = 'thinking...';
+    
+    thinkingFooter.appendChild(spinner);
+    thinkingFooter.appendChild(thinkingText);
+    
+    wrap.appendChild(summary);
+    wrap.appendChild(messages);
+    wrap.appendChild(thinkingFooter);
+    
+    this.element = wrap;
+    this.messagesContainer = messages;
+    this.summaryLabel = label;
+    this.summaryIcon = icon;
+    this.thinkingFooter = thinkingFooter;
+    
+    this.containerElement.appendChild(wrap);
+    scrollToBottom(this.containerElement);
+  }
+  
+  setPromptId(newId) {
+    if (newId) {
+      this.promptId = newId;
+    }
+  }
+  
+  /**
+   * Appends markdown text with typewriter effect.
+   * Uses marked.js to convert markdown to HTML, then TypewriterJS to animate.
+   */
+  appendMarkdown(md) {
+    if (!md) return;
+    
+    // Create message container
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'typewriter-message break-words';
+    this.messagesContainer.appendChild(messageDiv);
+    
+    // Add to queue and process
+    this.messageQueue.push({
+      text: String(md),
+      container: messageDiv,
+      isMarkdown: true
+    });
+    
+    this._processQueue();
+  }
+  
+  /**
+   * Appends plain text stream with typewriter effect.
+   */
+  appendStream(text) {
+    if (!text) return;
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'text-xs text-slate-500 break-words typewriter-message';
+    this.messagesContainer.appendChild(messageDiv);
+    
+    this.messageQueue.push({
+      text: String(text),
+      container: messageDiv,
+      isMarkdown: false
+    });
+    
+    this._processQueue();
+  }
+  
+  async _processQueue() {
+    if (this.isTyping || this.messageQueue.length === 0) return;
+    
+    this.isTyping = true;
+    
+    while (this.messageQueue.length > 0) {
+      const message = this.messageQueue.shift();
+      await this._typeMessage(message);
+    }
+    
+    this.isTyping = false;
+  }
+  
+  async _typeMessage(message) {
+    const { text, container, isMarkdown } = message;
+    
+    return new Promise((resolve) => {
+      try {
+        // Convert markdown to HTML if needed
+        let htmlContent = text;
+        if (isMarkdown) {
+          if (typeof marked === 'undefined') {
+            console.error('[TypewriterBox] marked.js library not loaded! Cannot render markdown.');
+            container.innerHTML = `<div class="text-rose-600 text-xs">Error: Markdown renderer not available. Please check console.</div>`;
+            scrollToBottom(this.containerElement);
+            resolve();
+            return;
+          }
+          // Use marked.js for full GFM markdown support
+          htmlContent = marked.parse(text);
+        }
+        
+        // Check if TypewriterJS is available
+        if (typeof Typewriter === 'undefined') {
+          // Fallback: display instantly if TypewriterJS not loaded
+          console.warn('[TypewriterBox] TypewriterJS not loaded, displaying content instantly');
+          container.innerHTML = htmlContent;
+          scrollToBottom(this.containerElement);
+          resolve();
+          return;
+        }
+        
+        // Create typewriter instance with custom styling
+        this.currentTypewriter = new Typewriter(container, {
+          loop: false,
+          delay: 20, // 20ms per character = 50 chars/second
+          cursor: '<span class="typewriter-cursor">▎</span>',
+          html: true
+        });
+        
+        // Type the HTML content
+        this.currentTypewriter
+          .typeString(htmlContent)
+          .callFunction(() => {
+            scrollToBottom(this.containerElement);
+            resolve();
+          })
+          .start();
+          
+      } catch (error) {
+        console.error('[TypewriterBox] Error in _typeMessage:', error);
+        // Emergency fallback: display escaped text
+        container.innerHTML = `<div class="text-rose-600 text-xs">Error displaying message: ${escapeHtml(error.message)}</div>`;
+        scrollToBottom(this.containerElement);
+        resolve();
+      }
+    });
+  }
+  
+  /**
+   * Marks the thinking box as finished.
+   * @param {string} status - 'ok' or 'error'
+   */
+  finish(status = 'ok') {
+    const seconds = Math.max(0, Math.round((Date.now() - this.startedAt) / 1000));
+    this.summaryLabel.textContent = `Agent completed in ${seconds}s`;
+    this.summaryIcon.className = status === 'ok' 
+      ? 'inline-block w-2 h-2 rounded-full bg-emerald-500' 
+      : 'inline-block w-2 h-2 rounded-full bg-rose-500';
+    this.element.open = false;
+    
+    // Hide thinking footer
+    if (this.thinkingFooter) {
+      this.thinkingFooter.style.display = 'none';
+    }
+    
+    // Stop any active typewriter
+    if (this.currentTypewriter) {
+      this.currentTypewriter.stop();
+    }
+  }
+  
+  /**
+   * Returns the underlying DOM element.
+   */
+  getElement() {
+    return this.element;
+  }
 }
 
