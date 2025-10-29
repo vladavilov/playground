@@ -21,12 +21,14 @@ from orchestrator.experts.evaluator import Evaluator
 from orchestrator.experts.clarification_strategist import ClarificationStrategist
 from orchestrator.experts.clients.gitlab_client import GitLabClient
 from task_models.agent_models import BacklogDraft
+from config import get_ai_tasks_settings
+import structlog
 
 async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int):
     """Build a LangGraph StateGraph for the backlog generation workflow.
     
     State keys:
-      - project_id: UUID
+      - project_id: UUID (internal PostgreSQL UUID)
       - prompt_id: UUID
       - requirements: str (original requirements text)
       - messages: List (chat history with reducer)
@@ -44,6 +46,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
       - result: GeneratedBacklogBundle | None
       - auth_header: str (optional)
       - gitlab_token: str (optional)
+      - gitlab_project_id: str (optional, numeric GitLab project ID)
     """
     class State(TypedDict, total=False):
         # Chat history with reducer
@@ -66,6 +69,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         result: Any
         auth_header: str
         gitlab_token: str
+        gitlab_project_id: str
 
     # Initialize experts
     analyst = RequirementsAnalyst()
@@ -252,12 +256,34 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         return {}  # No state changes, just validation
 
     async def fetch_backlog_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        # Fetch existing GitLab backlog
-        from config import get_ai_tasks_settings
+        logger = structlog.get_logger(__name__)
         settings = get_ai_tasks_settings()
         
+        gitlab_project_id = state.get("gitlab_project_id")
+        
+        # Handle projects without GitLab integration
+        if not gitlab_project_id:
+            logger.warning(
+                "No GitLab project ID available; skipping backlog fetch for duplicate detection",
+                project_id=str(state.get("project_id")),
+            )
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="fetching_backlog",
+                thought_summary="Skipping GitLab backlog fetch (project not linked to GitLab).",
+                details_md=(
+                    "### GitLab Integration Not Configured\n\n"
+                    "This project is not linked to a GitLab project. Duplicate detection will be skipped.\n\n"
+                    "To enable duplicate detection:\n"
+                    "1. Update project settings with a valid `gitlab_path` (e.g., 'namespace/project')\n"
+                    "2. Ensure GitLab authentication is configured"
+                ),
+            )
+            return {"gitlab_backlog": {"epics": [], "issues": []}}
+        
         gitlab_client = GitLabClient(
-            base_url=settings.GITLAB_INGESTION_BASE_URL,
+            base_url=settings.http.GITLAB_CLIENT_SERVICE_URL,
             timeout_sec=settings.http.CONNECTION_TIMEOUT,
         )
         
@@ -265,7 +291,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         gitlab_token = state.get("gitlab_token")
         
         gitlab_backlog = await gitlab_client.fetch_backlog(
-            project_id=str(state["project_id"]),
+            gitlab_project_id=gitlab_project_id,
             auth_header=auth_header,
             gitlab_token=gitlab_token,
         )

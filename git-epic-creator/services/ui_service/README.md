@@ -561,7 +561,7 @@ async def proxy_to_gitlab_client(path: str, request: Request):
     s2s_token = mint_jwt(session_id=request.session["sid"])
     
     # Forward to gitlab-client-service
-    target_url = f"{GITLAB_CLIENT_BASE_URL}/gitlab/{path}"
+    target_url = f"{GITLAB_CLIENT_SERVICE_URL}/gitlab/{path}"
     return await _forward(request, target_url, auth_token=s2s_token)
 ```
 

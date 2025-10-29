@@ -116,7 +116,7 @@ set OAI_BASE_URL=http://localhost:8010/v1
 set OAI_API_VERSION=2024-02-15-preview
 
 REM AI Workflow / GraphRAG Client Configuration
-set GRAPH_RAG_BASE_URL=http://localhost:8008
+set GRAPH_RAG_SERVICE_URL=http://localhost:8008
 set HTTP_TIMEOUT_SEC=5.0
 set RETRIEVAL_BACKOFF_BASE_SEC=0.2
 

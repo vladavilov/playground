@@ -17,7 +17,6 @@ from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from utils.jwt_utils import sign_jwt
-from utils.redis_client import get_redis_client
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -136,27 +135,6 @@ async def _get_or_mint_s2s_token(
 
     logger.debug("Minted new S2S token", target_service=target_service)
     return token
-
-
-async def _invalidate_s2s_token_cache(session: dict) -> None:
-    """
-    Invalidate S2S token cache for session.
-    
-    Called when session changes (e.g., after token refresh).
-    
-    Args:
-        session: Session dictionary
-    """
-    session_id = session.get("sid", "")
-    if session_id:
-        # Remove all cached tokens for this session
-        keys_to_remove = [k for k in _s2s_token_cache.keys() if k.startswith(f"{session_id}:")]
-        for key in keys_to_remove:
-            _s2s_token_cache.pop(key, None)
-
-        if keys_to_remove:
-            logger.debug("Invalidated S2S token cache", session_id=session_id, count=len(keys_to_remove))
-
 
 async def _forward(
     request: Request,

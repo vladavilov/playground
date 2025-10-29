@@ -2,11 +2,15 @@
 
 from uuid import UUID, uuid4
 from typing import List
+import structlog
 
 from task_models.request_models import GeneratedBacklogBundle
 from services.ai_tasks_status_publisher import AiTasksStatusPublisher
 from config import get_ai_tasks_settings
 from orchestrator import graph_pipeline as lg_pipeline
+from orchestrator.experts.clients.project_client import ProjectClient
+
+logger = structlog.get_logger(__name__)
 
 
 async def run_backlog_workflow(
@@ -20,11 +24,11 @@ async def run_backlog_workflow(
     """Run the backlog generation workflow.
     
     Args:
-        project_id: Project identifier
+        project_id: Project identifier (internal PostgreSQL UUID)
         requirements: Requirements text (markdown or plain)
         publisher: Redis publisher for progress updates
         prompt_id_opt: Optional conversation thread ID (creates new if None)
-        auth_header: Optional JWT auth header for GraphRAG service
+        auth_header: Optional JWT auth header for project and GraphRAG services
         gitlab_token: Optional GitLab access token
         
     Returns:
@@ -36,6 +40,39 @@ async def run_backlog_workflow(
 
     # Create/resolve prompt_id
     prompt_id_local = prompt_id_opt or uuid4()
+    
+    # Fetch gitlab_project_id from project_management_service
+    project_client = ProjectClient(
+        base_url=settings.http.PROJECT_MANAGEMENT_SERVICE_URL,
+        timeout_sec=settings.http.CONNECTION_TIMEOUT,
+    )
+    
+    gitlab_project_id = None
+    try:
+        gitlab_project_id = await project_client.get_gitlab_project_id(
+            project_id=project_id,
+            auth_header=auth_header,
+        )
+        
+        if gitlab_project_id:
+            logger.info(
+                "Retrieved GitLab project ID for workflow",
+                project_id=str(project_id),
+                gitlab_project_id=gitlab_project_id,
+            )
+        else:
+            logger.warning(
+                "Project has no GitLab integration; duplicate detection will be skipped",
+                project_id=str(project_id),
+            )
+    except Exception as e:
+        logger.error(
+            "Failed to fetch GitLab project ID; continuing with empty backlog",
+            project_id=str(project_id),
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        # Continue workflow without GitLab integration rather than failing
     
     # Build initial message
     msgs: List[dict] = [{"role": "user", "content": requirements}]
@@ -50,6 +87,7 @@ async def run_backlog_workflow(
             "messages": msgs,
             "auth_header": auth_header,
             "gitlab_token": gitlab_token,
+            "gitlab_project_id": gitlab_project_id,
         },
         {"configurable": {"thread_id": f"{project_id}:{prompt_id_local}"}},
     )

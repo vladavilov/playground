@@ -29,7 +29,12 @@ class HTTPClientSettings(BaseSettings):
     )
     GITLAB_CLIENT_SERVICE_URL: str = Field(
         default="http://localhost:8011",
-        description="URL for the GitLab client service"
+        description="URL for the GitLab client service",
+    )
+
+    GRAPH_RAG_SERVICE_URL: str = Field(
+        default="http://neo4j-retrieval-service:8000",
+        description="URL for the GraphRAG retrieval service",
     )
 
     # Connection settings
@@ -71,33 +76,15 @@ class HTTPClientSettings(BaseSettings):
         alias="HTTP_MAX_KEEPALIVE_CONNECTIONS"
     )
 
-    @field_validator('PROJECT_MANAGEMENT_SERVICE_URL')
+    @field_validator(
+        'PROJECT_MANAGEMENT_SERVICE_URL',
+        'AI_REQUIREMENTS_SERVICE_URL',
+        'AI_TASKS_SERVICE_URL',
+        'GITLAB_CLIENT_SERVICE_URL',
+        'GRAPH_RAG_SERVICE_URL',
+    )
     @classmethod
     def validate_url(cls, v: str) -> str:
-        """Validate that the URL is properly formatted."""
-        if not v.startswith(('http://', 'https://')):
-            raise ValueError('URL must start with http:// or https://')
-        return v
-
-    @field_validator('AI_REQUIREMENTS_SERVICE_URL')
-    @classmethod
-    def validate_ai_url(cls, v: str) -> str:
-        """Validate that the URL is properly formatted."""
-        if not v.startswith(('http://', 'https://')):
-            raise ValueError('URL must start with http:// or https://')
-        return v
-
-    @field_validator('AI_TASKS_SERVICE_URL')
-    @classmethod
-    def validate_ai_tasks_url(cls, v: str) -> str:
-        """Validate that the URL is properly formatted."""
-        if not v.startswith(('http://', 'https://')):
-            raise ValueError('URL must start with http:// or https://')
-        return v
-
-    @field_validator('GITLAB_CLIENT_SERVICE_URL')
-    @classmethod
-    def validate_gitlab_client_url(cls, v: str) -> str:
         """Validate that the URL is properly formatted."""
         if not v.startswith(('http://', 'https://')):
             raise ValueError('URL must start with http:// or https://')

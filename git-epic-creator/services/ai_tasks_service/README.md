@@ -69,6 +69,7 @@ graph TB
         subgraph Clients["HTTP Clients"]
             C1[graphrag_client.py]
             C2[gitlab_client.py]
+            C3[project_client.py]
         end
         
         subgraph Models["Data Models"]
@@ -80,6 +81,8 @@ graph TB
     
     UI -->|POST /tasks/generate| API
     API --> Orch
+    Orch -->|resolve gitlab_project_id| C3
+    C3 -->|GET /projects/{id}| ProjMgmt[Project Management<br/>Service]
     Orch --> Graph
     Graph --> E1 & E2 & E3 & E4 & E5 & E6 & E7
     E2 --> C1
@@ -184,7 +187,8 @@ ai_tasks_service/
 │           ├── clarification_strategist.py
 │           └── clients/
 │               ├── graphrag_client.py      # HTTP client for neo4j_retrieval_service
-│               └── gitlab_client.py        # HTTP client for gitlab_client_service
+│               ├── gitlab_client.py        # HTTP client for gitlab_client_service
+│               └── project_client.py       # HTTP client for project_management_service
 ├── tests/
 │   ├── test_config.py                      # Configuration validation tests
 │   └── test_models.py                      # Pydantic model tests
@@ -332,13 +336,17 @@ Liveness/readiness endpoint with Redis and GraphRAG connectivity checks.
 sequenceDiagram
     participant UI as UI Service
     participant AI as AI Tasks Service
+    participant ProjMgmt as Project Management
     participant Redis as Redis Pub/Sub
     participant Neo4j as Neo4j Retrieval
     participant GitLab as GitLab Client
     participant OpenAI as Azure OpenAI
     
-    UI->>AI: POST /tasks/generate<br/>(requirements, project_id)
+    UI->>AI: POST /tasks/generate<br/>(requirements, project_id UUID)
     activate AI
+    AI->>ProjMgmt: GET /projects/{project_id}
+    ProjMgmt-->>AI: {id, gitlab_project_id: "123"}
+    Note over AI: Resolve internal UUID<br/>to GitLab numeric ID
     AI->>Redis: Publish: analyzing_requirements
     AI->>AI: RequirementsAnalyst (LLM)
     AI->>OpenAI: Chat completion<br/>(extract intents/entities)
@@ -349,7 +357,8 @@ sequenceDiagram
     Neo4j-->>AI: {context, key_facts}
     
     AI->>Redis: Publish: fetching_backlog
-    AI->>GitLab: GET /backlog<br/>(project_id)
+    AI->>GitLab: GET /gitlab/projects/{gitlab_project_id}/backlog
+    Note over AI,GitLab: Uses numeric GitLab ID ("123")<br/>not internal UUID
     GitLab-->>AI: {epics, issues}<br/>with cached embeddings
     
     AI->>Redis: Publish: drafting_backlog
@@ -380,7 +389,7 @@ sequenceDiagram
 
 ### 1. Neo4j Retrieval Service (GraphRAG)
 
-**Endpoint:** `POST {GRAPH_RAG_BASE_URL}/retrieve`
+**Endpoint:** `POST {GRAPH_RAG_SERVICE_URL}/retrieve`
 
 **Purpose:** Fetches technical context (architecture patterns, existing implementations, constraints) to inform epic/task synthesis
 
@@ -399,13 +408,38 @@ sequenceDiagram
 }
 ```
 
-### 2. GitLab Client Service
+### 2. Project Management Service
 
-**Endpoint:** `GET {GITLAB_INGESTION_BASE_URL}/gitlab/projects/{project_id}/backlog`
+**Endpoint:** `GET {PROJECT_MANAGEMENT_SERVICE_URL}/projects/{project_id}`
+
+**Purpose:** Resolves internal PostgreSQL project UUID to GitLab numeric project ID
+
+**Client:** `orchestrator/experts/clients/project_client.py`
+
+**Request:** HTTP GET with Authorization header
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "My Project",
+  "gitlab_project_id": "123",
+  "gitlab_path": "namespace/project",
+  "status": "active"
+}
+```
+
+**Note:** If `gitlab_project_id` is null, the project is not linked to GitLab and duplicate detection is skipped.
+
+### 3. GitLab Client Service
+
+**Endpoint:** `GET {GITLAB_CLIENT_SERVICE_URL}/gitlab/projects/{gitlab_project_id}/backlog`
 
 **Purpose:** Fetches existing epics/issues with cached embeddings for duplicate detection
 
 **Client:** `orchestrator/experts/clients/gitlab_client.py`
+
+**Note:** Requires numeric GitLab project ID (e.g., "123"), not internal UUID
 
 **Response:**
 ```json
@@ -436,7 +470,12 @@ sequenceDiagram
 - **Avoids redundant embedding computations** (only computes for newly generated items)
 - **Reduces OpenAI API calls** by ~50% in typical scenarios
 
-### 3. Redis Pub/Sub
+**GitLab Integration Prerequisites:**
+- Project must have valid `gitlab_project_id` in Project Management database
+- `gitlab_project_id` is resolved during project creation via GitLab path lookup
+- If project not linked to GitLab, duplicate detection is gracefully skipped
+
+### 4. Redis Pub/Sub
 
 **Channel:** `ui:ai_tasks_progress`
 
@@ -471,8 +510,9 @@ sequenceDiagram
 
 ```bash
 # Service URLs
-GRAPH_RAG_BASE_URL=http://neo4j-retrieval-service:8000
-GITLAB_INGESTION_BASE_URL=http://gitlab-client-service:8000
+GRAPH_RAG_SERVICE_URL=http://neo4j-retrieval-service:8000
+GITLAB_CLIENT_SERVICE_URL=http://gitlab-client-service:8000
+PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
 HTTP_CONNECTION_TIMEOUT=30.0
 HTTP_READ_TIMEOUT=180.0
 WORKFLOW_TIMEOUT_SEC=150

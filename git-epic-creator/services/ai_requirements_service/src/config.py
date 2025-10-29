@@ -12,11 +12,6 @@ from configuration.http_client_config import HTTPClientSettings
 class AIRequirementsSettings(BaseConfig):
     """Settings specific to the AI requirements generation."""
 
-    GRAPH_RAG_BASE_URL: str = Field(
-        default="http://neo4j-retrieval-service:8000",
-        description="Base URL for GraphRAG/retrieval service health check",
-    )
-
     WORKFLOW_TIMEOUT_SEC: int = Field(
         default=150,
         description="Maximum workflow execution time in seconds (aborts gracefully before client timeout)",

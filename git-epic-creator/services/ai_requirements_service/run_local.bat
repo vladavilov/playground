@@ -27,7 +27,7 @@ REM Upstream services in docker-compose (reachable via localhost due to publishe
 set REDIS_URL=redis://localhost:6379
 
 REM GraphRAG retrieval service (neo4j-retrieval-service -> host 8008)
-set GRAPH_RAG_BASE_URL=http://localhost:8008
+set GRAPH_RAG_SERVICE_URL=http://localhost:8008
 set HTTP_TIMEOUT_SEC=5.0
 set RETRIEVAL_TOP_K=2
 set RETRY_MAX_ATTEMPTS=3

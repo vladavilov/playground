@@ -132,7 +132,7 @@ class ContextRetriever:
 
     def _build_url(self) -> str:
         settings = config.get_ai_requirements_settings()
-        base = settings.GRAPH_RAG_BASE_URL.rstrip("/")
+        base = settings.http.GRAPH_RAG_SERVICE_URL.rstrip("/")
         return f"{base}/retrieve"
 
     def _merge_query_with_intents(self, query: str, intents: List[str]) -> str:

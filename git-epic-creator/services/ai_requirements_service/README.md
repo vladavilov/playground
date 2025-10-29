@@ -263,7 +263,7 @@ Configuration
     - `HTTP_READ_TIMEOUT`: Read timeout from shared HTTPClientSettings (default: 180s for UI, overridable per service)
     - `WORKFLOW_TIMEOUT_SEC`: Maximum workflow execution time before graceful abort (default: 150s)
     - Note: WORKFLOW_TIMEOUT_SEC should be < HTTP_READ_TIMEOUT to allow graceful response before client timeout
-  - GRAPH_RAG_BASE_URL
+  - GRAPH_RAG_SERVICE_URL
   - EVAL_WEIGHTS: JSON or separate vars (PRECISION_WEIGHT, GROUNDING_WEIGHT, ...)
   - CLARIFICATION_SCORE_TARGET=0.70
   - REDIS_URL (via shared config)

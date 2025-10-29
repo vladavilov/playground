@@ -16,7 +16,7 @@ class ContextRetriever:
     def __init__(self) -> None:
         settings = get_ai_tasks_settings()
         self.client = GraphRAGClient(
-            base_url=settings.GRAPH_RAG_BASE_URL,
+            base_url=settings.http.GRAPH_RAG_SERVICE_URL,
             timeout_sec=settings.http.READ_TIMEOUT,
             max_attempts=settings.RETRY_MAX_ATTEMPTS,
             backoff_base_sec=settings.RETRIEVAL_BACKOFF_BASE_SEC,

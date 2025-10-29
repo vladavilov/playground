@@ -20,9 +20,6 @@ class UiSettings(BaseConfig):
     SESSION_SAME_SITE: str = Field(default="lax", description="Session SameSite policy")
     ALLOW_INSECURE_SESSION: bool = Field(default=False, description="Allow ephemeral secret in dev")
 
-    # GitLab Client Service URL (for proxying GitLab-related requests)
-    GITLAB_CLIENT_BASE_URL: str = Field(default="http://gitlab-client-service:8000", description="Base URL of gitlab-client-service for proxying")
-
 
 @lru_cache()
 def get_ui_settings() -> UiSettings:

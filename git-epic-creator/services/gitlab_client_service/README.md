@@ -117,11 +117,11 @@ This service uses two distinct URL concepts:
    - Used for OAuth authorization and token exchange
    - Used by `python-gitlab` client
 
-2. **`GITLAB_CLIENT_BASE_URL`**: The internal gitlab-client-service URL (e.g., `http://gitlab-client-service:8000`)
+2. **`GITLAB_CLIENT_SERVICE_URL`**: The internal gitlab-client-service URL (e.g., `http://gitlab-client-service:8000`)
    - Used by other services (ui-service, project-management-service) to communicate with this service
    - **Not** used within gitlab-client-service itself
 
-> **Important:** Do not confuse these two URLs. `GITLAB_CLIENT_BASE_URL` is the URL of *this microservice*, not the GitLab instance.
+> **Important:** Do not confuse these two URLs. `GITLAB_CLIENT_SERVICE_URL` is the URL of *this microservice*, not the GitLab instance.
 
 ### Environment Variables
 
@@ -187,7 +187,7 @@ GITLAB_OAUTH_SCOPES="read_api api"      # OAuth scopes (space-separated)
 
 > **Important:** `GITLAB_OAUTH_REDIRECT_URI` should point to ui-service (e.g., `http://localhost:8007/auth/gitlab/callback`), not directly to gitlab-client-service. ui-service acts as a transparent proxy, forwarding all OAuth requests and responses between the browser and gitlab-client-service.
 
-> **Note:** OAuth URLs are constructed using `GITLAB_BASE_URL`. There is no need for a separate `GITLAB_CLIENT_BASE_URL` in gitlab-client-service configuration.
+> **Note:** OAuth URLs are constructed using `GITLAB_BASE_URL`. There is no alternate client URL variable—`GITLAB_CLIENT_SERVICE_URL` covers all internal requests.
 
 **Local JWT (for service-to-service auth):**
 ```env
