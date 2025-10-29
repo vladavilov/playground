@@ -79,7 +79,7 @@ def _mint_s2s_token(session: dict, target_service: str) -> str:
     # Build comprehensive claims
     claims = {
         # Identity claims
-        "oid": str(session.get("oid") or ""),
+        "oid": str(session.get("oid") or ""),  # Azure AD user object ID for GitLab token lookup
         "tid": str(session.get("tid") or ""),
         "preferred_username": session.get("username"),
         "roles": session.get("roles") or [],
@@ -335,17 +335,17 @@ async def proxy_gitlab_auth(request: Request, path: str):
     """
     Proxy GitLab OAuth endpoints to gitlab-client-service.
     
-    For /authorize endpoint, adds session_id as query parameter for OAuth state correlation.
+    For /authorize endpoint, adds user_id (oid) as query parameter for OAuth state correlation.
     All other endpoints are forwarded as-is with S2S JWT authentication.
     """
     gitlab_client_url = get_app_settings().http_client.GITLAB_CLIENT_SERVICE_URL.rstrip("/")
     target_url = f"{gitlab_client_url}/auth/gitlab/{path}"
     
-    # Add session_id to authorize endpoint for OAuth state correlation
+    # Add user_id (oid) to authorize endpoint for OAuth state correlation
     if path == "authorize":
         from urllib.parse import urlencode
         query_params = dict(request.query_params)
-        query_params["session_id"] = request.session.get("sid", "")
+        query_params["user_id"] = request.session.get("oid", "")
         target_url += f"?{urlencode(query_params)}"
     elif request.url.query:
         target_url += f"?{request.url.query}"

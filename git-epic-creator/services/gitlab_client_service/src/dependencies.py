@@ -16,20 +16,20 @@ logger = structlog.get_logger(__name__)
 
 def get_session_id_from_jwt(request: Request) -> str:
     """
-    Extract session_id from S2S JWT token.
+    Extract user_id (oid) from S2S JWT token.
     
-    Expects JWT in Authorization header with claim 'oid', 'session_id', or 'sid'.
-    This enables session-based authentication where GitLab tokens are stored
-    in Redis and looked up by session ID.
+    Expects JWT in Authorization header with 'oid' claim (Azure AD user object ID).
+    This enables user-based authentication where GitLab tokens are stored
+    in Redis and looked up by user ID.
     
     Args:
         request: FastAPI request object
         
     Returns:
-        Session ID extracted from JWT claims
+        User ID (oid) extracted from JWT claims
         
     Raises:
-        HTTPException: If JWT is invalid or missing session_id claim
+        HTTPException: If JWT is invalid or missing oid claim
     """
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -43,17 +43,17 @@ def get_session_id_from_jwt(request: Request) -> str:
     
     try:
         claims = verify_jwt(token, verify_exp=True)
-        session_id = claims.get("oid") or claims.get("session_id") or claims.get("sid")
+        user_id = claims.get("oid")
         
-        if not session_id:
-            logger.warning("JWT missing session_id claim", claims=list(claims.keys()))
+        if not user_id:
+            logger.warning("JWT missing oid claim", claims=list(claims.keys()))
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="JWT missing session_id claim"
+                detail="JWT missing oid claim (user ID)"
             )
         
-        logger.debug("Extracted session_id from JWT", session_id=session_id)
-        return session_id
+        logger.debug("Extracted user_id from JWT", user_id=user_id)
+        return user_id
     except HTTPException:
         raise
     except Exception as e:
@@ -118,19 +118,19 @@ def get_redis_client_dep() -> redis.Redis:
 
 async def get_gitlab_client_dep(
     request: Request,
-    session_id: str = Depends(get_session_id_from_jwt),
+    user_id: str = Depends(get_session_id_from_jwt),
     settings: GitLabClientSettings = Depends(get_gitlab_client_settings),
     redis_client: redis.Redis = Depends(get_redis_client_dep)
 ) -> gitlab.Gitlab:
     """
     FastAPI dependency for injecting configured GitLab client.
     
-    Uses session-based authentication: looks up GitLab token from Redis
-    using session_id extracted from S2S JWT.
+    Uses user-based authentication: looks up GitLab token from Redis
+    using user_id (oid) extracted from S2S JWT.
     
     Args:
         request: FastAPI request object (for accessing app state)
-        session_id: Extracted from JWT Authorization header
+        user_id: Azure AD user object ID (oid) extracted from JWT Authorization header
         settings: GitLab client settings
         redis_client: Redis client for token lookup
         
@@ -139,19 +139,14 @@ async def get_gitlab_client_dep(
         
     Raises:
         HTTPException: If GitLab token not found in Redis or expired
-    
-    Note:
-        Token refresh is handled automatically by Authlib when making API calls.
-        The update_token callback uses token-to-session reverse mapping to
-        identify which session to update without manual context management.
     """
     
     
     # Load token from Redis
-    token_data = await get_token(session_id, redis_client)
+    token_data = await get_token(user_id, redis_client)
     
     if not token_data or not token_data.get("access_token"):
-        logger.warning("GitLab token not found for session", session_id=session_id)
+        logger.warning("GitLab token not found for user", user_id=user_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="GitLab not connected. Please authenticate with GitLab."
@@ -160,8 +155,8 @@ async def get_gitlab_client_dep(
     gitlab_token = token_data["access_token"]
     
     logger.debug(
-        "GitLab client created for session",
-        session_id=session_id,
+        "GitLab client created for user",
+        user_id=user_id,
         token_expires_at=token_data.get('expires_at') or token_data.get('created_at', 0) + token_data.get('expires_in', 0)
     )
     
