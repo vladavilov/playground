@@ -320,6 +320,7 @@ export class TypewriterBox {
     this.messageQueue = [];
     this.isTyping = false;
     this.currentTypewriter = null;
+    this.currentContainer = null;
     
     this._createElements();
     this._configureMarked();
@@ -393,6 +394,17 @@ export class TypewriterBox {
   }
   
   /**
+   * Removes cursor from container
+   */
+  _removeCursor(container) {
+    if (!container) return;
+    const cursor = container.querySelector('.typewriter-cursor');
+    if (cursor) {
+      cursor.remove();
+    }
+  }
+  
+  /**
    * Appends markdown text with typewriter effect.
    * Uses marked.js to convert markdown to HTML, then TypewriterJS to animate.
    */
@@ -451,6 +463,12 @@ export class TypewriterBox {
     
     return new Promise((resolve) => {
       try {
+        // Remove cursor from previous container
+        if (this.currentContainer && this.currentContainer !== container) {
+          this._removeCursor(this.currentContainer);
+        }
+        this.currentContainer = container;
+        
         // Convert markdown to HTML if needed
         let htmlContent = text;
         if (isMarkdown) {
@@ -479,14 +497,19 @@ export class TypewriterBox {
         this.currentTypewriter = new Typewriter(container, {
           loop: false,
           delay: 20, // 20ms per character = 50 chars/second
-          cursor: '<span class="typewriter-cursor">▎</span>',
+          cursor: '', // Disable default cursor, we'll add custom one
           html: true
         });
         
-        // Type the HTML content
+        // Add custom inline cursor at the end
+        const cursorSpan = '<span class="typewriter-cursor">▎</span>';
+        
+        // Type the HTML content with cursor at the end
         this.currentTypewriter
-          .typeString(htmlContent)
+          .typeString(htmlContent + cursorSpan)
           .callFunction(() => {
+            // Remove cursor after typing completes
+            this._removeCursor(container);
             scrollToBottom(this.containerElement);
             resolve();
           })
@@ -512,7 +535,14 @@ export class TypewriterBox {
     this.summaryIcon.className = status === 'ok' 
       ? 'inline-block w-2 h-2 rounded-full bg-emerald-500' 
       : 'inline-block w-2 h-2 rounded-full bg-rose-500';
-    this.element.open = false;
+    
+    // Remove any remaining cursors
+    if (this.currentContainer) {
+      this._removeCursor(this.currentContainer);
+    }
+    // Also check all message containers for stray cursors
+    const allContainers = this.messagesContainer.querySelectorAll('.typewriter-message');
+    allContainers.forEach(container => this._removeCursor(container));
     
     // Hide thinking footer
     if (this.thinkingFooter) {
@@ -523,6 +553,9 @@ export class TypewriterBox {
     if (this.currentTypewriter) {
       this.currentTypewriter.stop();
     }
+    
+    // Close the details box
+    this.element.open = false;
   }
   
   /**

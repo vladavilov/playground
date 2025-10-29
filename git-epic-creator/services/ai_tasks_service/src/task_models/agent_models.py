@@ -6,6 +6,17 @@ from pydantic import BaseModel, Field
 from .backlog_models import Epic
 
 
+class Citation(BaseModel):
+    """Citation with user-friendly format: document name and text preview."""
+    chunk_id: str = Field(..., description="Chunk UUID")
+    text_preview: str = Field(..., description="Shortened chunk text (max 150 chars)")
+    document_name: str = Field(..., description="Source document title")
+
+    def __str__(self) -> str:
+        """Format citation as: [document_name] "text_preview" """
+        return f"[{self.document_name}] \"{self.text_preview}\""
+
+
 class RequirementsAnalysis(BaseModel):
     """Output from RequirementsAnalyst expert."""
 
@@ -20,7 +31,7 @@ class RetrievedContext(BaseModel):
 
     context_answer: str = Field(..., description="Context summary from GraphRAG")
     key_facts: List[str] = Field(default_factory=list, description="Key technical facts")
-    citations: List[str] = Field(default_factory=list, description="Citation references")
+    citations: List[Citation] = Field(default_factory=list, description="Citation references with formatted display")
 
 
 class BacklogDraft(BaseModel):

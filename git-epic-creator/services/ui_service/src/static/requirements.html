@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Requirements | AI Agent</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Markdown and Typewriter Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-  <script src="https://unpkg.com/typewriter-effect@latest/dist/core.js"></script>
+  <!-- Markdown and Typewriter Libraries - Load synchronously before modules -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/typewriter-effect@latest/dist/core.js" crossorigin="anonymous"></script>
   <style>
     @keyframes pulse-glow {
       0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
@@ -232,6 +232,21 @@
     </div>
   </div>
 
+  <!-- Wait for external libraries before loading module -->
+  <script>
+    // Ensure marked and Typewriter are loaded before the module executes
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof marked === 'undefined' || typeof Typewriter === 'undefined') {
+        console.error('External libraries not loaded. Retrying in 100ms...');
+        setTimeout(() => {
+          if (typeof marked === 'undefined') console.error('marked.js failed to load');
+          if (typeof Typewriter === 'undefined') console.error('Typewriter failed to load');
+        }, 100);
+      } else {
+        console.log('External libraries loaded successfully:', { marked: typeof marked, Typewriter: typeof Typewriter });
+      }
+    });
+  </script>
   <script type="module" src="/requirements.js"></script>
 </body>
 </html>

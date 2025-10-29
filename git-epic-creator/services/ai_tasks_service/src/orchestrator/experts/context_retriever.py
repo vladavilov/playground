@@ -3,7 +3,7 @@
 from typing import Any, List
 import structlog
 
-from task_models.agent_models import RequirementsAnalysis, RetrievedContext
+from task_models.agent_models import RequirementsAnalysis, RetrievedContext, Citation
 from orchestrator.experts.clients.graphrag_client import GraphRAGClient
 from config import get_ai_tasks_settings
 
@@ -60,35 +60,100 @@ class ContextRetriever:
         
         # Parse response
         key_facts = []
-        citations: List[str] = []
+        citations: List[Citation] = []
         
         try:
             for kf in data.get("key_facts", []) or []:
                 fact = kf.get("fact")
                 if isinstance(fact, str) and fact:
                     key_facts.append(fact)
+                # Parse citations from key_facts (may be strings or dicts)
                 for cid in kf.get("citations", []) or []:
                     try:
-                        citations.append(str(cid))
-                    except Exception:
+                        if isinstance(cid, str):
+                            # Legacy format: just chunk_id
+                            logger.warning(
+                                "legacy_citation_format",
+                                chunk_id=cid,
+                                message="Citation in legacy string format (no document name or span)"
+                            )
+                            citations.append(Citation(
+                                chunk_id=cid,
+                                text_preview="",
+                                document_name="unknown"
+                            ))
+                        elif isinstance(cid, dict):
+                            # New format: full citation object
+                            chunk_id = str(cid.get("chunk_id", ""))
+                            span = str(cid.get("span", ""))
+                            doc_name = str(cid.get("document_name", "unknown"))
+                            
+                            # Warn if document_name is unknown or empty
+                            if not chunk_id or not chunk_id.strip():
+                                logger.warning(
+                                    "citation_empty_chunk_id",
+                                    citation=cid,
+                                    message="Citation has empty chunk_id from retrieval service"
+                                )
+                            if doc_name == "unknown" or not doc_name.strip():
+                                logger.warning(
+                                    "citation_unknown_document",
+                                    chunk_id=chunk_id,
+                                    span_preview=span[:50] if span else "",
+                                    message="Citation has 'unknown' document name (missing in retrieval or invalid chunk_id)"
+                                )
+                            
+                            text_preview = span[:150] + "..." if len(span) > 150 else span
+                            citations.append(Citation(
+                                chunk_id=chunk_id,
+                                text_preview=text_preview,
+                                document_name=doc_name
+                            ))
+                    except Exception as e:
+                        logger.warning("citation_parse_error", error=str(e), citation=str(cid)[:100])
                         continue
             
-            # Also include top-level citations if present
+            # Also include top-level citations (objects with chunk_id/span/document_name)
             for c in data.get("citations", []) or []:
                 try:
                     if isinstance(c, dict) and "chunk_id" in c:
-                        citations.append(str(c.get("chunk_id")))
-                except Exception:
+                        chunk_id = str(c.get("chunk_id", ""))
+                        span = str(c.get("span", ""))
+                        doc_name = str(c.get("document_name", "unknown"))
+                        
+                        # Warn if document_name is unknown or empty
+                        if not chunk_id or not chunk_id.strip():
+                            logger.warning(
+                                "toplevel_citation_empty_chunk_id",
+                                citation=c,
+                                message="Top-level citation has empty chunk_id from retrieval service"
+                            )
+                        if doc_name == "unknown" or not doc_name.strip():
+                            logger.warning(
+                                "toplevel_citation_unknown_document",
+                                chunk_id=chunk_id,
+                                span_preview=span[:50] if span else "",
+                                message="Top-level citation has 'unknown' document name (missing in retrieval or invalid chunk_id)"
+                            )
+                        
+                        text_preview = span[:150] + "..." if len(span) > 150 else span
+                        citations.append(Citation(
+                            chunk_id=chunk_id,
+                            text_preview=text_preview,
+                            document_name=doc_name
+                        ))
+                except Exception as e:
+                    logger.warning("toplevel_citation_parse_error", error=str(e), citation=str(c)[:100])
                     continue
         except Exception:
             pass
         
-        # Deduplicate citations while preserving order
+        # Deduplicate citations by chunk_id while preserving order
         seen = set()
         dedup_citations = []
         for c in citations:
-            if c not in seen:
-                seen.add(c)
+            if c.chunk_id not in seen:
+                seen.add(c.chunk_id)
                 dedup_citations.append(c)
         
         # Log retrieval results to distinguish genuine absence vs failure
