@@ -17,6 +17,22 @@ export function scrollToBottom(element) {
   if (element) element.scrollTop = element.scrollHeight;
 }
 
+/**
+ * Smart scroll: only scrolls to bottom if user is already near bottom (within 100px)
+ * This prevents disrupting user's manual scrolling
+ */
+export function smartScrollToBottom(element, threshold = 100) {
+  if (!element) return false;
+  
+  const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
+  
+  if (isNearBottom) {
+    element.scrollTop = element.scrollHeight;
+    return true;
+  }
+  return false;
+}
+
 export function formatDate(isoString) {
   if (!isoString) return 'N/A';
   try {
@@ -493,32 +509,31 @@ export class TypewriterBox {
           return;
         }
         
-        // Scroll to show initial state
-        scrollToBottom(this.containerElement);
+        // Initial scroll (smart scroll - only if user is near bottom)
+        smartScrollToBottom(this.containerElement);
         
-        // Create typewriter instance with built-in cursor
+        // Create typewriter instance with proper options
         this.currentTypewriter = new Typewriter(container, {
           loop: false,
-          cursor: '▎', // Use custom cursor character
-          html: true,
-          cursorClassName: 'typewriter-cursor',
-          delay: 'natural' // Natural typing variation
+          delay: 5, // 5ms per character = 200 chars/second (typeSpeed)
+          deleteSpeed: 5,
+          cursor: '<span class="typewriter-cursor">▎</span>', // Inline cursor as HTML
+          html: true
         });
         
-        // Periodically scroll during typing to keep content visible
+        // Periodically scroll during typing (smart scroll - respects user position)
         const scrollInterval = setInterval(() => {
-          scrollToBottom(this.containerElement);
+          smartScrollToBottom(this.containerElement);
         }, 150);
         
-        // Type the HTML content with controlled speed
+        // Type the HTML content
         this.currentTypewriter
-          .changeDelay(5) // 5ms per character = 200 chars/second
           .typeString(htmlContent)
           .callFunction(() => {
             // Clear scroll interval and remove cursor after typing completes
             clearInterval(scrollInterval);
             this._removeCursor(container);
-            scrollToBottom(this.containerElement);
+            smartScrollToBottom(this.containerElement);
             resolve();
           })
           .start();
