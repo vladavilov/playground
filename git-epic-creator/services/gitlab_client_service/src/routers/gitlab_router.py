@@ -1,6 +1,6 @@
 """GitLab API router with normalized endpoints."""
 
-from typing import List, Optional
+from typing import Optional
 import structlog
 from fastapi import APIRouter, Depends, Query, HTTPException, status, BackgroundTasks
 import gitlab
@@ -9,7 +9,9 @@ from models import (
     ListResponse, 
     ApplyBacklogRequest, 
     ApplyBacklogResponse, 
-    ApplyBacklogResults, 
+    ApplyBacklogResults,
+    ApplyBacklogItemResult,
+    ApplyBacklogError,
     ResolveProjectRequest,
     ResolveProjectResponse
 )
@@ -278,18 +280,18 @@ async def apply_backlog(
                             description=epic_data.description,
                             labels=epic_data.labels
                         )
-                        results.epics.append({
-                            "input_index": idx,
-                            "action": "updated",
-                            "id": work_item.id,
-                            "web_url": work_item.web_url
-                        })
+                        results.epics.append(ApplyBacklogItemResult(
+                            input_index=idx,
+                            action="updated",
+                            id=work_item.id,
+                            web_url=work_item.web_url
+                        ))
                     else:
-                        errors.append({
-                            "scope": "epic",
-                            "input_index": idx,
-                            "message": "Project has no group for epics"
-                        })
+                        errors.append(ApplyBacklogError(
+                            scope="epic",
+                            input_index=idx,
+                            message="Project has no group for epics"
+                        ))
                 else:
                     # Create new epic
                     if group:
@@ -299,18 +301,18 @@ async def apply_backlog(
                             description=epic_data.description,
                             labels=epic_data.labels
                         )
-                        results.epics.append({
-                            "input_index": idx,
-                            "action": "created",
-                            "id": work_item.id,
-                            "web_url": work_item.web_url
-                        })
+                        results.epics.append(ApplyBacklogItemResult(
+                            input_index=idx,
+                            action="created",
+                            id=work_item.id,
+                            web_url=work_item.web_url
+                        ))
                     else:
-                        errors.append({
-                            "scope": "epic",
-                            "input_index": idx,
-                            "message": "Project has no group for epics"
-                        })
+                        errors.append(ApplyBacklogError(
+                            scope="epic",
+                            input_index=idx,
+                            message="Project has no group for epics"
+                        ))
             
             except Exception as e:
                 logger.error(
@@ -319,11 +321,11 @@ async def apply_backlog(
                     epic_index=idx,
                     error=str(e)
                 )
-                errors.append({
-                    "scope": "epic",
-                    "input_index": idx,
-                    "message": str(e)
-                })
+                errors.append(ApplyBacklogError(
+                    scope="epic",
+                    input_index=idx,
+                    message=str(e)
+                ))
         
         # Process issues
         for idx, issue_data in enumerate(request.issues):
@@ -337,12 +339,12 @@ async def apply_backlog(
                         description=issue_data.description,
                         labels=issue_data.labels
                     )
-                    results.issues.append({
-                        "input_index": idx,
-                        "action": "updated",
-                        "id": work_item.id,
-                        "web_url": work_item.web_url
-                    })
+                    results.issues.append(ApplyBacklogItemResult(
+                        input_index=idx,
+                        action="updated",
+                        id=work_item.id,
+                        web_url=work_item.web_url
+                    ))
                 else:
                     # Create new issue
                     work_item = gitlab_service.create_issue(
@@ -351,12 +353,12 @@ async def apply_backlog(
                         description=issue_data.description,
                         labels=issue_data.labels
                     )
-                    results.issues.append({
-                        "input_index": idx,
-                        "action": "created",
-                        "id": work_item.id,
-                        "web_url": work_item.web_url
-                    })
+                    results.issues.append(ApplyBacklogItemResult(
+                        input_index=idx,
+                        action="created",
+                        id=work_item.id,
+                        web_url=work_item.web_url
+                    ))
             
             except Exception as e:
                 logger.error(
@@ -365,16 +367,16 @@ async def apply_backlog(
                     issue_index=idx,
                     error=str(e)
                 )
-                errors.append({
-                    "scope": "issue",
-                    "input_index": idx,
-                    "message": str(e)
-                })
+                errors.append(ApplyBacklogError(
+                    scope="issue",
+                    input_index=idx,
+                    message=str(e)
+                ))
         
         # Check if any errors indicate authentication failure (401)
         has_auth_error = any(
-            "401" in str(error.get("message", "")) or 
-            "Unauthorized" in str(error.get("message", ""))
+            "401" in str(error.message) or 
+            "Unauthorized" in str(error.message)
             for error in errors
         )
         
@@ -400,10 +402,10 @@ async def apply_backlog(
             gitlab_project_id=project_id,
             internal_project_id=request.internal_project_id,
             prompt_id=request.prompt_id,
-            epics_created=sum(1 for e in results.epics if e["action"] == "created"),
-            epics_updated=sum(1 for e in results.epics if e["action"] == "updated"),
-            issues_created=sum(1 for i in results.issues if i["action"] == "created"),
-            issues_updated=sum(1 for i in results.issues if i["action"] == "updated"),
+            epics_created=sum(1 for e in results.epics if e.action == "created"),
+            epics_updated=sum(1 for e in results.epics if e.action == "updated"),
+            issues_created=sum(1 for i in results.issues if i.action == "created"),
+            issues_updated=sum(1 for i in results.issues if i.action == "updated"),
             errors=len(errors)
         )
         
