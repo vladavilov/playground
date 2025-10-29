@@ -44,7 +44,7 @@ class GitLabClientAdapter:
             write=self.config.CONNECTION_TIMEOUT,
             pool=self.config.CONNECTION_TIMEOUT,
         )
-        self.client = httpx.AsyncClient(timeout=timeout)
+        self.client = httpx.AsyncClient(timeout=timeout, base_url=self.base_url)
     
     async def close(self):
         """Close HTTP client."""
