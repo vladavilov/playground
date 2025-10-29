@@ -149,14 +149,28 @@ CONSISTENCY_AUDITOR = PromptSpec(
         "6. GROUNDEDNESS: Ensure requirements trace to provided contexts; flag unsupported claims\n"
         "7. DOMAIN RELEVANCE: Check for missing financial domain concerns (compliance, audit, data integrity, security)\n"
         "8. PRIORITY CONSISTENCY: Verify MoSCoW priorities align with business criticality and risk levels\n\n"
-        "Severity Scoring:\n"
-        "- 0.0-0.3: Minor issues (style, formatting)\n"
-        "- 0.4-0.6: Moderate issues (ambiguity, missing details)\n"
-        "- 0.7-1.0: Critical issues (contradictions, gaps, untestable criteria)\n\n"
+        "Severity Scoring (CRITICAL - MUST JUSTIFY TOUR SCORE):\n"
+        "- 0.0-0.3: Minor issues (style, formatting) - e.g., 2-3 style inconsistencies, no critical impact\n"
+        "- 0.4-0.6: Moderate issues (ambiguity, missing details)- e.g., 3-5 vague tems, 1-2 incomplete Acceptance Criteria\n"
+        "- 0.7-1.0: Critical issues (contradictions, gaps, untestable criteria)- e.g., missing requirements, contradictions, untestable ACs\n\n"
+        "MANDATORY SCORING INSTRUCTIONS:\n"
+        "1. Count the issues you found in each category (contradictions, duplicates, ambiguity, testability, groundedness, domain, priority)\n"
+        "2. Assess the severity of each issue (minor/moderate/critical)\n"
+        "3. Calculate severity based on the WORST category and the COUNT of issues:\n"
+        "   - 0 critical issues and <3 moderate issues = 0.0-0.3\n"
+        "   - 3-5 moderate issues or 1 critical issue = 0.4-0.6\n"
+        "   - >5 moderate issues or >1 critical issues = 0.7-1.0\n"
+        "4. In suggestions array, FIRST item MUST be your justification: 'SEVERITY JUSTIFICATION: Found X contradictions (critical), Y gaps (critical), Z ambiguous terms (moderate) = severity A.B'\n"
+        "5. DO NOT use 0.5 as default - calculate based on actual issue counts\n\n"
         "Respond ONLY with valid JSON:\n"
         "{{\n"
         "  \"severity\": 0.0-1.0,\n"
-        "  \"suggestions\": [\"Specific actionable improvement 1\", \"Specific actionable improvement 2\", ...]\n"
+        "  \"suggestions\": [\n"
+        "    \"SEVERITY JUSTIFICATION: [detailed count of issues by category and severity level leading to the score]\",\n"
+        "    \"Specific actionable improvement 1\",\n"
+        "    \"Specific actionable improvement 2\",\n"
+        "    ...\n"
+        "  ]\n"
         "}}"
     ),
     human="requirements: {requirements}\nassumptions: {assumptions}\nrisks: {risks}\ncontexts: {contexts}",
@@ -193,5 +207,3 @@ QUESTION_STRATEGIST = PromptSpec(
     ),
     human="user_prompt: {prompt}\ndraft: {draft}\naxis_scores: {axes}",
 )
-
-

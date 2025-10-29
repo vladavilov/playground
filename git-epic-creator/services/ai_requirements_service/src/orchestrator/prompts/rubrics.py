@@ -6,13 +6,25 @@ from deepeval.test_case import LLMTestCaseParams
 def groundedness_rubric() -> Dict[str, Any]:
     return {
         "name": "Citations",
-        "criteria": "Does the actual output cite or clearly derive from the provided context?",
+        "criteria": (
+            "Does the actual output cite or clearly derive from the provided context?\n\n"
+            "Scoring scale:\n"
+            "- 0.00: No connection to context, entirely fabricated content\n"
+            "- 0.15: ~15% of claims grounded; mostly unsupported or speculative\n"
+            "- 0.30: ~30% Minimal grounding, most content appears fabricated or assumed\n"
+            "- 0.45-0.60: Some requirements grounded, but significant claims lack context support\n"
+            "- 0.60-0.75: Major part of requirements is grounded, but some claims lack context support, or some assumptions are made\n"
+            "- 0.90-1.00: All requirements and details directly traceable to context, explicit citations present\n\n"
+        ),
         "evaluation_steps": [
+            "Score based on percentage of claims traceable to context."
             "Identify all claims, facts, or statements in the actual output",
             "For each claim, verify if it can be traced back to or derived from the provided context",
             "Check if the actual output includes explicit citations or references to the context",
             "Evaluate whether the actual output introduces information not present in the context",
-            "Assign a score based on how well the actual output is grounded in the provided context",
+            "Count the percentage of claims that are grounded: (grounded_claims/ total_claims) = base_score",
+            "Apply deductions: -0.10 for each critical unsupported claim (e.g., requirements, acceptance criteria)",
+            "Assign final score between 0.00 and 1.00 based on base_score and deductions",
         ],
         "evaluation_params": ["ACTUAL_OUTPUT", "CONTEXT"],
         "strict_mode": False,
@@ -23,14 +35,31 @@ def groundedness_rubric() -> Dict[str, Any]:
 def completeness_rubric() -> Dict[str, Any]:
     return {
         "name": "Completeness",
-        "criteria": "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria.",
+        "criteria": (
+            "All user intents and constraints are fully addressed with grounded requirements and testable acceptance criteria.\n\n"
+            "Scoring scale:\n"
+            "- 0.00: Critical intents missing, ACs not testable, major coverage gaps\n"
+            "- 0.15: Many intents unaddressed; ACs largely non-testable or absent\n"
+            "- 0.30: Some intents covered, but significant gaps; few G/W/T ACs\n"
+            "- 0.45-0.60: Majority of intents covered; several ACs lack G/W/T or are shallow\n"
+            "- 0.60-0.75: Most intents covered with testable ACs; minor gaps remain\n"
+            "- 0.90-1.00: All intents addressed; all ACs fully testable (Given/When/Then), comprehensive edge/error coverage\n"
+        ),
         "evaluation_steps": [
-            "Extract all user intents, requirements, and constraints from the input",
-            "Identify each requirement, acceptance criterion, and assumption in the actual output",
-            "Verify that each user intent from the input is addressed in the actual output",
-            "Check if acceptance criteria are testable and follow Given/When/Then format",
-            "Assess if any user intent or constraint is missing or inadequately addressed",
-            "Assign a score based on completeness of coverage and quality of testable criteria",
+            "Extract and count all user intents from INPUT (intents_total)",
+            "Identify, in ACTUAL_OUTPUT, which intents are addressed with corresponding requirements (intents_addressed)",
+            "For each addressed intent, verify presence of at least one Acceptance Criteria in Given/When/Then (G/W/T) form; count those intents (intents_testable)",
+            "Optional quality bonus: count intents that include multiple scenarios (normal, edge, error) with concrete data; (intents_rich)",
+            "Handle edge case: if intents_total == 0 then score = 1.0",
+            "Compute coverage = intents_addressed / intents_total",
+            "Compute testability = intents_testable / intents_total",
+            "Compute bonus = min(0.05, intents_rich / intents_total * 0.10)  (cap at +0.05)",
+            "Compute deductions: ded_missing = 0.10 * (intents_total - intents_addressed)",
+            "Compute ded_untestable = 0.05 * max(0, intents_addressed - intents_testable)",
+            "Compute ded_ambiguity = 0.05 if ACTUAL_OUTPUT contains >3 vague terms (e.g., 'user-friendly', 'fast', 'should be able to'), else 0.00",
+            "Compute raw_score = 0.5 * coverage + 0.5 * testability + bonus - (ded_missing + ded_untestable + ded_ambiguity)",
+            "Clamp final score to [0.00, 1.00] and round to two decimals",
+            "Provide a brief justification citing counts (covered/testable/missing, bonuses, deductions)",
         ],
         "evaluation_params": ["INPUT", "ACTUAL_OUTPUT"],
         "strict_mode": False,

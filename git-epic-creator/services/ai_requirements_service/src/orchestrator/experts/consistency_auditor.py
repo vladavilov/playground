@@ -69,6 +69,16 @@ class ConsistencyAuditor:
             "risks": payload["risks"],
             "contexts": self._aggregate_context(context),
         })
+
+        justification = out.suggestions[0] if out.suggestions else "No justification provided"
+
+        logger.info(
+            "consistency_auditor_severity_scored",
+            severity=float(out.severity or 0.0),
+            justification=justification,
+            suggestion_count=len(out.suggestions),
+        )
+
         for s in out.suggestions:
             if isinstance(s, str) and s:
                 suggestions.append(s)
