@@ -37,9 +37,9 @@ from typing import Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from urllib.parse import urlencode
-import time
 
-from services.gitlab_token_manager import save_token, get_token, clear_token
+from utils.redis_client import get_redis_client
+from services.gitlab_token_manager import get_token, clear_token, exchange_token_for_user
 from dependencies import get_session_id_from_jwt
 
 logger = structlog.get_logger(__name__)
@@ -251,12 +251,20 @@ async def gitlab_callback(request: Request):
             from config import get_gitlab_client_settings
             settings = get_gitlab_client_settings()
         
-        # Exchange code for token using Authlib's fetch_access_token (stateless)
+        # Get Redis client
+        redis_client = getattr(request.app.state, "redis_client", None)
+        if not redis_client:
+            redis_client = get_redis_client()
+        
+        # Exchange code for token using shared function
         # This bypasses Authlib's session-based state validation since we handle state ourselves
         try:
-            token = await oauth.gitlab.fetch_access_token(
+            token = await exchange_token_for_user(
+                user_id=user_id,
+                redis_client=redis_client,
+                oauth_client=oauth.gitlab,
                 code=code,
-                redirect_uri=settings.GITLAB_OAUTH_REDIRECT_URI,
+                redirect_uri=settings.GITLAB_OAUTH_REDIRECT_URI
             )
         except Exception as e:
             logger.error("Token exchange failed", error=str(e), exc_info=True)
@@ -264,25 +272,6 @@ async def gitlab_callback(request: Request):
                 {"detail": f"Token exchange failed: {str(e)}"},
                 status_code=500
             )
-        
-        if not token or not token.get('access_token'):
-            logger.error("GitLab token response missing access_token")
-            return JSONResponse(
-                {"detail": "Token exchange failed - no access_token in response"},
-                status_code=500
-            )
-        
-        # Add created_at timestamp for token expiry tracking
-        token['created_at'] = int(time.time())
-        
-        # Get Redis client
-        redis_client = getattr(request.app.state, "redis_client", None)
-        if not redis_client:
-            from utils.redis_client import get_redis_client
-            redis_client = get_redis_client()
-        
-        # Store token in Redis
-        await save_token(user_id, redis_client, token)
         
         logger.info(
             "GitLab OAuth completed successfully",

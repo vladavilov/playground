@@ -20,6 +20,7 @@ by looking up which user owns the old token.
 from __future__ import annotations
 
 import json
+import time
 import structlog
 from typing import Optional, Dict, Any
 
@@ -28,6 +29,7 @@ logger = structlog.get_logger(__name__)
 TOKEN_KEY_PREFIX = "gitlab:oauth:"
 TOKEN_TO_USER_PREFIX = "gitlab:token_to_user:"
 DEFAULT_TTL = 7200  # 2 hours
+TOKEN_EXPIRY_SAFETY_MARGIN = 300  # 5 minutes - refresh tokens proactively
 
 
 async def get_token(
@@ -165,6 +167,145 @@ async def clear_token(
         logger.error("Failed to clear GitLab OAuth token", user_id=user_id, error=str(e))
 
 
+def is_token_expired(token: Dict[str, Any], safety_margin: int = TOKEN_EXPIRY_SAFETY_MARGIN) -> bool:
+    """
+    Check if OAuth token is expired or about to expire.
+    
+    Uses safety margin to proactively refresh tokens before they expire,
+    avoiding 401 errors during API calls.
+    
+    Args:
+        token: Token dictionary with created_at and expires_in fields
+        safety_margin: Seconds before expiry to consider token expired (default: 5 minutes)
+        
+    Returns:
+        True if token is expired or will expire within safety margin
+    """
+    if not token:
+        return True
+    
+    created_at = token.get('created_at')
+    expires_in = token.get('expires_in')
+    
+    # If missing required fields, consider expired
+    if not created_at or not expires_in:
+        logger.warning(
+            "Token missing expiry information",
+            has_created_at=bool(created_at),
+            has_expires_in=bool(expires_in)
+        )
+        return True
+    
+    try:
+        # Calculate expiry time with safety margin
+        expiry_time = int(created_at) + int(expires_in)
+        current_time = int(time.time())
+        time_until_expiry = expiry_time - current_time
+        
+        is_expired = time_until_expiry <= safety_margin
+        
+        if is_expired:
+            logger.info(
+                "Token expired or expiring soon",
+                time_until_expiry=time_until_expiry,
+                safety_margin=safety_margin,
+                expires_at=expiry_time
+            )
+        else:
+            logger.debug(
+                "Token is valid",
+                time_until_expiry=time_until_expiry,
+                expires_at=expiry_time
+            )
+        
+        return is_expired
+        
+    except (ValueError, TypeError) as e:
+        logger.warning("Error checking token expiry", error=str(e))
+        return True
+
+
+async def exchange_token_for_user(
+    user_id: str,
+    redis_client,
+    oauth_client,
+    **fetch_params
+) -> Dict[str, Any]:
+    """
+    Exchange authorization code or refresh token for access token.
+    
+    Handles both initial OAuth token exchange and token refresh.
+    Automatically adds created_at timestamp and saves to Redis.
+    
+    Args:
+        user_id: Azure AD user object ID (oid)
+        redis_client: Async Redis client
+        oauth_client: Authlib OAuth client (e.g., oauth.gitlab)
+        **fetch_params: Parameters for fetch_access_token (code, redirect_uri, grant_type, refresh_token, etc.)
+        
+    Returns:
+        Token dictionary with access_token, refresh_token, expires_in, created_at
+        
+    Raises:
+        Exception: If token exchange fails or response is invalid
+        
+    Example usage:
+        # Initial OAuth callback
+        token = await exchange_token_for_user(
+            user_id=user_id,
+            redis_client=redis_client,
+            oauth_client=oauth.gitlab,
+            code=code,
+            redirect_uri=callback_uri
+        )
+        
+        # Token refresh
+        token = await exchange_token_for_user(
+            user_id=user_id,
+            redis_client=redis_client,
+            oauth_client=oauth.gitlab,
+            grant_type='refresh_token',
+            refresh_token=refresh_token
+        )
+    """
+    try:
+        # Exchange code/refresh_token for access token
+        token = await oauth_client.fetch_access_token(**fetch_params)
+        
+        if not token or not token.get('access_token'):
+            logger.error(
+                "Token exchange returned invalid response",
+                user_id=user_id,
+                has_token=bool(token),
+                has_access_token=bool(token.get('access_token') if token else False)
+            )
+            raise ValueError("Token exchange failed - no access_token in response")
+        
+        # Add created_at timestamp for expiry tracking
+        token['created_at'] = int(time.time())
+        
+        # Save token to Redis
+        await save_token(user_id, redis_client, token)
+        
+        logger.info(
+            "Token exchange successful",
+            user_id=user_id,
+            has_refresh_token=bool(token.get('refresh_token')),
+            expires_in=token.get('expires_in')
+        )
+        
+        return token
+        
+    except Exception as e:
+        logger.error(
+            "Token exchange failed",
+            user_id=user_id,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise
+
+
 def create_update_token_callback(redis_client):
     """
     Create an Authlib-compatible update_token callback for automatic token refresh.
@@ -224,7 +365,6 @@ def create_update_token_callback(redis_client):
             
             # Ensure created_at is set for expiry tracking
             if 'created_at' not in token:
-                import time
                 token['created_at'] = int(time.time())
             
             # Delete old token's reverse mapping
