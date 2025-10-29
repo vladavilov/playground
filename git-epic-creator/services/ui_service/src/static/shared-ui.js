@@ -516,7 +516,6 @@ export class TypewriterBox {
         this.currentTypewriter = new Typewriter(container, {
           loop: false,
           delay: 5, // 5ms per character = 200 chars/second (typeSpeed)
-          deleteSpeed: 5,
           cursor: '<span class="typewriter-cursor">▎</span>', // Inline cursor as HTML
           html: true
         });
@@ -529,13 +528,13 @@ export class TypewriterBox {
         // Type the HTML content
         this.currentTypewriter
           .typeString(htmlContent)
-          .callFunction(() => {
-            // Clear scroll interval and remove cursor after typing completes
-            clearInterval(scrollInterval);
-            this._removeCursor(container);
-            smartScrollToBottom(this.containerElement);
-            resolve();
-          })
+          // .callFunction(() => {
+          //   // Clear scroll interval and remove cursor after typing completes
+          //   clearInterval(scrollInterval);
+          //   this._removeCursor(container);
+          //   smartScrollToBottom(this.containerElement);
+          //   resolve();
+          // })
           .start();
           
       } catch (error) {
