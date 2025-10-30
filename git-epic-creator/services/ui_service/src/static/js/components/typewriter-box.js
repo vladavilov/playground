@@ -10,6 +10,7 @@
 'use strict';
 
 import { escapeHtml, scrollToBottom, smartScrollToBottom } from '../utils/dom-helpers.js';
+import { renderMarkdown } from '../utils/markdown-renderer.js';
 
 /**
  * Creates a reusable thinking box with typewriter effect for agent messages.
@@ -30,19 +31,6 @@ export class TypewriterBox {
     this.currentContainer = null;
     
     this._createElements();
-    this._configureMarked();
-  }
-  
-  _configureMarked() {
-    // Configure marked.js for safe rendering with proper styling
-    if (typeof marked !== 'undefined') {
-      marked.setOptions({
-        breaks: true,
-        gfm: true,
-        headerIds: false,
-        mangle: false
-      });
-    }
   }
   
   _createElements() {
@@ -209,15 +197,8 @@ export class TypewriterBox {
         // Convert markdown to HTML if needed
         let htmlContent = text;
         if (isMarkdown) {
-          if (typeof marked === 'undefined') {
-            console.error('[TypewriterBox] marked.js library not loaded! Cannot render markdown.');
-            container.innerHTML = `<div class="text-rose-600 text-xs">Error: Markdown renderer not available. Please check console.</div>`;
-            scrollToBottom(this.containerElement);
-            resolve();
-            return;
-          }
-          // Use marked.js for full GFM markdown support
-          htmlContent = marked.parseInline(text);
+          // Use centralized markdown renderer with inline mode
+          htmlContent = renderMarkdown(text, { inline: true });
         }
         
         // Check if TypewriterJS is available
@@ -277,8 +258,8 @@ export class TypewriterBox {
     if (this.messageQueue.length > 0) {
       this.messageQueue.forEach(msg => {
         const { text, container, isMarkdown } = msg;
-        if (isMarkdown && typeof marked !== 'undefined') {
-          container.innerHTML = marked.parseInline(text);
+        if (isMarkdown) {
+          container.innerHTML = renderMarkdown(text, { inline: true });
         } else {
           container.textContent = text;
         }

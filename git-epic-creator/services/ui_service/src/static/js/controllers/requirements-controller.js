@@ -94,7 +94,7 @@ class RequirementsController extends ChatBaseController {
       this.state.currentBundle = bundle;
       
       // Render requirements
-      this.renderer.render(bundle);
+      await this.renderer.render(bundle);
       
       // Enable enhanced inline editing
       this.enableEnhancedEditing();
@@ -243,9 +243,9 @@ class RequirementsController extends ChatBaseController {
   /**
    * Handles save from enhanced editor.
    */
-  handleEnhancedEditorSave() {
+  async handleEnhancedEditorSave() {
     // Re-render requirements with updated data
-    this.renderer.render(this.state.currentBundle);
+    await this.renderer.render(this.state.currentBundle);
     
     // Re-enable inline editing
     this.enableEnhancedEditing();

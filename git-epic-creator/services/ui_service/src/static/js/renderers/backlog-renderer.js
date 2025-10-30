@@ -11,6 +11,7 @@
 
 import { BaseRenderer } from '../core/base-renderer.js';
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
+import { renderMarkdown, initializeMermaid } from '../utils/markdown-renderer.js';
 
 /**
  * Renders backlog bundles to the UI.
@@ -32,8 +33,9 @@ export class BacklogRenderer extends BaseRenderer {
   /**
    * Renders a backlog bundle.
    * @param {Object} bundle - Backlog bundle object
+   * @returns {Promise<void>}
    */
-  render(bundle) {
+  async render(bundle) {
     if (!bundle || !bundle.epics || bundle.epics.length === 0) {
       super.renderEmptyState({
         iconPath: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
@@ -67,6 +69,10 @@ export class BacklogRenderer extends BaseRenderer {
     html += super.renderQualityScore(bundle.score);
     
     this.contentElement.innerHTML = html;
+    
+    // Initialize Mermaid diagrams in epic and task descriptions
+    // Note: Using initializeMermaid() here because we compose HTML from multiple renderMarkdown() calls
+    await initializeMermaid(this.contentElement);
   }
   
   /**
@@ -77,7 +83,7 @@ export class BacklogRenderer extends BaseRenderer {
    * @private
    */
   renderEpic(epic, epicIdx) {
-    const descriptionHtml = this.renderMarkdown(epic.description || '');
+    const descriptionHtml = renderMarkdown(epic.description || '');
     
     let html = `
       <div class="epic-card bg-white border border-slate-200 rounded-lg p-4 mb-4 shadow-sm">
@@ -119,7 +125,7 @@ export class BacklogRenderer extends BaseRenderer {
    * @private
    */
   renderTask(task, taskIdx, epicIdx) {
-    const descriptionHtml = this.renderMarkdown(task.description || '');
+    const descriptionHtml = renderMarkdown(task.description || '');
     
     let html = `
       <div class="task-item border border-slate-200 rounded-lg p-3 bg-slate-50" data-epic-idx="${epicIdx}" data-task-idx="${taskIdx}">

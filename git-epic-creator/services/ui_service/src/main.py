@@ -21,13 +21,6 @@ from routers.proxy_router import router as proxy_router
 configure_logging()
 logger = structlog.get_logger(__name__)
 
-# Log mock mode status
-mock_mode = os.getenv("MOCK_AI_SERVICES", "").lower() in ("true", "1", "yes")
-if mock_mode:
-    logger.warning("MOCK_AI_SERVICES enabled - using mock data for ai-requirements and ai-tasks services")
-else:
-    logger.info("MOCK_AI_SERVICES disabled - using real ai-requirements and ai-tasks services")
-
 app = FastAPIFactory.create_app(
     title="UI Service",
     description="Serves static UI and SSE for project progress",

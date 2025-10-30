@@ -11,6 +11,7 @@
 
 import { BaseRenderer } from '../core/base-renderer.js';
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
+import { renderMarkdown, initializeMermaid } from '../utils/markdown-renderer.js';
 
 /**
  * Renders requirements bundles to the UI.
@@ -32,8 +33,9 @@ export class RequirementsRenderer extends BaseRenderer {
   /**
    * Renders a requirements bundle.
    * @param {Object} bundle - Requirements bundle object
+   * @returns {Promise<void>}
    */
-  render(bundle) {
+  async render(bundle) {
     if (!bundle || (!bundle.business_requirements?.length && !bundle.functional_requirements?.length)) {
       super.renderEmptyState({
         iconPath: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
@@ -74,6 +76,10 @@ export class RequirementsRenderer extends BaseRenderer {
     html += super.renderQualityScore(bundle.score);
     
     this.contentElement.innerHTML = html;
+    
+    // Initialize Mermaid diagrams in descriptions
+    // Note: Using initializeMermaid() here because we compose HTML from multiple renderMarkdown() calls
+    await initializeMermaid(this.contentElement);
   }
   
   /**
@@ -104,7 +110,7 @@ export class RequirementsRenderer extends BaseRenderer {
    * @private
    */
   renderRequirementCard(req, idx, typePrefix) {
-    const descriptionHtml = this.renderMarkdown(req.description || '');
+    const descriptionHtml = renderMarkdown(req.description || '');
     
     return `
       <div class="req-card bg-white border border-slate-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-all" data-req-idx="${idx}" data-req-type="${typePrefix}">

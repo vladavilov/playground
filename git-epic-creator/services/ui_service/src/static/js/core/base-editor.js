@@ -17,6 +17,7 @@
 'use strict';
 
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
+import { initializeMermaid } from '../utils/markdown-renderer.js';
 
 /**
  * Abstract base class for editors.
@@ -56,27 +57,6 @@ export class BaseEditor {
    */
   setAIEnhanceCallback(callback) {
     this.onAIEnhance = callback;
-  }
-  
-  /**
-   * Renders markdown text to HTML.
-   * Falls back to escaped text if marked library is not available.
-   * @param {string} text - Markdown text to render
-   * @returns {string} HTML string
-   * @protected
-   */
-  renderMarkdown(text) {
-    if (!text) return '';
-    
-      try {
-        return marked.parse(text, {
-          breaks: true,
-          gfm: true
-        });
-      } catch (e) {
-        console.warn('Error parsing markdown:', e);
-        return esc(text).replace(/\n/g, '<br>');
-      }
   }
   
   /**
@@ -565,7 +545,7 @@ export class BaseEditor {
     const preview = modal.querySelector(`#${prefix}-preview`);
     const fields = this.getItemFields(item);
     
-    const updatePreview = () => {
+    const updatePreview = async () => {
       const fieldValues = {};
       fields.forEach(field => {
         const input = modal.querySelector(`#${prefix}-${field.id}`);
@@ -575,6 +555,10 @@ export class BaseEditor {
       });
       
       preview.innerHTML = this.renderPreviewContent(fieldValues, item);
+      
+      // Initialize Mermaid diagrams in the preview
+      // Note: renderPreviewContent returns HTML string, so we need to initialize after setting innerHTML
+      await initializeMermaid(preview);
       
       // Mark as having unsaved changes
       this.markUnsaved();

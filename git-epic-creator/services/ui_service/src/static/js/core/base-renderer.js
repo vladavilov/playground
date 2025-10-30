@@ -49,27 +49,6 @@ export class BaseRenderer {
   }
   
   /**
-   * Renders markdown text to HTML.
-   * Falls back to escaped text if marked library is not available.
-   * @param {string} text - Markdown text to render
-   * @returns {string} HTML string
-   * @protected
-   */
-  renderMarkdown(text) {
-    if (!text) return '';
-    
-      try {
-        return marked.parse(text, {
-          breaks: true,
-          gfm: true
-        });
-      } catch (e) {
-        console.warn('Error parsing markdown:', e);
-        return esc(text).replace(/\n/g, '<br>');
-      }
-  }
-  
-  /**
    * Shows all action buttons.
    * @protected
    */

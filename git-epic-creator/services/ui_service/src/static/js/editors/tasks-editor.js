@@ -11,6 +11,7 @@
 
 import { BaseEditor } from '../core/base-editor.js';
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
+import { renderMarkdown } from '../utils/markdown-renderer.js';
 
 /**
  * Enhanced editor for backlog (epics and tasks) with multiple editing modes.
@@ -214,7 +215,7 @@ export class TasksEditor extends BaseEditor {
     const listClass = isFullscreen ? 'space-y-2 ml-5' : 'space-y-1.5 ml-4';
     
     // Render description as markdown
-    const descriptionHtml = this.renderMarkdown(description);
+    const descriptionHtml = renderMarkdown(description);
     
     let html = `
       <div class="${sectionSpacing}">

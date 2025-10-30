@@ -139,7 +139,7 @@ class TasksController extends ChatBaseController {
       }
       
       // Render backlog
-      this.renderer.render(bundle);
+      await this.renderer.render(bundle);
       
       // Enable enhanced inline editing
       this.enableEnhancedEditing();
@@ -287,9 +287,9 @@ class TasksController extends ChatBaseController {
   /**
    * Handles save from enhanced editor.
    */
-  handleEnhancedEditorSave() {
+  async handleEnhancedEditorSave() {
     // Re-render backlog with updated data
-    this.renderer.render(this.state.backlogBundle);
+    await this.renderer.render(this.state.backlogBundle);
     
     // Re-enable inline editing
     this.enableEnhancedEditing();
