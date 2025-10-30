@@ -7,28 +7,19 @@ that include comprehensive claims for proper authorization and audit logging.
 
 from __future__ import annotations
 
-import asyncio
-import os
 import time
 from typing import Dict
 
 import httpx
 import structlog
 from configuration.common_config import get_app_settings
-from constants.streams import (
-    UI_PROJECT_PROGRESS_CHANNEL,
-    UI_AI_REQUIREMENTS_PROGRESS_CHANNEL,
-    UI_AI_TASKS_PROGRESS_CHANNEL
-)
+from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from utils.jwt_utils import sign_jwt
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
-
-# Mock mode configuration
-MOCK_MODE = os.getenv("MOCK_AI_SERVICES", "").lower() in ("true", "1", "yes")
 
 # Target path segments for service routing
 GITLAB_ROUTE_SEGMENT = "/gitlab/"
@@ -290,9 +281,6 @@ async def proxy_to_project_management(path: str, request: Request):
 @router.api_route("/workflow/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def proxy_to_ai_requirements(path: str, request: Request):
     """Proxy requests to AI requirements service."""
-    if MOCK_MODE:
-        return await _handle_mock_workflow_request(path, request)
-    
     upstream_base = get_app_settings().http_client.AI_REQUIREMENTS_SERVICE_URL.rstrip("/")
     target_url = f"{upstream_base}/workflow/{path}"
     if request.url.query:
@@ -303,9 +291,6 @@ async def proxy_to_ai_requirements(path: str, request: Request):
 @router.api_route("/tasks/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def proxy_to_ai_tasks(path: str, request: Request):
     """Proxy requests to AI tasks/backlog generation service."""
-    if MOCK_MODE:
-        return await _handle_mock_tasks_request(path, request)
-    
     upstream_base = get_app_settings().http_client.AI_TASKS_SERVICE_URL.rstrip("/")
     target_url = f"{upstream_base}/tasks/{path}"
     if request.url.query:
@@ -344,99 +329,3 @@ async def proxy_gitlab_auth(request: Request, path: str):
         target_url += f"?{request.url.query}"
     
     return await _forward(request, target_url)
-
-
-async def _handle_mock_workflow_request(path: str, request: Request) -> Response:
-    """Handle mock responses for workflow endpoints."""
-    from .mock_data import (
-        get_requirements_bundle_mock,
-        get_requirements_bundle_needs_clarification_mock,
-        REQUIREMENTS_PROGRESS_MESSAGES
-    )
-    
-    if path == "requirements" and request.method == "POST":
-        body = await request.json()
-        project_id = body.get("project_id")
-        prompt = body.get("prompt", "")
-        
-        # Simulate processing delay
-        await asyncio.sleep(0.5)
-        
-        # Publish mock progress messages
-        await _publish_mock_progress(request, REQUIREMENTS_PROGRESS_MESSAGES, project_id, UI_AI_REQUIREMENTS_PROGRESS_CHANNEL)
-        
-        # Return high-quality result by default, low-quality if "clarify" in prompt
-        if "clarify" in prompt.lower() or "unclear" in prompt.lower():
-            mock_data = get_requirements_bundle_needs_clarification_mock(project_id, prompt)
-        else:
-            mock_data = get_requirements_bundle_mock(project_id, prompt)
-        
-        logger.info("Returned mock requirements bundle", project_id=project_id, score=mock_data["score"])
-        return JSONResponse(content=mock_data, status_code=200)
-    
-    elif path == "answers" and request.method == "POST":
-        body = await request.json()
-        project_id = body.get("project_id")
-        prompt = body.get("prompt", "")
-        
-        # Simulate processing delay
-        await asyncio.sleep(0.5)
-        
-        # Publish mock progress messages
-        await _publish_mock_progress(request, REQUIREMENTS_PROGRESS_MESSAGES, project_id, UI_AI_REQUIREMENTS_PROGRESS_CHANNEL)
-        
-        # After answering questions, always return high-quality result
-        mock_data = get_requirements_bundle_mock(project_id, prompt)
-        logger.info("Returned mock requirements bundle after answers", project_id=project_id, score=mock_data["score"])
-        return JSONResponse(content=mock_data, status_code=200)
-    
-    return JSONResponse({"detail": "Mock endpoint not implemented"}, status_code=501)
-
-
-async def _handle_mock_tasks_request(path: str, request: Request) -> Response:
-    """Handle mock responses for tasks endpoints."""
-    from .mock_data import (
-        get_backlog_bundle_mock,
-        get_backlog_bundle_needs_clarification_mock,
-        TASKS_PROGRESS_MESSAGES
-    )
-    
-    if path == "generate" and request.method == "POST":
-        body = await request.json()
-        project_id = body.get("project_id")
-        message = body.get("message", "")
-        
-        # Simulate processing delay
-        await asyncio.sleep(0.5)
-        
-        # Publish mock progress messages
-        await _publish_mock_progress(request, TASKS_PROGRESS_MESSAGES, project_id, UI_AI_TASKS_PROGRESS_CHANNEL)
-        
-        # Return high-quality result by default, low-quality if "clarify" in message
-        if "clarify" in message.lower() or "unclear" in message.lower():
-            mock_data = get_backlog_bundle_needs_clarification_mock(project_id, message)
-        else:
-            mock_data = get_backlog_bundle_mock(project_id, message)
-        
-        logger.info("Returned mock backlog bundle", project_id=project_id, score=mock_data["score"])
-        return JSONResponse(content=mock_data, status_code=200)
-    
-    return JSONResponse({"detail": "Mock endpoint not implemented"}, status_code=501)
-
-
-async def _publish_mock_progress(request: Request, messages: list, project_id: str, channel: str) -> None:
-    """Publish mock progress messages to Redis for SSE simulation."""
-    try:
-        import json
-        redis_client = getattr(request.app.state, "redis_client", None)
-        if not redis_client:
-            return
-        
-        # Publish messages with small delays to simulate real processing
-        for msg in messages:
-            msg_copy = msg.copy()
-            msg_copy["project_id"] = str(project_id)
-            await redis_client.publish(channel, json.dumps(msg_copy))
-            await asyncio.sleep(0.3)
-    except Exception as e:
-        logger.warning("Failed to publish mock progress", error=str(e))
