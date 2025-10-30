@@ -555,17 +555,12 @@ export class BaseEditor {
       });
       
       preview.innerHTML = this.renderPreviewContent(fieldValues, item);
-      
-      // Initialize Mermaid diagrams in the preview
-      // Note: renderPreviewContent returns HTML string, so we need to initialize after setting innerHTML
       await initializeMermaid(preview);
       
-      // Mark as having unsaved changes
       this.markUnsaved();
       this.scheduleAutoSave();
     };
     
-    // Attach input listeners
     fields.forEach(field => {
       const input = modal.querySelector(`#${prefix}-${field.id}`);
       if (input) {
@@ -574,7 +569,6 @@ export class BaseEditor {
       }
     });
     
-    // Initial preview
     updatePreview();
   }
   

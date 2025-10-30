@@ -33,9 +33,8 @@ export class BacklogRenderer extends BaseRenderer {
   /**
    * Renders a backlog bundle.
    * @param {Object} bundle - Backlog bundle object
-   * @returns {Promise<void>}
    */
-  async render(bundle) {
+  render(bundle) {
     if (!bundle || !bundle.epics || bundle.epics.length === 0) {
       super.renderEmptyState({
         iconPath: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
@@ -70,9 +69,8 @@ export class BacklogRenderer extends BaseRenderer {
     
     this.contentElement.innerHTML = html;
     
-    // Initialize Mermaid diagrams in epic and task descriptions
-    // Note: Using initializeMermaid() here because we compose HTML from multiple renderMarkdown() calls
-    await initializeMermaid(this.contentElement);
+    // Trigger Mermaid rendering for dynamically added content
+    initializeMermaid(this.contentElement);
   }
   
   /**
