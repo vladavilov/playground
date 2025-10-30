@@ -172,8 +172,8 @@ function renderDetails() {
     ]),
     el('div', { class: 'mt-4 flex items-center justify-between flex-wrap gap-2' }, [
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
-        el('button', { id: 'openRequirementsBtn', class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', title: 'Capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/requirements.html#${state.selected.id}`; } }, 'Requirements'),
-        el('button', { id: 'openTasksBtn', class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', title: 'Open tasks screen', onclick: () => { if (!state.selected) return; window.location.href = `/tasks.html?project_id=${state.selected.id}`; } }, 'Tasks'),
+        el('button', { id: 'openRequirementsBtn', class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', title: 'Capture requirements', onclick: () => { if (!state.selected) return; window.location.href = `/pages/requirements.html?project_id=${state.selected.id}`; } }, 'Requirements'),
+        el('button', { id: 'openTasksBtn', class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', title: 'Open tasks screen', onclick: () => { if (!state.selected) return; window.location.href = `/pages/tasks.html?project_id=${state.selected.id}`; } }, 'Tasks'),
       ]),
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
         el('button', { class: 'px-3 py-1.5 border rounded text-sm text-slate-700 hover:bg-slate-50', onclick: () => openProjectModal(p), 'aria-label': 'Edit project' }, 'Edit'),
@@ -592,12 +592,12 @@ function setupActions() {
   const openRequirementsBtn = document.getElementById('openRequirementsBtn');
   if (openRequirementsBtn) openRequirementsBtn.addEventListener('click', () => {
     if (!state.selected) return;
-    window.location.href = `/requirements.html#${state.selected.id}`;
+    window.location.href = `/pages/requirements.html?project_id=${state.selected.id}`;
   });
   const openTasksBtn = document.getElementById('openTasksBtn');
   if (openTasksBtn) openTasksBtn.addEventListener('click', () => {
     if (!state.selected) return;
-    window.location.href = `/tasks.html?project_id=${state.selected.id}`;
+    window.location.href = `/pages/tasks.html?project_id=${state.selected.id}`;
   });
   // Modal wiring
   const close = () => toggleProjectModal(false);

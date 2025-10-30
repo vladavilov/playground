@@ -2,6 +2,7 @@
 
 from fastapi.staticfiles import StaticFiles
 from fastapi import APIRouter, FastAPI
+from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
 import os
 import structlog
@@ -19,6 +20,13 @@ from routers.proxy_router import router as proxy_router
 
 configure_logging()
 logger = structlog.get_logger(__name__)
+
+# Log mock mode status
+mock_mode = os.getenv("MOCK_AI_SERVICES", "").lower() in ("true", "1", "yes")
+if mock_mode:
+    logger.warning("MOCK_AI_SERVICES enabled - using mock data for ai-requirements and ai-tasks services")
+else:
+    logger.info("MOCK_AI_SERVICES disabled - using real ai-requirements and ai-tasks services")
 
 app = FastAPIFactory.create_app(
     title="UI Service",
@@ -138,6 +146,12 @@ app.include_router(proxy_router)
 
 # Register UI-specific lifespan without overriding app-level lifespan
 app.include_router(APIRouter(lifespan=_ui_lifespan))
+
+# Redirect root to default page
+@app.get("/")
+async def root():
+    """Redirect root to the projects page."""
+    return RedirectResponse(url="/pages/projects.html", status_code=302)
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

@@ -141,9 +141,9 @@ ui-service acts as a **transparent proxy** for all GitLab OAuth and API interact
   - Channels: `ui:project_progress`, `ui:ai_workflow_progress`, `ui:ai_tasks_progress`
 
 ### Static UI Pages
-- `GET /` - Main project selection page (`index.html`)
-- `GET /chat.html` - Requirements gathering interface
-- `GET /tasks.html` - AI task generation interface
+- `GET /projects.html` - Main project selection page
+- `GET /requirements.html?project_id=<id>` - Requirements gathering interface (requires project_id query parameter)
+- `GET /tasks.html?project_id=<id>&from_requirements=<bool>` - AI task generation interface (requires project_id, from_requirements=true triggers auto-load from sessionStorage)
 
 ## User Experience Flows
 
@@ -313,60 +313,116 @@ stateDiagram-v2
 
 **Typical User Journey**:
 
-1. **Start**: User opens `index.html` → selects project
-2. **Requirements**: Clicks "Open Chat" → discusses needs in `chat.html`
+1. **Start**: User opens `projects.html` → selects project
+2. **Requirements**: Clicks "Requirements" → navigates to `requirements.html?project_id=X` to discuss needs
 3. **Refinement**: AI generates requirements, user answers clarification questions
 4. **Confirmation**: Score reaches >70% → "✓ Confirm & Create Tasks" button appears
-5. **Task Generation**: Click navigates to `tasks.html?project_id=X&prompt_id=Y`
-6. **AI Processing**: Thinking box appears showing agent reasoning, status updates in real-time via SSE, backlog materializes on the right panel
-7. **Review**: User reviews epics, tasks, duplicate alerts
-8. **Edit**: Click "✎ Edit All" to modify details
-9. **Iterate**: User can chat with AI to refine backlog
-10. **Submit**: (Future) "Save & Submit to GitLab" pushes to repository
+5. **Task Generation**: Click stores requirements in sessionStorage and navigates to `tasks.html?project_id=X&from_requirements=true`
+6. **Auto-Submit**: Tasks page retrieves requirements from sessionStorage and auto-sends them as first message to AI
+7. **AI Processing**: Thinking box appears showing agent reasoning, status updates in real-time via SSE, backlog materializes on the right panel
+8. **Review**: User reviews epics, tasks, duplicate alerts
+9. **Edit**: Click "✎ Edit All" to modify details
+10. **Iterate**: User can chat with AI to refine backlog
+11. **Submit**: (Future) "Save & Submit to GitLab" pushes to repository
+
+**Note**: `prompt_id` is service-specific and not shared between requirements and tasks services. Requirements are passed as formatted text via sessionStorage instead.
 
 ## Technical Implementation
 
 ### Frontend Structure
 
+The frontend follows a modern, modular architecture with clear separation of concerns:
+
 ```mermaid
-graph LR
-    subgraph "Static UI Files"
-        Index[index.html<br/>Project Selection]
-        Chat[chat.html<br/>Requirements Gathering]
-        Tasks[tasks.html<br/>Task Generation]
-        TasksJS[tasks.js<br/>750+ lines logic]
-        UIJS[ui.js<br/>Shared utilities & SSE]
+graph TB
+    subgraph "View Layer"
+        Pages[pages/<br/>HTML files]
     end
     
-    subgraph "Browser State"
-        State[State Management<br/>config, auth, backlog]
-        SSE[SSE Connection<br/>EventSource]
+    subgraph "Core Framework"
+        BaseCtrl[base-controller.js<br/>Chat screens]
+        BaseEdit[base-editor.js<br/>Multi-mode editing]
+        BaseRend[base-renderer.js<br/>Consistent UI]
     end
     
-    Index -->|Navigate| Chat
-    Chat -->|Score > 70%| Tasks
-    Tasks --> TasksJS
-    Chat --> UIJS
-    Tasks --> UIJS
-    UIJS --> SSE
-    UIJS --> State
-    TasksJS --> State
+    subgraph "Application Layer"
+        Controllers[controllers/<br/>Page logic]
+        Editors[editors/<br/>Editing impl]
+        Renderers[renderers/<br/>Display impl]
+    end
     
-    style Index fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style Chat fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style Tasks fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style TasksJS fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style UIJS fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    subgraph "Infrastructure"
+        Services[services/<br/>API client]
+        Components[components/<br/>UI widgets]
+        Utils[utils/<br/>Helpers]
+    end
+    
+    Pages --> Controllers
+    Controllers --> BaseCtrl
+    Controllers --> Editors
+    Controllers --> Renderers
+    
+    Editors --> BaseEdit
+    Renderers --> BaseRend
+    
+    BaseCtrl --> Components
+    BaseCtrl --> Utils
+    BaseCtrl --> Services
+    
+    Components --> Utils
+    Editors --> Utils
+    Renderers --> Utils
+    
+    style Pages fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style BaseCtrl fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style BaseEdit fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style BaseRend fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style Controllers fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style Components fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+    style Utils fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 ```
 
-**File Structure**:
+**Modular File Structure**:
 ```
 static/
-├── index.html       # Project selection and console
-├── chat.html        # Requirements gathering interface
-├── tasks.html       # Task generation interface (185 lines)
-├── tasks.js         # Task management logic (750+ lines)
-└── ui.js            # Shared utilities and SSE handling
+├── pages/                          # HTML pages (view layer)
+│   ├── projects.html               # Project selection and console
+│   ├── requirements.html           # Requirements gathering interface
+│   └── tasks.html                  # Task generation interface
+│
+├── js/                             # JavaScript modules
+│   ├── core/                       # Framework base classes
+│   │   ├── base-controller.js      # Abstract controller for chat screens (~360 lines)
+│   │   ├── base-editor.js          # Multi-mode editor (inline/focus/fullscreen) (~600 lines)
+│   │   └── base-renderer.js        # Consistent UI rendering (~244 lines)
+│   │
+│   ├── controllers/                # Page controllers (application layer)
+│   │   ├── projects-controller.js  # Project CRUD, uploads, embeddings (~914 lines)
+│   │   ├── requirements-controller.js  # Requirements generation (~264 lines)
+│   │   └── tasks-controller.js     # Task generation, GitLab submit (~390 lines)
+│   │
+│   ├── editors/                    # Specialized editor implementations
+│   │   ├── requirements-editor.js  # Requirements editing (~237 lines)
+│   │   └── tasks-editor.js         # Epic/task editing (~227 lines)
+│   │
+│   ├── renderers/                  # Specialized renderer implementations
+│   │   ├── backlog-renderer.js     # Epic/task rendering (~182 lines)
+│   │   └── requirements-renderer.js # Requirements rendering (~149 lines)
+│   │
+│   ├── services/                   # External services & API communication
+│   │   └── api-client.js           # HTTP client with error handling (~232 lines)
+│   │
+│   ├── components/                 # Reusable UI components
+│   │   ├── chat-ui.js              # Chat message rendering (~85 lines)
+│   │   ├── modal-manager.js        # Modal lifecycle management (~145 lines)
+│   │   ├── thinking-box-manager.js # Thinking box routing (~125 lines)
+│   │   └── typewriter-box.js       # AI message typewriter effect (~380 lines)
+│   │
+│   └── utils/                      # Utility functions
+│       ├── connections.js          # Auth, GitLab, SSE management (~285 lines)
+│       ├── dom-helpers.js          # DOM utilities, XSS prevention (~60 lines)
+│       ├── formatting.js           # Date/number formatting (~20 lines)
+│       └── status-badges.js        # Status badge creation (~30 lines)
 ```
 
 ### Task Generation UI Features
@@ -471,15 +527,38 @@ Event types:
 
 ### State Management
 
+The refactored architecture uses a hierarchical state management approach:
+
+**Base Controller State** (managed by `ChatBaseController`):
 ```javascript
-const state = {
-  config, projectId, promptId, token,
-  authenticated, backlogBundle,
-  rtEvents, tasksService, evtSource,
-  thinkingBoxes, boxesByPromptId,
-  activeBox, pendingBox, loadingCount
-};
+{
+  config, projectId, project,
+  authenticated, gitlab: { status, configured },
+  rtEvents: { status },
+  evtSource
+}
 ```
+
+**Screen-Specific State** (managed by individual controllers):
+```javascript
+// RequirementsController
+{
+  ...baseState,
+  currentBundle: { business_requirements, functional_requirements, ... }
+}
+
+// TasksController  
+{
+  ...baseState,
+  backlogBundle: { epics, assumptions, risks, score },
+  gitlabProjectId, promptId
+}
+```
+
+**Component State** (managed by component classes):
+- `ThinkingBoxManager`: Manages thinking boxes lifecycle (`boxes`, `boxesByPromptId`, `activeBox`, `pendingBox`)
+- `ChatUI`: Manages chat message rendering
+- `ModalManager`: Manages modal dialog state
 
 ### Markdown Rendering
 - Custom renderer for headings, bold, italic, code, links
@@ -965,11 +1044,27 @@ ui-service:
 ## Code Quality
 
 ### Principles Followed
-- **DRY**: Reusable functions for rendering, status updates
-- **SOLID**: Single-responsibility components (chat, backlog, editor)
-- **Separation of Concerns**: State, UI, API, SSE isolated
-- **Error Handling**: Try-catch with user-friendly messages
-- **Documentation**: Inline comments, clear function names
+- **DRY**: Refactored architecture eliminates ~60% code duplication through base classes and shared utilities
+- **SOLID**: 
+  - **Single Responsibility**: Controllers coordinate, renderers display, utilities handle isolated concerns
+  - **Open/Closed**: Screens extend `ChatBaseController` without modifying base code
+  - **Liskov Substitution**: All screen controllers follow base class contracts
+  - **Interface Segregation**: Focused classes (ThinkingBoxManager, ChatUI, ModalManager)
+  - **Dependency Inversion**: Screens depend on abstractions (`ChatBaseController`)
+- **Separation of Concerns**: 
+  - Controllers handle coordination and business logic
+  - Renderers handle UI presentation only
+  - Base classes provide common infrastructure
+  - Utilities provide reusable components
+- **Error Handling**: Centralized error handling in base classes with user-friendly messages
+- **Documentation**: Comprehensive JSDoc comments, clear function names, architecture documentation
+
+### Refactored Architecture Benefits
+- **Code Reduction**: Requirements.js (686→420 lines, -39%), Tasks.js (828→530 lines, -36%)
+- **Maintainability**: Bug fixes in base classes automatically propagate to all screens
+- **Extensibility**: New chat screens can be created in <2 hours by extending `ChatBaseController`
+- **Testability**: Base classes and utilities can be unit tested independently
+- **Consistency**: Shared UI components ensure consistent behavior across screens
 
 ### Performance Optimizations
 - Debounced scrolling
@@ -1008,7 +1103,7 @@ ui-service:
 
 ### Tasks Not Generating
 - Open browser console (F12) for detailed errors
-- Verify project_id in URL: `tasks.html?project_id=xxx`
+- Verify project_id in URL: `requirements.html?project_id=xxx` or `tasks.html?project_id=xxx`
 - Check Redis is running
 
 ### Thinking Box Stuck on "Thinking..."

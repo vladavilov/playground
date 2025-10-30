@@ -46,7 +46,7 @@ def _validate_redirect_uri(redirect_uri: Optional[str], request: Request) -> str
         Safe redirect URI (relative path) or default fallback
     """
     # Default fallback
-    default_redirect = "/projects.html"
+    default_redirect = "/pages/projects.html"
     
     if not redirect_uri or not redirect_uri.strip():
         return default_redirect
