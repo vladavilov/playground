@@ -34,12 +34,6 @@ set GITLAB_CLIENT_SERVICE_URL=http://localhost:8012
 set GRAPH_RAG_SERVICE_URL=http://localhost:8008
 
 REM ============================================================================
-REM Mock Mode Configuration (for UI testing without AI services)
-REM ============================================================================
-REM Set to true/1/yes to enable mock responses for ai-requirements and ai-tasks
-set MOCK_AI_SERVICES=true
-
-REM ============================================================================
 REM HTTP Client Configuration
 REM ============================================================================
 set HTTP_CONNECTION_TIMEOUT=30.0
