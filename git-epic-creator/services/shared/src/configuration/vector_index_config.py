@@ -8,7 +8,7 @@ class VectorIndexEnv(BaseConfig):
 
     # Shared vector parameters (used by all indexes)
     VECTOR_INDEX_PROPERTY: str = Field(default="embedding", description="Embedding property name on nodes")
-    VECTOR_INDEX_DIMENSIONS: int = Field(default=1536, description="Embedding vector dimensions")
+    VECTOR_INDEX_DIMENSIONS: int = Field(default=3072, description="Embedding vector dimensions")
     VECTOR_INDEX_SIMILARITY: str = Field(default="cosine", description="Similarity function (cosine/euclidean/dot_product)")
 
     # Chunk index

@@ -28,13 +28,13 @@ MATCH (p:__Project__ {id: "11111111-1111-1111-1111-111111111111"})
 MERGE (e)-[:IN_PROJECT]->(p);
 
 // Create Chunks with correct schema: id, text, n_tokens, embedding, project_id
-// Using Cypher list concatenation with range() to build 1536-dim embeddings
+// Using Cypher list concatenation with range() to build 3072-dim embeddings
 UNWIND [
   {id:"0", text:"1. Introduction:\n\nA bridge is a man-made structure built to avoid physical obstacles without closing the way underneath such as a body of water, valley, or road. It is constructed for the purpose of providing passage over the obstacle.\n\nDesigns of bridges vary depending on the function of the bridge, the nature of the terrain where the bridge is constructed and anchored, the material used to make it, and the funds available to build it.\n\n2. The major parts of Bridges:\n\nEvery bridge can be divided broadly into three parts: Superstructure, Substructure, and Foundation.\n\nBridges comprise the deck, supports, and load-bearing structures such as arches or cables.", n_tokens:120, emb_head:[-0.014663143030921462, -0.04982177530466685, 0.01674181043775471, -0.05254361121360224, -0.02200672911836736]},
   {id:"1", text:"3. Bridge Deck Materials:\n\nBridge decks are commonly built from reinforced concrete, steel, or composite materials.\n\nReinforced concrete decks spread loads effectively and provide good durability.\n\nThe deck material influences how loads are distributed to the supporting structure.", n_tokens:45, emb_head:[-0.024, -0.038, 0.012, -0.045, -0.019, 0.021]},
   {id:"2", text:"4. Types of Bridges:\n\nArch bridges carry loads through compression along the curved structure.\n\nArches carry deck loads primarily through compressive forces.\n\nCable-stayed and suspension bridges use cables under tension to support the deck.\n\nClarify deck materials and structural role. Explain arch mechanics in load distribution. List common deck materials and how they influence load distribution.", n_tokens:65, emb_head:[-0.018, -0.042, 0.015, -0.048, -0.022, 0.024, -0.016]}
 ] AS row
-WITH row, row.emb_head + [x IN range(1, 1536 - size(row.emb_head)) | 0.0] AS full_embedding
+WITH row, row.emb_head + [x IN range(1, 3072 - size(row.emb_head)) | 0.0] AS full_embedding
 CREATE (c:__Chunk__ {
   id: row.id, 
   text: row.text, 
@@ -68,7 +68,7 @@ UNWIND [
     rank:8.5,
     entity_ids:["e0", "e1", "e2", "e3", "e4", "e5", "e6", "e7"],
     text_unit_ids:["0", "2"],
-    emb_head:[-0.014663143030921462, -0.04982177530466685, 0.01674181043775471, -0.05254361121360224, -0.02200672911836736, 0.015852342056243515, -0.01624470158388096, 0.07024882040076173, -0.011838648120935946, -0.0182000703437887, -0.010676839353212625, -0.009394747668602052, -0.008274901265131451, 0.03475575712609486, -0.025523904969596042, 0.02082946409620585, 0.003950011251159501, -0.021037363866519866, -0.0067936530566402135, -0.03427522303543352, -0.02684063590873293, 0.006045726074804695, 0.022348079448841044, 0.013130080929372945, 0.07696725815369246, -0.012636283921873322, 0.026111466585702937, 0.02970929344733376, 0.017251146411826495, -0.017694054022588612, 0.00609293539113826, -0.00908756184986998, -0.01440096924144722, 0.008480539196594652, 0.02688783260225832, 0.011812270684794209, -0.0175195863069817, 0.05425221270322799, -0.02200672911836736, 0.015852342056243515]
+    emb_head:[-0.014663143030921462, -0.04982177530466685, 0.01674181043775471, -0.05254361121360224, -0.02200672911836736, 0.015852342056243515, -0.01624470158388096, 0.07024882040076173, -0.011838648120935946, -0.0182000703437887, -0.010676839353212625, -0.009394747668602052, -0.008274901265131451, 0.03475575712609486, -0.025523904969596042, 0.02082946409620585, 0.003950011251159501, -0.021037363866519866, -0.0067936530566402135, -0.03427522303543352, -0.02684063590873293, 0.006045726074804695, 0.022348079448841044, 0.013130080929372945, 0.07696725830729246, -0.012636283921873322, 0.026111466585702937, 0.02970929344733376, 0.017251146411826495, -0.017694054022588612, 0.00609293539113826, -0.00908756184986998, -0.01440096924144722, 0.008480539196594652, 0.02688783260225832, 0.011812270684794209, -0.0175195863069817, 0.05425221270322799, -0.02200672911836736, 0.015852342056243515]
   },
   {
     community:2,
@@ -82,7 +82,7 @@ UNWIND [
     emb_head:[-0.024, -0.038, 0.012, -0.045, -0.019, 0.021, -0.013, 0.065, -0.009, -0.015, -0.008, -0.007, -0.006, 0.029, -0.021, 0.018, 0.003, -0.018, -0.005, -0.028]
   }
 ] AS row
-WITH row, row.emb_head + [x IN range(1, 1536 - size(row.emb_head)) | 0.0] AS full_embedding
+WITH row, row.emb_head + [x IN range(1, 3072 - size(row.emb_head)) | 0.0] AS full_embedding
 CREATE (c:__Community__ {
   community: row.community,
   level: row.level,
@@ -136,7 +136,7 @@ CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS
 FOR (c:__Community__)
 ON (c.embedding)
 OPTIONS {indexConfig: {
-  `vector.dimensions`: 1536,
+  `vector.dimensions`: 3072,
   `vector.similarity_function`: 'cosine'
 }};
 
@@ -144,6 +144,6 @@ CREATE VECTOR INDEX graphrag_chunk_index IF NOT EXISTS
 FOR (ch:__Chunk__)
 ON (ch.embedding)
 OPTIONS {indexConfig: {
-  `vector.dimensions`: 1536,
+  `vector.dimensions`: 3072,
   `vector.similarity_function`: 'cosine'
 }};

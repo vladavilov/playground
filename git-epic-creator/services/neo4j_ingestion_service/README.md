@@ -8,9 +8,9 @@ This service orchestrates project-scoped knowledge graph ingestion using the Neo
 - Run Neo4j GraphRAG Python pipeline (`SimpleKGPipeline`) to construct knowledge graph:
   - Text chunking and entity extraction (LLM-powered)
   - Relationship extraction and community detection (Leiden algorithm)
-  - Vector embeddings (OpenAI ada-002, 1536 dims)
+  - Vector embeddings (OpenAI ada-002, 3072 dims)
 - Create Neo4j graph schema with nodes (`__Document__`, `__Chunk__`, `__Entity__`, `__Community__`, `__Project__`) and relationships (`HAS_CHUNK`, `HAS_ENTITY`, `RELATED`, `IN_COMMUNITY`, `IN_PROJECT`)
-- Ensure vector indexes exist: `graphrag_chunk_index` on `(:__Chunk__).embedding`, `graphrag_comm_index` on `(:__Community__).embedding` (1536 dims, cosine similarity)
+- Ensure vector indexes exist: `graphrag_chunk_index` on `(:__Chunk__).embedding`, `graphrag_comm_index` on `(:__Community__).embedding` (3072 dims, cosine similarity)
 - Update Project Management Service: `rag_processing` → `rag_ready` | `rag_failed`
 
 ### Architecture
@@ -57,7 +57,7 @@ flowchart TB
         C3[Entity Extraction<br/>LLM: types, descriptions]
         C4[Relationship Extraction<br/>LLM: source→target+weight]
         C5[Community Detection<br/>Leiden algorithm]
-        C6[Embedding Generation<br/>OpenAI ada-002, 1536d]
+        C6[Embedding Generation<br/>OpenAI ada-002, 3072d]
     end
     
     subgraph Output["Neo4j Graph Database"]
@@ -138,15 +138,15 @@ graph TB
     end
     
     subgraph Chunks
-        C[__Chunk__<br/>id, text, n_tokens, chunk_index<br/>document_ids, embedding-1536<br/>project_id]
+        C[__Chunk__<br/>id, text, n_tokens, chunk_index<br/>document_ids, embedding-3072<br/>project_id]
     end
     
     subgraph Entities
-        E[__Entity__<br/>id, title, norm_title, type<br/>description, text_unit_ids<br/>relationship_ids, embedding-1536<br/>project_id]
+        E[__Entity__<br/>id, title, norm_title, type<br/>description, text_unit_ids<br/>relationship_ids, embedding-3072<br/>project_id]
     end
     
     subgraph Communities
-        CM[__Community__<br/>community, level, title, summary<br/>full_content, full_content_json<br/>rank, entity_ids, text_unit_ids<br/>embedding-1536, project_id]
+        CM[__Community__<br/>community, level, title, summary<br/>full_content, full_content_json<br/>rank, entity_ids, text_unit_ids<br/>embedding-3072, project_id]
     end
     
     D -->|HAS_CHUNK| C
@@ -173,9 +173,9 @@ graph TB
 |------|---------------------|---------------------|-------|
 | `__Project__` | `id` (UUID) | - | Multi-tenant scoping; unique constraint on `id` |
 | `__Document__` | `id`, `project_id` | `title`, `text`, `metadata` (dict) | Source documents |
-| `__Chunk__` | `id`, `text`, `text_hash`, `document_ids` (list), `project_id` | `n_tokens`, `chunk_index`, `embedding` (1536 float) | Deduplication by `text_hash` (SHA256 substring); embedding set post-ingestion |
-| `__Entity__` | `id`, `description`, `text_unit_ids` (list), `project_id` | `title`, `norm_title`, `type`, `relationship_ids` (list), `merged_ids` (list), `embedding` (1536 float) | Matched by `id`, `norm_title`, or `description`; `merged_ids` tracks all entity IDs merged into this entity |
-| `__Community__` | `community`, `full_content`, `entity_ids` (list), `project_id` | `level`, `title`, `summary`, `full_content_json`, `rank`, `rating_explanation`, `text_unit_ids` (list), `embedding` (1536 float) | Composite key: `(community, project_id)`; hierarchical Leiden communities |
+| `__Chunk__` | `id`, `text`, `text_hash`, `document_ids` (list), `project_id` | `n_tokens`, `chunk_index`, `embedding` (3072 float) | Deduplication by `text_hash` (SHA256 substring); embedding set post-ingestion |
+| `__Entity__` | `id`, `description`, `text_unit_ids` (list), `project_id` | `title`, `norm_title`, `type`, `relationship_ids` (list), `merged_ids` (list), `embedding` (3072 float) | Matched by `id`, `norm_title`, or `description`; `merged_ids` tracks all entity IDs merged into this entity |
+| `__Community__` | `community`, `full_content`, `entity_ids` (list), `project_id` | `level`, `title`, `summary`, `full_content_json`, `rank`, `rating_explanation`, `text_unit_ids` (list), `embedding` (3072 float) | Composite key: `(community, project_id)`; hierarchical Leiden communities |
 
 **Entity ID Deduplication & Merged ID Tracking:**
 
@@ -304,13 +304,13 @@ flowchart TD
 1. **Workspace setup:** Create `RAG_WORKSPACE_ROOT/{project_id}/input` and `.lock` to prevent concurrent runs
 2. **Download:** List Blob files with prefix `output/`, download `.json` files to input directory
 3. **Document preparation:** Inject `project_id` into each document, carry forward metadata fields
-4. **Index creation:** Ensure vector indexes exist via `neo4j_graphrag.indexes.create_vector_index` (1536 dims, cosine similarity)
+4. **Index creation:** Ensure vector indexes exist via `neo4j_graphrag.indexes.create_vector_index` (3072 dims, cosine similarity)
 5. **Pipeline execution:** Run `SimpleKGPipeline` with finance-oriented schema (permissive extensions allowed):
    - Text chunking (token-based splitting)
    - Entity extraction (LLM: types, descriptions, text_unit associations)
    - Relationship extraction (LLM: source→target with descriptions, weights)
    - Community detection (Leiden algorithm, hierarchical levels)
-   - Embedding generation (OpenAI ada-002, 1536 dimensions for chunks, entities, communities)
+   - Embedding generation (OpenAI ada-002, 3072 dimensions for chunks, entities, communities)
 6. **Neo4j writes:** Create nodes/relationships with project scoping; batch processing (1000 rows/batch)
    - Documents: Ensure `title` is populated (fallback: `metadata.file_name` → `id`), guarantee `IN_PROJECT` relationships for all documents
    - Chunks: Hash-based deduplication (SHA256) with APOC node merging, handles both deduplicated and non-deduplicated paths
@@ -394,7 +394,7 @@ The service uses a **two-phase approach** for embedding ingestion:
 ### RAG capabilities enabled
 The resulting knowledge graph supports powerful RAG (Retrieval-Augmented Generation) queries combining:
 
-- **Vector similarity search:** Find semantically similar chunks/communities via cosine similarity on 1536-dim embeddings
+- **Vector similarity search:** Find semantically similar chunks/communities via cosine similarity on 3072-dim embeddings
 - **Graph traversal:** Navigate entity relationships, trace document→chunk→entity→community paths, explore hierarchical community structures via `(Community)-[:IN_COMMUNITY]->(ParentCommunity)` edges
 - **Multi-modal retrieval:** Combine vector search with graph patterns (e.g., "find entities related to X within community Y")
 - **Project-scoped access control:** `IN_PROJECT` relationships enable multi-tenant isolation
@@ -468,7 +468,7 @@ Documents must have a valid `title` property for citation retrieval. The pipelin
 On successful completion of the Celery task for a project:
 - All input JSON documents are processed through the Neo4j GraphRAG Python pipeline
 - Neo4j contains complete graph schema: `__Project__`, `__Document__`, `__Chunk__`, `__Entity__`, `__Community__` nodes with appropriate relationships
-- Vector indexes exist: `graphrag_chunk_index` and `graphrag_comm_index` (1536 dims, cosine similarity)
+- Vector indexes exist: `graphrag_chunk_index` and `graphrag_comm_index` (3072 dims, cosine similarity)
 - Embeddings are populated on `__Chunk__`, `__Entity__`, and `__Community__` nodes
 - Orphaned nodes are detected and removed (if any)
 - Document titles are properly populated for citation retrieval

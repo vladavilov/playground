@@ -76,7 +76,7 @@ REM Neo4j Vector Index Configuration
 set CHUNK_VECTOR_INDEX_NAME=graphrag_chunk_index
 set CHUNK_VECTOR_INDEX_LABEL=Chunk
 set VECTOR_INDEX_PROPERTY=embedding
-set VECTOR_INDEX_DIMENSIONS=1536
+set VECTOR_INDEX_DIMENSIONS=3072
 set VECTOR_INDEX_SIMILARITY=cosine
 
 REM Redis Configuration

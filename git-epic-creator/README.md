@@ -15,7 +15,7 @@ The Agentic AI Requirements Engineering System is designed for enterprise deploy
 
 - **AI-Powered Requirements Generation**: Transforms feature descriptions into structured business/functional requirements with self-evaluation (score-based validation)
 - **Intelligent Task Breakdown**: Generates INVEST-compliant epics and tasks with duplicate detection against existing GitLab backlogs
-- **Graph RAG Context Retrieval**: Leverages Neo4j-backed knowledge graphs with vector embeddings (1536 dims, cosine similarity) for context-aware generation
+- **Graph RAG Context Retrieval**: Leverages Neo4j-backed knowledge graphs with vector embeddings (3072 dims, cosine similarity) for context-aware generation
 - **Multi-Source Knowledge Ingestion**: Processes documents (PDF/DOCX/XLSX/TXT), JIRA archives, and GitLab data into unified knowledge graph
 - **GitLab Integration**: Direct epic/issue creation with OAuth-based authentication and bidirectional synchronization
 - **Real-Time Progress Streaming**: Server-Sent Events (SSE) for live agent thought visualization and status updates
@@ -204,7 +204,7 @@ graph TB
 **Port**: 8004  
 **Key Features**:
 - **DRIFT Search Implementation**: HyDE expansion → Community retrieval → Follow-up execution → Aggregation
-- **Vector Similarity Search**: 1536-dimensional embeddings with cosine similarity (indexes: `graphrag_chunk_index`, `graphrag_comm_index`)
+- **Vector Similarity Search**: 3072-dimensional embeddings with cosine similarity (indexes: `graphrag_chunk_index`, `graphrag_comm_index`)
 - **Requirement-Centric Retrieval**: All evidence and entities accessed via requirements for optimized queries
 - **Hierarchical Community Traversal**: Leiden algorithm-based communities with multi-level navigation
 - **Bidirectional Relationships**: `(:Entity)-[:REFERENCED_BY]->(:Requirement)`
@@ -212,7 +212,7 @@ graph TB
 **Neo4j Schema**:
 - **Nodes**: `__Project__`, `__Document__`, `__Chunk__`, `__Entity__`, `__Community__`
 - **Relationships**: `IN_PROJECT`, `HAS_CHUNK`, `HAS_ENTITY`, `RELATED`, `IN_COMMUNITY`
-- **Vector Indexes**: 1536 dims, cosine similarity on chunks and communities
+- **Vector Indexes**: 3072 dims, cosine similarity on chunks and communities
 
 **Key Endpoints**:
 - `POST /retrieve` - Execute GraphRAG retrieval with multiple strategies
@@ -233,7 +233,7 @@ graph TB
 - **Multi-Source Data Merging**: Combines documents, JIRA tickets, and GitLab data into unified graph
 - **Deduplication & Merging**: Requirement-centric deduplication with `MERGED_FROM` relationships
 - **Background Processing**: Celery-based async execution with Redis Streams triggers
-- **Vector Embeddings**: OpenAI ada-002 (1536 dims) for chunks, entities, and communities
+- **Vector Embeddings**: OpenAI ada-002 (3072 dims) for chunks, entities, and communities
 
 **Processing Pipeline**:
 1. Download `output/*.json` from Azure Blob → local workspace
@@ -455,7 +455,7 @@ CREATE TABLE projects (
 - **Idempotent Schema Creation**: Uses `IF NOT EXISTS` for constraints
 - **Node Constraints**: Unique constraints on `Entity.id`, `Requirement.id`, `Document.id`, `JiraTicket.id`
 - **Relationship Schema**: REFERENCED_BY, EVIDENCED_BY, MERGED_FROM
-- **Vector Index Configuration**: 1536 dims, cosine similarity (handled separately)
+- **Vector Index Configuration**: 3072 dims, cosine similarity (handled separately)
 
 **Key Endpoints**:
 - `POST /init-neo4j` - Initialize Neo4j schema
@@ -670,7 +670,7 @@ sequenceDiagram
 | **Backend Framework** | FastAPI | 0.104+ | High-performance async REST APIs |
 | **AI Orchestration** | LangGraph | 0.2+ | Agentic workflow state machines |
 | **LLM Provider** | Azure OpenAI | GPT-4.1 | Chat completions |
-| **Embeddings** | Azure OpenAI | text-embedding-ada-002 | Vector embeddings (1536 dims) |
+| **Embeddings** | Azure OpenAI | text-embedding-ada-002 | Vector embeddings (3072 dims) |
 | **Graph Database** | Neo4j | 5.x | Graph RAG implementation |
 | **Relational Database** | PostgreSQL | 15+ | Project metadata |
 | **Cache & Pub/Sub** | Redis | 7.x | Streams, pub/sub, token cache |

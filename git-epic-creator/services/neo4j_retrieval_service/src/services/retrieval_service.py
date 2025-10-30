@@ -755,7 +755,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         qvec = await _embed_with_cache(hyde_text, state)
         
         # Validate embedding dimension to catch configuration errors early
-        expected_dim = settings.vector_index.VECTOR_INDEX_DIMENSIONS or 1536
+        expected_dim = settings.vector_index.VECTOR_INDEX_DIMENSIONS or 3072
         _validate_embedding_dimension(qvec, expected_dim, "HyDE")
         
         logger.info("retrieval.hyde.done", hyde_text_len=len(hyde_text or ""), qvec_len=len(qvec or []))
@@ -878,7 +878,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                         
                         # Validate embedding dimension on first followup (avoid redundant checks)
                         if idx == 0:
-                            expected_dim = settings.vector_index.VECTOR_INDEX_DIMENSIONS or 1536
+                            expected_dim = settings.vector_index.VECTOR_INDEX_DIMENSIONS or 3072
                             _validate_embedding_dimension(qvec, expected_dim, f"Followup-{idx}")
 
                         chunks = _scoped_chunks_expanded(

@@ -16,7 +16,7 @@ Document Processing → Graph RAG Ingestion → Neo4j Schema ← Graph RAG Conte
 ### Business Requirements Supported
 - **Graph RAG Foundation**: Enables storage of requirement-centric graph data with semantic search capabilities
 - **Schema Consistency**: Ensures proper constraints and indexes for data integrity
-- **Vector Search**: Creates necessary indexes for 1536-dimensional embeddings with cosine similarity
+- **Vector Search**: Creates necessary indexes for 3072-dimensional embeddings with cosine similarity
 
 ## Technical Specifications
 

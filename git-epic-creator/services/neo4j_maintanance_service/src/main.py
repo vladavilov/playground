@@ -98,7 +98,7 @@ async def init_neo4j(
                 "total_queries": result["summary"]["total_queries"],
                 "vector_index_ensured": vector_result.get("success", False),
                 "vector_index_name": vector_result.get("name"),
-                "vector_dimensions": vector_result.get("dimensions", 1536),
+                "vector_dimensions": vector_result.get("dimensions", 3072),
                 "similarity_function": vector_result.get("similarity", "cosine"),
                 "hnsw_optimization": {
                     "enabled": True,
@@ -134,7 +134,7 @@ async def init_neo4j(
             },
             "vector_index_ensured": vector_result.get("success", False),
             "vector_index_name": vector_result.get("name"),
-            "vector_dimensions": vector_result.get("dimensions", 1536),
+            "vector_dimensions": vector_result.get("dimensions", 3072),
             "similarity_function": vector_result.get("similarity", "cosine"),
             "hnsw_optimization": {
                 "enabled": True,
@@ -170,7 +170,7 @@ async def get_schema_info(
         "relationship_type_queries": query_builder.get_relationship_type_queries(),
         "node_types": query_builder.get_node_types(),
         "relationships": query_builder.get_relationship_types(),
-        "vector_dimensions": 1536,
+        "vector_dimensions": 3072,
         "similarity_function": "cosine",
         "hnsw_optimization": {
             "vector.hnsw.m": 32,

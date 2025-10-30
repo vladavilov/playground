@@ -51,7 +51,7 @@ class Neo4jValidators:
         Comprehensive validation (comprehensive=True):
             - All basic checks
             - Document properties (id, title, text, project_id)
-            - Chunk embeddings with correct dimensions (1536)
+            - Chunk embeddings with correct dimensions (3072)
             - Entity properties (id, title, description, type, norm_title)
             - RELATED relationships with properties
             - Communities with proper hierarchy
@@ -129,7 +129,7 @@ class Neo4jValidators:
         if len(chunks_with_embeddings) > 0 and chunks_with_embeddings[0]['count'] > 0:
             dims = chunks_with_embeddings[0]['dims']
             if dims is not None:
-                assert dims == 1536, f"Embeddings should be 1536 dimensions, got {dims}"
+                assert dims == 3072, f"Embeddings should be 3072 dimensions, got {dims}"
     
     @staticmethod
     def _validate_entities_and_relationships(session: Any, project_id: str) -> None:
@@ -226,7 +226,7 @@ class Neo4jValidators:
             {"label": "__Chunk__", "property": "embedding"},
             {"label": "__Community__", "property": "embedding"},
         ]
-        expected_dims = 1536
+        expected_dims = 3072
         expected_sim = "cosine"
         
         with fixtures.neo4j_driver.session() as session:

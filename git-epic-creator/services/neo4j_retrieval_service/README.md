@@ -128,9 +128,9 @@ Your graph:
 - Higher-level communities summarize their children's content
 
 **Properties:**
--   Communities: `summary` (text describing entities/subcommunities), `embedding` (1536 floats)
--   Chunks: `text` (original content), `embedding` (1536 floats)
--   Entities: `title`, `description`, `embedding` (1536 floats)
+-   Communities: `summary` (text describing entities/subcommunities), `embedding` (3072 floats)
+-   Chunks: `text` (original content), `embedding` (3072 floats)
+-   Entities: `title`, `description`, `embedding` (3072 floats)
 
 ### Schema Design Notes
 
@@ -154,7 +154,7 @@ This differs from some GraphRAG reference implementations but provides clearer s
 ### Indexes (Neo4j 5+)
 
 The vector index for communities should be created **once**:
-cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:__Community__) ON (c.embedding) OPTIONS {indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'COSINE' }};
+cypher CREATE VECTOR INDEX graphrag_comm_index IF NOT EXISTS FOR (c:__Community__) ON (c.embedding) OPTIONS {indexConfig: { vector.dimensions: 3072, vector.similarity_function: 'COSINE' }};
 > **Note:** Community embeddings should be computed once from each
 > community's `summary` (using the same embedding model as for chunks)
 > and stored in `c.embedding`.
@@ -517,7 +517,7 @@ NEO4J_DATABASE=neo4j
 ```bash
 COMMUNITY_VECTOR_INDEX_NAME=graphrag_comm_index
 CHUNK_VECTOR_INDEX_NAME=graphrag_chunk_index
-VECTOR_INDEX_DIMENSIONS=1536
+VECTOR_INDEX_DIMENSIONS=3072
 VECTOR_INDEX_SIMILARITY=cosine
 ```
 

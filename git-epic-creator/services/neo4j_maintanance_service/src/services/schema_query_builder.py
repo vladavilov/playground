@@ -100,7 +100,7 @@ class SchemaQueryBuilder:
             # ============================================================================
             # Used by: db.index.vector.queryNodes() in DRIFT primer and follow-up phases
             # Purpose: Semantic similarity search for retrieval
-            # Dimensions: 1536 (text-embedding-3-small), Similarity: cosine
+            # Dimensions: 3072 (text-embedding-3-small), Similarity: cosine
             (f"CREATE VECTOR INDEX {env.CHUNK_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_CHUNK}`) "
              f"ON (c.{prop}) {vector_index_options}"),
             (f"CREATE VECTOR INDEX {env.COMMUNITY_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) "
@@ -213,7 +213,7 @@ class SchemaQueryBuilder:
             "relationship_type_queries": self.get_relationship_type_queries(),
             "node_types": self.get_node_types(),
             "relationships": self.get_relationship_types(),
-            "vector_dimensions": 1536,
+            "vector_dimensions": 3072,
             "similarity_function": "cosine"
         }
 
