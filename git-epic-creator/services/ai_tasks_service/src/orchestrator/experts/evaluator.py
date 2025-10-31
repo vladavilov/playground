@@ -2,12 +2,12 @@
 
 from typing import Dict
 from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
 import structlog
 
 from task_models.agent_models import BacklogDraft, AuditFindings, EvaluationReport
 from config import get_ai_tasks_settings
 from orchestrator.experts.clients.llm import get_llm
+from orchestrator.prompts import EVALUATOR, build_chat_prompt
 from utils.deepeval_utils import evaluate_with_metrics, StrictGEval
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric
@@ -45,60 +45,7 @@ class Evaluator:
         # Build evaluation prompt for LLM rationale and gaps
         backlog_summary = self._summarize_for_eval(draft, findings)
         
-        prompt_tmpl = ChatPromptTemplate.from_messages([
-            (
-                "system",
-                "You are a Senior Backlog Evaluator and Technical Architect assessing the quality of a technical backlog. "
-                "Your evaluation focuses on whether the backlog is ACTIONABLE, COMPLETE, and IMPLEMENTABLE by an engineering team.\n\n"
-                "# Evaluation Framework\n\n"
-                "**Technical Quality Axes:**\n"
-                "1. **Coverage**: All requirements translated into epics/tasks with full scope\n"
-                "2. **Specificity**: Technical details (APIs, data models, infrastructure) are concrete and clear\n"
-                "3. **Feasibility**: Tasks are realistic, properly sized, and implementable\n"
-                "4. **Consistency**: No duplicates, circular dependencies, or contradictions\n\n"
-                "# Your Task\n\n"
-                "Analyze the backlog against the requirements and audit findings, then provide:\n\n"
-                "**1. Rationale (2-3 sentences):**\n"
-                "- Overall assessment of backlog quality\n"
-                "- Strongest aspects (e.g., 'Acceptance criteria are well-defined', 'Clear technical approach')\n"
-                "- Weakest aspects (e.g., 'Some tasks lack API specifics', 'Missing error handling coverage')\n\n"
-                "**2. Gaps (Top 3-5 specific gaps):**\n"
-                "- **Context Alignment**: Tasks using technologies NOT in requirements or context (⚠️ CRITICAL)\n"
-                "- **Missing Requirements**: Requirements not covered by any epic/task\n"
-                "- **Technical Details**: Absent from descriptions (which services, APIs, data models)\n"
-                "- **Acceptance Criteria**: Vague, not Given/When/Then, missing edge cases\n"
-                "- **Non-Functional Requirements**: Performance, security, observability not addressed\n"
-                "- **Architectural Concerns**: Integration points, error handling, scalability\n\n"
-                "**Examples of good gaps:**\n"
-                "- '⚠️ CRITICAL: Tasks reference Express.js and Node.js, but context indicates Python/FastAPI stack'\n"
-                "- '⚠️ CRITICAL: T-003 mentions Jira integration, but requirements/context specify GitLab'\n"
-                "- 'Tasks use generic [authentication_mechanism] placeholder but assumptions not documented'\n"
-                "- 'No task addresses authentication integration with existing identity service'\n"
-                "- 'T-005 lacks specific API endpoint definitions and response schemas'\n"
-                "- 'Missing acceptance criteria for error scenarios (timeouts, API failures)'\n"
-                "- 'No task covers database migration or schema evolution'\n"
-                "- 'Performance requirements (sub-200ms latency) not reflected in any acceptance criteria'\n\n"
-                "**Examples of poor gaps (too vague):**\n"
-                "- 'More details needed' ❌\n"
-                "- 'Tasks could be clearer' ❌\n"
-                "- 'Consider adding tests' ❌\n\n"
-                "# Output Format\n\n"
-                "Respond ONLY with JSON:\n"
-                "```json\n"
-                "{{\n"
-                "  \"rationale\": \"2-3 sentence assessment highlighting strengths and weaknesses\",\n"
-                "  \"gaps\": [\n"
-                "    \"Specific gap 1 with task/epic reference if applicable\",\n"
-                "    \"Specific gap 2 with technical detail about what's missing\",\n"
-                "    \"Specific gap 3\"\n"
-                "  ]\n"
-                "}}\n"
-                "```\n\n"
-                "**Be specific**: Reference epic/task IDs when identifying gaps. "
-                "**Be technical**: Focus on implementation details (APIs, schemas, configs), not just business outcomes.",
-            ),
-            ("human", "### Requirements\n{requirements}\n\n### Backlog & Findings\n{backlog_summary}"),
-        ])
+        prompt_tmpl = build_chat_prompt(EVALUATOR)
         
         llm = get_llm()
         chain = prompt_tmpl | llm.with_structured_output(EvalOut)
