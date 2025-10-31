@@ -255,10 +255,18 @@ Configuration
 - Env vars (examples):
   - **Azure OpenAI Configuration** (required):
     - `OAI_BASE_URL`: Azure OpenAI endpoint (e.g., `https://<resource>.openai.azure.com/`)
-    - `OAI_MODEL`: Azure OpenAI deployment name (e.g., `gpt-4o`, `gpt-4.1`)
+    - `OAI_MODEL`: Azure OpenAI deployment name for complex tasks (e.g., `gpt-4o`, `gpt-4.1`) - used for user intent analysis and requirements draft generation
+    - `OAI_MODEL_FAST`: Azure OpenAI deployment name for fast/simple tasks (e.g., `gpt-4o-mini`) - used for consistency audits and question generation
     - `OAI_KEY`: Azure OpenAI API key
     - `OAI_API_VERSION`: Azure OpenAI API version (e.g., `2024-02-15-preview`)
     - Note: Service uses `AzureChatOpenAI` connector requiring `deployment_name` parameter
+    - **Model Selection Strategy**:
+      - **Standard Model (`OAI_MODEL`)**: Used for critical creative tasks requiring high quality:
+        - `PromptAnalyst`: User intent extraction (complex understanding required)
+        - `RequirementsEngineer`: Requirements draft generation (domain-specific, comprehensive)
+      - **Fast Model (`OAI_MODEL_FAST`)**: Used for review/analysis tasks for better performance:
+        - `ConsistencyAuditor`: Requirements quality review
+        - `QuestionStrategist`: Clarification question generation
   - **Timeout Configuration** (for long-running workflows):
     - `HTTP_READ_TIMEOUT`: Read timeout from shared HTTPClientSettings (default: 180s for UI, overridable per service)
     - `WORKFLOW_TIMEOUT_SEC`: Maximum workflow execution time before graceful abort (default: 150s)

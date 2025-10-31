@@ -30,7 +30,7 @@ class RequirementsAnalyst:
 
         prompt_tmpl = build_chat_prompt(REQUIREMENTS_ANALYST)
         
-        llm = get_llm()
+        llm = get_llm(use_fast_model=True)
         chain = prompt_tmpl | llm.with_structured_output(AnalysisOut)
         out: AnalysisOut = await chain.ainvoke({"requirements": requirements})
         

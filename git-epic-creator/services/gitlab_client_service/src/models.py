@@ -29,13 +29,19 @@ class ListResponse(BaseModel):
 
 
 class ApplyBacklogWorkItem(BaseModel):
-    id: Optional[str] = None
     title: str
     description: str = ""
     labels: List[str] = Field(default_factory=list)
+    related_to_iid: Optional[str] = Field(
+        None,
+        description="IID of similar/related item to link to (creates related link)"
+    )
 
 class ApplyBacklogIssue(ApplyBacklogWorkItem):
-    epic_id: Optional[str] = None
+    parent_epic_index: Optional[int] = Field(
+        None,
+        description="Index of parent epic in epics array (for epic-issue hierarchy)"
+    )
 
 
 class ApplyBacklogRequest(BaseModel):

@@ -37,7 +37,7 @@ class QuestionStrategist:
                 return value
 
         tmpl = build_chat_prompt(QUESTION_STRATEGIST)
-        llm = get_llm()
+        llm = get_llm(use_fast_model=True)
         chain = tmpl | llm.with_structured_output(QList)
         out: QList = await chain.ainvoke({"prompt": prompt, "draft": draft_payload, "axes": axes_payload})
         questions: list[ClarificationQuestion] = []

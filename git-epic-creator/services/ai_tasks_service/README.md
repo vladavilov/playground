@@ -519,15 +519,26 @@ WORKFLOW_TIMEOUT_SEC=150
 
 # Azure OpenAI (required)
 # Note: Service uses AzureChatOpenAI connector which requires deployment_name parameter
-# OAI_MODEL is used as the deployment_name for Azure OpenAI deployments
+# OAI_MODEL is used as the deployment_name for Azure OpenAI deployments (complex tasks)
+# OAI_MODEL_FAST is used as the deployment_name for Azure OpenAI deployments (simple/review tasks)
 OAI_BASE_URL=https://your-resource.openai.azure.com     # Azure endpoint (no trailing /openai)
 OAI_KEY=your-azure-openai-key                           # Azure OpenAI API key
 OAI_API_VERSION=2024-02-01                              # Azure OpenAI API version
-OAI_MODEL=gpt-4                                         # Azure deployment name (not model name)
+OAI_MODEL=gpt-4                                         # Azure deployment name for complex tasks (backlog generation)
+OAI_MODEL_FAST=gpt-4o-mini                              # Azure deployment name for fast tasks (analysis, audits, evaluation)
 OAI_EMBED_MODEL_NAME=text-embedding-3-small             # Embedding model name (for tiktoken)
 OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small        # Embedding deployment name
 LLM_TIMEOUT_SEC=20.0
 LLM_TEMPERATURE=0.2
+
+# Model Selection Strategy:
+# - Standard Model (OAI_MODEL): Used for complex technical decomposition
+#   * BacklogEngineer: Epic and task generation with mermaid diagrams
+# - Fast Model (OAI_MODEL_FAST): Used for analysis and review tasks (60-70% of calls)
+#   * RequirementsAnalyst: Parse requirements into structured intents
+#   * ConsistencyAuditor: Backlog quality review
+#   * Evaluator: Quality scoring and gap identification
+#   * ClarificationStrategist: Clarification question generation
 
 # Redis
 REDIS_URL=redis://redis:6379

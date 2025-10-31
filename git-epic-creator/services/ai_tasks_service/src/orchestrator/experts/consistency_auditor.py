@@ -38,7 +38,7 @@ class ConsistencyAuditor:
         
         prompt_tmpl = build_chat_prompt(CONSISTENCY_AUDITOR)
         
-        llm = get_llm()
+        llm = get_llm(use_fast_model=True)
         chain = prompt_tmpl | llm.with_structured_output(AuditOut)
         out: AuditOut = await chain.ainvoke({
             "requirements": requirements,

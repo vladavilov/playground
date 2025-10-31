@@ -12,6 +12,10 @@ class SimilarMatch(BaseModel):
     status: Optional[str] = Field(None, description="Work item status (e.g., open, closed)")
     similarity: Optional[float] = Field(None, ge=0.0, le=1.0, description="Cosine similarity score")
     url: Optional[str] = Field(None, description="GitLab web URL for the work item")
+    link_decision: Optional[str] = Field(
+        None,
+        description="User's decision: 'accepted', 'rejected', or None (pending)"
+    )
 
 
 class Task(BaseModel):

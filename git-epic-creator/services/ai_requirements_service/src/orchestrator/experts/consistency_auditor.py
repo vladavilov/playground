@@ -61,7 +61,7 @@ class ConsistencyAuditor:
             suggestions: List[str] = Field(default_factory=list)
 
         tmpl = build_chat_prompt(CONSISTENCY_AUDITOR)
-        llm = get_llm()
+        llm = get_llm(use_fast_model=True)
         chain = tmpl | llm.with_structured_output(Critique)
         out: Critique = await chain.ainvoke({
             "requirements": payload["requirements"],

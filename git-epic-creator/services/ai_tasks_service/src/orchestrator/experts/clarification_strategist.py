@@ -51,7 +51,7 @@ class ClarificationStrategist:
         
         prompt_tmpl = build_chat_prompt(CLARIFICATION_STRATEGIST)
         
-        llm = get_llm()
+        llm = get_llm(use_fast_model=True)
         chain = prompt_tmpl | llm.with_structured_output(ClarificationOut)
         out: ClarificationOut = await chain.ainvoke({
             "requirements": requirements,

@@ -485,7 +485,8 @@ This service uses `AzureChatOpenAI` and `AzureOpenAIEmbeddings` connectors from 
 ```bash
 # Azure OpenAI Configuration
 OAI_BASE_URL=https://your-resource.openai.azure.com/     # Azure endpoint (no /openai suffix)
-OAI_MODEL=gpt-4o                                         # Azure deployment name for chat (NOT model name)
+OAI_MODEL=gpt-4o                                         # Azure deployment name for standard tasks (NOT model name)
+OAI_MODEL_FAST=gpt-4o-mini                               # Azure deployment name for fast retrieval tasks (default)
 OAI_KEY=your-azure-openai-key                            # Azure OpenAI API key
 OAI_API_VERSION=2024-02-15-preview                       # Azure OpenAI API version
 
@@ -499,9 +500,11 @@ LLM_TEMPERATURE=0.0                                      # Temperature for LLM r
 ```
 
 **Important Notes:**
-- `OAI_MODEL` is used as the `deployment_name` parameter in `AzureChatOpenAI`
+- `OAI_MODEL_FAST` is used by default as the `deployment_name` parameter in `AzureChatOpenAI` for retrieval tasks (fast query understanding)
+- `OAI_MODEL` is available as fallback for complex retrieval scenarios (can be selected via `use_fast_model=False`)
 - The endpoint path is constructed as: `{OAI_BASE_URL}/openai/deployments/{deployment_name}/chat/completions?api-version={OAI_API_VERSION}`
 - Without proper `deployment_name`, requests will result in 404 errors
+- **Model Selection**: Retrieval service defaults to fast model for better response times while maintaining quality for query understanding tasks
 
 ### Neo4j Configuration
 

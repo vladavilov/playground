@@ -273,7 +273,74 @@ export class TasksEditor extends BaseEditor {
       }
     }
     
+    // Similar matches section (read-only in preview)
+    html += this.renderSimilarMatchesSection(item);
+    
     html += '</div>';
+    return html;
+  }
+  
+  /**
+   * Renders similar matches section for focus mode.
+   * @param {Object} item - Epic or task object
+   * @returns {string} HTML string
+   * @private
+   */
+  renderSimilarMatchesSection(item) {
+    if (!item.similar || item.similar.length === 0) {
+      return '';
+    }
+    
+    const isFullscreen = this.currentMode === 'fullscreen';
+    const headingClass = isFullscreen ? 'text-sm mb-3' : 'text-xs mb-2';
+    const itemType = this.editingItem?.itemType === 'epic' ? 'Epic' : 'Issue';
+    
+    let html = `
+      <div>
+        <h4 class="${headingClass} font-semibold text-slate-500 uppercase tracking-wide">🔗 Similar GitLab ${itemType}s</h4>
+        <div class="space-y-2">
+    `;
+    
+    item.similar.forEach((sim, simIdx) => {
+      const matchPercent = Math.round((sim.similarity || 0) * 100);
+      const decision = sim.link_decision || 'pending';
+      const simUrl = sim.url || '#';
+      
+      let statusColor = 'text-amber-600 bg-amber-50';
+      let statusText = '⏱ Pending Decision';
+      if (decision === 'accepted') {
+        statusColor = 'text-emerald-600 bg-emerald-50';
+        statusText = '✓ Will Use This';
+      } else if (decision === 'rejected') {
+        statusColor = 'text-slate-500 bg-slate-50';
+        statusText = '✗ Ignored';
+      }
+      
+      html += `
+        <div class="p-3 border border-slate-200 rounded bg-slate-50">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold text-slate-600">${esc(sim.kind).toUpperCase()}</span>
+              <a href="${esc(simUrl)}" target="_blank" class="text-blue-600 hover:underline font-medium">
+                #${esc(sim.id)}
+              </a>
+              <span class="text-xs text-slate-500">(${matchPercent}% match)</span>
+            </div>
+            <span class="px-2 py-0.5 ${statusColor} rounded text-xs font-medium">${statusText}</span>
+          </div>
+          ${sim.status ? `<div class="text-xs text-slate-500 mb-2">Status: ${esc(sim.status)}</div>` : ''}
+          <div class="text-xs text-slate-600">
+            You can accept this match to update the existing ${itemType.toLowerCase()} instead of creating a new one.
+          </div>
+        </div>
+      `;
+    });
+    
+    html += `
+        </div>
+      </div>
+    `;
+    
     return html;
   }
 }

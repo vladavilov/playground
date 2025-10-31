@@ -282,6 +282,92 @@ class TasksController extends ChatBaseController {
     
     // Enable inline editing mode
     this.enhancedEditor.enableInlineEditing();
+    
+    // Set up similar match action handlers
+    this.setupSimilarMatchHandlers();
+  }
+  
+  /**
+   * Sets up event handlers for similar match accept/reject buttons.
+   */
+  setupSimilarMatchHandlers() {
+    // Use event delegation for dynamically added buttons
+    this.backlogContent.addEventListener('click', (e) => {
+      const btn = e.target.closest('.similar-action-btn');
+      if (!btn) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const action = btn.dataset.action;
+      const similarItem = btn.closest('.similar-item');
+      if (!similarItem) return;
+      
+      const epicIdx = parseInt(similarItem.dataset.epicIdx);
+      const taskIdxStr = similarItem.dataset.taskIdx;
+      const taskIdx = taskIdxStr ? parseInt(taskIdxStr) : null;
+      const simIdx = parseInt(similarItem.dataset.simIdx);
+      
+      this.handleLinkDecision(action, epicIdx, taskIdx, simIdx);
+    });
+  }
+  
+  /**
+   * Handles link decision (accept/reject) for a similar match.
+   * @param {string} action - 'accept' or 'reject'
+   * @param {number} epicIdx - Epic index
+   * @param {number|null} taskIdx - Task index (null for epic-level matches)
+   * @param {number} simIdx - Similar item index
+   */
+  handleLinkDecision(action, epicIdx, taskIdx, simIdx) {
+    if (!this.state.backlogBundle || !this.state.backlogBundle.epics[epicIdx]) return;
+    
+    const epic = this.state.backlogBundle.epics[epicIdx];
+    
+    // Determine target item and similar array
+    let target, similarArray;
+    if (taskIdx !== null && epic.tasks && epic.tasks[taskIdx]) {
+      target = epic.tasks[taskIdx];
+      similarArray = target.similar;
+    } else {
+      target = epic;
+      similarArray = target.similar;
+    }
+    
+    if (!similarArray || !similarArray[simIdx]) return;
+    
+    const decision = action === 'accept' ? 'accepted' : 'rejected';
+    
+    // Update link decision
+    similarArray[simIdx].link_decision = decision;
+    
+    // If accepting, reject all other similar items for this target
+    if (action === 'accept') {
+      similarArray.forEach((sim, idx) => {
+        if (idx !== simIdx) {
+          sim.link_decision = 'rejected';
+        }
+      });
+    }
+    
+    // Re-render and re-enable editing
+    this.renderer.render(this.state.backlogBundle);
+    this.enableEnhancedEditing();
+    
+    // Show feedback
+    const itemType = taskIdx !== null ? 'task' : 'epic';
+    const itemLabel = taskIdx !== null ? `Task ${taskIdx + 1}` : `Epic ${epicIdx + 1}`;
+    const matchId = similarArray[simIdx].id;
+    
+    if (action === 'accept') {
+      this.chatUI.appendSystemMessage(
+        `✓ ${itemLabel} will be created and linked to existing ${similarArray[simIdx].kind} #${matchId}`
+      );
+    } else {
+      this.chatUI.appendSystemMessage(
+        `✗ ${itemLabel} will be created without linking to match #${matchId}`
+      );
+    }
   }
   
   /**
@@ -296,7 +382,7 @@ class TasksController extends ChatBaseController {
   }
   
   /**
-   * Submits backlog to GitLab.
+   * Submits backlog to GitLab with proper link handling.
    * @private
    */
   async submitToGitLab() {
@@ -326,24 +412,43 @@ class TasksController extends ChatBaseController {
         issues: []
       };
       
-      // Process epics and flatten tasks to issues
-      this.state.backlogBundle.epics.forEach((epic) => {
-        payload.epics.push({
-          id: epic.similar && epic.similar.length > 0 ? epic.similar[0].id : null,
+      // Process epics - always create new, optionally link to accepted similar
+      this.state.backlogBundle.epics.forEach((epic, epicIdx) => {
+        const acceptedMatch = this.getAcceptedMatch(epic.similar);
+        
+        let epicPayload = {
           title: epic.title,
           description: epic.description || '',
-          labels: []
-        });
+          labels: [],
+          related_to_iid: null  // IID of similar epic to create related link
+        };
         
+        if (acceptedMatch) {
+          // User accepted a similar match - create related link to it
+          epicPayload.related_to_iid = acceptedMatch.id;
+        }
+        
+        payload.epics.push(epicPayload);
+        
+        // Process tasks for this epic
         if (epic.tasks && epic.tasks.length > 0) {
           epic.tasks.forEach((task) => {
-            payload.issues.push({
-              id: task.similar && task.similar.length > 0 ? task.similar[0].id : null,
+            const acceptedTaskMatch = this.getAcceptedMatch(task.similar);
+            
+            let issuePayload = {
               title: task.title,
               description: task.description || '',
               labels: [],
-              epic_id: epic.similar && epic.similar.length > 0 ? epic.similar[0].id : null
-            });
+              related_to_iid: null,  // IID of similar issue to create related link
+              parent_epic_index: epicIdx  // Index of parent epic in epics array
+            };
+            
+            if (acceptedTaskMatch) {
+              // User accepted a similar match for this task - create related link to it
+              issuePayload.related_to_iid = acceptedTaskMatch.id;
+            }
+            
+            payload.issues.push(issuePayload);
           });
         }
       });
@@ -355,18 +460,29 @@ class TasksController extends ChatBaseController {
       
       // Display results
       const epicsCreated = response.results.epics.filter(e => e.action === 'created').length;
-      const epicsUpdated = response.results.epics.filter(e => e.action === 'updated').length;
       const issuesCreated = response.results.issues.filter(i => i.action === 'created').length;
-      const issuesUpdated = response.results.issues.filter(i => i.action === 'updated').length;
       const errorCount = response.errors.length;
+      
+      // Count how many items were linked to similar matches
+      const epicsLinked = this.state.backlogBundle.epics.filter(e => this.getAcceptedMatch(e.similar)).length;
+      const issuesLinked = this.state.backlogBundle.epics.reduce((count, epic) => {
+        return count + (epic.tasks || []).filter(t => this.getAcceptedMatch(t.similar)).length;
+      }, 0);
       
       let html = '<div class="text-sm">';
       html += '<div class="font-semibold text-emerald-700 mb-2">✓ Backlog submitted to GitLab successfully!</div>';
       html += '<div class="space-y-1 text-slate-700">';
-      html += `<div>• Epics: ${epicsCreated} created, ${epicsUpdated} updated</div>`;
-      html += `<div>• Issues: ${issuesCreated} created, ${issuesUpdated} updated</div>`;
+      html += `<div>• Epics: ${epicsCreated} created`;
+      if (epicsLinked > 0) html += `, ${epicsLinked} linked to similar items`;
+      html += '</div>';
+      html += `<div>• Issues: ${issuesCreated} created`;
+      if (issuesLinked > 0) html += `, ${issuesLinked} linked to similar items`;
+      html += '</div>';
       if (errorCount > 0) {
         html += `<div class="text-rose-600 mt-2">⚠ ${errorCount} error(s) occurred</div>`;
+        response.errors.forEach(err => {
+          html += `<div class="text-rose-600 text-xs">  - ${esc(err.scope)} ${err.input_index}: ${esc(err.message)}</div>`;
+        });
       }
       html += '</div>';
       
@@ -376,13 +492,13 @@ class TasksController extends ChatBaseController {
         if (response.results.epics.slice(0, 3).length > 0) {
           html += '<div class="font-semibold mb-1">Sample Epics:</div>';
           response.results.epics.slice(0, 3).forEach(epic => {
-            html += `<div>• <a href="${esc(epic.web_url)}" target="_blank" class="text-indigo-600 hover:underline">${epic.action} #${esc(epic.id)}</a></div>`;
+            html += `<div>• <a href="${esc(epic.web_url)}" target="_blank" class="text-indigo-600 hover:underline">Epic #${esc(epic.id)}</a></div>`;
           });
         }
         if (response.results.issues.slice(0, 3).length > 0) {
           html += '<div class="font-semibold mb-1 mt-2">Sample Issues:</div>';
           response.results.issues.slice(0, 3).forEach(issue => {
-            html += `<div>• <a href="${esc(issue.web_url)}" target="_blank" class="text-indigo-600 hover:underline">${issue.action} #${esc(issue.id)}</a></div>`;
+            html += `<div>• <a href="${esc(issue.web_url)}" target="_blank" class="text-indigo-600 hover:underline">Issue #${esc(issue.id)}</a></div>`;
           });
         }
         html += '</div>';
@@ -399,6 +515,17 @@ class TasksController extends ChatBaseController {
         'System Error'
       );
     }
+  }
+  
+  /**
+   * Gets the accepted similar match from an array of similar items.
+   * @param {Array} similar - Array of similar match objects
+   * @returns {Object|null} Accepted match or null
+   * @private
+   */
+  getAcceptedMatch(similar) {
+    if (!similar || similar.length === 0) return null;
+    return similar.find(sim => sim.link_decision === 'accepted') || null;
   }
 }
 

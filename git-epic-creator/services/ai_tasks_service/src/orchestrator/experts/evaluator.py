@@ -47,7 +47,7 @@ class Evaluator:
         
         prompt_tmpl = build_chat_prompt(EVALUATOR)
         
-        llm = get_llm()
+        llm = get_llm(use_fast_model=True)
         chain = prompt_tmpl | llm.with_structured_output(EvalOut)
         out: EvalOut = await chain.ainvoke({
             "requirements": requirements,

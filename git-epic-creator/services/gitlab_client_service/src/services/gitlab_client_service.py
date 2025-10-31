@@ -289,6 +289,7 @@ class GitLabClientService:
             "Issue created",
             project_id=project_id,
             issue_id=issue.id,
+            issue_iid=issue.iid,
             title=title
         )
         
@@ -393,6 +394,7 @@ class GitLabClientService:
                 "Issue updated",
                 project_id=project_id,
                 issue_id=issue_id,
+                issue_iid=issue.iid,
                 changes=list(updates.keys())
             )
         else:
@@ -403,6 +405,163 @@ class GitLabClientService:
             )
         
         return self._normalize_issue(issue)
+
+    def create_issue_link(
+        self,
+        project_id: str,
+        source_issue_iid: str,
+        target_issue_iid: str,
+        link_type: str = "relates_to"
+    ) -> bool:
+        """
+        Create a link between two issues (e.g., for similar/related/duplicate detection).
+        
+        Args:
+            project_id: GitLab project ID
+            source_issue_iid: Source issue IID (the new issue)
+            target_issue_iid: Target issue IID (the similar existing issue)
+            link_type: Type of link ('relates_to', 'blocks', 'is_blocked_by')
+            
+        Returns:
+            True if link was created successfully
+            
+        Raises:
+            Exception: If linking fails
+        """
+        try:
+            project: Project = self.client.projects.get(project_id)
+            source_issue = project.issues.get(source_issue_iid)
+            
+            # Create issue link
+            link_data = {
+                'target_project_id': project_id,
+                'target_issue_iid': int(target_issue_iid),
+                'link_type': link_type
+            }
+            
+            source_issue.links.create(link_data)
+            
+            logger.info(
+                "Issue link created",
+                project_id=project_id,
+                source_issue_iid=source_issue_iid,
+                target_issue_iid=target_issue_iid,
+                link_type=link_type
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(
+                "Failed to create issue link",
+                project_id=project_id,
+                source_issue_iid=source_issue_iid,
+                target_issue_iid=target_issue_iid,
+                error=str(e)
+            )
+            raise
+    
+    def create_epic_link(
+        self,
+        group_id: str,
+        source_epic_iid: str,
+        target_epic_iid: str,
+        link_type: str = "relates_to"
+    ) -> bool:
+        """
+        Create a related epic link between two epics using GitLab's related_epics API.
+        
+        Args:
+            group_id: GitLab group ID
+            source_epic_iid: Source epic IID (the new epic)
+            target_epic_iid: Target epic IID (the similar existing epic)
+            link_type: Type of link ('relates_to', 'blocks', 'is_blocked_by')
+            
+        Returns:
+            True if link was created successfully
+            
+        Raises:
+            Exception: If linking fails
+        """
+        try:
+            group: Group = self.client.groups.get(group_id)
+            source_epic = group.epics.get(source_epic_iid)
+            
+            # Create epic relationship using related_epics API
+            link_data = {
+                'target_group_id': int(group_id),
+                'target_epic_iid': int(target_epic_iid),
+                'link_type': link_type
+            }
+            
+            source_epic.related_epics.create(link_data)
+            
+            logger.info(
+                "Epic related link created",
+                group_id=group_id,
+                source_epic_iid=source_epic_iid,
+                target_epic_iid=target_epic_iid,
+                link_type=link_type
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(
+                "Failed to create epic related link",
+                group_id=group_id,
+                source_epic_iid=source_epic_iid,
+                target_epic_iid=target_epic_iid,
+                error=str(e)
+            )
+            raise
+    
+    def link_issue_to_epic(
+        self,
+        group_id: str,
+        epic_iid: str,
+        issue_id: str
+    ) -> bool:
+        """
+        Link an issue to an epic (parent-child relationship) using GitLab's epic issues API.
+        
+        Args:
+            group_id: GitLab group ID
+            epic_iid: Epic IID (internal ID)
+            issue_id: Issue ID (NOT IID - use the numeric ID from issue.id)
+            
+        Returns:
+            True if link was created successfully
+            
+        Raises:
+            Exception: If linking fails
+        """
+        try:
+            group: Group = self.client.groups.get(group_id)
+            epic = group.epics.get(epic_iid)
+            
+            # Link issue to epic using epic issues API
+            # Note: This requires issue_id (not issue_iid)
+            epic.issues.create({'issue_id': int(issue_id)})
+            
+            logger.info(
+                "Issue linked to epic (parent-child)",
+                group_id=group_id,
+                epic_iid=epic_iid,
+                issue_id=issue_id
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(
+                "Failed to link issue to epic",
+                group_id=group_id,
+                epic_iid=epic_iid,
+                issue_id=issue_id,
+                error=str(e)
+            )
+            raise
 
     def resolve_project(self, gitlab_path: str) -> dict[str, Any]:
         """

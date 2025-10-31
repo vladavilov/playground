@@ -98,7 +98,7 @@ export class BacklogRenderer extends BaseRenderer {
     
     // Similar matches for epic
     if (epic.similar && epic.similar.length > 0) {
-      html += this.renderSimilarItems(epic.similar, 'epic');
+      html += this.renderSimilarItems(epic.similar, 'epic', epicIdx);
     }
     
     // Tasks
@@ -157,7 +157,7 @@ export class BacklogRenderer extends BaseRenderer {
     
     // Similar matches for task
     if (task.similar && task.similar.length > 0) {
-      html += this.renderSimilarItems(task.similar, 'task');
+      html += this.renderSimilarItems(task.similar, 'task', epicIdx, taskIdx);
     }
     
     html += '</div>';
@@ -165,24 +165,75 @@ export class BacklogRenderer extends BaseRenderer {
   }
   
   /**
-   * Renders similar items warning.
+   * Renders similar items with action controls.
    * @param {Array<Object>} similarItems - Array of similar item objects
    * @param {string} context - Context ('epic' or 'task')
+   * @param {number} epicIdx - Epic index (for task context)
+   * @param {number} taskIdx - Task index (optional, for task context)
    * @returns {string} HTML string
    * @private
    */
-  renderSimilarItems(similarItems, context = 'epic') {
-    const title = context === 'epic' ? '⚠️ Similar items found:' : 'Similar:';
-    let html = `<div class="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs">
-      <div class="font-medium text-amber-800 mb-1">${title}</div>`;
+  renderSimilarItems(similarItems, context = 'epic', epicIdx = 0, taskIdx = null) {
+    const title = context === 'epic' ? '🔗 Similar GitLab Items' : '🔗 Similar Issues';
+    const itemType = context === 'epic' ? 'Epic' : 'Issue';
     
-    similarItems.forEach(sim => {
+    let html = `<div class="similar-items-container mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
+      <div class="flex items-center justify-between mb-2">
+        <div class="font-semibold text-blue-800 text-xs">${title}</div>
+        <div class="text-xs text-blue-600">Choose an action for each match:</div>
+      </div>`;
+    
+    similarItems.forEach((sim, simIdx) => {
       const simUrl = sim.url || '#';
-      const label = context === 'epic' 
-        ? `${esc(sim.kind)}: <a href="${esc(simUrl)}" target="_blank" class="underline">${esc(sim.id)}</a> (${Math.round((sim.similarity || 0) * 100)}% match)`
-        : `<a href="${esc(simUrl)}" target="_blank" class="underline">${esc(sim.id)}</a> (${Math.round((sim.similarity || 0) * 100)}%)`;
+      const matchPercent = Math.round((sim.similarity || 0) * 100);
+      const decision = sim.link_decision || 'pending';
       
-      html += `<div class="text-amber-700">• ${label}</div>`;
+      // Status badge
+      let statusBadge = '';
+      if (decision === 'accepted') {
+        statusBadge = '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded font-medium">✓ Accepted</span>';
+      } else if (decision === 'rejected') {
+        statusBadge = '<span class="px-2 py-0.5 bg-slate-200 text-slate-600 text-xs rounded font-medium">✗ Rejected</span>';
+      } else {
+        statusBadge = '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded font-medium">⏱ Pending</span>';
+      }
+      
+      html += `
+        <div class="similar-item flex items-start justify-between gap-2 p-2 bg-white border border-blue-100 rounded mt-2" 
+             data-epic-idx="${epicIdx}" 
+             data-task-idx="${taskIdx !== null ? taskIdx : ''}" 
+             data-sim-idx="${simIdx}"
+             data-sim-id="${esc(sim.id)}"
+             data-sim-kind="${esc(sim.kind)}">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-medium text-slate-600">${esc(sim.kind).toUpperCase()}</span>
+              <a href="${esc(simUrl)}" target="_blank" class="text-blue-600 hover:underline text-xs font-medium">
+                #${esc(sim.id)}
+              </a>
+              <span class="text-xs text-slate-500">(${matchPercent}% match)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              ${statusBadge}
+              ${sim.status ? `<span class="text-xs text-slate-500">${esc(sim.status)}</span>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button class="similar-action-btn accept-btn px-2 py-1 text-xs bg-emerald-500 hover:bg-emerald-600 text-white rounded transition-colors ${decision === 'accepted' ? 'opacity-50' : ''}" 
+                    title="Use this existing ${itemType.toLowerCase()} (link or update)"
+                    data-action="accept"
+                    ${decision === 'accepted' ? 'disabled' : ''}>
+              ✓ Use
+            </button>
+            <button class="similar-action-btn reject-btn px-2 py-1 text-xs bg-slate-400 hover:bg-slate-500 text-white rounded transition-colors ${decision === 'rejected' ? 'opacity-50' : ''}" 
+                    title="Ignore this match and create new"
+                    data-action="reject"
+                    ${decision === 'rejected' ? 'disabled' : ''}>
+              ✗ Ignore
+            </button>
+          </div>
+        </div>
+      `;
     });
     
     html += '</div>';

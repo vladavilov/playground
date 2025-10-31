@@ -4,11 +4,21 @@ from neo4j import GraphDatabase, Session
 from config import get_retrieval_settings
 
 
-def get_llm(temperature: float | None = None) -> AzureChatOpenAI:
+def get_llm(temperature: float | None = None, use_fast_model: bool = True) -> AzureChatOpenAI:
+    """Get LLM client configured for retrieval tasks.
+    
+    Args:
+        temperature: Optional temperature override
+        use_fast_model: If True, uses OAI_MODEL_FAST (default for retrieval tasks)
+    
+    Returns:
+        Configured AzureChatOpenAI instance
+    """
     settings = get_retrieval_settings()
+    model = settings.llm.OAI_MODEL_FAST if use_fast_model else settings.llm.OAI_MODEL
     return AzureChatOpenAI(
         azure_endpoint=settings.llm.OAI_BASE_URL,
-        deployment_name=settings.llm.OAI_MODEL,
+        deployment_name=model,
         api_key=settings.llm.OAI_KEY,
         api_version=settings.llm.OAI_API_VERSION,
         timeout=settings.OAI_TIMEOUT_SEC,

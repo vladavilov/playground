@@ -14,7 +14,8 @@ class LlmConfig(BaseConfig):
 
 	Environment variables:
 	- OAI_KEY: API key for OpenAI-compatible endpoint
-	- OAI_MODEL: Chat model id (default: gpt-4o-mini)
+	- OAI_MODEL: Chat model id (default: gpt-4o-mini) - used for complex tasks
+	- OAI_MODEL_FAST: Fast chat model id (default: gpt-4o-mini) - used for simple/review tasks
 	- OAI_EMBED_MODEL_NAME: Embedding model name for tiktoken (default: text-embedding-3-small)
 	- OAI_EMBED_DEPLOYMENT_NAME: Azure deployment name for embeddings (optional, defaults to model name)
 	- OAI_BASE_URL: Optional base URL for OpenAI-compatible endpoint (e.g., https://<resource>.openai.azure.com)
@@ -22,7 +23,8 @@ class LlmConfig(BaseConfig):
 	"""
 
 	OAI_KEY: str | None = Field(default=None, description="OpenAI API key")
-	OAI_MODEL: str = Field(default="gpt-4o-mini", description="Chat model id")
+	OAI_MODEL: str = Field(default="gpt-4o-mini", description="Chat model id for complex tasks")
+	OAI_MODEL_FAST: str = Field(default="gpt-4o-mini", description="Fast chat model id for simple/review tasks")
 	
 	# Separate embedding model name and deployment name for proper tiktoken usage
 	OAI_EMBED_MODEL_NAME: str = Field(
