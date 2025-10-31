@@ -181,7 +181,7 @@ POST /v1/embeddings
 | `OAI_MODEL` | `gpt-4o-mini` | Chat model name (from shared `LlmConfig.OAI_MODEL`) |
 | `OAI_EMBED_MODEL_NAME` | `text-embedding-3-small` | Embeddings model name (from shared `LlmConfig.OAI_EMBED_MODEL_NAME`) |
 | `OAI_EMBED_DEPLOYMENT_NAME` | - | Azure deployment name for embeddings (from shared `LlmConfig.OAI_EMBED_DEPLOYMENT_NAME`) |
-| `VECTOR_INDEX_DIMENSIONS` | `3072` | Embedding vector size (from shared `VectorIndexEnv.VECTOR_INDEX_DIMENSIONS`) |
+| `VECTOR_INDEX_DIMENSIONS` | `3072` | Embedding vector dimensions (default: 3072, configurable via shared `VectorIndexEnv.VECTOR_INDEX_DIMENSIONS`) |
 
 ### Build Arguments
 

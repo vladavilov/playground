@@ -31,7 +31,7 @@ class Neo4jRepository:
         Args:
             index_name: Vector index name (e.g., 'graphrag_comm_index')
             k: Number of results to return
-            qvec: Query vector (3072 dimensions)
+            qvec: Query vector (dimensions set by VECTOR_INDEX_DIMENSIONS config)
             project_id: Project ID for scoping
             level: Community hierarchy level (0=leaf, higher=aggregate). 
                    None = search all levels (fallback to vector_query_nodes).

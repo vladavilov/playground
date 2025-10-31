@@ -529,8 +529,14 @@ class Neo4jIngestor:
                 err = "No project_id set"
                 return result_dict
                 
+            embedding_dim = int(get_vector_index_env().VECTOR_INDEX_DIMENSIONS)
+            
             with self._driver.session() as session:
-                result = session.run(get_validate_embeddings_query(), project_id=self._project_id)
+                result = session.run(
+                    get_validate_embeddings_query(), 
+                    project_id=self._project_id,
+                    embedding_dim=embedding_dim
+                )
                 record = result.single()
                 
                 if record:

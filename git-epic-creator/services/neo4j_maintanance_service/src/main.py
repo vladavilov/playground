@@ -17,6 +17,7 @@ import structlog
 # Import shared library components
 from configuration.common_config import get_app_settings
 from configuration.logging_config import configure_logging
+from configuration.vector_index_config import get_vector_index_env
 from utils.neo4j_client import get_neo4j_client, Neo4jClient
 from utils.error_handler import ErrorHandler
 from utils.app_factory import FastAPIFactory
@@ -98,8 +99,8 @@ async def init_neo4j(
                 "total_queries": result["summary"]["total_queries"],
                 "vector_index_ensured": vector_result.get("success", False),
                 "vector_index_name": vector_result.get("name"),
-                "vector_dimensions": vector_result.get("dimensions", 3072),
-                "similarity_function": vector_result.get("similarity", "cosine"),
+                "vector_dimensions": vector_result.get("dimensions", get_vector_index_env().VECTOR_INDEX_DIMENSIONS),
+                "similarity_function": vector_result.get("similarity", get_vector_index_env().VECTOR_INDEX_SIMILARITY),
                 "hnsw_optimization": {
                     "enabled": True,
                     "vector.hnsw.m": 32,
@@ -134,8 +135,8 @@ async def init_neo4j(
             },
             "vector_index_ensured": vector_result.get("success", False),
             "vector_index_name": vector_result.get("name"),
-            "vector_dimensions": vector_result.get("dimensions", 3072),
-            "similarity_function": vector_result.get("similarity", "cosine"),
+            "vector_dimensions": vector_result.get("dimensions", get_vector_index_env().VECTOR_INDEX_DIMENSIONS),
+            "similarity_function": vector_result.get("similarity", get_vector_index_env().VECTOR_INDEX_SIMILARITY),
             "hnsw_optimization": {
                 "enabled": True,
                 "vector.hnsw.m": 32,
@@ -170,8 +171,8 @@ async def get_schema_info(
         "relationship_type_queries": query_builder.get_relationship_type_queries(),
         "node_types": query_builder.get_node_types(),
         "relationships": query_builder.get_relationship_types(),
-        "vector_dimensions": 3072,
-        "similarity_function": "cosine",
+        "vector_dimensions": get_vector_index_env().VECTOR_INDEX_DIMENSIONS,
+        "similarity_function": get_vector_index_env().VECTOR_INDEX_SIMILARITY,
         "hnsw_optimization": {
             "vector.hnsw.m": 32,
             "vector.hnsw.ef_construction": 200,

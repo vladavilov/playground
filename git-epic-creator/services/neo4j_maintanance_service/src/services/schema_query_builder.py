@@ -100,7 +100,7 @@ class SchemaQueryBuilder:
             # ============================================================================
             # Used by: db.index.vector.queryNodes() in DRIFT primer and follow-up phases
             # Purpose: Semantic similarity search for retrieval
-            # Dimensions: 3072 (text-embedding-3-small), Similarity: cosine
+            # Dimensions: VECTOR_INDEX_DIMENSIONS (configurable), Similarity: cosine
             (f"CREATE VECTOR INDEX {env.CHUNK_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_CHUNK}`) "
              f"ON (c.{prop}) {vector_index_options}"),
             (f"CREATE VECTOR INDEX {env.COMMUNITY_VECTOR_INDEX_NAME} IF NOT EXISTS FOR (c:`{LABEL_COMMUNITY}`) "
@@ -207,14 +207,15 @@ class SchemaQueryBuilder:
         Returns:
             Dict[str, Any]: Schema information including constraints, indexes, types, etc.
         """
+        env = get_vector_index_env()
         schema_info = {
             "constraints": self.get_constraint_queries(),
             "indexes": self.get_index_queries(),
             "relationship_type_queries": self.get_relationship_type_queries(),
             "node_types": self.get_node_types(),
             "relationships": self.get_relationship_types(),
-            "vector_dimensions": 3072,
-            "similarity_function": "cosine"
+            "vector_dimensions": int(env.VECTOR_INDEX_DIMENSIONS),
+            "similarity_function": env.VECTOR_INDEX_SIMILARITY
         }
 
         logger.debug("Generated schema info", components=list(schema_info.keys()))

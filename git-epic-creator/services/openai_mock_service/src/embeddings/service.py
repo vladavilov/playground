@@ -32,14 +32,19 @@ class EmbeddingService:
 
     @staticmethod
     def target_dim_for_model(model_name: str) -> Optional[int]:
-        """Get target dimension for specific model names."""
+        """Get target dimension for specific model names.
+        
+        Returns model-specific dimensions when available, otherwise falls back
+        to VECTOR_INDEX_DIMENSIONS from config.
+        """
         name = (model_name or "").lower()
-        # Align with common OpenAI embedding dims
+        # Align with common OpenAI embedding dims (model-specific overrides)
         if "text-embedding-3-small" in name:
             return 1536
         if "text-embedding-3-large" in name:
             return 3072
-        return None
+        # Fallback to configured dimension for unknown models
+        return int(get_vector_index_env().VECTOR_INDEX_DIMENSIONS)
 
     @staticmethod
     def fit_dim(vec: List[float], target_dim: int) -> List[float]:
