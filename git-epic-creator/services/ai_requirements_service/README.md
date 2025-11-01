@@ -263,12 +263,12 @@ Configuration
     - `LLM_TEMPERATURE`: Temperature for LLM requests (default: 0.2, shared via `LlmConfig`)
     - Note: Service uses `AzureChatOpenAI` connector requiring `deployment_name` parameter
     - **Model Selection Strategy**:
-      - **Standard Model (`OAI_MODEL`)**: Used for critical creative tasks requiring high quality:
-        - `PromptAnalyst`: User intent extraction (complex understanding required)
+      - **Standard Model (`OAI_MODEL`)**: Used for critical creative/generation tasks requiring high quality:
         - `RequirementsEngineer`: Requirements draft generation (domain-specific, comprehensive)
-      - **Fast Model (`OAI_MODEL_FAST`)**: Used for review/analysis tasks for better performance:
+        - `QuestionStrategist`: Clarification question generation (precision and quality required)
+      - **Fast Model (`OAI_MODEL_FAST`)**: Used for analysis/review tasks for better performance:
+        - `PromptAnalyst`: User intent extraction (fast analysis task)
         - `ConsistencyAuditor`: Requirements quality review
-        - `QuestionStrategist`: Clarification question generation
   - **Timeout Configuration** (for long-running workflows):
     - `HTTP_READ_TIMEOUT`: Read timeout from shared HTTPClientSettings (default: 180s for UI, overridable per service)
     - `WORKFLOW_TIMEOUT_SEC`: Maximum workflow execution time before graceful abort (default: 150s)
