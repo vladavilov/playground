@@ -23,6 +23,7 @@ from services.redis_cache_client import RedisCacheClient
 from services.progress_notifier import ProgressNotifier
 from services.idempotency_store import IdempotencyStore
 from services.error_mapper import map_gitlab_error
+from services.error_tips import get_error_tip_for_gitlab_exception
 import redis.asyncio as redis
 
 logger = structlog.get_logger(__name__)
@@ -74,18 +75,23 @@ async def get_project_backlog(
             per_page=per_page
         )
         
-        # Enrich with cached embeddings
+        # Enrich with cached embeddings and titles
         if response.items:
             work_item_ids = [item.id for item in response.items]
-            cached_embeddings = await cache_client.get_embeddings_bulk(
+            cached_data = await cache_client.get_embeddings_bulk(
                 project_id=project_id,
                 work_item_ids=work_item_ids
             )
             
             for item in response.items:
-                embedding = cached_embeddings.get(item.id)
-                if embedding:
-                    item.title_embedding = embedding
+                data = cached_data.get(item.id)
+                if data:
+                    # Update title from cache if available (useful for stale GitLab data)
+                    cached_title = data.get("title", "")
+                    if cached_title:
+                        item.title = cached_title
+                    # Add embedding
+                    item.title_embedding = data.get("embedding", [])
         
         logger.info(
             "Backlog retrieved",
@@ -108,113 +114,6 @@ async def get_project_backlog(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_response["error"]
         )
-
-
-@router.post("/projects/{project_id}/cache-embeddings", status_code=status.HTTP_202_ACCEPTED)
-async def cache_project_embeddings(
-    project_id: str,
-    background_tasks: BackgroundTasks,
-    gitlab_client: gitlab.Gitlab = Depends(get_gitlab_client_dep),
-    redis_client: redis.Redis = Depends(get_redis_client_dep),
-    settings: GitLabClientSettings = Depends(get_gitlab_client_settings)
-):
-    """
-    Precompute and cache title embeddings for all epics and issues in a project.
-    
-    This endpoint starts a background task and returns immediately.
-    Progress is published to Redis pub/sub channel: embeddings:projects:{project_id}
-    """
-    
-    async def cache_embeddings_task():
-        """Background task to cache embeddings."""
-        gitlab_service = GitLabClientService(gitlab_client, settings)
-        embedding_client = EmbeddingClient(settings)
-        cache_client = RedisCacheClient(redis_client)
-        notifier = ProgressNotifier(redis_client, settings)
-        
-        try:
-            await notifier.notify_started(project_id)
-            
-            # Fetch all work items (paginate through all pages)
-            all_items = []
-            page = 1
-            
-            while True:
-                response = gitlab_service.list_project_backlog(
-                    project_id=project_id,
-                    state="all",
-                    page=page,
-                    per_page=settings.DEFAULT_PAGE_SIZE
-                )
-                
-                all_items.extend(response.items)
-                
-                await notifier.notify_progress(
-                    project_id=project_id,
-                    scanned=len(all_items),
-                    total=len(all_items)
-                )
-                
-                if response.pagination.next_page is None:
-                    break
-                
-                page = response.pagination.next_page
-            
-            if not all_items:
-                logger.warning("No work items found for embedding", project_id=project_id)
-                await notifier.notify_completed(project_id)
-                return
-            
-            # Generate embeddings for all titles
-            titles = [item.title for item in all_items]
-            embeddings = await embedding_client.embed_texts_batched(titles)
-            
-            await notifier.notify_embedded(
-                project_id=project_id,
-                completed=len(embeddings),
-                total=len(all_items)
-            )
-            
-            # Clear old cache and store new embeddings
-            await cache_client.clear_project_embeddings(project_id)
-            
-            embeddings_dict = {
-                item.id: embedding
-                for item, embedding in zip(all_items, embeddings)
-            }
-            
-            await cache_client.set_embeddings_bulk(project_id, embeddings_dict)
-            
-            await notifier.notify_cached(
-                project_id=project_id,
-                cached=len(embeddings_dict)
-            )
-            
-            await notifier.notify_completed(project_id)
-            
-            logger.info(
-                "Embedding caching completed",
-                project_id=project_id,
-                total_cached=len(embeddings_dict)
-            )
-            
-        except Exception as e:
-            logger.error(
-                "Embedding caching failed",
-                project_id=project_id,
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            await notifier.notify_error(project_id, str(e))
-    
-    # Add to background tasks
-    background_tasks.add_task(cache_embeddings_task)
-    
-    return {
-        "message": "Embedding caching started",
-        "project_id": project_id,
-        "channel": f"embeddings:projects:{project_id}"
-    }
 
 
 @router.post("/projects/{project_id}/apply-backlog", response_model=ApplyBacklogResponse)
@@ -527,5 +426,188 @@ async def resolve_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_response["error"]
         )
+
+
+@router.post("/projects/multi/cache-embeddings", status_code=status.HTTP_202_ACCEPTED)
+async def cache_multiple_projects_embeddings(
+    project_ids: str = Query(..., description="Comma-separated list of GitLab project IDs"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    gitlab_client: gitlab.Gitlab = Depends(get_gitlab_client_dep),
+    redis_client: redis.Redis = Depends(get_redis_client_dep),
+    settings: GitLabClientSettings = Depends(get_gitlab_client_settings)
+):
+    """
+    Precompute and cache title embeddings for multiple GitLab projects.
+    
+    This endpoint starts a background task that processes all specified projects
+    and returns immediately. Each project is cached independently.
+    
+    Args:
+        project_ids: Comma-separated GitLab project IDs (e.g., "123,456,789")
+        
+    Returns:
+        Status message with project IDs being processed
+    """
+    # Parse project IDs
+    id_list = [pid.strip() for pid in project_ids.split(",") if pid.strip()]
+    
+    if not id_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No project IDs provided"
+        )
+    
+    logger.info(
+        "Starting multi-project embedding caching",
+        project_ids=id_list,
+        project_count=len(id_list)
+    )
+    
+    async def cache_multi_embeddings_task():
+        """Background task to cache embeddings for multiple projects."""
+        gitlab_service = GitLabClientService(gitlab_client, settings)
+        embedding_client = EmbeddingClient(settings)
+        cache_client = RedisCacheClient(redis_client)
+        notifier = ProgressNotifier(redis_client)
+        
+        total_projects = len(id_list)
+        success_count = 0
+        error_count = 0
+        
+        for idx, project_id in enumerate(id_list, start=1):
+            try:
+                await notifier.notify_started(
+                    project_id=project_id,
+                    project_index=idx,
+                    total_projects=total_projects
+                )
+                
+                # Fetch all work items (paginate through all pages)
+                all_items = []
+                page = 1
+                
+                while True:
+                    response = gitlab_service.list_project_backlog(
+                        project_id=project_id,
+                        state="all",
+                        page=page,
+                        per_page=settings.DEFAULT_PAGE_SIZE
+                    )
+                    
+                    all_items.extend(response.items)
+                    
+                    await notifier.notify_progress(
+                        project_id=project_id,
+                        scanned=len(all_items),
+                        total=len(all_items),
+                        project_index=idx,
+                        total_projects=total_projects
+                    )
+                    
+                    if response.pagination.next_page is None:
+                        break
+                    
+                    page = response.pagination.next_page
+                
+                if not all_items:
+                    logger.warning("No work items found for embedding", project_id=project_id)
+                    await notifier.notify_completed(
+                        project_id=project_id,
+                        project_index=idx,
+                        total_projects=total_projects
+                    )
+                    success_count += 1
+                    continue
+                
+                # Generate embeddings for all titles
+                titles = [item.title for item in all_items]
+                embeddings = await embedding_client.embed_texts_batched(titles)
+                
+                await notifier.notify_embedded(
+                    project_id=project_id,
+                    completed=len(embeddings),
+                    total=len(all_items),
+                    project_index=idx,
+                    total_projects=total_projects
+                )
+                
+                # Clear old cache and store new embeddings with titles
+                await cache_client.clear_project_embeddings(project_id)
+                
+                embeddings_dict = {
+                    item.id: {"title": item.title, "embedding": embedding}
+                    for item, embedding in zip(all_items, embeddings)
+                }
+                
+                await cache_client.set_embeddings_bulk(project_id, embeddings_dict)
+                
+                await notifier.notify_cached(
+                    project_id=project_id,
+                    cached=len(embeddings_dict),
+                    project_index=idx,
+                    total_projects=total_projects
+                )
+                
+                await notifier.notify_completed(
+                    project_id=project_id,
+                    project_index=idx,
+                    total_projects=total_projects
+                )
+                
+                success_count += 1
+                
+                logger.info(
+                    "Embedding caching completed for project",
+                    project_id=project_id,
+                    project_index=idx,
+                    total_projects=total_projects,
+                    total_cached=len(embeddings_dict)
+                )
+                
+            except Exception as e:
+                error_count += 1
+                error_message, error_tip = get_error_tip_for_gitlab_exception(e)
+                
+                logger.error(
+                    "Embedding caching failed for project",
+                    project_id=project_id,
+                    project_index=idx,
+                    total_projects=total_projects,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    error_message=error_message,
+                    error_tip=error_tip
+                )
+                
+                await notifier.notify_error(
+                    project_id=project_id,
+                    error_message=error_message,
+                    error_tip=error_tip,
+                    project_index=idx,
+                    total_projects=total_projects
+                )
+        
+        # Send overall completion notification
+        await notifier.notify_all_completed(
+            project_ids=id_list,
+            success_count=success_count,
+            error_count=error_count
+        )
+        
+        logger.info(
+            "Multi-project embedding caching completed",
+            total_projects=total_projects,
+            success_count=success_count,
+            error_count=error_count
+        )
+    
+    # Add to background tasks
+    background_tasks.add_task(cache_multi_embeddings_task)
+    
+    return {
+        "message": "Multi-project embedding caching started",
+        "project_ids": id_list,
+        "project_count": len(id_list)
+    }
 
 

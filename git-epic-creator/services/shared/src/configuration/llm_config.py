@@ -39,6 +39,9 @@ class LlmConfig(BaseConfig):
 	OAI_BASE_URL: str | None = Field(default=None, description="OpenAI-compatible API base URL")
 	OAI_API_VERSION: str | None = Field(default=None, description="Azure OpenAI API version")
 	
+	LLM_TIMEOUT_SEC: float = Field(default=20.0, description="HTTP/LLM client timeout in seconds")
+	LLM_TEMPERATURE: float = Field(default=0.2, ge=0.0, le=2.0, description="Temperature for LLM requests")
+	
 	@property
 	def embedding_deployment_name(self) -> str:
 		"""Get effective embedding deployment name (fallback to model name if not explicitly set)."""

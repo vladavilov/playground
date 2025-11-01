@@ -9,9 +9,24 @@ router = APIRouter()
 
 
 def ensure_model_in_body(deployment: str, body: Dict[str, Any]) -> Dict[str, Any]:
-    """Ensure model field is present in body, using deployment name if missing."""
-    if "model" not in body:
+    """Ensure model field is present in body, using deployment name if missing.
+    
+    Supports both standard (gpt-4.1) and fast (gpt-4o-mini) models.
+    """
+    if "model" not in body or not body.get("model"):
+        logger.info(
+            "azure_injecting_model",
+            deployment=deployment,
+            original_model=body.get("model"),
+            body_keys=list(body.keys()),
+        )
         return {**body, "model": deployment}
+    
+    logger.debug(
+        "azure_model_already_present",
+        deployment=deployment,
+        model=body.get("model"),
+    )
     return body
 
 
@@ -36,7 +51,19 @@ async def list_deployments() -> Dict[str, Any]:
 @router.post("/openai/deployments/{deployment}/chat/completions", dependencies=[Depends(require_authentication)])
 @router.post("/v1/openai/deployments/{deployment}/chat/completions", dependencies=[Depends(require_authentication)])
 async def azure_chat_completions(deployment: str, body: Dict[str, Any]) -> Dict[str, Any]:
-    """Azure OpenAI chat completions endpoint - delegates to standard chat handler."""
+    """Azure OpenAI chat completions endpoint - delegates to standard chat handler.
+    
+    Supports both deployment names:
+    - gpt-4.1 (standard model for complex tasks)
+    - gpt-4o-mini (fast model for simple/review tasks)
+    """
+    logger.info(
+        "azure_chat_request",
+        deployment=deployment,
+        has_model=bool(body.get("model")),
+        body_keys=list(body.keys()),
+    )
+    
     # Import here to avoid circular dependency
     from routers.chat import chat_completions
     

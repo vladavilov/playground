@@ -7,7 +7,11 @@ logger = structlog.get_logger(__name__)
 
 
 class AnalystHandler(BaseHandler):
-    """Handles PromptAnalyst requests."""
+    """Handles PromptAnalyst requests.
+    
+    Expected model: gpt-4.1 (standard model)
+    System prompt markers: "Senior Requirements Analyst", "intents", "JSON only"
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
         system_content = "".join(
@@ -17,13 +21,19 @@ class AnalystHandler(BaseHandler):
         )
         system_lower = system_content.lower()
         
-        return (
+        is_match = (
             ("senior requirements analyst" in system_lower)
-            and ("respond only with" in system_lower)
+            and ("output contract" in system_lower or "json only" in system_lower)
             and ("intents" in system_lower)
         )
+        
+        if is_match:
+            logger.info("handler_matched_analyst", system_preview=system_lower[:150])
+        
+        return is_match
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
+        logger.info("generating_analyst_response", model=model)
         intents = {
             "intents": [
                 "Upload files",
@@ -37,7 +47,11 @@ class AnalystHandler(BaseHandler):
 
 
 class EngineerHandler(BaseHandler):
-    """Handles RequirementsEngineer requests."""
+    """Handles RequirementsEngineer requests.
+    
+    Expected model: gpt-4.1 (standard model)
+    System prompt markers: "Senior Requirements Engineer", "business_requirements", "functional_requirements"
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
         system_content = "".join(
@@ -50,7 +64,7 @@ class EngineerHandler(BaseHandler):
             str(m.get("content", "")) for m in messages if isinstance(m, dict)
         )
         
-        return (
+        is_match = (
             "requirements engineer" in system_lower
             or "business_requirements" in system_content
             or "functional_requirements" in system_content
@@ -61,8 +75,14 @@ class EngineerHandler(BaseHandler):
             or "'schema': {'business_requirements'" in user_content
             or '"business_requirements":' in user_content
         )
+        
+        if is_match:
+            logger.info("handler_matched_engineer", system_preview=system_lower[:150])
+        
+        return is_match
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
+        logger.info("generating_engineer_response", model=model)
         payload = {
             "business_requirements": [
                 {
@@ -140,7 +160,11 @@ class EngineerHandler(BaseHandler):
 
 
 class AuditorHandler(BaseHandler):
-    """Handles ConsistencyAuditor requests."""
+    """Handles ConsistencyAuditor requests.
+    
+    Expected model: gpt-4o-mini (fast model)
+    System prompt markers: "Senior Requirements QA Reviewer", "severity", "audit"
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
         system_content = "".join(
@@ -148,23 +172,32 @@ class AuditorHandler(BaseHandler):
             for m in messages
             if isinstance(m, dict) and m.get("role") == "system"
         )
+        system_lower = system_content.lower()
         user_content = "".join(
             str(m.get("content", "")) for m in messages if isinstance(m, dict)
         )
         
-        auditor_markers = (
-            "Return ONLY JSON with: {severity: number in [0,1], suggestions: string[]}",
-            "senior requirements QA reviewer",
-            "Critique the requirements",
+        # Check for audit context markers
+        is_auditor = (
+            ("senior requirements qa reviewer" in system_lower or "requirements qa reviewer" in system_lower)
+            and ("severity" in system_lower or "audit" in system_lower)
         )
         
-        return (
-            any(marker in system_content for marker in auditor_markers)
-            or ("'requirements':" in user_content)
-            or ('"requirements":' in user_content)
+        # Check for user content structure (requirements/assumptions/risks)
+        has_req_structure = (
+            ("requirements:" in user_content.lower() or "'requirements':" in user_content or '"requirements":' in user_content)
+            and ("assumptions" in user_content.lower() or "risks" in user_content.lower())
         )
+        
+        is_match = is_auditor or has_req_structure
+        
+        if is_match:
+            logger.info("handler_matched_auditor", system_preview=system_lower[:150])
+        
+        return is_match
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
+        logger.info("generating_auditor_response", model=model)
         audit = {
             "severity": 0.0,
             "suggestions": [
@@ -178,15 +211,41 @@ class AuditorHandler(BaseHandler):
 
 
 class StrategistHandler(BaseHandler):
-    """Handles QuestionStrategist requests."""
+    """Handles QuestionStrategist requests.
+    
+    Expected model: gpt-4o-mini (fast model)
+    System prompt markers: "Strategic Requirements Analyst", "question strategist", "axis_scores"
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
+        system_content = "".join(
+            str(m.get("content", ""))
+            for m in messages
+            if isinstance(m, dict) and m.get("role") == "system"
+        )
+        system_lower = system_content.lower()
         user_content = "".join(
             str(m.get("content", "")) for m in messages if isinstance(m, dict)
         )
-        return ("axis_scores" in user_content) or ("questions" in user_content)
+        
+        # Check for strategist context
+        is_strategist = (
+            ("strategic" in system_lower and "analyst" in system_lower)
+            or "question strategist" in system_lower
+        )
+        
+        # Check for user content structure
+        has_axis_scores = "axis_scores" in user_content or "axes" in user_content.lower()
+        
+        is_match = is_strategist and has_axis_scores
+        
+        if is_match:
+            logger.info("handler_matched_strategist", system_preview=system_lower[:150])
+        
+        return is_match
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
+        logger.info("generating_strategist_response", model=model)
         payload = [
             {
                 "id": "Q1",

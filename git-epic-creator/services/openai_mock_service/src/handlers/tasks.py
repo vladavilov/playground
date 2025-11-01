@@ -20,7 +20,7 @@ class TasksRequirementsAnalystHandler(BaseHandler):
         system_lower = system_content.lower()
         
         return (
-            "senior technical architect analyzing requirements" in system_lower
+            "senior technical architect" in system_lower
             and "intents" in system_lower
             and "entities" in system_lower
             and "constraints" in system_lower
@@ -190,8 +190,8 @@ class TasksConsistencyAuditorHandler(BaseHandler):
         )
         
         return (
-            "quality assurance lead" in system_lower
-            and "conducting a rigorous audit" in system_lower
+            ("senior qa lead" in system_lower or "qa lead" in system_lower)
+            and "audit" in system_lower
             and "### Requirements" in user_content
             and "### Backlog" in user_content
         )
@@ -236,7 +236,7 @@ class TasksEvaluatorHandler(BaseHandler):
         is_evaluator = "backlog evaluator" in system_lower
         has_user_sections = (
             "### Requirements" in user_content
-            and "### Backlog" in user_content  # Could be "Backlog & Findings"
+            and ("### Backlog" in user_content or "### Backlog & Findings" in user_content)
         )
         
         # OLD format: requests all 4 score fields explicitly
@@ -251,7 +251,7 @@ class TasksEvaluatorHandler(BaseHandler):
         requests_rationale_gaps = (
             "rationale" in system_lower
             and "gaps" in system_lower
-            and "analyze the backlog" in system_lower
+            and ("assess backlog quality" in system_lower or "backlog quality" in system_lower)
         )
         
         return is_evaluator and has_user_sections and (requests_scores or requests_rationale_gaps)
@@ -312,9 +312,9 @@ class TasksClarificationStrategistHandler(BaseHandler):
         
         return (
             "clarification strategist" in system_lower
-            and "below target" in system_lower
-            and "### Requirements" in user_content
-            and "### Current Scores" in user_content
+            and "formulate" in system_lower
+            and "Requirements:" in user_content
+            and "Scores:" in user_content
             and "Target:" in user_content
         )
 

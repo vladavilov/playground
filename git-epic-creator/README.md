@@ -358,7 +358,7 @@ CREATE TABLE projects (
 
 **Key Endpoints**:
 - `GET /gitlab/projects/{project_id}/backlog` - Get epics + issues with cached embeddings
-- `POST /gitlab/projects/{project_id}/cache-embeddings` - Precompute and cache embeddings (202 Accepted)
+- `POST /gitlab/projects/multi/cache-embeddings` - Precompute and cache embeddings for multiple projects (202 Accepted)
 - `POST /gitlab/projects/{project_id}/apply-backlog` - Apply generated backlog to GitLab
 
 **Performance Optimization**:

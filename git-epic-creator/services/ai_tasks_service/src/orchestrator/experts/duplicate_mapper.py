@@ -202,6 +202,7 @@ class DuplicateMapper:
             SimilarMatch(
                 kind=gitlab_refs[idx][0],
                 id=str(gitlab_refs[idx][1].get("id", "")),
+                title=gitlab_refs[idx][1].get("title", ""),
                 status=gitlab_refs[idx][1].get("state") or gitlab_refs[idx][1].get("status"),
                 similarity=float(similarities[idx]),
                 url=gitlab_refs[idx][1].get("web_url"),

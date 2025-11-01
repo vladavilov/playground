@@ -494,9 +494,9 @@ OAI_API_VERSION=2024-02-15-preview                       # Azure OpenAI API vers
 OAI_EMBED_MODEL_NAME=text-embedding-3-small              # Embedding model name (for tiktoken)
 OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small         # Azure deployment name for embeddings
 
-# LLM Parameters
-OAI_TIMEOUT_SEC=10.0                                     # HTTP/LLM client timeout
-LLM_TEMPERATURE=0.0                                      # Temperature for LLM requests (0.0-2.0)
+# LLM Parameters (shared across all services via LlmConfig)
+LLM_TIMEOUT_SEC=20.0                                     # HTTP/LLM client timeout (shared config)
+LLM_TEMPERATURE=0.2                                      # Temperature for LLM requests (0.0-2.0, shared config)
 ```
 
 **Important Notes:**
@@ -505,6 +505,7 @@ LLM_TEMPERATURE=0.0                                      # Temperature for LLM r
 - The endpoint path is constructed as: `{OAI_BASE_URL}/openai/deployments/{deployment_name}/chat/completions?api-version={OAI_API_VERSION}`
 - Without proper `deployment_name`, requests will result in 404 errors
 - **Model Selection**: Retrieval service defaults to fast model for better response times while maintaining quality for query understanding tasks
+- **LLM Parameters**: `LLM_TIMEOUT_SEC` and `LLM_TEMPERATURE` are centralized in shared `LlmConfig` and reused across all services for consistency
 
 ### Neo4j Configuration
 

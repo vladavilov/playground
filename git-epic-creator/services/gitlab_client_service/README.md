@@ -4,7 +4,7 @@
 
 The `gitlab_client_service` provides a thin, reliable REST façade over GitLab. It normalizes responses and exposes purpose-built endpoints to:
 - Fetch epics and issues for a project (with filters and pagination)
-- Cache embeddings for work item titles with Redis-backed storage
+- Cache embeddings with titles for work items using Redis-backed storage
 - Supply normalized data to `ai_tasks_service` for duplicate mapping/backlog generation
 - Apply a reviewed backlog to GitLab with idempotent create/update and linking
 
@@ -32,7 +32,7 @@ Reference: [python-gitlab v6.x](https://python-gitlab.readthedocs.io/en/stable/)
 graph TB
     subgraph "gitlab_client_service"
         App[FastAPI App<br/>main.py]
-        Router[gitlab_router.py<br/>- GET /backlog<br/>- POST /cache-embeddings<br/>- POST /apply-backlog]
+        Router[gitlab_router.py<br/>- GET /backlog<br/>- POST /projects/multi/cache-embeddings<br/>- POST /apply-backlog]
         
         subgraph "Service Layer"
             GCS[GitLabClientService]
@@ -201,6 +201,18 @@ The service auto-detects Azure OpenAI vs standard OpenAI:
   - Uses `AzureOpenAI` client with `api_version` parameter
 - **Standard OpenAI:** When `OAI_API_VERSION` is not set
   - Uses `OpenAI` client with `base_url` parameter
+
+### Error Handling with User-Friendly Tips
+
+The service provides context-specific error messages with actionable tips for common GitLab API errors:
+
+- **401 Unauthorized**: "TIP: Re-authenticate with GitLab SSO by clicking the 'Connect GitLab' button in the connections panel."
+- **403 Forbidden**: "TIP: Your GitLab token may not have sufficient permissions. Try re-authenticating or contact your GitLab administrator."
+- **404 Not Found**: "TIP: Please verify that the project ID is correct and that you have access to this project."
+- **429 Rate Limit**: "TIP: GitLab has rate-limited your requests. Please wait a few minutes and try again."
+- **500/502/503 Server Error**: "TIP: GitLab is experiencing issues. Please try again in a few minutes."
+
+These tips are automatically included in progress messages sent to the UI via SSE, helping users resolve issues without developer intervention.
 
 ## Authentication & Authorization
 
@@ -639,7 +651,7 @@ Get project backlog (epics + issues) with cached embeddings.
 **Notes:**
 - Epics are group-level; resolves owning group automatically
 - If epics disabled, returns `items: []` with header `X-GitLab-Epics-Disabled: true`
-- `title_embedding` is populated from Redis cache if present (no on-the-fly computation)
+- `title` and `title_embedding` are populated from Redis cache if present (no on-the-fly computation)
 
 **Get Backlog Data Flow:**
 
@@ -679,91 +691,6 @@ flowchart LR
     style GitLabService fill:#fff3e0
     style RedisBulk fill:#ffebee
     style Enrich fill:#e8f5e9
-```
-
-### POST /gitlab/projects/{project_id}/cache-embeddings
-
-Precompute and cache title embeddings for all epics and issues in the project.
-
-**Response:** 202 Accepted with channel information
-
-**Behavior:**
-- Runs as background task, returns immediately with HTTP 202
-- Retrieves all epics and issues for the project (fetches all pages)
-- Computes embeddings for each `title` using the configured `EmbeddingClient`
-- Stores vectors in Redis with keys `<project_id>:<work_item_id>`
-- Replaces any existing cache for the project (clears before storing new values)
-- Publishes progress via Redis pub/sub on channel `${EMBEDDINGS_PUBSUB_PREFIX}<project_id>`
-
-**Pub/Sub Messages:**
-
-Channel: `embeddings:projects:{project_id}`
-
-Message examples:
-```json
-{ "event": "started", "project_id": "123" }
-{ "event": "progress", "project_id": "123", "scanned": 150, "total": 320 }
-{ "event": "embedded", "project_id": "123", "completed": 80, "total": 320 }
-{ "event": "cached", "project_id": "123", "cached": 320 }
-{ "event": "completed", "project_id": "123" }
-{ "event": "error", "project_id": "123", "message": "..." }
-```
-
-**Cache Embeddings Workflow:**
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant API as gitlab_router
-    participant BG as Background Task
-    participant GitLab as GitLabClientService
-    participant Embed as EmbeddingClient
-    participant Cache as RedisCacheClient
-    participant PubSub as ProgressNotifier
-    participant Redis
-
-    Client->>API: POST /cache-embeddings
-    API->>BG: Schedule background task
-    API->>Client: 202 Accepted<br/>channel: embeddings:projects:123
-    
-    par Background Processing
-        BG->>PubSub: notify_started(project_id)
-        PubSub->>Redis: PUBLISH "started"
-        
-        loop Fetch All Pages
-            BG->>GitLab: list_project_backlog(page)
-            GitLab-->>BG: work items
-            BG->>PubSub: notify_progress(scanned, total)
-            PubSub->>Redis: PUBLISH "progress"
-        end
-        
-        BG->>BG: Collect all titles
-        BG->>Embed: embed_texts_batched(titles)
-        
-        loop Process Batches
-            Embed->>Embed: Split into batches (size: 16)
-            Embed->>Embed: Concurrent requests (2)
-            Note over Embed: Batch processing with<br/>concurrency control
-        end
-        
-        Embed-->>BG: embeddings[]
-        BG->>PubSub: notify_embedded(completed, total)
-        PubSub->>Redis: PUBLISH "embedded"
-        
-        BG->>Cache: clear_project_embeddings(project_id)
-        Cache->>Redis: DEL pattern match
-        
-        BG->>Cache: set_embeddings_bulk(project_id, embeddings)
-        Cache->>Redis: MSET project:item embeddings
-        
-        BG->>PubSub: notify_cached(cached_count)
-        PubSub->>Redis: PUBLISH "cached"
-        
-        BG->>PubSub: notify_completed(project_id)
-        PubSub->>Redis: PUBLISH "completed"
-    end
-    
-    Client->>Redis: SUBSCRIBE embeddings:projects:123
 ```
 
 ### POST /gitlab/projects/{project_id}/apply-backlog
@@ -908,7 +835,7 @@ sequenceDiagram
 
     Note over UI,OpenAI: Scenario: Generate and Apply Backlog
 
-    UI->>GitLabClient: POST /cache-embeddings
+    UI->>GitLabClient: POST /projects/multi/cache-embeddings
     activate GitLabClient
     GitLabClient->>UI: 202 Accepted<br/>channel: embeddings:projects:123
     deactivate GitLabClient
@@ -1084,7 +1011,7 @@ To test with `gitlab_mock_service`:
    curl -X POST \
         -H "GitLab-Access-Token: <token>" \
         -H "Authorization: Bearer <jwt>" \
-        http://localhost:8011/gitlab/projects/1/cache-embeddings
+        http://localhost:8011/gitlab/projects/multi/cache-embeddings?project_ids=1
    
    # Apply backlog
    curl -X POST \
@@ -1136,26 +1063,109 @@ Headers:
 
 **Request:**
 ```http
-POST /gitlab/projects/123/cache-embeddings
+POST /gitlab/projects/multi/cache-embeddings?project_ids=123,456,789
 Headers:
-  GitLab-Access-Token: <gitlab_access_token>
   Authorization: Bearer <local_jwt>
 ```
 
 **Response:**
 ```json
 {
-  "message": "Embedding caching started",
-  "project_id": "123",
-  "channel": "embeddings:projects:123"
+  "message": "Multi-project embedding caching started",
+  "project_ids": ["123", "456", "789"],
+  "project_count": 3
 }
 ```
 
-**Pub/Sub Channel:** `embeddings:projects:123`
+**SSE Channel:** `ui:project_progress` (via `/events` endpoint)
 
-**Example Progress Message:**
+**Example Progress Messages:**
+
+1. **Started:**
 ```json
-{ "event": "completed", "project_id": "123" }
+{
+  "project_id": "123",
+  "status": "processing",
+  "process_step": "Caching embeddings (Project 1/3): Starting...",
+  "processed_pct": 0.0,
+  "project_index": 1,
+  "total_projects": 3
+}
+```
+
+2. **Fetching Items:**
+```json
+{
+  "project_id": "123",
+  "status": "processing",
+  "process_step": "Caching embeddings (Project 1/3): Fetching items (50/150)...",
+  "processed_pct": 11.0,
+  "project_index": 1,
+  "total_projects": 3,
+  "scanned": 50,
+  "total": 150
+}
+```
+
+3. **Generating Embeddings:**
+```json
+{
+  "project_id": "123",
+  "status": "processing",
+  "process_step": "Caching embeddings (Project 1/3): Generating embeddings (150/150)...",
+  "processed_pct": 67.0,
+  "project_index": 1,
+  "total_projects": 3
+}
+```
+
+4. **Caching:**
+```json
+{
+  "project_id": "123",
+  "status": "processing",
+  "process_step": "Caching embeddings (Project 1/3): Stored 150 items",
+  "processed_pct": 90.0,
+  "project_index": 1,
+  "total_projects": 3,
+  "cached": 150
+}
+```
+
+5. **Completed:**
+```json
+{
+  "project_id": "123",
+  "status": "completed",
+  "process_step": "Caching embeddings (Project 1/3): Completed",
+  "processed_pct": 100.0,
+  "project_index": 1,
+  "total_projects": 3
+}
+```
+
+6. **Error (with helpful tip):**
+```json
+{
+  "project_id": "456",
+  "status": "error",
+  "process_step": "Caching embeddings (Project 2/3): Error",
+  "error_message": "GitLab authentication failed",
+  "error_tip": "TIP: Re-authenticate with GitLab SSO by clicking the 'Connect GitLab' button in the connections panel.",
+  "project_index": 2,
+  "total_projects": 3
+}
+```
+
+7. **All Projects Completed:**
+```json
+{
+  "project_id": "123",
+  "status": "completed",
+  "process_step": "Embedding caching completed: 2 successful, 1 failed out of 3 total",
+  "processed_pct": 100.0,
+  "total_projects": 3
+}
 ```
 
 ### Example 3: Apply Backlog
@@ -1271,8 +1281,9 @@ Content-Type: application/json
 - Epics: `gl.groups.get(group_id).epics.list(...)` with filters
 - Issues: `gl.projects.get(project_id).issues.list(...)` with filters (labels, state, search)
 - Support server-side filtering; if client-side filtering is applied, set header `X-Client-Filtered: true`
-- Embeddings cache keys: `<project_id>:<work_item_id>`; values are numeric arrays
-- List endpoints read `title_embedding` from cache only; they do not compute embeddings on demand
+- Embeddings cache keys: `embeddings:<project_id>:<work_item_id>`
+- Cache values: `{"title": "...", "embedding": [0.123, ...]}` (title and embedding stored together as tightly coupled values)
+- List endpoints read `title` and `title_embedding` from cache when available; they do not compute embeddings on demand
 
 ## Security & Compliance
 

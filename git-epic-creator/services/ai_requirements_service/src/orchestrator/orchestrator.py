@@ -5,6 +5,9 @@ from workflow_models.requirements_models import RequirementsBundle, QuestionAnsw
 from services.ai_workflow_status_publisher import AiWorkflowStatusPublisher
 import config
 from orchestrator import graph_pipeline as lg_pipeline
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 async def run_requirements_workflow(
@@ -19,13 +22,41 @@ async def run_requirements_workflow(
     target = float(settings.CLARIFICATION_SCORE_TARGET)
     max_iters = int(settings.MAX_AGENT_ITERS)
 
-    # Create/resolve prompt_id and record conversation into LangGraph memory
+    # Create/resolve prompt_id
     prompt_id_local = prompt_id_opt or uuid4()
-    msgs: List[dict] = [{"role": "user", "content": prompt}]
+    thread_id = f"{project_id}:{prompt_id_local}"
+    
+    # Load previous conversation if prompt_id exists (for conversation continuity)
+    previous_requirements = None
+    existing_messages = []
+    
+    if prompt_id_opt:
+        # Create graph temporarily to access checkpointer
+        graph = await lg_pipeline.create_requirements_graph(publisher, target=target, max_iters=max_iters)
+        config_dict = {"configurable": {"thread_id": thread_id}}
+        
+        try:
+            state_snapshot = await graph.aget_state(config_dict)
+            if state_snapshot and state_snapshot.values:
+                existing_messages = state_snapshot.values.get("messages", [])
+                previous_result = state_snapshot.values.get("result")
+                if isinstance(previous_result, RequirementsBundle):
+                    previous_requirements = previous_result
+                logger.info("loaded_previous_state", thread_id=thread_id, 
+                           message_count=len(existing_messages), 
+                           has_previous_requirements=previous_requirements is not None)
+        except Exception as e:
+            logger.warning("failed_to_load_previous_state", error=str(e), thread_id=thread_id)
+    
+    # Build messages list: previous messages + new message + answers
+    msgs: List[dict] = existing_messages.copy() if existing_messages else []
+    msgs.append({"role": "user", "content": prompt})
+    
     if answers:
         for a in answers:
             msgs.append({"role": "user", "content": f"Q{a.id}: {a.answer}"})
-    # Run LangGraph pipeline
+    
+    # Run LangGraph pipeline with conversation context
     graph = await lg_pipeline.create_requirements_graph(publisher, target=target, max_iters=max_iters)
     result_state = await graph.ainvoke({
         "project_id": project_id,
@@ -33,7 +64,9 @@ async def run_requirements_workflow(
         "prompt_id": prompt_id_local,
         "messages": msgs,
         "auth_header": auth_header,
-    }, {"configurable": {"thread_id": f"{project_id}:{prompt_id_local}"}})
+        "previous_requirements": previous_requirements,
+    }, {"configurable": {"thread_id": thread_id}})
+    
     bundle = result_state.get("result")
     if isinstance(bundle, RequirementsBundle):
         return bundle

@@ -1,5 +1,8 @@
 'use strict';
 
+import { GitLabBacklogProjectsManager } from '../helpers/gitlab-projects-manager.js';
+import { ApiClient, ApiError } from '../services/api-client.js';
+
 const state = {
   config: null,
   projects: [],
@@ -12,6 +15,7 @@ const state = {
   authenticated: false,
   rtEvents: { status: 'disconnected' },
   cachingEmbeddings: false,
+  gitlabBacklogProjectsManager: new GitLabBacklogProjectsManager(),
 };
 
 async function loadConfig() {
@@ -19,62 +23,86 @@ async function loadConfig() {
   state.config = await res.json();
 }
 
-class ApiClient {
-  constructor(getConfigFn) {
+/**
+ * Wrapper around ApiClient to handle loading states and base URL.
+ */
+class ProjectApiClient {
+  constructor(getConfigFn, on401Handler) {
     this.getConfig = getConfigFn;
+    this.apiClient = new ApiClient(null, on401Handler);
   }
 
-  _buildHeaders(extra = {}, isJson = false) {
-    const headers = { ...extra };
-    if (isJson) headers['Content-Type'] = 'application/json';
-    return headers;
-  }
-
-  _base() {
+  _getBaseUrl() {
     const cfg = this.getConfig();
-    if (!cfg || !cfg.projectManagementApiBase) throw new Error('API base not configured');
+    if (!cfg || !cfg.projectManagementApiBase) {
+      throw new Error('API base not configured');
+    }
     return cfg.projectManagementApiBase.replace(/\/$/, '');
   }
 
-  async request(method, path, { json, formData, headers } = {}) {
-    const url = `${this._base()}${path}`;
-    const init = { method, headers: this._buildHeaders(headers || {}, Boolean(json)) };
-    if (json !== undefined) init.body = JSON.stringify(json);
-    if (formData !== undefined) init.body = formData;
+  async _wrapRequest(fn) {
     showLoading();
-    let res;
     try {
-      res = await fetch(url, init);
+      return await fn();
     } finally {
       hideLoading();
     }
-    if (!res.ok) {
-      // If 401 Unauthorized, refresh GitLab connection status immediately
-      if (res.status === 401) {
-        console.warn('Received 401 Unauthorized, refreshing GitLab status');
-        try {
-          await fetchGitLabStatus();
-        } catch (err) {
-          console.error('Failed to refresh GitLab status after 401:', err);
-        }
-      }
-      const detail = await res.text().catch(() => '');
-      throw new Error(`${method} ${path} failed: ${res.status} ${detail}`);
-    }
-    // No Content responses should not be parsed
-    if (res.status === 204 || res.status === 205) return null;
-    const len = res.headers.get('content-length');
-    if (len === '0') return null;
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) return res.json();
-    return res.text();
   }
 
-  get(path) { return this.request('GET', path); }
-  postJson(path, body) { return this.request('POST', path, { json: body }); }
-  putJson(path, body) { return this.request('PUT', path, { json: body }); }
-  delete(path) { return this.request('DELETE', path); }
-  postForm(path, formData) { return this.request('POST', path, { formData }); }
+  async get(path) {
+    return this._wrapRequest(() => 
+      this.apiClient.get(`${this._getBaseUrl()}${path}`)
+    );
+  }
+
+  async post(path, body) {
+    return this._wrapRequest(() => 
+      this.apiClient.post(`${this._getBaseUrl()}${path}`, body)
+    );
+  }
+
+  async put(path, body) {
+    return this._wrapRequest(() => 
+      this.apiClient.put(`${this._getBaseUrl()}${path}`, body)
+    );
+  }
+
+  async delete(path) {
+    return this._wrapRequest(() => 
+      this.apiClient.delete(`${this._getBaseUrl()}${path}`)
+    );
+  }
+
+  async postForm(path, formData) {
+    return this._wrapRequest(async () => {
+      const url = `${this._getBaseUrl()}${path}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData  // Don't set Content-Type for FormData
+      });
+
+      if (response.status === 401) {
+        if (this.apiClient.on401Handler) {
+          this.apiClient.on401Handler();
+        }
+        throw new ApiError('Unauthorized', response.status, response);
+      }
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => 'Upload failed');
+        throw new ApiError(detail, response.status, response);
+      }
+
+      // Handle No Content responses
+      if (response.status === 204 || response.status === 205) return null;
+      
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        return response.json();
+      }
+      return response.text();
+    });
+  }
 }
 
 let api = null;
@@ -119,20 +147,38 @@ function renderProjects() {
   const list = document.getElementById('projectsList');
   list.innerHTML = '';
   const q = (state.filterText || '').toLowerCase();
-  state.projects
-    .filter(p => (p.name || '').toLowerCase().includes(q))
-    .forEach(p => {
-      const item = el('li', { class: 'border rounded p-3 hover:bg-slate-50 cursor-pointer', onclick: () => selectProject(p), role: 'button', tabindex: '0' }, [
-        el('div', { class: 'flex items-start justify-between gap-2' }, [
-          el('div', {}, [
-            el('div', { class: 'font-semibold' }, p.name || '(untitled)'),
-            p.description ? el('div', { class: 'text-sm text-slate-600 mt-1 truncate' }, p.description) : null,
-          ]),
-          el('div', { class: 'mt-0.5' }, [getStatusBadge(p.status)])
-        ])
-      ]);
-      list.appendChild(item);
-    });
+  const filtered = state.projects.filter(p => (p.name || '').toLowerCase().includes(q));
+  
+  if (filtered.length === 0) {
+    const emptyMsg = el('div', { class: 'text-center text-sm text-slate-500 py-8' }, 
+      q ? 'No projects match your search' : 'No projects yet. Click "Create" to get started.'
+    );
+    list.appendChild(emptyMsg);
+    return;
+  }
+  
+  filtered.forEach(p => {
+    const isSelected = state.selected && state.selected.id === p.id;
+    const item = el('li', { 
+      class: 'border rounded p-3 cursor-pointer transition-colors ' + 
+             (isSelected 
+               ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300' 
+               : 'hover:bg-slate-50 border-slate-200'),
+      onclick: () => selectProject(p), 
+      role: 'button', 
+      tabindex: '0',
+      onkeypress: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectProject(p); } }
+    }, [
+      el('div', { class: 'flex items-start justify-between gap-2' }, [
+        el('div', { class: 'flex-1 min-w-0' }, [
+          el('div', { class: 'font-semibold truncate ' + (isSelected ? 'text-indigo-900' : 'text-slate-900') }, p.name || '(untitled)'),
+          p.description ? el('div', { class: 'text-sm mt-1 truncate ' + (isSelected ? 'text-indigo-700' : 'text-slate-600') }, p.description) : null,
+        ]),
+        el('div', { class: 'mt-0.5 flex-shrink-0' }, [getStatusBadge(p.status)])
+      ])
+    ]);
+    list.appendChild(item);
+  });
 }
 
 function renderDetails() {
@@ -140,9 +186,22 @@ function renderDetails() {
   const upload = document.getElementById('uploadSection');
   const chat = document.getElementById('chatSection');
   if (!state.selected) {
-    box.classList.add('hidden');
+    box.classList.remove('hidden');
     upload.classList.add('hidden');
     if (chat) chat.classList.add('hidden');
+    // Show helpful empty state
+    box.innerHTML = '';
+    box.append(
+      el('div', { class: 'flex flex-col items-center justify-center h-full text-center py-12 px-6' }, [
+        el('div', { class: 'w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-3xl mb-4' }, '📁'),
+        el('h3', { class: 'text-lg font-semibold text-slate-900 mb-2' }, 'No project selected'),
+        el('p', { class: 'text-sm text-slate-600 max-w-sm' }, 
+          state.projects.length === 0 
+            ? 'Create your first project to get started with document processing and AI-powered analysis.'
+            : 'Select a project from the sidebar to view details, upload documents, and manage requirements.'
+        )
+      ])
+    );
     return;
   }
   box.classList.remove('hidden');
@@ -166,9 +225,8 @@ function renderDetails() {
         formatDate(p.updated_at)
       ])
     ]),
-    el('div', { class: 'mt-3 space-y-1' }, [
-      el('div', { class: 'text-sm' }, [renderGitInfoLine(p.gitlab_path, p.gitlab_project_id, 'project')]),
-      el('div', { class: 'text-sm' }, [renderGitRepoLine(p.gitlab_repository_url)])
+    el('div', { class: 'mt-3' }, [
+      renderGitLabInfo(p)
     ]),
     el('div', { class: 'mt-4 flex items-center justify-between flex-wrap gap-2' }, [
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
@@ -190,93 +248,96 @@ async function fetchProjects() {
 }
 
 // UI helpers
-function renderGitInfoLine(gitlabPath, gitlabProjectId, type) {
-  const hasPath = gitlabPath && String(gitlabPath).trim() !== '';
-  const hasId = gitlabProjectId && String(gitlabProjectId).trim() !== '';
+function renderGitLabInfo(project) {
+  const repoSection = el('div', { class: 'mb-3' }, [
+    el('div', { class: 'text-xs font-semibold text-slate-600 mb-1' }, 'Repository (Source Code)'),
+    project.gitlab_repository_url 
+      ? el('a', { 
+          href: project.gitlab_repository_url, 
+          target: '_blank',
+          class: 'text-sm text-indigo-600 hover:underline flex items-center gap-1'
+        }, [
+          '🔗 ',
+          project.gitlab_repository_url
+        ])
+      : el('div', { class: 'text-sm text-slate-400 italic' }, 'No repository URL')
+  ]);
   
-  if (hasPath && type === 'project') {
-    // Display GitLab path with project ID badge and cache button
-    const elements = [
-      el('span', { class: 'text-sm text-slate-700' }, `GitLab: ${gitlabPath}`)
-    ];
-    
-    if (hasId) {
-      elements.push(
-        el('span', { class: 'text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded' }, `ID: ${gitlabProjectId}`)
-      );
-    }
-    
-    elements.push(renderCacheEmbeddingsButton());
-    
-    return el('div', { class: 'flex items-center gap-2' }, elements);
-  }
+  const backlogSection = renderGitLabBacklogProjects(
+    project.gitlab_backlog_project_ids,
+    project.gitlab_backlog_project_urls
+  );
   
-  if (hasPath) {
-    return el('span', { class: 'text-sm text-slate-700' }, gitlabPath);
-  }
-  
-  return el('div', { class: 'text-sm text-slate-500' }, type === 'project' ? 'N/A project' : 'N/A repository');
+  return el('div', {}, [repoSection, backlogSection]);
 }
 
-function renderCacheEmbeddingsButton() {
-  const isLoading = state.cachingEmbeddings;
+function renderGitLabBacklogProjects(gitlabProjectIds, gitlabProjectUrls) {
+  // Header with cache embeddings button as a tag
+  const header = el('div', { class: 'flex items-center gap-2 mb-1' }, [
+    el('div', { class: 'text-xs font-semibold text-slate-600' }, 'Backlog Projects (Issues/Epics)'),
+    gitlabProjectIds && gitlabProjectIds.length > 0 ? el('button', {
+      class: 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors ' + 
+             (state.cachingEmbeddings 
+               ? 'bg-blue-100 text-blue-700 cursor-wait' 
+               : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'),
+      disabled: state.cachingEmbeddings,
+      onclick: () => handleCacheEmbeddings(),
+      title: state.cachingEmbeddings 
+        ? 'Caching embeddings in progress...' 
+        : 'Cache embeddings for all linked backlog projects to enable AI-powered search and retrieval'
+    }, [
+      el('svg', { 
+        class: 'w-3 h-3' + (state.cachingEmbeddings ? ' animate-spin' : ''),
+        fill: 'none',
+        stroke: 'currentColor',
+        viewBox: '0 0 24 24',
+        innerHTML: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>'
+      }),
+      state.cachingEmbeddings ? 'Caching...' : 'Cache'
+    ]) : null
+  ]);
   
-  let icon;
-  if (isLoading) {
-    icon = el('div', { class: 'animate-spin h-3.5 w-3.5 border-2 border-slate-300 border-t-indigo-600 rounded-full' });
-  } else {
-    // Create SVG element with proper namespace
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('class', 'w-3.5 h-3.5');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('stroke-linejoin', 'round');
-    path.setAttribute('stroke-width', '2');
-    path.setAttribute('d', 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15');
-    
-    svg.appendChild(path);
-    icon = svg;
+  if (!gitlabProjectIds || gitlabProjectIds.length === 0) {
+    return el('div', {}, [
+      header,
+      el('div', { class: 'text-sm text-slate-400 italic' }, 'No backlog projects linked')
+    ]);
   }
   
-  const btn = el('button', {
-    class: 'p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors',
-    disabled: isLoading,
-    title: isLoading ? 'Caching embeddings...' : 'Cache project embeddings',
-    'aria-label': 'Cache project embeddings',
-    onclick: (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleCacheEmbeddings();
-    }
-  }, [icon]);
-  
-  return btn;
+  return el('div', { class: 'space-y-2' }, [
+    header,
+    el('div', { class: 'grid gap-2' }, 
+      gitlabProjectIds.map((id, idx) => {
+        const url = gitlabProjectUrls[idx];
+        const path = extractPathFromUrl(url);
+        
+        return el('div', { 
+          class: 'flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded'
+        }, [
+          el('div', { class: 'flex items-center gap-2 flex-1' }, [
+            el('div', { class: 'w-4 h-4 rounded bg-orange-500 flex items-center justify-center text-white text-xs font-bold' }, 'G'),
+            el('a', { 
+              href: url, 
+              target: '_blank',
+              class: 'text-sm text-sky-600 hover:underline',
+              title: `ID: ${id}`
+            }, path)
+          ])
+        ]);
+      })
+    )
+  ]);
 }
 
-function getGitLabStatusIndicator(status, configured) {
-  const s = (status || '').toLowerCase();
-  const titleByState = {
-    connected: configured ? 'Connected to GitLab' : 'Connected (configuration missing?)',
-    connecting: 'Checking GitLab connection…',
-    'not_connected': configured ? 'Not connected to GitLab' : 'GitLab SSO not configured',
-  };
-  let cls = 'inline-block w-2.5 h-2.5 rounded-full bg-slate-400';
-  if (s === 'connected') cls = 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-500';
-  else if (s === 'connecting') cls = 'inline-block w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse';
-  else if (s === 'not_connected') cls = 'inline-block w-2.5 h-2.5 rounded-full bg-rose-500';
-  return el('span', { class: cls, title: titleByState[s] || 'GitLab status', 'aria-label': titleByState[s] || 'GitLab status' }, '');
+function extractPathFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.replace(/^\//, '').replace(/\.git$/, '');
+  } catch {
+    return url.replace(/\.git$/, '');
+  }
 }
 
-function renderGitRepoLine(repoUrl) {
-  const link = (repoUrl && String(repoUrl).trim() !== '')
-    ? el('a', { class: 'text-sky-600 underline', href: repoUrl, target: '_blank' }, 'Repository')
-    : el('span', { class: 'text-slate-500' }, 'N/A repository');
-  return link;
-}
 
 function getStatusBadge(status) {
   const s = (status || '').toLowerCase();
@@ -308,8 +369,10 @@ function updateProjectStateFromProgress(msg) {
     let changed = false;
 
     // Update item in projects list (mutate in place to preserve references)
+    // Match against gitlab_backlog_project_ids since messages contain GitLab project IDs, not UUIDs
     for (const project of state.projects) {
-      if (String(project.id) !== idStr) continue;
+      const gitlabIds = project.gitlab_backlog_project_ids || [];
+      if (!gitlabIds.includes(idStr)) continue;
       if (nextStatus && nextStatus !== (project.status || '').toLowerCase()) {
         project.status = nextStatus;
         changed = true;
@@ -332,22 +395,25 @@ function updateProjectStateFromProgress(msg) {
     }
 
     // Ensure selected reference reflects latest values too
-    if (state.selected && String(state.selected.id) === idStr) {
-      if (nextStatus && nextStatus !== (state.selected.status || '').toLowerCase()) {
-        state.selected.status = nextStatus;
-        changed = true;
-      }
-      if (pctVal != null && pctVal !== state.selected.processed_pct) {
-        state.selected.processed_pct = pctVal;
-        changed = true;
-      }
-      if (msg.timestamp) {
-        const ts = new Date(msg.timestamp);
-        if (!isNaN(ts.getTime())) {
-          const iso = ts.toISOString();
-          if (state.selected.updated_at !== iso) {
-            state.selected.updated_at = iso;
-            changed = true;
+    if (state.selected) {
+      const selectedGitlabIds = state.selected.gitlab_backlog_project_ids || [];
+      if (selectedGitlabIds.includes(idStr)) {
+        if (nextStatus && nextStatus !== (state.selected.status || '').toLowerCase()) {
+          state.selected.status = nextStatus;
+          changed = true;
+        }
+        if (pctVal != null && pctVal !== state.selected.processed_pct) {
+          state.selected.processed_pct = pctVal;
+          changed = true;
+        }
+        if (msg.timestamp) {
+          const ts = new Date(msg.timestamp);
+          if (!isNaN(ts.getTime())) {
+            const iso = ts.toISOString();
+            if (state.selected.updated_at !== iso) {
+              state.selected.updated_at = iso;
+              changed = true;
+            }
           }
         }
       }
@@ -429,14 +495,15 @@ async function uploadFiles() {
 async function handleCacheEmbeddings() {
   if (!state.selected || state.cachingEmbeddings) return;
   
+  const projectIds = state.selected.gitlab_backlog_project_ids;
+  if (!projectIds || projectIds.length === 0) {
+    alert('No GitLab backlog projects linked');
+    return;
+  }
+  
   try {
     state.cachingEmbeddings = true;
-    renderDetails(); // Re-render to show loading state
-    
-    // Check if project has GitLab project ID
-    if (!state.selected.gitlab_project_id) {
-      throw new Error('Project does not have a GitLab project ID. Please set the GitLab project path first.');
-    }
+    renderDetails();
     
     const cfg = state.config || {};
     const gitlabApiBase = (cfg.gitlabApiBase || '').replace(/\/$/, '');
@@ -444,33 +511,30 @@ async function handleCacheEmbeddings() {
       throw new Error('GitLab API base not configured');
     }
     
-    // Use gitlab_project_id instead of internal project ID
-    const url = `${gitlabApiBase}/projects/${state.selected.gitlab_project_id}/cache-embeddings`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+    // Use ApiClient for consistent authentication via proxy
+    const gitlabApiClient = new ApiClient(null, async () => {
+      await fetchGitLabStatus();
     });
     
-    if (!response.ok) {
-      throw new Error(`Failed to cache embeddings: ${response.status}`);
-    }
+    const url = `${gitlabApiBase}/projects/multi/cache-embeddings?project_ids=${projectIds.join(',')}`;
+    await gitlabApiClient.post(url, {});
     
-    // Success - show brief notification
     const log = document.getElementById('progressLog');
     if (log) {
       const ts = new Date().toLocaleTimeString();
       const line = document.createElement('div');
-      line.textContent = `${ts} | Embeddings caching started`;
+      line.textContent = `${ts} | Caching embeddings for ${projectIds.length} project(s)`;
       line.className = 'text-emerald-600';
       log.appendChild(line);
       log.scrollTop = log.scrollHeight;
     }
   } catch (err) {
     console.error('Failed to cache embeddings:', err);
-    alert(`Failed to cache embeddings: ${err.message}`);
+    const message = ApiClient.formatError(err);
+    alert(`Failed to cache embeddings: ${message}`);
   } finally {
     state.cachingEmbeddings = false;
-    renderDetails(); // Re-render to hide loading state
+    renderDetails();
   }
 }
 
@@ -500,7 +564,9 @@ function connectSSE() {
       const changed = updateProjectStateFromProgress(msg);
       if (changed) { renderProjects(); }
       const pid = getMsgProjectId(msg);
-      const isSelected = !!state.selected && pid != null && String(state.selected.id) === String(pid);
+      // Match against gitlab_backlog_project_ids since messages contain GitLab project IDs, not UUIDs
+      const gitlabIds = state.selected?.gitlab_backlog_project_ids || [];
+      const isSelected = !!state.selected && pid != null && gitlabIds.includes(String(pid));
       if (!isSelected) return;
       const text = document.getElementById('progressText');
       const bar = document.getElementById('progressBar');
@@ -535,9 +601,48 @@ function connectSSE() {
 
 function setupPanelToggle() {
   const panel = document.getElementById('projectsPanel');
-  document.getElementById('openPanel').addEventListener('click', () => panel.classList.remove('hidden'));
+  const openBtn = document.getElementById('openPanel');
   const hideBtn = document.getElementById('togglePanel');
-  if (hideBtn) hideBtn.addEventListener('click', () => panel.classList.add('hidden'));
+  
+  openBtn.addEventListener('click', () => {
+    panel.classList.remove('hidden');
+    // On mobile, show panel as overlay
+    if (window.innerWidth < 1024) {
+      panel.style.position = 'fixed';
+      panel.style.top = '0';
+      panel.style.left = '0';
+      panel.style.bottom = '0';
+      panel.style.zIndex = '40';
+      panel.classList.add('shadow-2xl');
+      hideBtn.classList.remove('lg:hidden');
+    }
+  });
+  
+  const hidePanel = () => {
+    panel.classList.add('hidden');
+    // Reset mobile overlay styles
+    if (window.innerWidth < 1024) {
+      panel.style.position = '';
+      panel.style.top = '';
+      panel.style.left = '';
+      panel.style.bottom = '';
+      panel.style.zIndex = '';
+      panel.classList.remove('shadow-2xl');
+      hideBtn.classList.add('lg:hidden');
+    }
+  };
+  
+  if (hideBtn) hideBtn.addEventListener('click', hidePanel);
+  
+  // Close mobile panel when clicking outside (on project select)
+  const list = document.getElementById('projectsList');
+  if (list) {
+    list.addEventListener('click', () => {
+      if (window.innerWidth < 1024) {
+        hidePanel();
+      }
+    });
+  }
 }
 
 function setupActions() {
@@ -565,24 +670,32 @@ function setupActions() {
   const updateSelected = () => {
     if (!fileInput || !fileCount || !selectedFiles) return;
     const files = Array.from(fileInput.files || []);
+    const uploadBtn = document.getElementById('uploadBtn');
     if (files.length === 0) {
       fileCount.textContent = 'No files selected';
       selectedFiles.classList.add('hidden');
       selectedFiles.textContent = '';
+      if (uploadBtn) uploadBtn.disabled = true;
       return;
     }
     fileCount.textContent = `${files.length} file${files.length > 1 ? 's' : ''} selected`;
     selectedFiles.classList.remove('hidden');
     selectedFiles.textContent = files.map(f => `• ${f.name}`).join(', ');
+    if (uploadBtn) uploadBtn.disabled = false;
   };
   if (fileInput) fileInput.addEventListener('change', updateSelected);
   if (dropzone && fileInput) {
     dropzone.addEventListener('click', () => fileInput.click());
-    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-slate-400'); });
-    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('border-slate-400'));
+    dropzone.addEventListener('dragover', (e) => { 
+      e.preventDefault(); 
+      dropzone.classList.add('border-indigo-500', 'bg-indigo-50'); 
+    });
+    dropzone.addEventListener('dragleave', () => { 
+      dropzone.classList.remove('border-indigo-500', 'bg-indigo-50'); 
+    });
     dropzone.addEventListener('drop', (e) => {
       e.preventDefault();
-      dropzone.classList.remove('border-slate-400');
+      dropzone.classList.remove('border-indigo-500', 'bg-indigo-50');
       if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
         fileInput.files = e.dataTransfer.files;
         updateSelected();
@@ -607,6 +720,14 @@ function setupActions() {
   if (btnCancel) btnCancel.addEventListener('click', close);
   const form = document.getElementById('projectForm');
   if (form) form.addEventListener('submit', submitProjectForm);
+  
+  // Add keyboard navigation for project modal
+  const projectModal = document.getElementById('projectModal');
+  if (projectModal) {
+    projectModal.addEventListener('keydown', (ev) => { 
+      if (ev.key === 'Escape') close(); 
+    });
+  }
 
   // Delete modal wiring
   const deleteClose = () => toggleDeleteModal(false);
@@ -628,7 +749,18 @@ async function init() {
   setupPanelToggle();
   setupActions();
   await loadConfig();
-  api = new ApiClient(() => state.config);
+  
+  // Initialize API client with 401 handler
+  const handle401 = async () => {
+    console.warn('Received 401 Unauthorized, refreshing GitLab status');
+    try {
+      await fetchGitLabStatus();
+    } catch (err) {
+      console.error('Failed to refresh GitLab status after 401:', err);
+    }
+  };
+  
+  api = new ProjectApiClient(() => state.config, handle401);
   
   // Check authentication status
   try {
@@ -688,8 +820,23 @@ function openProjectModal(project) {
   if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
   document.getElementById('f_name').value = project?.name || '';
   document.getElementById('f_description').value = project?.description || '';
-  document.getElementById('f_gitlab_path').value = project?.gitlab_path || '';
-  document.getElementById('f_gitlab_repository_url').value = project?.gitlab_repository_url || '';
+  
+  // Initialize GitLab Backlog Projects Manager
+  state.gitlabBacklogProjectsManager.init();
+  
+  // Set repository URL (single field)
+  const repoUrlInput = document.getElementById('f_gitlab_repository_url');
+  if (repoUrlInput) {
+    repoUrlInput.value = project?.gitlab_repository_url || '';
+  }
+  
+  // Set backlog project URLs (multi-URL tags)
+  if (project && project.gitlab_backlog_project_urls) {
+    state.gitlabBacklogProjectsManager.setUrls(project.gitlab_backlog_project_urls);
+  } else {
+    state.gitlabBacklogProjectsManager.clear();
+  }
+  
   toggleProjectModal(true);
 }
 
@@ -708,18 +855,31 @@ function openDeleteModal(project) {
 
 async function submitProjectForm(ev) {
   ev.preventDefault();
+  
+  // Get repository URL (single field)
+  const repoUrlInput = document.getElementById('f_gitlab_repository_url');
+  const gitlabRepositoryUrl = repoUrlInput?.value?.trim() || null;
+  
+  // Get backlog project URLs (multi-URL tags)
+  const gitlabBacklogUrls = state.gitlabBacklogProjectsManager.getUrls();
+  
   const payload = {
     name: document.getElementById('f_name').value.trim(),
     description: valOrNull(document.getElementById('f_description').value),
-    gitlab_path: emptyToNull(document.getElementById('f_gitlab_path').value),
-    gitlab_repository_url: emptyToNull(document.getElementById('f_gitlab_repository_url').value),
+    gitlab_repository_url: gitlabRepositoryUrl,
+    gitlab_backlog_project_urls: gitlabBacklogUrls.length > 0 ? gitlabBacklogUrls : null,
   };
-  if (!payload.name) { alert('Name is required'); return; }
+  
+  if (!payload.name) { 
+    alert('Name is required'); 
+    return; 
+  }
+  
   try {
     if (state.editTargetId) {
-      await api.putJson(`/projects/${state.editTargetId}`, payload);
+      await api.put(`/projects/${state.editTargetId}`, payload);
     } else {
-      await api.postJson('/projects', payload);
+      await api.post('/projects', payload);
     }
     toggleProjectModal(false);
     await fetchProjects();
@@ -729,11 +889,11 @@ async function submitProjectForm(ev) {
     }
     state.editTargetId = null;
   } catch (e) {
-    alert('Save failed');
+    console.error('Project save failed:', e);
+    alert('Save failed: ' + (e.message || 'Unknown error'));
   }
 }
 
-function emptyToNull(v) { const s = (v || '').trim(); return s === '' ? null : s; }
 function valOrNull(v) { const s = (v || '').trim(); return s === '' ? null : s; }
 
 async function fetchGitLabStatus() {
@@ -827,11 +987,11 @@ function updateConnectionsPanel() {
     const authIndicator = document.getElementById('authIndicator');
     if (authIndicator) {
       if (state.authenticated) {
-        authIndicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
-        authIndicator.title = 'Authenticated';
+        authIndicator.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white shadow-sm';
+        authIndicator.title = '✓ Authenticated';
       } else {
-        authIndicator.className = 'w-2 h-2 rounded-full bg-rose-500';
-        authIndicator.title = 'Not authenticated';
+        authIndicator.className = 'w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white shadow-sm';
+        authIndicator.title = '✗ Not authenticated';
       }
     }
     
@@ -840,18 +1000,18 @@ function updateConnectionsPanel() {
     const gitlabConnectBtn = document.getElementById('gitlabConnectBtn');
     if (gitlabIndicator) {
       const s = (state.gitlab.status || '').toLowerCase();
-      let cls = 'w-2 h-2 rounded-full bg-slate-400';
+      let cls = 'w-2.5 h-2.5 rounded-full bg-slate-400 ring-2 ring-white shadow-sm';
       let title = 'GitLab status';
       
       if (s === 'connected') {
-        cls = 'w-2 h-2 rounded-full bg-emerald-500';
-        title = 'Connected to GitLab';
+        cls = 'w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white shadow-sm';
+        title = '✓ Connected to GitLab';
       } else if (s === 'connecting') {
-        cls = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
-        title = 'Checking GitLab connection…';
+        cls = 'w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white shadow-sm animate-pulse';
+        title = '⟳ Checking GitLab connection…';
       } else if (s === 'not_connected') {
-        cls = 'w-2 h-2 rounded-full bg-rose-500';
-        title = state.gitlab.configured ? 'Not connected to GitLab' : 'GitLab SSO not configured';
+        cls = 'w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white shadow-sm';
+        title = state.gitlab.configured ? '✗ Not connected to GitLab (click link icon to connect)' : '○ GitLab SSO not configured';
       }
       
       gitlabIndicator.className = cls;
@@ -870,18 +1030,18 @@ function updateConnectionsPanel() {
     const rtEventsIndicator = document.getElementById('rtEventsIndicator');
     if (rtEventsIndicator) {
       const s = (state.rtEvents.status || '').toLowerCase();
-      let cls = 'w-2 h-2 rounded-full bg-slate-400';
+      let cls = 'w-2.5 h-2.5 rounded-full bg-slate-400 ring-2 ring-white shadow-sm';
       let title = 'Real-time events';
       
       if (s === 'connected') {
-        cls = 'w-2 h-2 rounded-full bg-emerald-500';
-        title = 'Connected to real-time events';
+        cls = 'w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white shadow-sm';
+        title = '✓ Real-time events connected';
       } else if (s === 'connecting') {
-        cls = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
-        title = 'Connecting to real-time events…';
+        cls = 'w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white shadow-sm animate-pulse';
+        title = '⟳ Connecting to real-time events…';
       } else {
-        cls = 'w-2 h-2 rounded-full bg-slate-400';
-        title = 'Disconnected from real-time events';
+        cls = 'w-2.5 h-2.5 rounded-full bg-slate-400 ring-2 ring-white shadow-sm';
+        title = '○ Real-time events disconnected';
       }
       
       rtEventsIndicator.className = cls;

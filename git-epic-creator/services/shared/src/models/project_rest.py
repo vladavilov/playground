@@ -3,7 +3,7 @@ Pydantic models for API operations.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, AnyUrl, field_validator, model_validator
@@ -40,18 +40,31 @@ class ProjectSet(BaseModel):
         if v.strip() == "":
             raise ValueError("Name cannot be whitespace only")
         return v
+    
     description: Optional[str] = Field(
         None,
         description="Optional project description"
     )
-    gitlab_path: Optional[str] = Field(
-        None,
-        description="GitLab project path (namespace/project format)"
-    )
+    
+    # GitLab Repository (Source Code) - single URL for git clone
     gitlab_repository_url: Optional[AnyUrl] = Field(
-        None,
-        description="GitLab repository URL"
+        default=None,
+        description="GitLab repository clone URL (SSH or HTTPS) - NOT resolved to project ID"
     )
+    
+    # GitLab Backlog Projects (Issues/Epics) - multiple projects for backlog management
+    gitlab_backlog_project_urls: Optional[List[AnyUrl]] = Field(
+        default=None,
+        description="List of GitLab project URLs for issues/epics backlog management"
+    )
+    
+    @field_validator('gitlab_backlog_project_urls')
+    @classmethod
+    def validate_unique_backlog_urls(cls, v: Optional[List[AnyUrl]]) -> Optional[List[AnyUrl]]:
+        """Ensure all GitLab backlog project URLs are unique."""
+        if v is not None and len(v) != len(set(str(url) for url in v)):
+            raise ValueError("GitLab backlog project URLs must be unique")
+        return v
 
 
 class ProjectResponse(BaseModel):
@@ -65,9 +78,23 @@ class ProjectResponse(BaseModel):
     id: UUID = Field(description="Unique project identifier")
     name: str = Field(description="Project name")
     description: Optional[str] = Field(description="Project description")
-    gitlab_path: Optional[str] = Field(description="GitLab project path (namespace/project)")
-    gitlab_project_id: Optional[str] = Field(description="Resolved GitLab project ID")
-    gitlab_repository_url: Optional[str] = Field(description="GitLab repository URL")
+    
+    # GitLab Repository (Source Code)
+    gitlab_repository_url: Optional[str] = Field(
+        default=None,
+        description="GitLab repository clone URL (SSH/HTTPS)"
+    )
+    
+    # GitLab Backlog Projects (Issues/Epics)
+    gitlab_backlog_project_ids: Optional[List[str]] = Field(
+        default_factory=list,
+        description="List of resolved GitLab project IDs for backlog"
+    )
+    gitlab_backlog_project_urls: Optional[List[str]] = Field(
+        default_factory=list,
+        description="List of GitLab project URLs for backlog"
+    )
+    
     status: str = Field(description="Project status")
     created_by: str = Field(description="User ID who created the project")
     created_at: datetime = Field(description="Project creation timestamp")

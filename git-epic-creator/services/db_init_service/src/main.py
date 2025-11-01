@@ -9,6 +9,7 @@ from utils.app_factory import FastAPIFactory
 from models.project_db import Base, Project, ProjectMember
 
 from fastapi import Depends, APIRouter
+from sqlalchemy import inspect
 from utils.local_auth import get_local_user_verified, LocalUser
 from utils.error_handler import ErrorHandler
 import structlog
@@ -40,9 +41,9 @@ def init_db(
     current_user: LocalUser = Depends(get_local_user_verified),
 ):
     """
-    Initializes the database by creating all tables defined in the imported models.
-    Creates 'projects' and 'project_members' tables from the shared models.
-    This is an idempotent operation; it will not recreate existing tables.
+    Initializes the database by dropping and recreating all tables defined in the imported models.
+    Creates 'projects' and 'project_members' tables from the shared models with latest schema.
+    This operation drops existing tables to ensure schema matches the current model definitions.
     
     Uses the shared library's PostgreSQL client for database operations.
     
@@ -67,15 +68,25 @@ def init_db(
         
         # Get list of tables that will be created
         table_names = [table.name for table in Base.metadata.tables.values()]
-        logger.info("Creating database tables", tables=table_names)
         
-        # Use the synchronous engine to create all tables
+        # Drop existing tables to ensure schema matches current models
+        inspector = inspect(postgres_client.sync_engine)
+        existing_tables = inspector.get_table_names()
+        tables_to_drop = [table for table in table_names if table in existing_tables]
+        
+        if tables_to_drop:
+            logger.info("Dropping existing tables to recreate with latest schema", tables=tables_to_drop)
+            Base.metadata.drop_all(bind=postgres_client.sync_engine)
+        
+        # Create all tables with latest schema
+        logger.info("Creating database tables", tables=table_names)
         Base.metadata.create_all(bind=postgres_client.sync_engine)
 
         logger.info("Database initialization successful", tables_created=table_names)
         return {
             "status": "Database initialized successfully", 
-            "tables_created": table_names
+            "tables_created": table_names,
+            "tables_dropped": tables_to_drop if tables_to_drop else []
         }
     except Exception as e:
         handler = ErrorHandler()

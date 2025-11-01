@@ -55,6 +55,7 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         citations: Annotated[list[str], add]
         result: Any
         workflow_start_time: float  # Track workflow start for timeout detection
+        previous_requirements: Any  # Previous RequirementsBundle for conversation continuity
 
     analyst = PromptAnalyst()
     retriever = ContextRetriever()
@@ -153,7 +154,12 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
         return {"context": context, "citations": citations}
 
     async def synthesize_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        draft = await engineer.synthesize(state["analysis"], state["context"], state.get("findings") or AuditFindings())
+        draft = await engineer.synthesize(
+            state["analysis"], 
+            state["context"], 
+            state.get("findings") or AuditFindings(),
+            previous_draft=state.get("previous_requirements")
+        )
         # Publish interim synthesis results
         try:
             br = list(draft.business_requirements or [])

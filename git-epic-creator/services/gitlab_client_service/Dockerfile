@@ -9,6 +9,9 @@ WORKDIR /app
 COPY ./shared/ ./shared/
 COPY ./gitlab_client_service/ ./gitlab_client_service/
 
+# Copy SSL certificate for GitLab verification
+COPY ./gitlab_client_service/gitlab.crt /app/gitlab_client_service/gitlab.crt
+
 WORKDIR /app/shared
 RUN pip install --no-cache-dir .
 

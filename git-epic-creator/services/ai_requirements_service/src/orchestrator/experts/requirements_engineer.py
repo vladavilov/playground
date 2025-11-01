@@ -10,7 +10,13 @@ class RequirementsEngineer:
     def __init__(self) -> None:
         pass
 
-    async def synthesize(self, analysis: PromptAnalysis, context: RetrievedContext, findings: AuditFindings | None = None) -> DraftRequirements:
+    async def synthesize(
+        self, 
+        analysis: PromptAnalysis, 
+        context: RetrievedContext, 
+        findings: AuditFindings | None = None,
+        previous_draft: any = None
+    ) -> DraftRequirements:
         intents = list(analysis.intents or [])
         # Aggregate context: final answer + key facts + citations
         contexts: List[str] = []
@@ -19,6 +25,13 @@ class RequirementsEngineer:
         contexts.extend([str(k) for k in getattr(context, "key_facts", []) or []])
         # Format citations as: [Document Name] "text preview..."
         contexts.extend([f"[{c.document_name}] {c.text_preview}" for c in (getattr(context, "citations", []) or [])])
+        
+        # Include previous requirements for conversation continuity
+        if previous_draft:
+            prev_text = self._format_previous_requirements(previous_draft)
+            if prev_text:
+                contexts.insert(0, prev_text)
+        
         findings_payload = {
             "issues": list((findings.issues if findings else []) or []),
             "suggestions": list((findings.suggestions if findings else []) or []),
@@ -67,6 +80,37 @@ class RequirementsEngineer:
             assumptions=[str(a) for a in out.assumptions],
             risks=[str(r) for r in out.risks],
         )
+    
+    def _format_previous_requirements(self, bundle: any) -> str:
+        """Format previous requirements bundle as context text for refinement."""
+        if not bundle:
+            return ""
+        
+        lines = ["# Previous Requirements Context"]
+        lines.append("User is refining/enhancing these existing requirements:")
+        lines.append("")
+        
+        # Business Requirements
+        if hasattr(bundle, 'business_requirements') and bundle.business_requirements:
+            lines.append("## Previous Business Requirements:")
+            for req in bundle.business_requirements:
+                lines.append(f"- {req.id}: {req.title}")
+                if hasattr(req, 'description') and req.description:
+                    lines.append(f"  Description: {req.description[:150]}...")
+        
+        # Functional Requirements
+        if hasattr(bundle, 'functional_requirements') and bundle.functional_requirements:
+            lines.append("")
+            lines.append("## Previous Functional Requirements:")
+            for req in bundle.functional_requirements:
+                lines.append(f"- {req.id}: {req.title}")
+                if hasattr(req, 'description') and req.description:
+                    lines.append(f"  Description: {req.description[:150]}...")
+        
+        lines.append("")
+        lines.append("NOTE: Build upon these requirements. Preserve them unless user asks to change/remove specific ones.")
+        
+        return "\n".join(lines)
 
 
 

@@ -65,17 +65,6 @@ class AITasksSettings(BaseConfig):
     http: HTTPClientSettings = Field(default_factory=HTTPClientSettings)
     llm: LlmConfig = Field(default_factory=LlmConfig)
     redis: RedisSettings = Field(default_factory=RedisSettings)
-    
-    LLM_TIMEOUT_SEC: float = Field(
-        default=20.0,
-        description="Timeout for LLM requests",
-    )
-    LLM_TEMPERATURE: float = Field(
-        default=0.2,
-        ge=0.0,
-        le=2.0,
-        description="Temperature for LLM requests",
-    )
 
 
 @lru_cache()

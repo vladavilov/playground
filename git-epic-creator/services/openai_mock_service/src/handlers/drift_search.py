@@ -8,24 +8,32 @@ logger = structlog.get_logger(__name__)
 
 
 class DriftHydeHandler(BaseHandler):
-    """Handles DRIFT-search HyDE (Hypothetical Document Embeddings) requests."""
+    """Handles DRIFT-search HyDE (Hypothetical Document Embeddings) requests.
+    
+    Expected model: gpt-4o-mini (fast model)
+    Used by: neo4j-retrieval-service hyde_node
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
         return "hyde" in lower_text or "hypothetical answer paragraph" in lower_text
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
-        logger.info("drift_mock_hyde")
+        logger.info("drift_mock_hyde", model=model)
         return "Hypothetical paragraph about bridge components: deck, supports, arches, cables, and foundations."
 
 
 class DriftPrimerHandler(BaseHandler):
-    """Handles DRIFT-search primer requests."""
+    """Handles DRIFT-search primer requests.
+    
+    Expected model: gpt-4o-mini (fast model)
+    Used by: neo4j-retrieval-service primer_node
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
         return "you are drift-search primer" in lower_text
 
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
-        logger.info("drift_mock_primer")
+        logger.info("drift_mock_primer", model=model)
         primer_json = {
             "initial_answer": "Bridges consist of deck, supports, and load-bearing structures.",
             "followups": [
@@ -38,7 +46,11 @@ class DriftPrimerHandler(BaseHandler):
 
 
 class DriftLocalExecutorHandler(BaseHandler):
-    """Handles DRIFT-search local executor requests with branching logic."""
+    """Handles DRIFT-search local executor requests with branching logic.
+    
+    Expected model: gpt-4o-mini (fast model)
+    Used by: neo4j-retrieval-service local_executor_node
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
         return "you are drift-search local executor" in lower_text
@@ -48,7 +60,7 @@ class DriftLocalExecutorHandler(BaseHandler):
         followup_match = re.search(r"follow-up:\s*(.+?)\ntarget communities:", combined_text, re.IGNORECASE | re.DOTALL)
         followup_text = followup_match.group(1).strip().lower() if followup_match else ""
         
-        logger.info("drift_mock_local_executor", followup_snippet=followup_text[:100] if followup_text else "not_found")
+        logger.info("drift_mock_local_executor", model=model, followup_snippet=followup_text[:100] if followup_text else "not_found")
         
         # Branch 1: Clarify deck materials and structural role
         if "deck materials" in followup_text and "structural role" in followup_text:
@@ -121,7 +133,11 @@ class DriftLocalExecutorHandler(BaseHandler):
 
 
 class DriftAggregatorHandler(BaseHandler):
-    """Handles DRIFT-search aggregator requests."""
+    """Handles DRIFT-search aggregator requests.
+    
+    Expected model: gpt-4o-mini (fast model)
+    Used by: neo4j-retrieval-service aggregate_node
+    """
 
     def can_handle(self, messages: List[Dict[str, Any]], combined_text: str, lower_text: str) -> bool:
         return "you are drift-search aggregator" in lower_text
@@ -228,7 +244,7 @@ class DriftAggregatorHandler(BaseHandler):
             ],
             "residual_uncertainty": "Specific materials and design vary by bridge type.",
         }
-        logger.info("drift_mock_aggregator", tree_parsed=bool(tree_json), citations_parts_count=len(citations_parts))
+        logger.info("drift_mock_aggregator", model=model, tree_parsed=bool(tree_json), citations_parts_count=len(citations_parts))
         return json.dumps(agg_json)
 
 

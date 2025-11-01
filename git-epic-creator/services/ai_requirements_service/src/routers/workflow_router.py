@@ -24,6 +24,7 @@ router = APIRouter()
 class RequirementsRequest(BaseModel):
     project_id: UUID = Field(..., description="Project identifier")
     prompt: str = Field(..., description="User prompt describing the project/feature")
+    prompt_id: UUID | None = Field(None, description="Optional prompt identifier for conversation continuity")
 
 
 class AnswersRequest(BaseModel):
@@ -45,6 +46,7 @@ async def create_requirements_bundle(
             project_id=request.project_id,
             prompt=request.prompt,
             publisher=publisher,
+            prompt_id_opt=request.prompt_id,
             auth_header=(f"Bearer {current_user.token}"),
         )
         return bundle

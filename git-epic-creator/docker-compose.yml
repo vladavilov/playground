@@ -278,8 +278,6 @@ services:
         condition: service_healthy
       mock-auth-service:
         condition: service_healthy
-#      gitlab-mock-service:
-#        condition: service_healthy
     networks:
       - microservices_network
     healthcheck:
@@ -499,8 +497,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-#      gitlab-mock-service:
-#        condition: service_healthy
     networks:
       - microservices_network
     healthcheck:
@@ -633,8 +629,6 @@ services:
       document-processing-service:
         condition: service_healthy
       mock-auth-service:
-        condition: service_healthy
-      gitlab-mock-service:
         condition: service_healthy
       gitlab-client-service:
         condition: service_healthy

@@ -528,8 +528,8 @@ OAI_MODEL=gpt-4                                         # Azure deployment name 
 OAI_MODEL_FAST=gpt-4o-mini                              # Azure deployment name for fast tasks (analysis, audits, evaluation)
 OAI_EMBED_MODEL_NAME=text-embedding-3-small             # Embedding model name (for tiktoken)
 OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small        # Embedding deployment name
-LLM_TIMEOUT_SEC=20.0
-LLM_TEMPERATURE=0.2
+LLM_TIMEOUT_SEC=20.0                                    # Shared via LlmConfig
+LLM_TEMPERATURE=0.2                                     # Shared via LlmConfig
 
 # Model Selection Strategy:
 # - Standard Model (OAI_MODEL): Used for complex technical decomposition
@@ -539,6 +539,7 @@ LLM_TEMPERATURE=0.2
 #   * ConsistencyAuditor: Backlog quality review
 #   * Evaluator: Quality scoring and gap identification
 #   * ClarificationStrategist: Clarification question generation
+# - LLM Parameters: LLM_TIMEOUT_SEC and LLM_TEMPERATURE are centralized in shared LlmConfig for consistency
 
 # Redis
 REDIS_URL=redis://redis:6379

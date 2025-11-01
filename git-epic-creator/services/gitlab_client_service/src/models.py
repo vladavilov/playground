@@ -13,6 +13,10 @@ class GitLabWorkItem(BaseModel):
     state: Literal["opened", "closed"] = "opened"
     labels: List[str] = Field(default_factory=list)
     web_url: str
+    source_gitlab_project_id: Optional[str] = Field(
+        default=None,
+        description="Source GitLab project ID (for multi-project backlogs)"
+    )
 
 
 class Pagination(BaseModel):

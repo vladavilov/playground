@@ -259,6 +259,8 @@ Configuration
     - `OAI_MODEL_FAST`: Azure OpenAI deployment name for fast/simple tasks (e.g., `gpt-4o-mini`) - used for consistency audits and question generation
     - `OAI_KEY`: Azure OpenAI API key
     - `OAI_API_VERSION`: Azure OpenAI API version (e.g., `2024-02-15-preview`)
+    - `LLM_TIMEOUT_SEC`: HTTP/LLM client timeout (default: 20.0s, shared via `LlmConfig`)
+    - `LLM_TEMPERATURE`: Temperature for LLM requests (default: 0.2, shared via `LlmConfig`)
     - Note: Service uses `AzureChatOpenAI` connector requiring `deployment_name` parameter
     - **Model Selection Strategy**:
       - **Standard Model (`OAI_MODEL`)**: Used for critical creative tasks requiring high quality:
@@ -271,6 +273,7 @@ Configuration
     - `HTTP_READ_TIMEOUT`: Read timeout from shared HTTPClientSettings (default: 180s for UI, overridable per service)
     - `WORKFLOW_TIMEOUT_SEC`: Maximum workflow execution time before graceful abort (default: 150s)
     - Note: WORKFLOW_TIMEOUT_SEC should be < HTTP_READ_TIMEOUT to allow graceful response before client timeout
+    - Note: `LLM_TIMEOUT_SEC` and `LLM_TEMPERATURE` are centralized in shared `LlmConfig` for consistency across services
   - GRAPH_RAG_SERVICE_URL
   - EVAL_WEIGHTS: JSON or separate vars (PRECISION_WEIGHT, GROUNDING_WEIGHT, ...)
   - CLARIFICATION_SCORE_TARGET=0.70

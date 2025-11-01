@@ -56,7 +56,9 @@ class RequirementsController extends ChatBaseController {
    */
   createInitialState() {
     return {
-      ...super.createInitialState()
+      ...super.createInitialState(),
+      promptId: null,  // Track conversation thread ID
+      currentQuestions: null  // Store current clarification questions
     };
   }
   
@@ -86,12 +88,20 @@ class RequirementsController extends ChatBaseController {
     const base = this.state.config.aiWorkflowApiBase.replace(/\/$/, '');
     
     try {
-      const bundle = await this.apiClient.post(`${base}/requirements`, {
+      const payload = {
         project_id: this.state.projectId,
         prompt: text
-      });
+      };
+      
+      // Include prompt_id for follow-up conversations to maintain context
+      if (this.state.promptId) {
+        payload.prompt_id = this.state.promptId;
+      }
+      
+      const bundle = await this.apiClient.post(`${base}/requirements`, payload);
       
       this.state.currentBundle = bundle;
+      this.state.promptId = bundle.prompt_id;  // Track prompt_id for conversation continuity
       
       // Render requirements
       await this.renderer.render(bundle);
@@ -102,10 +112,19 @@ class RequirementsController extends ChatBaseController {
       // Show success message
       const businessCount = bundle.business_requirements?.length || 0;
       const functionalCount = bundle.functional_requirements?.length || 0;
+      const scorePercent = Math.round(bundle.score * 100);
       this.chatUI.appendAssistantMessage(
-        `<div class="text-sm text-indigo-700">✓ Generated ${businessCount + functionalCount} requirement(s) (${businessCount} business, ${functionalCount} functional)</div>`,
+        `<div class="text-sm text-indigo-700">✓ Generated ${businessCount + functionalCount} requirement(s) (${businessCount} business, ${functionalCount} functional) • Score: ${scorePercent}%</div>`,
         'Assistant'
       );
+      
+      // Display clarification questions in chat if score is low
+      if (bundle.clarification_questions?.length > 0 && bundle.score < 0.7) {
+        this.displayQuestionsInChat(bundle.clarification_questions, bundle.score);
+        this.showAnswerButton();
+      } else {
+        this.hideAnswerButton();
+      }
       
       // Link pending box to prompt ID
       const pid = bundle.prompt_id;
@@ -249,6 +268,126 @@ class RequirementsController extends ChatBaseController {
     
     // Re-enable inline editing
     this.enableEnhancedEditing();
+  }
+  
+  /**
+   * Displays clarification questions in the chat panel.
+   * @param {Array<Object>} questions - Clarification questions
+   * @param {number} score - Current quality score
+   */
+  displayQuestionsInChat(questions, score) {
+    if (!questions || questions.length === 0) return;
+    
+    const scorePercent = Math.round(score * 100);
+    const sortedQuestions = questions.sort((a, b) => (a.priority || 99) - (b.priority || 99));
+    
+    // Build questions list HTML
+    let questionsHtml = `
+      <div class="p-4 bg-amber-50 border-l-4 border-amber-400 rounded">
+        <div class="flex items-start gap-3 mb-3">
+          <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+          <div>
+            <h4 class="font-semibold text-amber-900">Quality Score: ${scorePercent}%</h4>
+            <p class="text-sm text-amber-700 mt-1">Please answer these questions to improve requirements quality:</p>
+          </div>
+        </div>
+        <ol class="space-y-2 ml-8 mt-3">
+    `;
+    
+    sortedQuestions.forEach((q, idx) => {
+      const optionsHint = q.options ? ` <span class="text-xs text-slate-500">(${q.options.join(' / ')})</span>` : '';
+      const scoreGain = q.expected_score_gain ? ` <span class="ml-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">+${Math.round(q.expected_score_gain * 100)}%</span>` : '';
+      questionsHtml += `
+        <li class="text-sm text-slate-800">
+          <span class="font-medium">${q.text}</span>${optionsHint}${scoreGain}
+        </li>
+      `;
+    });
+    
+    questionsHtml += `
+        </ol>
+      </div>
+    `;
+    
+    this.chatUI.appendAssistantMessage(questionsHtml, 'Assistant');
+    
+    // Store questions for button click
+    this.state.currentQuestions = sortedQuestions;
+  }
+  
+  /**
+   * Shows the "Answer Questions" button above the input.
+   */
+  showAnswerButton() {
+    // Check if button already exists
+    let btn = document.getElementById('answerQuestionsBtn');
+    if (btn) {
+      btn.classList.remove('hidden');
+      return;
+    }
+    
+    // Create button above the input area
+    const inputArea = this.domElements.chatForm.parentElement;
+    btn = document.createElement('div');
+    btn.id = 'answerQuestionsBtn';
+    btn.className = 'px-4 py-2 mb-2';
+    btn.innerHTML = `
+      <button class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-lg font-medium shadow-md hover:shadow-lg transition-all transform hover:scale-105">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+        </svg>
+        <span>Answer Questions</span>
+      </button>
+    `;
+    
+    // Insert before the form
+    inputArea.insertBefore(btn, this.domElements.chatForm);
+    
+    // Add click handler
+    btn.querySelector('button').addEventListener('click', () => {
+      this.prepopulateAnswerTemplate();
+    });
+  }
+  
+  /**
+   * Hides the "Answer Questions" button.
+   */
+  hideAnswerButton() {
+    const btn = document.getElementById('answerQuestionsBtn');
+    if (btn) {
+      btn.classList.add('hidden');
+    }
+  }
+  
+  /**
+   * Prepopulates chat input with question answer template.
+   */
+  prepopulateAnswerTemplate() {
+    const questions = this.state.currentQuestions;
+    if (!questions || questions.length === 0) return;
+    
+    // Build template
+    let template = 'Here are my answers:\n\n';
+    questions.forEach((q, idx) => {
+      const optionsHint = q.options ? ` (${q.options.join(' / ')})` : '';
+      template += `${idx + 1}. ${q.text}${optionsHint}\n   [Your answer here]\n\n`;
+    });
+    
+    // Populate input
+    if (this.domElements.chatInput) {
+      this.domElements.chatInput.value = template;
+      this.domElements.chatInput.focus();
+      // Move cursor to first placeholder
+      const firstPlaceholder = template.indexOf('[Your answer here]');
+      if (firstPlaceholder !== -1) {
+        this.domElements.chatInput.setSelectionRange(firstPlaceholder, firstPlaceholder + 17);
+      }
+      // Auto-expand textarea if needed
+      this.domElements.chatInput.style.height = 'auto';
+      this.domElements.chatInput.style.height = Math.min(this.domElements.chatInput.scrollHeight, 300) + 'px';
+    }
   }
   
   /**

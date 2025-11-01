@@ -20,10 +20,6 @@ class RetrievalSettings(BaseConfig):
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     vector_index: VectorIndexEnv = Field(default_factory=VectorIndexEnv)
 
-    # Service-local controls
-    OAI_TIMEOUT_SEC: float = Field(default=10.0, description="HTTP/LLM client timeout in seconds")
-    LLM_TEMPERATURE: float = Field(default=0.0, ge=0.0, le=2.0)
-    
     # Prompt size management
     MAX_CHUNKS_FOR_PROMPT: int = Field(
         default=20,

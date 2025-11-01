@@ -94,14 +94,47 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
     messages = body.get("messages")
     response_format = body.get("response_format", {})
     
-    if not model or messages is None:
-        raise HTTPException(status_code=400, detail="Bad Request")
+    # Enhanced logging for debugging
+    logger.info(
+        "oai_chat_request_received",
+        model=model,
+        model_type=type(model).__name__ if model is not None else "None",
+        messages_present=messages is not None,
+        messages_type=type(messages).__name__ if messages is not None else "None",
+        messages_length=len(messages) if isinstance(messages, list) else 0,
+        response_format_present=bool(response_format),
+        body_keys=list(body.keys()),
+    )
+    
+    # Validation with detailed error messages
+    if model is None or (isinstance(model, str) and not model.strip()):
+        logger.error(
+            "validation_failed_model",
+            model=model,
+            model_type=type(model).__name__ if model is not None else "None",
+            body=body,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bad Request: 'model' field is required and must be non-empty (received: {model!r})"
+        )
+    
+    if messages is None:
+        logger.error(
+            "validation_failed_messages",
+            messages=messages,
+            body=body,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Bad Request: 'messages' field is required"
+        )
     
     # Log incoming messages for observability
     try:
-        logger.info("oai_chat_request", messages=messages, response_format=response_format)
-    except Exception:
-        logger.info("oai_chat_request_unloggable")
+        logger.info("oai_chat_request", model=model, messages=messages, response_format=response_format)
+    except Exception as e:
+        logger.info("oai_chat_request_unloggable", error=str(e))
     
     try:
         # Build combined text for handler matching
@@ -124,12 +157,14 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("chat_generation_failed", error=str(exc))
         generated = '{\n  "nodes": [],\n  "relationships": []\n}'
     
-    logger.info("completion_output", text=generated, response_format_requested=bool(response_format))
+    logger.info("completion_output", text=generated, response_format_requested=bool(response_format), model=model)
+    
+    # Return the same model that was requested (support both standard and fast models)
     return {
         "id": "cmpl-mock-000",
         "object": "chat.completion",
         "created": 1700000000,
-        "model": settings.llm.OAI_MODEL,
+        "model": model,  # Echo back the requested model
         "choices": [
             {
                 "index": 0,

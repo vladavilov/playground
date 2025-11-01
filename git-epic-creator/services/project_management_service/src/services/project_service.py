@@ -15,6 +15,7 @@ from models.project_db import Project, ProjectMember
 from utils.postgres_client import PostgresClient
 from models.project_rest import ProjectSet, ProjectMemberSet, ProjectStatus
 from services.gitlab_client_adapter import GitLabClientAdapter
+from services.gitlab_url_resolver import GitLabBacklogProjectResolver
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +30,7 @@ class ProjectService:
     ):
         self.postgres_client = postgres_client
         self.gitlab_client_adapter = gitlab_client_adapter
+        self.backlog_resolver = GitLabBacklogProjectResolver(gitlab_client_adapter)
 
     async def create_project(
         self,
@@ -38,30 +40,43 @@ class ProjectService:
     ) -> Project:
         logger.info("Creating new project", project_name=project_data.name, user_id=user_id)
 
-        # Resolve GitLab project ID if path is provided
-        gitlab_project_id = None
-        if project_data.gitlab_path and s2s_token:
+        # Handle GitLab Repository URL (no resolution needed)
+        gitlab_repository_url = str(project_data.gitlab_repository_url) if project_data.gitlab_repository_url else None
+        
+        # Resolve multiple GitLab backlog project URLs if provided
+        gitlab_backlog_project_ids = []
+        gitlab_backlog_project_urls = []
+        
+        if project_data.gitlab_backlog_project_urls and s2s_token:
             try:
-                gitlab_project_id = await self.gitlab_client_adapter.resolve_project_id(
-                    project_data.gitlab_path,
+                # Convert AnyUrl objects to strings
+                urls = [str(url) for url in project_data.gitlab_backlog_project_urls]
+                
+                # Resolve all URLs in parallel
+                resolved_projects = await self.backlog_resolver.resolve_multiple(
+                    urls,
                     s2s_token
                 )
-                if gitlab_project_id:
+                
+                if resolved_projects:
+                    gitlab_backlog_project_ids = self.backlog_resolver.extract_project_ids(resolved_projects)
+                    gitlab_backlog_project_urls = self.backlog_resolver.extract_project_urls(resolved_projects)
+                    
                     logger.info(
-                        "Resolved GitLab project ID",
-                        gitlab_path=project_data.gitlab_path,
-                        gitlab_project_id=gitlab_project_id
+                        "Resolved GitLab backlog projects",
+                        count=len(resolved_projects),
+                        project_ids=gitlab_backlog_project_ids
                     )
                 else:
                     logger.warning(
-                        "Failed to resolve GitLab project ID",
-                        gitlab_path=project_data.gitlab_path
+                        "Failed to resolve any GitLab backlog projects",
+                        provided_urls=urls
                     )
             except Exception as e:
                 logger.error(
-                    "Error resolving GitLab project ID",
-                    gitlab_path=project_data.gitlab_path,
-                    error=str(e)
+                    "Error resolving GitLab backlog project URLs",
+                    error=str(e),
+                    error_type=type(e).__name__
                 )
 
         with self.postgres_client.get_sync_session() as session:
@@ -69,9 +84,9 @@ class ProjectService:
                 project = Project(
                     name=project_data.name,
                     description=project_data.description,
-                    gitlab_path=project_data.gitlab_path,
-                    gitlab_project_id=gitlab_project_id,
-                    gitlab_repository_url=str(project_data.gitlab_repository_url) if project_data.gitlab_repository_url else None,
+                    gitlab_repository_url=gitlab_repository_url,
+                    gitlab_backlog_project_ids=gitlab_backlog_project_ids or [],
+                    gitlab_backlog_project_urls=gitlab_backlog_project_urls or [],
                     status=ProjectStatus.ACTIVE.value,
                     created_by=user_id,
                 )
@@ -84,7 +99,13 @@ class ProjectService:
             session.flush()  # Flush to get the generated ID before commit
             session.refresh(project)
 
-            logger.info("Project created", project_id=str(project.id), project_name=project.name)
+            logger.info(
+                "Project created", 
+                project_id=str(project.id), 
+                project_name=project.name,
+                gitlab_backlog_project_count=len(gitlab_backlog_project_ids),
+                has_repository_url=bool(gitlab_repository_url)
+            )
             return project
 
     def get_project_by_id(self, project_id: UUID) -> Optional[Project]:
@@ -129,49 +150,50 @@ class ProjectService:
     ) -> Optional[Project]:
         logger.info("Updating project", project_id=str(project_id))
 
-        # First, check if we need to resolve GitLab project ID (outside DB session)
         update_dict = update_data.model_dump(exclude_unset=True)
-        resolved_gitlab_project_id = None
-        needs_gitlab_resolution = False
+        gitlab_backlog_project_ids = None
+        gitlab_backlog_project_urls = None
         
-        if 'gitlab_path' in update_dict:
-            # Check current path to determine if resolution is needed
-            with self.postgres_client.get_sync_session() as session:
-                project = session.query(Project).filter(Project.id == project_id).first()
-                if not project:
-                    logger.warning("Project not found for update", project_id=str(project_id))
-                    return None
+        # Resolve new GitLab backlog project URLs if provided
+        if 'gitlab_backlog_project_urls' in update_dict and update_dict['gitlab_backlog_project_urls'] and s2s_token:
+            try:
+                # Convert AnyUrl objects to strings
+                urls = [str(url) for url in update_dict['gitlab_backlog_project_urls']]
                 
-                new_path = update_dict['gitlab_path']
-                if new_path != project.gitlab_path:
-                    needs_gitlab_resolution = True
-            
-            # Resolve GitLab project ID outside of DB session
-            if needs_gitlab_resolution and new_path and s2s_token:
-                try:
-                    resolved_gitlab_project_id = await self.gitlab_client_adapter.resolve_project_id(
-                        new_path,
-                        s2s_token
+                # Resolve all URLs in parallel
+                resolved_projects = await self.backlog_resolver.resolve_multiple(
+                    urls,
+                    s2s_token
+                )
+                
+                if resolved_projects:
+                    gitlab_backlog_project_ids = self.backlog_resolver.extract_project_ids(resolved_projects)
+                    gitlab_backlog_project_urls = self.backlog_resolver.extract_project_urls(resolved_projects)
+                    
+                    logger.info(
+                        "Resolved GitLab backlog projects for update",
+                        project_id=str(project_id),
+                        count=len(resolved_projects),
+                        project_ids=gitlab_backlog_project_ids
                     )
-                    if resolved_gitlab_project_id:
-                        logger.info(
-                            "Re-resolved GitLab project ID",
-                            gitlab_path=new_path,
-                            gitlab_project_id=resolved_gitlab_project_id
-                        )
-                    else:
-                        logger.warning(
-                            "Failed to resolve new GitLab project ID",
-                            gitlab_path=new_path
-                        )
-                except Exception as e:
-                    logger.error(
-                        "Error resolving GitLab project ID",
-                        gitlab_path=new_path,
-                        error=str(e)
+                else:
+                    logger.warning(
+                        "Failed to resolve any GitLab backlog projects for update",
+                        project_id=str(project_id),
+                        provided_urls=urls
                     )
+                    # Set empty lists if resolution failed
+                    gitlab_backlog_project_ids = []
+                    gitlab_backlog_project_urls = []
+            except Exception as e:
+                logger.error(
+                    "Error resolving GitLab backlog project URLs",
+                    project_id=str(project_id),
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
 
-        # Now perform the actual update within DB session
+        # Perform the actual update within DB session
         with self.postgres_client.get_sync_session() as session:
             project = session.query(Project).filter(Project.id == project_id).first()
 
@@ -180,22 +202,22 @@ class ProjectService:
                 return None
 
             try:
-                # Apply GitLab project ID if it was resolved
-                if needs_gitlab_resolution:
-                    if 'gitlab_path' in update_dict:
-                        new_path = update_dict['gitlab_path']
-                        if new_path and new_path != project.gitlab_path:
-                            project.gitlab_project_id = resolved_gitlab_project_id
-                        elif not new_path:
-                            # Clear project ID if path is being removed
-                            project.gitlab_project_id = None
+                # always update urls and id, event if those are not resolved, as user input should be updating record fully
+                project.gitlab_backlog_project_ids = gitlab_backlog_project_ids
+                project.gitlab_backlog_project_urls = gitlab_backlog_project_urls
                 
                 for field, value in update_dict.items():
-                    if field == 'gitlab_repository_url' and value is not None:
-                        setattr(project, field, str(value))
+                    if field == 'gitlab_backlog_project_urls':
+                        # Already handled above
+                        continue
+                    elif field == 'gitlab_repository_url':
+                        # Repository URL is stored as-is, no resolution
+                        project.gitlab_repository_url = str(value) if value else None
                     elif field == 'status':
                         setattr(project, field, value if isinstance(value, str) else value.value)
-                    else:
+                    elif field == 'description':
+                        setattr(project, field, value)
+                    elif field == 'name':
                         setattr(project, field, value)
             except Exception as e:
                 logger.error("Invalid update data", error=str(e), project_id=str(project_id))
@@ -204,7 +226,12 @@ class ProjectService:
             session.flush()  # Flush pending changes to database before refresh
             session.refresh(project)
 
-            logger.info("Project updated", project_id=str(project_id), project_name=project.name)
+            logger.info(
+                "Project updated", 
+                project_id=str(project_id), 
+                project_name=project.name,
+                gitlab_backlog_project_count=len(project.gitlab_backlog_project_ids) if project.gitlab_backlog_project_ids else 0
+            )
             return project
 
     def delete_project(self, project_id: UUID) -> bool:

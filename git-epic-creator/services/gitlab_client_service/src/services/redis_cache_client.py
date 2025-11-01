@@ -1,6 +1,6 @@
-"""Redis cache client for storing and retrieving embeddings."""
+"""Redis cache client for storing and retrieving embeddings with titles."""
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import json
 import structlog
 import redis.asyncio as redis
@@ -9,7 +9,7 @@ logger = structlog.get_logger(__name__)
 
 
 class RedisCacheClient:
-    """Client for caching embeddings in Redis."""
+    """Client for caching embeddings with titles in Redis."""
     
     def __init__(self, redis_client: redis.Redis):
         """
@@ -37,25 +37,28 @@ class RedisCacheClient:
         self,
         project_id: str,
         work_item_id: str,
-        embedding: List[float]
+        embedding: List[float],
+        title: str = ""
     ) -> None:
         """
-        Store an embedding vector in Redis.
+        Store an embedding vector with title in Redis.
         
         Args:
             project_id: Project ID
             work_item_id: Work item ID
             embedding: Embedding vector
+            title: Work item title
         """
         key = self._make_key(project_id, work_item_id)
-        value = json.dumps(embedding)
+        value = json.dumps({"title": title, "embedding": embedding})
         
         await self.redis.set(key, value)
         
         logger.debug(
-            "Embedding cached",
+            "Embedding with title cached",
             project_id=project_id,
             work_item_id=work_item_id,
+            title=title,
             embedding_dim=len(embedding)
         )
     
@@ -63,16 +66,16 @@ class RedisCacheClient:
         self,
         project_id: str,
         work_item_id: str
-    ) -> Optional[List[float]]:
+    ) -> Optional[Tuple[str, List[float]]]:
         """
-        Retrieve an embedding vector from Redis.
+        Retrieve embedding with title from Redis.
         
         Args:
             project_id: Project ID
             work_item_id: Work item ID
             
         Returns:
-            Embedding vector or None if not found
+            Tuple of (title, embedding) or None if not found
         """
         key = self._make_key(project_id, work_item_id)
         value = await self.redis.get(key)
@@ -80,43 +83,46 @@ class RedisCacheClient:
         if value is None:
             return None
         
-        embedding = json.loads(value)
+        data = json.loads(value)
+        title = data.get("title", "")
+        embedding = data.get("embedding", [])
         
         logger.debug(
-            "Embedding retrieved from cache",
+            "Embedding with title retrieved from cache",
             project_id=project_id,
             work_item_id=work_item_id,
+            title=title,
             embedding_dim=len(embedding)
         )
         
-        return embedding
+        return (title, embedding)
     
     async def set_embeddings_bulk(
         self,
         project_id: str,
-        embeddings: Dict[str, List[float]]
+        embeddings: Dict[str, Dict[str, any]]
     ) -> None:
         """
-        Store multiple embeddings in a single pipeline.
+        Store multiple embeddings with titles in a single pipeline.
         
         Args:
             project_id: Project ID
-            embeddings: Dict mapping work_item_id to embedding vector
+            embeddings: Dict mapping work_item_id to {"title": "...", "embedding": [...]}
         """
         if not embeddings:
             return
         
         pipe = self.redis.pipeline()
         
-        for work_item_id, embedding in embeddings.items():
+        for work_item_id, data in embeddings.items():
             key = self._make_key(project_id, work_item_id)
-            value = json.dumps(embedding)
+            value = json.dumps(data)
             pipe.set(key, value)
         
         await pipe.execute()
         
         logger.info(
-            "Bulk embeddings cached",
+            "Bulk embeddings with titles cached",
             project_id=project_id,
             count=len(embeddings)
         )
@@ -125,16 +131,16 @@ class RedisCacheClient:
         self,
         project_id: str,
         work_item_ids: List[str]
-    ) -> Dict[str, List[float]]:
+    ) -> Dict[str, Dict[str, any]]:
         """
-        Retrieve multiple embeddings in a single pipeline.
+        Retrieve multiple embeddings with titles in a single pipeline.
         
         Args:
             project_id: Project ID
             work_item_ids: List of work item IDs
             
         Returns:
-            Dict mapping work_item_id to embedding vector (only found items)
+            Dict mapping work_item_id to {"title": "...", "embedding": [...]} (only found items)
         """
         if not work_item_ids:
             return {}
@@ -153,7 +159,7 @@ class RedisCacheClient:
                 result[work_item_id] = json.loads(value)
         
         logger.debug(
-            "Bulk embeddings retrieved",
+            "Bulk embeddings with titles retrieved",
             project_id=project_id,
             requested=len(work_item_ids),
             found=len(result)

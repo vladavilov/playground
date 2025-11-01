@@ -208,8 +208,8 @@ export class BacklogRenderer extends BaseRenderer {
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-1">
               <span class="text-xs font-medium text-slate-600">${esc(sim.kind).toUpperCase()}</span>
-              <a href="${esc(simUrl)}" target="_blank" class="text-blue-600 hover:underline text-xs font-medium">
-                #${esc(sim.id)}
+              <a href="${esc(simUrl)}" target="_blank" class="text-blue-600 hover:underline text-xs font-medium truncate" title="${esc(sim.title || 'Untitled')}">
+                #${esc(sim.id)}: ${esc(sim.title || 'Untitled')}
               </a>
               <span class="text-xs text-slate-500">(${matchPercent}% match)</span>
             </div>

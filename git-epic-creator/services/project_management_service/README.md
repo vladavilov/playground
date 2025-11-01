@@ -28,11 +28,29 @@ All endpoints require Azure AD authentication. Role-based access control is enfo
 
 ## GitLab Integration
 
-Project management service integrates with GitLab for project path resolution. All GitLab interactions are delegated to gitlab-client-service via HTTP.
+Project management service integrates with GitLab for TWO distinct purposes:
+1. **Repository URL** - for source code access (git clone)
+2. **Backlog Projects** - for issues/epics management
 
-### Project Resolution Flow
+All GitLab interactions are delegated to gitlab-client-service via HTTP.
 
-When creating or updating a project with `gitlab_path`, the service resolves the path to a numeric GitLab project ID:
+### Architecture: Two Separate Concerns
+
+#### 1. GitLab Repository URL (Source Code)
+- **Purpose**: Git clone URL for source code operations
+- **Storage**: Single text field `gitlab_repository_url`
+- **Resolution**: NOT resolved - stored as-is (SSH or HTTPS URL)
+- **Example**: `https://gitlab.com/group/project.git` or `git@gitlab.com:group/project.git`
+
+#### 2. GitLab Backlog Projects (Issues/Epics)
+- **Purpose**: Fetch issues and epics from one or more GitLab projects
+- **Storage**: Arrays `gitlab_backlog_project_ids[]` and `gitlab_backlog_project_urls[]`
+- **Resolution**: URLs ARE resolved to project IDs via GitLab API
+- **Example**: Multiple project URLs resolved to `["123", "456"]`
+
+### Backlog Project Resolution Flow
+
+When creating or updating a project with `gitlab_backlog_project_urls`, the service resolves each URL to a numeric GitLab project ID:
 
 ```mermaid
 sequenceDiagram
@@ -42,14 +60,13 @@ sequenceDiagram
     participant GitLab
     participant DB as PostgreSQL
 
-    Client->>PMS: POST /projects<br/>Body: {gitlab_path: "group/project"}
-    PMS->>GCS: POST /gitlab/projects/resolve<br/>Authorization: Bearer <S2S JWT>
-    GCS->>GCS: Extract session_id from JWT
-    GCS->>GCS: Lookup GitLab token from Redis
-    GCS->>GitLab: GET /api/v4/projects/:path
+    Client->>PMS: POST /projects<br/>Body: {gitlab_backlog_project_urls: ["url1", "url2"]}
+    PMS->>PMS: Normalize URLs (extract paths)
+    PMS->>GCS: POST /gitlab/projects/resolve (parallel)<br/>Authorization: Bearer <S2S JWT>
+    GCS->>GitLab: GET /api/v4/projects/:path (per URL)
     GitLab->>GCS: Project details
     GCS->>PMS: {project_id: "123", ...}
-    PMS->>DB: INSERT project with gitlab_project_id=123
+    PMS->>DB: INSERT project with gitlab_backlog_project_ids=["123","456"]
     DB->>PMS: Success
     PMS->>Client: Project created
 ```
@@ -58,16 +75,27 @@ sequenceDiagram
 
 ```python
 class Project(Base):
-    gitlab_path: Optional[str]                 # User-provided path: "namespace/project"
-    gitlab_project_id: Optional[str]           # Resolved numeric ID: "123"
-    gitlab_repository_url: Optional[str]       # Full URL (optional)
+    # Repository (Source Code) - single URL, no resolution
+    gitlab_repository_url: Optional[str]  # Git clone URL (SSH/HTTPS)
+    
+    # Backlog Projects (Issues/Epics) - arrays, requires resolution
+    gitlab_backlog_project_ids: Optional[List[str]]   # Resolved project IDs: ["123", "456"]
+    gitlab_backlog_project_urls: Optional[List[str]]  # Original URLs (normalized)
 ```
 
-**Resolution Logic:**
-- If `gitlab_path` provided during create/update → resolve to `gitlab_project_id`
-- If path changes during update → re-resolve project ID
-- If resolution fails → log warning, continue without GitLab ID
+### Resolution Logic
+
+**Repository URL:**
+- Stored directly without validation or resolution
+- Used for git operations (not managed by this service)
+
+**Backlog Project URLs:**
+- If `gitlab_backlog_project_urls` provided during create/update → resolve to `gitlab_backlog_project_ids` in parallel
+- Each URL is normalized to extract `namespace/project` path
+- Supports various formats: HTTPS, SSH, path-only
+- If resolution fails for any URL → log warning, exclude from list
 - GitLab integration is optional and does not block project operations
+- Multiple backlog projects supported for aggregating issues/epics from multiple sources
 
 ### HTTP Resilience and Retry Policy
 

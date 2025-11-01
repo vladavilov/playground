@@ -9,6 +9,7 @@ class SimilarMatch(BaseModel):
 
     kind: str = Field(..., description="Type of work item: 'epic' or 'issue'")
     id: str = Field(..., description="GitLab work item ID")
+    title: str = Field(..., description="Work item title")
     status: Optional[str] = Field(None, description="Work item status (e.g., open, closed)")
     similarity: Optional[float] = Field(None, ge=0.0, le=1.0, description="Cosine similarity score")
     url: Optional[str] = Field(None, description="GitLab web URL for the work item")

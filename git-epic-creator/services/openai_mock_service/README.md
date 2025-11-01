@@ -17,6 +17,31 @@ Note: Embeddings are mocked deterministically; no model download is required.
 
 ## Architecture
 
+### Dual Model Support
+
+The mock service supports **two LLM models** configured via environment:
+- **Standard Model** (`OAI_MODEL`): `gpt-4.1` - Complex reasoning tasks
+- **Fast Model** (`OAI_MODEL_FAST`): `gpt-4o-mini` - Simple/review tasks
+
+**Model Usage by Service:**
+
+| Service | Expert/Node | Model | Reason |
+|---------|-------------|-------|--------|
+| **ai-requirements-service** | PromptAnalyst | gpt-4.1 | Complex intent extraction |
+| | RequirementsEngineer | gpt-4.1 | Detailed BR/FR synthesis |
+| | ConsistencyAuditor | gpt-4o-mini | Rule-based quality checks |
+| | QuestionStrategist | gpt-4o-mini | Clarification generation |
+| **neo4j-retrieval-service** | All DRIFT nodes | gpt-4o-mini | Fast retrieval tasks |
+| | HyDE, Primer, LocalExecutor, Aggregator | gpt-4o-mini | Optimized for speed |
+
+**Request Flow:**
+1. Client calls `AzureChatOpenAI(deployment_name="gpt-4.1")` or `"gpt-4o-mini"`
+2. Request hits `/openai/deployments/{deployment}/chat/completions`
+3. `azure.py` injects `model` field from `{deployment}` name
+4. `chat.py` validates `model` (non-empty string), logs request with model info
+5. Handler registry finds matching handler, generates response
+6. Response echoes back requested `model` for client validation
+
 ### Service Structure
 
 ```
@@ -25,10 +50,10 @@ src/
 ├── auth.py                 # Authentication logic
 ├── handlers/               # Prompt-specific response generators (23 handlers)
 │   ├── base.py            # BaseHandler + HandlerRegistry
-│   ├── drift_search.py    # 6 DRIFT-search handlers
+│   ├── drift_search.py    # 6 DRIFT-search handlers (gpt-4o-mini)
 │   ├── graphrag.py        # 3 GraphRAG handlers
 │   ├── deepeval.py        # 4 DeepEval metric handlers
-│   ├── workflow.py        # 4 AI workflow handlers
+│   ├── workflow.py        # 4 AI workflow handlers (mixed models)
 │   ├── search.py          # 5 search/summarization handlers
 │   └── fallback.py        # 1 default graph generator
 ├── embeddings/
@@ -36,9 +61,9 @@ src/
 └── routers/
     ├── health.py          # Health check
     ├── models.py          # Model listing
-    ├── chat.py            # Chat completions (handler orchestration)
+    ├── chat.py            # Chat completions (handler orchestration + validation)
     ├── embeddings.py      # Embeddings generation
-    └── azure.py           # Azure OpenAI wrappers
+    └── azure.py           # Azure OpenAI wrappers (model injection)
 ```
 
 ### Handler System
