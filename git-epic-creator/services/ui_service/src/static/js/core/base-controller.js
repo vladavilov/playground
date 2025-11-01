@@ -1,39 +1,38 @@
 /**
  * Base Controller for Chat-Based Screens
  * 
- * Provides common functionality for Requirements and Tasks screens following
- * SOLID principles and DRY practices. Screens extend this class and implement
- * abstract methods for screen-specific behavior.
+ * Extends BasePageController to provide chat-specific functionality.
+ * Used by Requirements and Tasks screens.
+ * 
+ * Responsibilities:
+ * - Chat UI management
+ * - Thinking box management  
+ * - Chat form handling
+ * - Abstract sendRequest() for subclasses
+ * 
+ * Subclasses must implement:
+ * - sendRequest(text) - Handle API requests
+ * - getSSEEventHandlers() - Provide SSE event handlers
  * 
  * @module core/base-controller
  */
 
 'use strict';
 
+import { BasePageController } from './base-page-controller.js';
 import { ThinkingBoxManager } from '../components/thinking-box-manager.js';
 import { ChatUI } from '../components/chat-ui.js';
-import {
-  fetchConfig,
-  checkAuthStatus,
-  fetchGitLabStatus,
-  startGitLabSSO,
-  startPeriodicGitLabStatusCheck,
-  connectSSE
-} from '../utils/connections.js';
 import { getStatusBadge } from '../utils/status-badges.js';
 
 /**
  * Abstract base class for chat-based screens.
- * Handles common initialization, event handling, SSE connection, and GitLab integration.
+ * Extends BasePageController and adds chat-specific functionality.
  * 
  * Subclasses must implement:
  * - sendRequest(text) - Handle API requests
  * - getSSEEventHandlers() - Provide SSE event handlers
- * - loadProject() - Load project data (optional override)
- * - setupScreenSpecificHandlers() - Setup screen-specific event handlers
- * - onInitialized() - Screen-specific initialization (optional)
  */
-export class ChatBaseController {
+export class ChatBaseController extends BasePageController {
   /**
    * Creates a new chat base controller.
    * @param {Object} containerConfig - Configuration for DOM element IDs
@@ -48,11 +47,10 @@ export class ChatBaseController {
       throw new Error('ChatBaseController requires containerConfig with chatOutputId');
     }
     
-    this.containerConfig = containerConfig;
-    this.state = this.createInitialState();
-    this.domElements = this.resolveDOMElements(containerConfig);
+    // Call parent constructor
+    super(containerConfig);
     
-    // Initialize utilities
+    // Initialize chat-specific utilities
     if (this.domElements.chatOutput) {
       this.boxManager = new ThinkingBoxManager(this.domElements.chatOutput);
       this.chatUI = new ChatUI(this.domElements.chatOutput);
@@ -60,155 +58,51 @@ export class ChatBaseController {
       console.warn('ChatBaseController: chatOutput element not found');
     }
     
-    // Bind methods to preserve 'this' context
+    // Bind chat-specific methods to preserve 'this' context
     this.handleChatSubmit = this.handleChatSubmit.bind(this);
     this.handleChatKeydown = this.handleChatKeydown.bind(this);
   }
   
   /**
    * Creates initial application state.
-   * Can be overridden by subclasses to add screen-specific state.
+   * Extends parent state with chat-specific properties.
+   * @override
    * @returns {Object} Initial state object
    */
   createInitialState() {
     return {
-      config: null,
-      projectId: null,
-      project: null,
-      authenticated: false,
-      gitlab: { status: 'connecting', configured: false },
-      rtEvents: { status: 'disconnected' },
-      evtSource: null
+      ...super.createInitialState(),
+      currentBundle: null  // Store current data bundle (requirements/tasks)
     };
   }
   
   /**
    * Resolves DOM elements based on container config.
-   * Can be extended by subclasses for additional elements.
+   * Extends parent implementation with chat-specific elements.
+   * @override
    * @param {Object} config - Container configuration
    * @returns {Object} DOM elements object
    */
   resolveDOMElements(config) {
-    const elements = {};
+    const elements = super.resolveDOMElements(config);
     
-    // Required elements
+    // Add chat-specific elements
     elements.chatOutput = document.getElementById(config.chatOutputId);
     elements.chatForm = document.getElementById(config.chatFormId || 'chatForm');
     elements.chatInput = document.getElementById(config.chatInputId || 'chatInput');
     
-    // Optional elements
-    if (config.projectTitleId) {
-      elements.projectTitle = document.getElementById(config.projectTitleId);
-    }
-    if (config.projectStatusId) {
-      elements.projectStatus = document.getElementById(config.projectStatusId);
-    }
-    
     return elements;
   }
   
-  /**
-   * Main initialization method.
-   * Sets up authentication, project loading, GitLab, event handlers, and SSE.
-   * @returns {Promise<void>}
-   */
-  async initialize() {
-    try {
-      // Load configuration
-      this.state.config = await fetchConfig();
-      if (!this.state.config) {
-        throw new Error('Failed to load configuration');
-      }
-      
-      // Check authentication
-      const authenticated = await checkAuthStatus(this.state);
-      if (!authenticated) {
-        return; // Will redirect to login
-      }
-      
-      // Load project
-      await this.loadProject();
-      
-      // Initialize GitLab connection
-      await this.initializeGitLab();
-      
-      // Setup event handlers
-      this.setupEventHandlers();
-      
-      // Connect to SSE
-      this.connectSSE();
-      
-      // Screen-specific initialization
-      await this.onInitialized();
-      
-      console.log('ChatBaseController initialized successfully');
-    } catch (error) {
-      console.error('ChatBaseController initialization failed:', error);
-      if (this.chatUI) {
-        this.chatUI.appendSystemMessage(`Initialization error: ${error.message}`);
-      }
-      throw error;
-    }
-  }
-  
-  /**
-   * Loads project from URL query parameters.
-   * Reads project_id from URLSearchParams and fetches project details.
-   * Can be overridden or extended in subclasses for additional functionality.
-   * @returns {Promise<void>}
-   */
-  async loadProject() {
-    // Parse project_id from URL query parameters
-    const params = new URLSearchParams(window.location.search);
-    this.state.projectId = params.get('project_id');
-    
-    if (!this.state.projectId) {
-      return; // No project ID provided
-    }
-    
-    // Subclasses must initialize apiClient before loadProject is called
-    // This is a no-op if apiClient is not available
-    if (!this.apiClient) {
-      return;
-    }
-    
-    try {
-      const base = this.state.config.projectManagementApiBase.replace(/\/$/, '');
-      this.state.project = await this.apiClient.get(`${base}/projects/${this.state.projectId}`);
-      
-      if (this.domElements.projectTitle) {
-        this.domElements.projectTitle.textContent = this.state.project.name || '(untitled)';
-      }
-      
-      this.updateProjectStatus(this.state.project.status);
-    } catch (error) {
-      console.error('Failed to load project:', error);
-      // Non-fatal, continue without project details
-    }
-  }
-  
-  /**
-   * Initializes GitLab connection and starts periodic status checks.
-   * @returns {Promise<void>}
-   */
-  async initializeGitLab() {
-    try {
-      await fetchGitLabStatus(this.state, this.state.config);
-      startPeriodicGitLabStatusCheck(this.state, this.state.config);
-    } catch (err) {
-      console.error('GitLab initialization failed:', err);
-      // Non-fatal, continue without GitLab
-    }
-  }
   
   /**
    * Sets up all event handlers.
-   * Combines common handlers with screen-specific handlers.
+   * Extends parent to add chat form handling.
+   * @override
    */
   setupEventHandlers() {
+    super.setupEventHandlers();
     this.setupChatForm();
-    this.setupGitLabConnection();
-    this.setupScreenSpecificHandlers();
   }
   
   /**
@@ -283,68 +177,11 @@ export class ChatBaseController {
     }
   }
   
-  /**
-   * Sets up GitLab connection button handler.
-   * @private
-   */
-  setupGitLabConnection() {
-    const gitlabConnectBtn = document.getElementById('gitlabConnectBtn');
-    if (gitlabConnectBtn) {
-      gitlabConnectBtn.addEventListener('click', () => {
-        if (this.state.gitlab?.configured) {
-          this.startGitLabSSO();
-        }
-      });
-    }
-  }
-  
-  /**
-   * Starts GitLab SSO flow.
-   * Can be overridden by subclasses if needed.
-   */
-  startGitLabSSO() {
-    startGitLabSSO(this.state.config);
-  }
-  
-  /**
-   * Sets up screen-specific event handlers.
-   * Must be implemented by subclasses.
-   */
-  setupScreenSpecificHandlers() {
-    // Override in subclasses
-  }
-  
-  /**
-   * Connects to SSE and registers event handlers.
-   */
-  connectSSE() {
-    const eventHandlers = this.getSSEEventHandlers();
-    connectSSE(this.state, eventHandlers);
-  }
-  
-  /**
-   * Gets SSE event handlers for this screen.
-   * Must be implemented by subclasses.
-   * @returns {Object} Map of event name to handler function
-   */
-  getSSEEventHandlers() {
-    // Override in subclasses
-    return {};
-  }
-  
-  /**
-   * Handles 401 Unauthorized errors by refreshing GitLab status.
-   * Called automatically when API requests return 401.
-   */
-  handle401Error() {
-    console.warn('Received 401 Unauthorized, refreshing GitLab status');
-    fetchGitLabStatus(this.state, this.state.config).catch(err => {
-      console.error('Failed to refresh GitLab status after 401:', err);
-    });
-  }
   
   /**
    * Updates project status badge in the header.
+   * Overrides parent to use imported badge utility.
+   * @override
    * @param {string} status - Status string
    */
   updateProjectStatus(status) {
@@ -366,12 +203,40 @@ export class ChatBaseController {
   }
   
   /**
-   * Called after initialization is complete.
-   * Override in subclasses for screen-specific initialization logic.
-   * @returns {Promise<void>}
+   * Finishes all active thinking boxes with error state.
+   * Convenience method for error handling in sendRequest.
+   * @protected
    */
-  async onInitialized() {
-    // Override in subclasses
+  finishThinkingBoxesWithError() {
+    if (!this.boxManager) return;
+    
+    // Close pending box if exists
+    if (this.boxManager.pendingBox) {
+      this.boxManager.pendingBox.finish('error');
+      this.boxManager.clearPending();
+    }
+    
+    // Close active box or box linked to current prompt ID
+    const box = this.state.promptId 
+      ? this.getOrCreateBoxForPromptId(this.state.promptId) 
+      : this.boxManager.activeBox;
+    if (box && box !== this.boxManager.pendingBox) {
+      box.finish('error');
+    }
+  }
+  
+  /**
+   * Checks if an SSE event belongs to the current project.
+   * Helper method for filtering SSE events by project ID.
+   * @param {Object} eventData - Parsed SSE event data
+   * @returns {boolean} True if event belongs to current project
+   * @protected
+   */
+  isCurrentProjectEvent(eventData) {
+    if (!this.state.projectId || !eventData.project_id) {
+      return false;
+    }
+    return String(this.state.projectId) === String(eventData.project_id);
   }
   
   /**

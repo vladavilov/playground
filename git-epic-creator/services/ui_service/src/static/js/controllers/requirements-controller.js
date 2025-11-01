@@ -13,7 +13,6 @@ import { ChatBaseController } from '../core/base-controller.js';
 import { RequirementsRenderer } from '../renderers/requirements-renderer.js';
 import { RequirementsEditor } from '../editors/requirements-editor.js';
 import { ApiClient } from '../services/api-client.js';
-import { fetchConfig } from '../utils/connections.js';
 
 /**
  * Requirements screen controller.
@@ -60,23 +59,6 @@ class RequirementsController extends ChatBaseController {
       promptId: null,  // Track conversation thread ID
       currentQuestions: null  // Store current clarification questions
     };
-  }
-  
-  /**
-   * Initializes API client after configuration is loaded.
-   * @override
-   */
-  async initialize() {
-    // Load config first
-    this.state.config = await fetchConfig();
-    
-    // Create API client before super.initialize() so it's available in loadProject()
-    if (this.state.config) {
-      this.apiClient = new ApiClient(this.state.config, () => this.handle401Error());
-    }
-    
-    // Now call super.initialize() which will call loadProject()
-    await super.initialize();
   }
   
   
@@ -139,10 +121,8 @@ class RequirementsController extends ChatBaseController {
       const errorMsg = ApiClient.formatError(error);
       this.chatUI.appendSystemMessage(`Error: ${errorMsg}`);
       
-      if (this.boxManager.pendingBox) {
-        this.boxManager.pendingBox.finish('error');
-        this.boxManager.clearPending();
-      }
+      // Close all thinking boxes with error state
+      this.finishThinkingBoxesWithError();
     }
   }
   
@@ -155,7 +135,7 @@ class RequirementsController extends ChatBaseController {
       'ai_requirements_progress': (evt) => {
         try {
           const msg = JSON.parse(evt.data);
-          if (!this.state.projectId || String(this.state.projectId) !== String(msg.project_id)) {
+          if (!this.isCurrentProjectEvent(msg)) {
             return;
           }
           
@@ -182,7 +162,7 @@ class RequirementsController extends ChatBaseController {
       'retrieval_progress': (evt) => {
         try {
           const msg = JSON.parse(evt.data);
-          if (!this.state.projectId || String(this.state.projectId) !== String(msg.project_id)) {
+          if (!this.isCurrentProjectEvent(msg)) {
             return;
           }
           
@@ -207,10 +187,10 @@ class RequirementsController extends ChatBaseController {
   }
   
   /**
-   * Sets up screen-specific event handlers.
+   * Sets up page-specific event handlers.
    * @override
    */
-  setupScreenSpecificHandlers() {
+  setupPageSpecificHandlers() {
     // Edit requirements button - scrolls to requirements and shows hint
     if (this.editRequirementsBtn) {
       this.editRequirementsBtn.addEventListener('click', () => {

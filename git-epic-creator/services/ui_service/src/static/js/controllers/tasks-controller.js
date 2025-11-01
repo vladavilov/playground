@@ -14,7 +14,6 @@ import { BacklogRenderer } from '../renderers/backlog-renderer.js';
 import { TasksEditor } from '../editors/tasks-editor.js';
 import { ApiClient } from '../services/api-client.js';
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
-import { fetchConfig } from '../utils/connections.js';
 
 /**
  * Tasks screen controller.
@@ -65,23 +64,6 @@ class TasksController extends ChatBaseController {
       promptId: null,
       backlogBundle: null
     };
-  }
-  
-  /**
-   * Initializes API client after configuration is loaded.
-   * @override
-   */
-  async initialize() {
-    // Load config first
-    this.state.config = await fetchConfig();
-    
-    // Create API client before super.initialize() so it's available in loadProject()
-    if (this.state.config) {
-      this.apiClient = new ApiClient(this.state.config, () => this.handle401Error());
-    }
-    
-    // Now call super.initialize() which will call loadProject()
-    await super.initialize();
   }
   
   /**
@@ -159,10 +141,8 @@ class TasksController extends ChatBaseController {
         'System Error'
       );
       
-      if (this.boxManager.pendingBox) {
-        this.boxManager.pendingBox.finish('error');
-        this.boxManager.clearPending();
-      }
+      // Close all thinking boxes with error state
+      this.finishThinkingBoxesWithError();
     }
   }
   
@@ -177,8 +157,7 @@ class TasksController extends ChatBaseController {
           const msg = JSON.parse(evt.data);
           
           // Filter by project
-          if (msg.project_id && this.state.projectId && 
-              String(msg.project_id) !== String(this.state.projectId)) {
+          if (!this.isCurrentProjectEvent(msg)) {
             return;
           }
           
@@ -211,10 +190,10 @@ class TasksController extends ChatBaseController {
   }
   
   /**
-   * Sets up screen-specific event handlers.
+   * Sets up page-specific event handlers.
    * @override
    */
-  setupScreenSpecificHandlers() {
+  setupPageSpecificHandlers() {
     // Edit backlog button - scrolls to backlog and shows hint
     if (this.editBacklogBtn) {
       this.editBacklogBtn.addEventListener('click', () => {

@@ -38,25 +38,27 @@
           </button>
           <h1 class="text-xl font-semibold">Project Details</h1>
         </div>
-        <div class="flex items-center gap-3">
-          <div class="flex items-center gap-2">
-            <span class="text-sm text-slate-600" id="userProfile">Loading...</span>
+        <div class="flex items-center gap-4">
+          <!-- User Profile -->
+          <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-lg">
+            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold" id="userAvatar">U</div>
+            <span class="text-sm font-medium text-slate-700" id="userProfile">Loading...</span>
           </div>
           <button id="logoutBtn" class="px-3 py-1 rounded border text-sm text-slate-700 hover:bg-slate-50 hidden">Logout</button>
           
           <!-- Connections Panel -->
           <div class="flex items-center gap-3 pl-3 border-l border-slate-200">
             <!-- Authentication Connection -->
-            <div class="flex items-center gap-1.5 group" title="Authentication status">
-              <div class="w-2.5 h-2.5 rounded-full bg-slate-400 ring-2 ring-white shadow-sm" id="authIndicator"></div>
-              <span class="text-xs text-slate-600 group-hover:text-slate-900 transition-colors">Auth</span>
+            <div class="flex items-center gap-1.5" title="Authentication status">
+              <div class="w-2 h-2 rounded-full bg-slate-400" id="authIndicator"></div>
+              <span class="text-xs text-slate-600">Authentication</span>
             </div>
             
             <!-- GitLab Connection -->
-            <div class="flex items-center gap-1.5 group">
-              <div class="w-2.5 h-2.5 rounded-full bg-slate-400 ring-2 ring-white shadow-sm" id="gitlabIndicator" title="GitLab connection status"></div>
-              <span class="text-xs text-slate-600 group-hover:text-slate-900 transition-colors">GitLab</span>
-              <button id="gitlabConnectBtn" class="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="Connect to GitLab" aria-label="Connect to GitLab">
+            <div class="flex items-center gap-1.5">
+              <div class="w-2 h-2 rounded-full bg-slate-400" id="gitlabIndicator" title="GitLab connection status"></div>
+              <span class="text-xs text-slate-600">GitLab</span>
+              <button id="gitlabConnectBtn" class="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed" title="Connect to GitLab" aria-label="Connect to GitLab">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
                 </svg>
@@ -64,9 +66,9 @@
             </div>
             
             <!-- RT Events Connection -->
-            <div class="flex items-center gap-1.5 group" title="Real-time events connection">
-              <div class="w-2.5 h-2.5 rounded-full bg-slate-400 ring-2 ring-white shadow-sm" id="rtEventsIndicator"></div>
-              <span class="text-xs text-slate-600 group-hover:text-slate-900 transition-colors">Events</span>
+            <div class="flex items-center gap-1.5" title="Real-time events connection">
+              <div class="w-2 h-2 rounded-full bg-slate-400" id="rtEventsIndicator"></div>
+              <span class="text-xs text-slate-600">RT Events</span>
             </div>
           </div>
         </div>
@@ -130,7 +132,7 @@
   </div>
 
   <!-- Loading overlay -->
-  <div id="loadingOverlay" class="fixed inset-0 bg-white/60 backdrop-blur-sm hidden items-center justify-center z-50 flex">
+  <div id="loadingOverlay" class="fixed inset-0 bg-white/60 backdrop-blur-sm hidden items-center justify-center z-50">
     <div class="animate-spin h-10 w-10 border-4 border-slate-300 border-t-indigo-600 rounded-full"></div>
   </div>
 
@@ -230,9 +232,8 @@
     </div>
   </div>
 
-  <script type="module" src="/js/controllers/projects-controller.js"></script>
+  <script type="module" src="/js/controllers/projects-page-controller.js"></script>
 </body>
-  
 </html>
 
 
