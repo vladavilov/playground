@@ -221,7 +221,6 @@ if ($buildDocumentProcessing) {
         Write-Host "To download models, run:" -ForegroundColor Yellow
         Write-Host "  cd services/document_processing_service" -ForegroundColor Yellow
         Write-Host "  pip install huggingface_hub" -ForegroundColor Yellow
-        Write-Host "  python src/scripts/download_docling_models.py" -ForegroundColor Yellow
         Write-Host ""
         exit 1
     }

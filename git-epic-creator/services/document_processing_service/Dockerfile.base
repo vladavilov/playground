@@ -155,7 +155,6 @@ ENV DOCLING_ARTIFACTS_PATH=/opt/docling-models
 # Copy Docling layout models from plugins/ directory
 # REQUIRED: Docling layout models (docling-layout-heron, etc.) MUST be pre-downloaded
 # Files should be directly in plugins/docling-models/docling-layout-heron/
-# Run: python src/scripts/download_docling_models.py before building
 RUN mkdir -p "$DOCLING_ARTIFACTS_PATH"
 COPY ./document_processing_service/plugins/docling-models/ ${DOCLING_ARTIFACTS_PATH}/
 
@@ -176,11 +175,6 @@ RUN set -e; \
         echo ""; \
         echo "NOTE: Folder MUST be named 'ds4sd--docling-layout-heron' (double hyphen)"; \
         echo "      This matches HuggingFace repo pattern 'ds4sd/docling-layout-heron'"; \
-        echo ""; \
-        echo "To download models, run:"; \
-        echo "  cd services/document_processing_service"; \
-        echo "  pip install huggingface_hub"; \
-        echo "  python src/scripts/download_docling_models.py"; \
         echo ""; \
         exit 1; \
     fi; \
@@ -205,11 +199,6 @@ RUN set -e; \
         echo "  - config.json"; \
         echo "  - model.safetensors"; \
         echo "  - preprocessor_config.json"; \
-        echo ""; \
-        echo "To download models, run:"; \
-        echo "  cd services/document_processing_service"; \
-        echo "  pip install huggingface_hub"; \
-        echo "  python src/scripts/download_docling_models.py"; \
         echo ""; \
         exit 1; \
     fi; \
