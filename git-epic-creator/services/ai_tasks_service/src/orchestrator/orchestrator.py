@@ -41,24 +41,25 @@ async def run_backlog_workflow(
     # Create/resolve prompt_id
     prompt_id_local = prompt_id_opt or uuid4()
     
-    # Fetch gitlab_project_id from project_management_service
+    # Fetch gitlab_project_ids from project_management_service
     project_client = ProjectClient(
         base_url=settings.http.PROJECT_MANAGEMENT_SERVICE_URL,
         timeout_sec=settings.http.CONNECTION_TIMEOUT,
     )
     
-    gitlab_project_id = None
+    gitlab_project_ids = []
     try:
-        gitlab_project_id = await project_client.get_gitlab_project_id(
+        gitlab_project_ids = await project_client.get_gitlab_project_ids(
             project_id=project_id,
             auth_header=auth_header,
         )
         
-        if gitlab_project_id:
+        if gitlab_project_ids:
             logger.info(
-                "Retrieved GitLab project ID for workflow",
+                "Retrieved GitLab project IDs for workflow",
                 project_id=str(project_id),
-                gitlab_project_id=gitlab_project_id,
+                gitlab_project_count=len(gitlab_project_ids),
+                gitlab_project_ids=gitlab_project_ids,
             )
         else:
             logger.warning(
@@ -67,7 +68,7 @@ async def run_backlog_workflow(
             )
     except Exception as e:
         logger.error(
-            "Failed to fetch GitLab project ID; continuing with empty backlog",
+            "Failed to fetch GitLab project IDs; continuing with empty backlog",
             project_id=str(project_id),
             error=str(e),
             error_type=type(e).__name__,
@@ -87,7 +88,7 @@ async def run_backlog_workflow(
             "messages": msgs,
             "auth_header": auth_header,
             "gitlab_token": gitlab_token,
-            "gitlab_project_id": gitlab_project_id,
+            "gitlab_project_ids": gitlab_project_ids,
         },
         {"configurable": {"thread_id": f"{project_id}:{prompt_id_local}"}},
     )

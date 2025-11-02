@@ -33,7 +33,7 @@ class ProjectClient:
         project_id: UUID,
         auth_header: str | None = None,
     ) -> Dict[str, Any]:
-        """Fetch project details including gitlab_project_id.
+        """Fetch project details including gitlab_backlog_project_ids.
         
         Args:
             project_id: Internal project UUID from PostgreSQL
@@ -43,8 +43,9 @@ class ProjectClient:
             Dict with project fields including:
             - id (UUID)
             - name (str)
-            - gitlab_project_id (Optional[str]) - numeric GitLab project ID
-            - gitlab_path (Optional[str])
+            - gitlab_backlog_project_ids (Optional[List[str]]) - array of numeric GitLab project IDs
+            - gitlab_backlog_project_urls (Optional[List[str]])
+            - gitlab_repository_url (Optional[str])
             - status (str)
             
         Raises:
@@ -84,41 +85,53 @@ class ProjectClient:
                     
                     data = resp.json()
                     
+                    # Extract first GitLab project ID for logging (if array exists)
+                    backlog_ids = data.get("gitlab_backlog_project_ids", [])
+                    
                     logger.info(
                         "Retrieved project details",
                         project_id=str(project_id),
-                        gitlab_project_id=data.get("gitlab_project_id"),
-                        gitlab_path=data.get("gitlab_path"),
+                        gitlab_backlog_project_count=len(backlog_ids),
                     )
                     
                     return data
 
-    async def get_gitlab_project_id(
+    async def get_gitlab_project_ids(
         self,
         project_id: UUID,
         auth_header: str | None = None,
-    ) -> Optional[str]:
-        """Fetch only the gitlab_project_id for a project.
+    ) -> List[str]:
+        """Fetch all gitlab_backlog_project_ids for a project.
+        
+        Projects support multiple GitLab backlog projects for comprehensive
+        backlog analysis across multiple repositories/projects.
         
         Args:
             project_id: Internal project UUID from PostgreSQL
             auth_header: Authorization header value (JWT)
             
         Returns:
-            GitLab numeric project ID (e.g., "123") or None if not linked to GitLab
+            List of GitLab numeric project IDs (e.g., ["123", "456"]) or empty list if not linked
         """
         try:
             project_data = await self.get_project(project_id, auth_header)
-            gitlab_project_id = project_data.get("gitlab_project_id")
+            backlog_project_ids = project_data.get("gitlab_backlog_project_ids", [])
             
-            if not gitlab_project_id:
+            if not backlog_project_ids or not isinstance(backlog_project_ids, list) or len(backlog_project_ids) == 0:
                 logger.warning(
-                    "Project has no GitLab integration",
+                    "Project has no GitLab backlog projects configured",
                     project_id=str(project_id),
                 )
-                return None
+                return []
             
-            return gitlab_project_id
+            logger.info(
+                "Retrieved GitLab backlog project IDs",
+                project_id=str(project_id),
+                project_count=len(backlog_project_ids),
+                gitlab_project_ids=backlog_project_ids,
+            )
+            
+            return backlog_project_ids
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -129,10 +142,11 @@ class ProjectClient:
             raise
         except Exception as e:
             logger.error(
-                "Failed to fetch gitlab_project_id",
+                "Failed to fetch gitlab_backlog_project_ids",
                 project_id=str(project_id),
                 error=str(e),
                 error_type=type(e).__name__,
             )
             raise
+
 

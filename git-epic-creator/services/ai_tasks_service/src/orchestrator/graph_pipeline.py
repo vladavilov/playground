@@ -259,12 +259,12 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         logger = structlog.get_logger(__name__)
         settings = get_ai_tasks_settings()
         
-        gitlab_project_id = state.get("gitlab_project_id")
+        gitlab_project_ids = state.get("gitlab_project_ids", [])
         
         # Handle projects without GitLab integration
-        if not gitlab_project_id:
+        if not gitlab_project_ids or len(gitlab_project_ids) == 0:
             logger.warning(
-                "No GitLab project ID available; skipping backlog fetch for duplicate detection",
+                "No GitLab project IDs available; skipping backlog fetch for duplicate detection",
                 project_id=str(state.get("project_id")),
             )
             await publisher.publish_backlog_update(
@@ -274,9 +274,9 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
                 thought_summary="Skipping GitLab backlog fetch (project not linked to GitLab).",
                 details_md=(
                     "### GitLab Integration Not Configured\n\n"
-                    "This project is not linked to a GitLab project. Duplicate detection will be skipped.\n\n"
+                    "This project is not linked to any GitLab projects. Duplicate detection will be skipped.\n\n"
                     "To enable duplicate detection:\n"
-                    "1. Update project settings with a valid `gitlab_path` (e.g., 'namespace/project')\n"
+                    "1. Update project settings with valid `gitlab_backlog_project_urls`\n"
                     "2. Ensure GitLab authentication is configured"
                 ),
             )
@@ -290,8 +290,9 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         auth_header = state.get("auth_header")
         gitlab_token = state.get("gitlab_token")
         
-        gitlab_backlog = await gitlab_client.fetch_backlog(
-            gitlab_project_id=gitlab_project_id,
+        # Fetch backlog from all configured GitLab projects
+        gitlab_backlog = await gitlab_client.fetch_backlog_from_multiple_projects(
+            gitlab_project_ids=gitlab_project_ids,
             auth_header=auth_header,
             gitlab_token=gitlab_token,
         )
@@ -299,12 +300,29 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         epic_count = len(gitlab_backlog.get("epics", []))
         issue_count = len(gitlab_backlog.get("issues", []))
         
+        # Count projects for logging
+        project_counts = {}
+        for epic in gitlab_backlog.get("epics", []):
+            proj_id = epic.get("project_id", "unknown")
+            project_counts[proj_id] = project_counts.get(proj_id, {"epics": 0, "issues": 0})
+            project_counts[proj_id]["epics"] += 1
+        for issue in gitlab_backlog.get("issues", []):
+            proj_id = issue.get("project_id", "unknown")
+            if proj_id not in project_counts:
+                project_counts[proj_id] = {"epics": 0, "issues": 0}
+            project_counts[proj_id]["issues"] += 1
+        
         try:
             md_lines: list[str] = [
                 "### GitLab Backlog Retrieved",
-                "Fetched existing epics and issues for duplicate detection:",
+                f"Fetched existing epics and issues from **{len(gitlab_project_ids)} project(s)** for duplicate detection:",
                 "",
             ]
+            
+            # Project breakdown
+            for proj_id, counts in project_counts.items():
+                md_lines.append(f"**Project {proj_id}:** {counts['epics']} epics, {counts['issues']} issues")
+            md_lines.append("")
             
             # Epics
             epics = gitlab_backlog.get("epics", [])

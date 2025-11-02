@@ -60,7 +60,7 @@ class TasksController extends ChatBaseController {
   createInitialState() {
     return {
       ...super.createInitialState(),
-      gitlabProjectId: null,
+      gitlabProjectIds: [],  // Array of all GitLab project IDs
       promptId: null,
       backlogBundle: null
     };
@@ -68,19 +68,28 @@ class TasksController extends ChatBaseController {
   
   /**
    * Loads project from URL parameters.
-   * Extends base implementation to also extract GitLab project ID.
+   * Extends base implementation to also extract GitLab project IDs.
    * @override
    */
   async loadProject() {
     // Call base implementation to load project
     await super.loadProject();
     
-    // Tasks-specific: Extract GitLab project ID
+    // Tasks-specific: Extract all GitLab project IDs from backlog projects array
     if (this.state.project) {
-      this.state.gitlabProjectId = this.state.project.gitlab_project_id;
+      // Project model supports multiple GitLab backlog projects (array)
+      // All projects will be used for comprehensive backlog analysis
+      const backlogProjectIds = this.state.project.gitlab_backlog_project_ids;
       
-      if (!this.state.gitlabProjectId) {
-        this.chatUI.appendSystemMessage('Warning: Project does not have a GitLab project ID configured. GitLab features will be unavailable.');
+      if (backlogProjectIds && Array.isArray(backlogProjectIds) && backlogProjectIds.length > 0) {
+        this.state.gitlabProjectIds = backlogProjectIds;
+        
+        this.chatUI.appendSystemMessage(
+          `Project linked to ${backlogProjectIds.length} GitLab project(s) for comprehensive backlog analysis and duplicate detection.`
+        );
+      } else {
+        this.state.gitlabProjectIds = [];
+        this.chatUI.appendSystemMessage('Warning: Project does not have GitLab backlog projects configured. Duplicate detection will be unavailable.');
       }
     } else if (this.state.projectId) {
       // Project ID was provided but loading failed
@@ -120,11 +129,17 @@ class TasksController extends ChatBaseController {
         this.boxManager.clearPending();
       }
       
-      // Render backlog
-      await this.renderer.render(bundle);
+      // Initialize target_project_id for all items (default to first project)
+      this.initializeTargetProjects(bundle);
+      
+      // Render backlog with gitlab project IDs
+      await this.renderer.render(bundle, this.state.gitlabProjectIds);
       
       // Enable enhanced inline editing
       this.enableEnhancedEditing();
+      
+      // Set up project selection handlers
+      this.setupProjectSelectionHandlers();
       
       // Show success message
       const epicCount = bundle.epics?.length || 0;
@@ -330,8 +345,9 @@ class TasksController extends ChatBaseController {
     }
     
     // Re-render and re-enable editing
-    this.renderer.render(this.state.backlogBundle);
+    this.renderer.render(this.state.backlogBundle, this.state.gitlabProjectIds);
     this.enableEnhancedEditing();
+    this.setupProjectSelectionHandlers();
     
     // Show feedback
     const itemType = taskIdx !== null ? 'task' : 'epic';
@@ -350,18 +366,86 @@ class TasksController extends ChatBaseController {
   }
   
   /**
+   * Initializes target_project_id for all backlog items.
+   * @param {Object} bundle - Backlog bundle
+   * @private
+   */
+  initializeTargetProjects(bundle) {
+    const defaultProject = this.state.gitlabProjectIds[0] || null;
+    
+    if (bundle && bundle.epics) {
+      bundle.epics.forEach(epic => {
+        if (!epic.target_project_id) {
+          epic.target_project_id = defaultProject;
+        }
+        if (epic.tasks) {
+          epic.tasks.forEach(task => {
+            if (!task.target_project_id) {
+              task.target_project_id = defaultProject;
+            }
+          });
+        }
+      });
+    }
+  }
+  
+  /**
+   * Sets up event handlers for project selection dropdowns.
+   * @private
+   */
+  setupProjectSelectionHandlers() {
+    // Use event delegation for dynamically added dropdowns
+    this.backlogContent.addEventListener('change', (e) => {
+      const select = e.target.closest('.project-select');
+      if (!select) return;
+      
+      const epicIdx = parseInt(select.dataset.epicIdx);
+      const taskIdxStr = select.dataset.taskIdx;
+      const taskIdx = taskIdxStr ? parseInt(taskIdxStr) : null;
+      const selectedProject = select.value;
+      
+      this.handleProjectSelection(epicIdx, taskIdx, selectedProject);
+    });
+  }
+  
+  /**
+   * Handles project selection change for an item.
+   * @param {number} epicIdx - Epic index
+   * @param {number|null} taskIdx - Task index (null for epics)
+   * @param {string} projectId - Selected project ID
+   * @private
+   */
+  handleProjectSelection(epicIdx, taskIdx, projectId) {
+    if (!this.state.backlogBundle || !this.state.backlogBundle.epics[epicIdx]) return;
+    
+    const epic = this.state.backlogBundle.epics[epicIdx];
+    
+    if (taskIdx !== null && epic.tasks && epic.tasks[taskIdx]) {
+      // Update task
+      epic.tasks[taskIdx].target_project_id = projectId;
+    } else {
+      // Update epic
+      epic.target_project_id = projectId;
+    }
+  }
+  
+  /**
    * Handles save from enhanced editor.
    */
   async handleEnhancedEditorSave() {
     // Re-render backlog with updated data
-    await this.renderer.render(this.state.backlogBundle);
+    await this.renderer.render(this.state.backlogBundle, this.state.gitlabProjectIds);
     
     // Re-enable inline editing
     this.enableEnhancedEditing();
+    
+    // Re-setup project selection handlers
+    this.setupProjectSelectionHandlers();
   }
   
   /**
    * Submits backlog to GitLab with proper link handling.
+   * Uses the correct project_id from each accepted match.
    * @private
    */
   async submitToGitLab() {
@@ -373,74 +457,90 @@ class TasksController extends ChatBaseController {
       return;
     }
     
-    if (!this.state.gitlabProjectId) {
+    if (!this.state.gitlabProjectIds || this.state.gitlabProjectIds.length === 0) {
       this.chatUI.appendAssistantMessage(
-        '<div class="text-sm text-rose-700">Error: Project does not have a GitLab project ID. Please set the GitLab project path first.</div>',
+        '<div class="text-sm text-rose-700">Error: Project does not have GitLab projects configured. Please set the GitLab project paths first.</div>',
         'System Error'
       );
       return;
     }
     
     try {
-      // Transform backlog bundle to GitLab API format
-      const payload = {
-        project_id: this.state.gitlabProjectId,
-        internal_project_id: this.state.projectId,
-        prompt_id: this.state.promptId || this.state.backlogBundle.prompt_id || '',
-        epics: [],
-        issues: []
+      // Use first project as default fallback
+      const defaultProjectId = this.state.gitlabProjectIds[0];
+      
+      // Group items by user-selected target project
+      const projectPayloads = new Map();
+      
+      const getProjectPayload = (projectId) => {
+        if (!projectPayloads.has(projectId)) {
+          projectPayloads.set(projectId, {
+            project_id: projectId,
+            epics: [],
+            issues: []
+          });
+        }
+        return projectPayloads.get(projectId);
       };
       
-      // Process epics - always create new, optionally link to accepted similar
+      // Process epics with user-selected target projects
       this.state.backlogBundle.epics.forEach((epic, epicIdx) => {
+        const targetProjectId = epic.target_project_id || defaultProjectId;
         const acceptedMatch = this.getAcceptedMatch(epic.similar);
         
         let epicPayload = {
           title: epic.title,
           description: epic.description || '',
           labels: [],
-          related_to_iid: null  // IID of similar epic to create related link
+          target_project_id: targetProjectId,
+          related_to_iid: acceptedMatch ? acceptedMatch.id : null
         };
         
-        if (acceptedMatch) {
-          // User accepted a similar match - create related link to it
-          epicPayload.related_to_iid = acceptedMatch.id;
-        }
-        
-        payload.epics.push(epicPayload);
+        getProjectPayload(targetProjectId).epics.push(epicPayload);
         
         // Process tasks for this epic
         if (epic.tasks && epic.tasks.length > 0) {
           epic.tasks.forEach((task) => {
+            const taskProjectId = task.target_project_id || targetProjectId;
             const acceptedTaskMatch = this.getAcceptedMatch(task.similar);
             
             let issuePayload = {
               title: task.title,
               description: task.description || '',
               labels: [],
-              related_to_iid: null,  // IID of similar issue to create related link
-              parent_epic_index: epicIdx  // Index of parent epic in epics array
+              target_project_id: taskProjectId,
+              related_to_iid: acceptedTaskMatch ? acceptedTaskMatch.id : null,
+              parent_epic_index: epicIdx
             };
             
-            if (acceptedTaskMatch) {
-              // User accepted a similar match for this task - create related link to it
-              issuePayload.related_to_iid = acceptedTaskMatch.id;
-            }
-            
-            payload.issues.push(issuePayload);
+            getProjectPayload(taskProjectId).issues.push(issuePayload);
           });
         }
       });
       
-      const base = this.state.config.gitlabApiBase.replace(/\/$/, '');
-      const url = `${base}/projects/${this.state.gitlabProjectId}/apply-backlog`;
-      
-      const response = await this.apiClient.post(url, payload);
+      // Submit using batch endpoint (supports 1+ projects)
+      const url = `${this.state.config.gitlabApiBase.replace(/\/$/, '')}/projects/apply-backlog`;
+      const response = await this.apiClient.post(url, {
+        prompt_id: this.state.promptId || this.state.backlogBundle.prompt_id || '',
+        internal_project_id: this.state.projectId,
+        projects: Array.from(projectPayloads.values())
+      });
       
       // Display results
-      const epicsCreated = response.results.epics.filter(e => e.action === 'created').length;
-      const issuesCreated = response.results.issues.filter(i => i.action === 'created').length;
-      const errorCount = response.errors.length;
+      const epicsCreated = response.total_epics_created || 0;
+      const issuesCreated = response.total_issues_created || 0;
+      const errorCount = response.total_errors || 0;
+      
+      // Collect all created items for display
+      const allEpics = [];
+      const allIssues = [];
+      
+      for (const projectResult of response.project_results || []) {
+        if (projectResult.results) {
+          allEpics.push(...projectResult.results.epics);
+          allIssues.push(...projectResult.results.issues);
+        }
+      }
       
       // Count how many items were linked to similar matches
       const epicsLinked = this.state.backlogBundle.epics.filter(e => this.getAcceptedMatch(e.similar)).length;
@@ -451,32 +551,45 @@ class TasksController extends ChatBaseController {
       let html = '<div class="text-sm">';
       html += '<div class="font-semibold text-emerald-700 mb-2">✓ Backlog submitted to GitLab successfully!</div>';
       html += '<div class="space-y-1 text-slate-700">';
+      
+      // Show project breakdown if multiple projects
+      if (response.project_results && response.project_results.length > 1) {
+        html += `<div class="font-medium mb-1">Submitted to ${response.projects_succeeded} project(s):</div>`;
+      }
+      
       html += `<div>• Epics: ${epicsCreated} created`;
       if (epicsLinked > 0) html += `, ${epicsLinked} linked to similar items`;
       html += '</div>';
       html += `<div>• Issues: ${issuesCreated} created`;
       if (issuesLinked > 0) html += `, ${issuesLinked} linked to similar items`;
       html += '</div>';
+      
       if (errorCount > 0) {
         html += `<div class="text-rose-600 mt-2">⚠ ${errorCount} error(s) occurred</div>`;
-        response.errors.forEach(err => {
-          html += `<div class="text-rose-600 text-xs">  - ${esc(err.scope)} ${err.input_index}: ${esc(err.message)}</div>`;
-        });
+        // Show errors from all projects
+        for (const projectResult of response.project_results || []) {
+          if (projectResult.error_message) {
+            html += `<div class="text-rose-600 text-xs">  - Project ${esc(projectResult.project_id)}: ${esc(projectResult.error_message)}</div>`;
+          }
+          for (const err of projectResult.errors || []) {
+            html += `<div class="text-rose-600 text-xs">  - ${esc(err.scope)} ${err.input_index}: ${esc(err.message)}</div>`;
+          }
+        }
       }
       html += '</div>';
       
       // Add links to created items
-      if (response.results.epics.length > 0 || response.results.issues.length > 0) {
+      if (allEpics.length > 0 || allIssues.length > 0) {
         html += '<div class="mt-3 text-xs">';
-        if (response.results.epics.slice(0, 3).length > 0) {
+        if (allEpics.slice(0, 3).length > 0) {
           html += '<div class="font-semibold mb-1">Sample Epics:</div>';
-          response.results.epics.slice(0, 3).forEach(epic => {
+          allEpics.slice(0, 3).forEach(epic => {
             html += `<div>• <a href="${esc(epic.web_url)}" target="_blank" class="text-indigo-600 hover:underline">Epic #${esc(epic.id)}</a></div>`;
           });
         }
-        if (response.results.issues.slice(0, 3).length > 0) {
+        if (allIssues.slice(0, 3).length > 0) {
           html += '<div class="font-semibold mb-1 mt-2">Sample Issues:</div>';
-          response.results.issues.slice(0, 3).forEach(issue => {
+          allIssues.slice(0, 3).forEach(issue => {
             html += `<div>• <a href="${esc(issue.web_url)}" target="_blank" class="text-indigo-600 hover:underline">Issue #${esc(issue.id)}</a></div>`;
           });
         }
@@ -499,7 +612,7 @@ class TasksController extends ChatBaseController {
   /**
    * Gets the accepted similar match from an array of similar items.
    * @param {Array} similar - Array of similar match objects
-   * @returns {Object|null} Accepted match or null
+   * @returns {Object|null} Accepted match or null (includes project_id)
    * @private
    */
   getAcceptedMatch(similar) {

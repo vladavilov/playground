@@ -7,13 +7,14 @@ import gitlab
 
 from models import (
     ListResponse, 
-    ApplyBacklogRequest, 
-    ApplyBacklogResponse, 
+    ResolveProjectRequest,
+    ResolveProjectResponse,
+    BatchApplyBacklogRequest,
+    BatchApplyBacklogResponse,
+    BatchApplyBacklogProjectResult,
     ApplyBacklogResults,
     ApplyBacklogItemResult,
-    ApplyBacklogError,
-    ResolveProjectRequest,
-    ResolveProjectResponse
+    ApplyBacklogError
 )
 from config import GitLabClientSettings, get_gitlab_client_settings
 from dependencies import get_gitlab_client_dep, get_redis_client_dep
@@ -116,253 +117,6 @@ async def get_project_backlog(
         )
 
 
-@router.post("/projects/{project_id}/apply-backlog", response_model=ApplyBacklogResponse)
-async def apply_backlog(
-    project_id: str,
-    request: ApplyBacklogRequest,
-    gitlab_client: gitlab.Gitlab = Depends(get_gitlab_client_dep),
-    settings: GitLabClientSettings = Depends(get_gitlab_client_settings),
-    idempotency_store: IdempotencyStore = Depends(get_idempotency_store)
-):
-    """
-    Apply a generated backlog to GitLab with idempotent create/update.
-    
-    Creates or updates epics and issues based on provided data.
-    Returns results indicating which items were created, updated, or unchanged.
-    
-    Args:
-        project_id: GitLab project ID (numeric or namespace/project path) - used in URL
-        request: Backlog application request with epics, issues, and tracking IDs
-    
-    Note: request.internal_project_id can be used for tracking and logging operations
-    back to the internal project management system.
-    """
-    logger.info(
-        "Applying backlog to GitLab",
-        gitlab_project_id=project_id,
-        internal_project_id=request.internal_project_id,
-        prompt_id=request.prompt_id,
-        epics_count=len(request.epics),
-        issues_count=len(request.issues)
-    )
-    
-    try:
-        # Check idempotency
-        if request.prompt_id:
-            cached_result = idempotency_store.get(project_id, request.prompt_id)
-            if cached_result is not None:
-                logger.info(
-                    "Returning cached apply-backlog result",
-                    project_id=project_id,
-                    prompt_id=request.prompt_id
-                )
-                return cached_result
-        
-        gitlab_service = GitLabClientService(gitlab_client, settings)
-        
-        results = ApplyBacklogResults()
-        errors = []
-        
-        # Resolve group for epics
-        group = gitlab_service._get_group_for_project(project_id)
-        
-        # Track created epic IIDs for linking issues to parent epics
-        epic_iid_map = {}  # input_index -> created_epic_iid
-        
-        # Process epics - always create new ones
-        for idx, epic_data in enumerate(request.epics):
-            try:
-                if not group:
-                    errors.append(ApplyBacklogError(
-                        scope="epic",
-                        input_index=idx,
-                        message="Project has no group for epics"
-                    ))
-                    continue
-                
-                # Create new epic
-                work_item = gitlab_service.create_epic(
-                    group_id=str(group.id),
-                    title=epic_data.title,
-                    description=epic_data.description,
-                    labels=epic_data.labels
-                )
-                
-                # Store IID for linking issues to this epic
-                epic_iid_map[idx] = work_item.id
-                
-                results.epics.append(ApplyBacklogItemResult(
-                    input_index=idx,
-                    action="created",
-                    id=work_item.id,
-                    web_url=work_item.web_url
-                ))
-                
-                # If user accepted a similar epic, create link to it
-                if epic_data.related_to_iid:
-                    try:
-                        gitlab_service.create_epic_link(
-                            group_id=str(group.id),
-                            source_epic_iid=work_item.id,
-                            target_epic_iid=epic_data.related_to_iid,
-                            link_type="relates_to"
-                        )
-                        logger.info(
-                            "Epic linked to similar item",
-                            source_epic_iid=work_item.id,
-                            target_epic_iid=epic_data.related_to_iid
-                        )
-                    except Exception as link_error:
-                        logger.warning(
-                            "Failed to link epic to similar item",
-                            source_epic_iid=work_item.id,
-                            target_epic_iid=epic_data.related_to_iid,
-                            error=str(link_error)
-                        )
-                        # Don't fail the whole operation, just log warning
-            
-            except Exception as e:
-                logger.error(
-                    "Failed to process epic",
-                    project_id=project_id,
-                    epic_index=idx,
-                    error=str(e)
-                )
-                errors.append(ApplyBacklogError(
-                    scope="epic",
-                    input_index=idx,
-                    message=str(e)
-                ))
-        
-        # Process issues - always create new ones
-        for idx, issue_data in enumerate(request.issues):
-            try:
-                # Create new issue
-                work_item = gitlab_service.create_issue(
-                    project_id=project_id,
-                    title=issue_data.title,
-                    description=issue_data.description,
-                    labels=issue_data.labels
-                )
-                
-                results.issues.append(ApplyBacklogItemResult(
-                    input_index=idx,
-                    action="created",
-                    id=work_item.id,
-                    web_url=work_item.web_url
-                ))
-                
-                # Link to parent epic if specified
-                if issue_data.parent_epic_index is not None and group:
-                    parent_epic_iid = epic_iid_map.get(issue_data.parent_epic_index)
-                    if parent_epic_iid:
-                        try:
-                            gitlab_service.link_issue_to_epic(
-                                group_id=str(group.id),
-                                epic_iid=parent_epic_iid,
-                                issue_id=work_item.id  # Use issue.id (not iid)
-                            )
-                            logger.info(
-                                "Issue linked to parent epic",
-                                issue_id=work_item.id,
-                                epic_iid=parent_epic_iid
-                            )
-                        except Exception as link_error:
-                            logger.warning(
-                                "Failed to link issue to parent epic",
-                                issue_id=work_item.id,
-                                epic_iid=parent_epic_iid,
-                                error=str(link_error)
-                            )
-                
-                # If user accepted a similar issue, create related link to it
-                if issue_data.related_to_iid:
-                    try:
-                        gitlab_service.create_issue_link(
-                            project_id=project_id,
-                            source_issue_iid=work_item.id,
-                            target_issue_iid=issue_data.related_to_iid,
-                            link_type="relates_to"
-                        )
-                        logger.info(
-                            "Issue linked to similar item",
-                            source_issue_iid=work_item.id,
-                            target_issue_iid=issue_data.related_to_iid
-                        )
-                    except Exception as link_error:
-                        logger.warning(
-                            "Failed to link issue to similar item",
-                            source_issue_iid=work_item.id,
-                            target_issue_iid=issue_data.related_to_iid,
-                            error=str(link_error)
-                        )
-                        # Don't fail the whole operation, just log warning
-            
-            except Exception as e:
-                logger.error(
-                    "Failed to process issue",
-                    project_id=project_id,
-                    issue_index=idx,
-                    error=str(e)
-                )
-                errors.append(ApplyBacklogError(
-                    scope="issue",
-                    input_index=idx,
-                    message=str(e)
-                ))
-        
-        # Check if any errors indicate authentication failure (401)
-        has_auth_error = any(
-            "401" in str(error.message) or 
-            "Unauthorized" in str(error.message)
-            for error in errors
-        )
-        
-        if has_auth_error:
-            logger.warning(
-                "Authentication error detected in backlog application",
-                project_id=project_id,
-                error_count=len(errors)
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="GitLab authentication failed. Please reconnect your GitLab account."
-            )
-        
-        response = ApplyBacklogResponse(results=results, errors=errors)
-        
-        # Cache result for idempotency
-        if request.prompt_id:
-            idempotency_store.set(project_id, request.prompt_id, response)
-        
-        logger.info(
-            "Backlog applied successfully",
-            gitlab_project_id=project_id,
-            internal_project_id=request.internal_project_id,
-            prompt_id=request.prompt_id,
-            epics_created=sum(1 for e in results.epics if e.action == "created"),
-            epics_updated=sum(1 for e in results.epics if e.action == "updated"),
-            issues_created=sum(1 for i in results.issues if i.action == "created"),
-            issues_updated=sum(1 for i in results.issues if i.action == "updated"),
-            errors=len(errors)
-        )
-        
-        return response
-        
-    except Exception as e:
-        logger.error(
-            "Failed to apply backlog",
-            project_id=project_id,
-            error=str(e),
-            error_type=type(e).__name__
-        )
-        error_response = map_gitlab_error(e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_response["error"]
-        )
-
-
 @router.post("/projects/resolve", response_model=ResolveProjectResponse)
 async def resolve_project(
     request: ResolveProjectRequest,
@@ -426,6 +180,290 @@ async def resolve_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_response["error"]
         )
+
+
+@router.post("/projects/apply-backlog", response_model=BatchApplyBacklogResponse)
+async def apply_backlog(
+    request: BatchApplyBacklogRequest,
+    gitlab_client: gitlab.Gitlab = Depends(get_gitlab_client_dep),
+    settings: GitLabClientSettings = Depends(get_gitlab_client_settings),
+    idempotency_store: IdempotencyStore = Depends(get_idempotency_store)
+):
+    """
+    Apply generated backlog to one or more GitLab projects.
+    
+    Supports both single and multi-project deployments. Each project payload is
+    processed independently with aggregated results.
+    
+    Args:
+        request: Request containing one or more project payloads
+    
+    Returns:
+        Aggregated results with per-project success/failure and overall statistics
+    """
+    logger.info(
+        "Applying backlog to GitLab",
+        internal_project_id=request.internal_project_id,
+        prompt_id=request.prompt_id,
+        project_count=len(request.projects),
+        total_epics=sum(len(p.epics) for p in request.projects),
+        total_issues=sum(len(p.issues) for p in request.projects)
+    )
+    
+    if not request.projects:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one project payload required"
+        )
+    
+    gitlab_service = GitLabClientService(gitlab_client, settings)
+    project_results = []
+    
+    # Process each project independently
+    for project_payload in request.projects:
+        project_id = project_payload.project_id
+        
+        try:
+            logger.info(
+                "Processing project in batch",
+                project_id=project_id,
+                epics_count=len(project_payload.epics),
+                issues_count=len(project_payload.issues)
+            )
+            
+            results = ApplyBacklogResults()
+            errors = []
+            
+            # Resolve group for epics
+            group = gitlab_service._get_group_for_project(project_id)
+            
+            # Track created epic IIDs for linking issues to parent epics
+            epic_iid_map = {}
+            
+            # Process epics
+            for idx, epic_data in enumerate(project_payload.epics):
+                try:
+                    # Use item-level target_project_id if specified, otherwise payload-level
+                    target_project = epic_data.target_project_id or project_id
+                    target_group = gitlab_service._get_group_for_project(target_project)
+                    
+                    if not target_group:
+                        errors.append(ApplyBacklogError(
+                            scope="epic",
+                            input_index=idx,
+                            message=f"Project {target_project} has no group for epics"
+                        ))
+                        continue
+                    
+                    # Create new epic in target project
+                    work_item = gitlab_service.create_epic(
+                        group_id=str(target_group.id),
+                        title=epic_data.title,
+                        description=epic_data.description,
+                        labels=epic_data.labels
+                    )
+                    
+                    epic_iid_map[idx] = work_item.id
+                    
+                    results.epics.append(ApplyBacklogItemResult(
+                        input_index=idx,
+                        action="created",
+                        id=work_item.id,
+                        web_url=work_item.web_url
+                    ))
+                    
+                    # Link to similar epic if specified
+                    if epic_data.related_to_iid:
+                        try:
+                            gitlab_service.create_epic_link(
+                                group_id=str(target_group.id),
+                                source_epic_iid=work_item.id,
+                                target_epic_iid=epic_data.related_to_iid,
+                                link_type="relates_to"
+                            )
+                            logger.info(
+                                "Epic linked to similar item",
+                                project_id=target_project,
+                                source_epic_iid=work_item.id,
+                                target_epic_iid=epic_data.related_to_iid
+                            )
+                        except Exception as link_error:
+                            logger.warning(
+                                "Failed to link epic to similar item",
+                                project_id=target_project,
+                                source_epic_iid=work_item.id,
+                                target_epic_iid=epic_data.related_to_iid,
+                                error=str(link_error)
+                            )
+                
+                except Exception as e:
+                    logger.error(
+                        "Failed to process epic",
+                        project_id=project_id,
+                        epic_index=idx,
+                        error=str(e)
+                    )
+                    errors.append(ApplyBacklogError(
+                        scope="epic",
+                        input_index=idx,
+                        message=str(e)
+                    ))
+            
+            # Process issues
+            for idx, issue_data in enumerate(project_payload.issues):
+                try:
+                    # Use item-level target_project_id if specified, otherwise payload-level
+                    target_project = issue_data.target_project_id or project_id
+                    
+                    # Create new issue in target project
+                    work_item = gitlab_service.create_issue(
+                        project_id=target_project,
+                        title=issue_data.title,
+                        description=issue_data.description,
+                        labels=issue_data.labels
+                    )
+                    
+                    results.issues.append(ApplyBacklogItemResult(
+                        input_index=idx,
+                        action="created",
+                        id=work_item.id,
+                        web_url=work_item.web_url
+                    ))
+                    
+                    # Link to parent epic if specified
+                    if issue_data.parent_epic_index is not None:
+                        parent_epic_iid = epic_iid_map.get(issue_data.parent_epic_index)
+                        if parent_epic_iid:
+                            # Get group for linking (must match epic's project)
+                            issue_group = gitlab_service._get_group_for_project(target_project)
+                            if issue_group:
+                                try:
+                                    gitlab_service.link_issue_to_epic(
+                                        group_id=str(issue_group.id),
+                                        epic_iid=parent_epic_iid,
+                                        issue_id=work_item.id
+                                    )
+                                    logger.info(
+                                        "Issue linked to parent epic",
+                                        project_id=target_project,
+                                        issue_id=work_item.id,
+                                        epic_iid=parent_epic_iid
+                                    )
+                                except Exception as link_error:
+                                    logger.warning(
+                                        "Failed to link issue to parent epic",
+                                        project_id=target_project,
+                                        issue_id=work_item.id,
+                                        epic_iid=parent_epic_iid,
+                                        error=str(link_error)
+                                    )
+                    
+                    # Link to similar issue if specified
+                    if issue_data.related_to_iid:
+                        try:
+                            gitlab_service.create_issue_link(
+                                project_id=target_project,
+                                source_issue_iid=work_item.id,
+                                target_issue_iid=issue_data.related_to_iid,
+                                link_type="relates_to"
+                            )
+                            logger.info(
+                                "Issue linked to similar item",
+                                project_id=target_project,
+                                source_issue_iid=work_item.id,
+                                target_issue_iid=issue_data.related_to_iid
+                            )
+                        except Exception as link_error:
+                            logger.warning(
+                                "Failed to link issue to similar item",
+                                project_id=target_project,
+                                source_issue_iid=work_item.id,
+                                target_issue_iid=issue_data.related_to_iid,
+                                error=str(link_error)
+                            )
+                
+                except Exception as e:
+                    logger.error(
+                        "Failed to process issue",
+                        project_id=project_id,
+                        issue_index=idx,
+                        error=str(e)
+                    )
+                    errors.append(ApplyBacklogError(
+                        scope="issue",
+                        input_index=idx,
+                        message=str(e)
+                    ))
+            
+            # Add successful project result
+            project_results.append(BatchApplyBacklogProjectResult(
+                project_id=project_id,
+                success=True,
+                results=results,
+                errors=errors
+            ))
+            
+            logger.info(
+                "Project processed successfully",
+                project_id=project_id,
+                epics_created=len(results.epics),
+                issues_created=len(results.issues),
+                errors=len(errors)
+            )
+        
+        except Exception as e:
+            logger.error(
+                "Failed to process project",
+                project_id=project_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            
+            # Add failed project result
+            project_results.append(BatchApplyBacklogProjectResult(
+                project_id=project_id,
+                success=False,
+                error_message=str(e),
+                errors=[]
+            ))
+    
+    # Aggregate statistics
+    total_epics_created = sum(
+        len(pr.results.epics) if pr.results else 0
+        for pr in project_results
+    )
+    total_issues_created = sum(
+        len(pr.results.issues) if pr.results else 0
+        for pr in project_results
+    )
+    total_errors = sum(
+        len(pr.errors) for pr in project_results
+    )
+    projects_succeeded = sum(1 for pr in project_results if pr.success)
+    projects_failed = sum(1 for pr in project_results if not pr.success)
+    
+    response = BatchApplyBacklogResponse(
+        project_results=project_results,
+        total_epics_created=total_epics_created,
+        total_issues_created=total_issues_created,
+        total_errors=total_errors,
+        projects_succeeded=projects_succeeded,
+        projects_failed=projects_failed
+    )
+    
+    logger.info(
+        "Backlog application completed",
+        internal_project_id=request.internal_project_id,
+        prompt_id=request.prompt_id,
+        total_projects=len(request.projects),
+        projects_succeeded=projects_succeeded,
+        projects_failed=projects_failed,
+        total_epics_created=total_epics_created,
+        total_issues_created=total_issues_created,
+        total_errors=total_errors
+    )
+    
+    return response
 
 
 @router.post("/projects/multi/cache-embeddings", status_code=status.HTTP_202_ACCEPTED)

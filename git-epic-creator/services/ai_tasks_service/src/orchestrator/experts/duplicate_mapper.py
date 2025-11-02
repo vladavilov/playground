@@ -66,6 +66,7 @@ class DuplicateMapper:
                 generated_refs.append((epic_idx, task_idx))
         
         # Extract embeddings from GitLab items (already computed by gitlab_client_service)
+        # Each item should have 'project_id' field indicating source GitLab project
         gitlab_embeddings = []
         gitlab_refs = []  # (kind, item_dict)
         
@@ -191,18 +192,22 @@ class DuplicateMapper:
         gitlab_refs: List[tuple],
         threshold: float,
     ) -> List[SimilarMatch]:
-        """Find similar items above threshold from precomputed similarity matrix."""
+        """Find similar items above threshold from precomputed similarity matrix.
+        
+        Each match includes project_id to indicate which GitLab project it came from.
+        """
         similarities = similarity_matrix[query_idx]
         
         # Get indices above threshold
         above_threshold = np.where(similarities >= threshold)[0]
         
-        # Create matches
+        # Create matches with project_id
         matches = [
             SimilarMatch(
                 kind=gitlab_refs[idx][0],
                 id=str(gitlab_refs[idx][1].get("id", "")),
                 title=gitlab_refs[idx][1].get("title", ""),
+                project_id=str(gitlab_refs[idx][1].get("project_id", "")),
                 status=gitlab_refs[idx][1].get("state") or gitlab_refs[idx][1].get("status"),
                 similarity=float(similarities[idx]),
                 url=gitlab_refs[idx][1].get("web_url"),

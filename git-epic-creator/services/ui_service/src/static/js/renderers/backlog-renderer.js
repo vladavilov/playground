@@ -28,13 +28,16 @@ export class BacklogRenderer extends BaseRenderer {
     super(contentElement, summaryElement, [editButton, submitButton]);
     this.editButton = editButton;
     this.submitButton = submitButton;
+    this.gitlabProjectIds = [];  // Will be set by controller
   }
   
   /**
    * Renders a backlog bundle.
    * @param {Object} bundle - Backlog bundle object
+   * @param {Array<string>} gitlabProjectIds - Available GitLab project IDs
    */
-  render(bundle) {
+  render(bundle, gitlabProjectIds = []) {
+    this.gitlabProjectIds = gitlabProjectIds;
     if (!bundle || !bundle.epics || bundle.epics.length === 0) {
       super.renderEmptyState({
         iconPath: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
@@ -82,6 +85,7 @@ export class BacklogRenderer extends BaseRenderer {
    */
   renderEpic(epic, epicIdx) {
     const descriptionHtml = renderMarkdown(epic.description || '');
+    const projectDropdown = this.renderProjectDropdown(epic.target_project_id, epicIdx, null);
     
     let html = `
       <div class="epic-card bg-white border border-slate-200 rounded-lg p-4 mb-4 shadow-sm">
@@ -90,8 +94,11 @@ export class BacklogRenderer extends BaseRenderer {
             <h3 class="epic-title font-semibold text-slate-800">${esc(epic.title)}</h3>
             <div class="epic-description text-sm text-slate-600 mt-1 prose prose-sm max-w-none">${descriptionHtml}</div>
           </div>
-          <div class="flex items-center gap-1 card-actions-container">
-            <span class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium whitespace-nowrap">Epic ${epicIdx + 1}</span>
+          <div class="flex flex-col items-end gap-2">
+            <div class="flex items-center gap-1 card-actions-container">
+              <span class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium whitespace-nowrap">Epic ${epicIdx + 1}</span>
+            </div>
+            ${projectDropdown}
           </div>
         </div>
     `;
@@ -124,6 +131,7 @@ export class BacklogRenderer extends BaseRenderer {
    */
   renderTask(task, taskIdx, epicIdx) {
     const descriptionHtml = renderMarkdown(task.description || '');
+    const projectDropdown = this.renderProjectDropdown(task.target_project_id, epicIdx, taskIdx);
     
     let html = `
       <div class="task-item border border-slate-200 rounded-lg p-3 bg-slate-50" data-epic-idx="${epicIdx}" data-task-idx="${taskIdx}">
@@ -132,8 +140,11 @@ export class BacklogRenderer extends BaseRenderer {
             <div class="task-title font-medium text-sm text-slate-800">${esc(task.title)}</div>
             <div class="task-description text-xs text-slate-600 mt-1 prose prose-xs max-w-none">${descriptionHtml}</div>
           </div>
-          <div class="flex items-center gap-1 card-actions-container">
-            <span class="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded text-xs whitespace-nowrap">T${taskIdx + 1}</span>
+          <div class="flex flex-col items-end gap-1.5">
+            <div class="flex items-center gap-1 card-actions-container">
+              <span class="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded text-xs whitespace-nowrap">T${taskIdx + 1}</span>
+            </div>
+            ${projectDropdown}
           </div>
         </div>
     `;
@@ -204,7 +215,8 @@ export class BacklogRenderer extends BaseRenderer {
              data-task-idx="${taskIdx !== null ? taskIdx : ''}" 
              data-sim-idx="${simIdx}"
              data-sim-id="${esc(sim.id)}"
-             data-sim-kind="${esc(sim.kind)}">
+             data-sim-kind="${esc(sim.kind)}"
+             data-sim-project-id="${esc(sim.project_id || '')}">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-1">
               <span class="text-xs font-medium text-slate-600">${esc(sim.kind).toUpperCase()}</span>
@@ -212,6 +224,7 @@ export class BacklogRenderer extends BaseRenderer {
                 #${esc(sim.id)}: ${esc(sim.title || 'Untitled')}
               </a>
               <span class="text-xs text-slate-500">(${matchPercent}% match)</span>
+              ${sim.project_id ? `<span class="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded font-mono" title="GitLab Project ID">proj:${esc(sim.project_id)}</span>` : ''}
             </div>
             <div class="flex items-center gap-2">
               ${statusBadge}
@@ -237,6 +250,45 @@ export class BacklogRenderer extends BaseRenderer {
     });
     
     html += '</div>';
+    return html;
+  }
+  
+  /**
+   * Renders a project selection dropdown.
+   * @param {string} currentProjectId - Currently selected project ID
+   * @param {number} epicIdx - Epic index
+   * @param {number|null} taskIdx - Task index (null for epics)
+   * @returns {string} HTML string
+   * @private
+   */
+  renderProjectDropdown(currentProjectId, epicIdx, taskIdx) {
+    if (!this.gitlabProjectIds || this.gitlabProjectIds.length === 0) {
+      return '';
+    }
+    
+    // Use first project as default if not set
+    const selectedProject = currentProjectId || this.gitlabProjectIds[0];
+    
+    const taskAttr = taskIdx !== null ? ` data-task-idx="${taskIdx}"` : '';
+    const label = taskIdx !== null ? 'Task →' : 'Epic →';
+    
+    let html = `
+      <div class="project-selector flex items-center gap-1.5">
+        <label class="text-xs text-slate-600 font-medium whitespace-nowrap">${label}</label>
+        <select class="project-select text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none font-mono"
+                data-epic-idx="${epicIdx}"${taskAttr}>
+    `;
+    
+    this.gitlabProjectIds.forEach(projectId => {
+      const selected = projectId === selectedProject ? ' selected' : '';
+      html += `<option value="${esc(projectId)}"${selected}>Project ${esc(projectId)}</option>`;
+    });
+    
+    html += `
+        </select>
+      </div>
+    `;
+    
     return html;
   }
   

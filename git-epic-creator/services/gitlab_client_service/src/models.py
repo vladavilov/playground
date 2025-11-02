@@ -36,6 +36,10 @@ class ApplyBacklogWorkItem(BaseModel):
     title: str
     description: str = ""
     labels: List[str] = Field(default_factory=list)
+    target_project_id: Optional[str] = Field(
+        None,
+        description="User-selected target GitLab project ID (overrides payload-level project_id)"
+    )
     related_to_iid: Optional[str] = Field(
         None,
         description="IID of similar/related item to link to (creates related link)"
@@ -46,17 +50,6 @@ class ApplyBacklogIssue(ApplyBacklogWorkItem):
         None,
         description="Index of parent epic in epics array (for epic-issue hierarchy)"
     )
-
-
-class ApplyBacklogRequest(BaseModel):
-    project_id: str = Field(description="GitLab project ID (numeric or path)")
-    prompt_id: str = Field(description="Unique prompt/generation ID for idempotency")
-    internal_project_id: Optional[str] = Field(
-        default=None,
-        description="Internal project management service ID (UUID) for tracking"
-    )
-    epics: List[ApplyBacklogWorkItem] = Field(default_factory=list)
-    issues: List[ApplyBacklogIssue] = Field(default_factory=list)
 
 
 class ApplyBacklogItemResult(BaseModel):
@@ -78,11 +71,6 @@ class ApplyBacklogError(BaseModel):
     gitlab_status: Optional[int] = None
 
 
-class ApplyBacklogResponse(BaseModel):
-    results: ApplyBacklogResults
-    errors: List[ApplyBacklogError] = Field(default_factory=list)
-
-
 class ResolveProjectRequest(BaseModel):
     """Request to resolve GitLab project path to project ID."""
     gitlab_path: str = Field(
@@ -96,5 +84,43 @@ class ResolveProjectResponse(BaseModel):
     path: str = Field(description="Full project path: namespace/project")
     name: str = Field(description="Project name")
     web_url: str = Field(description="Project web URL")
+
+
+class BatchApplyBacklogProjectPayload(BaseModel):
+    """Payload for applying backlog to a single project within batch operation."""
+    project_id: str = Field(description="Target GitLab project ID")
+    epics: List[ApplyBacklogWorkItem] = Field(default_factory=list)
+    issues: List[ApplyBacklogIssue] = Field(default_factory=list)
+
+
+class BatchApplyBacklogRequest(BaseModel):
+    """Request for apply-backlog endpoint (supports 1+ projects)."""
+    prompt_id: str = Field(description="Unique prompt/generation ID for idempotency")
+    internal_project_id: Optional[str] = Field(
+        default=None,
+        description="Internal project management service ID (UUID) for tracking"
+    )
+    projects: List[BatchApplyBacklogProjectPayload] = Field(
+        description="List of project payloads, each targeting a specific GitLab project"
+    )
+
+
+class BatchApplyBacklogProjectResult(BaseModel):
+    """Result for one project in apply-backlog operation."""
+    project_id: str
+    success: bool
+    results: Optional[ApplyBacklogResults] = None
+    errors: List[ApplyBacklogError] = Field(default_factory=list)
+    error_message: Optional[str] = None
+
+
+class BatchApplyBacklogResponse(BaseModel):
+    """Aggregated response from apply-backlog endpoint."""
+    project_results: List[BatchApplyBacklogProjectResult]
+    total_epics_created: int = 0
+    total_issues_created: int = 0
+    total_errors: int = 0
+    projects_succeeded: int = 0
+    projects_failed: int = 0
 
 

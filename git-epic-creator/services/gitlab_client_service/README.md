@@ -32,7 +32,7 @@ Reference: [python-gitlab v6.x](https://python-gitlab.readthedocs.io/en/stable/)
 graph TB
     subgraph "gitlab_client_service"
         App[FastAPI App<br/>main.py]
-        Router[gitlab_router.py<br/>- GET /backlog<br/>- POST /projects/multi/cache-embeddings<br/>- POST /apply-backlog]
+        Router[gitlab_router.py<br/>- GET /backlog<br/>- POST /projects/multi/cache-embeddings<br/>- POST /projects/apply-backlog]
         
         subgraph "Service Layer"
             GCS[GitLabClientService]
@@ -573,62 +573,79 @@ Normalized models are shared; JSON field names must match exactly.
 }
 ```
 
-### ApplyBacklogRequest
+### BatchApplyBacklogRequest (apply-backlog endpoint)
 
 ```json
 {
-  "project_id": "string",
   "prompt_id": "string",
-  "epics": [
+  "internal_project_id": "string (optional)",
+  "projects": [
     {
-      "id": "string" | null,
-      "title": "string",
-      "description": "string",
-      "labels": ["string"]
-    }
-  ],
-  "issues": [
-    {
-      "id": "string" | null,
-      "title": "string",
-      "description": "string",
-      "labels": ["string"],
-      "epic_id": "string" | null
+      "project_id": "string",
+      "epics": [
+        {
+          "title": "string",
+          "description": "string",
+          "labels": ["string"],
+          "related_to_iid": "string (optional)"
+        }
+      ],
+      "issues": [
+        {
+          "title": "string",
+          "description": "string",
+          "labels": ["string"],
+          "related_to_iid": "string (optional)",
+          "parent_epic_index": "number (optional)"
+        }
+      ]
     }
   ]
 }
 ```
 
-### ApplyBacklogResponse
+### BatchApplyBacklogResponse (apply-backlog response)
 
 ```json
 {
-  "results": {
-    "epics": [
-      {
-        "input_index": 0,
-        "action": "created" | "updated" | "unchanged",
-        "id": "string",
-        "web_url": "string"
-      }
-    ],
-    "issues": [
-      {
-        "input_index": 0,
-        "action": "created" | "updated" | "unchanged",
-        "id": "string",
-        "web_url": "string"
-      }
-    ]
-  },
-  "errors": [
+  "project_results": [
     {
-      "scope": "epic" | "issue",
-      "input_index": 0,
-      "message": "string",
-      "gitlab_status": 404
+      "project_id": "string",
+      "success": true,
+      "results": {
+        "epics": [
+          {
+            "input_index": 0,
+            "action": "created" | "updated" | "unchanged",
+            "id": "string",
+            "web_url": "string"
+          }
+        ],
+        "issues": [
+          {
+            "input_index": 0,
+            "action": "created" | "updated" | "unchanged",
+            "id": "string",
+            "web_url": "string"
+          }
+        ]
+      },
+      "errors": [
+        {
+          "scope": "epic" | "issue",
+          "input_index": 0,
+          "message": "string",
+          "gitlab_status": 404
+        }
+      ],
+      "error_message": null
     }
-  ]
+  ],
+  "total_epics_created": 0,
+  "total_issues_created": 0,
+  "total_errors": 0,
+  "projects_succeeded": 0,
+  "projects_failed": 0
 }
 ```
 
@@ -693,20 +710,113 @@ flowchart LR
     style Enrich fill:#e8f5e9
 ```
 
-### POST /gitlab/projects/{project_id}/apply-backlog
+### POST /gitlab/projects/apply-backlog
 
-Apply a generated backlog to GitLab with idempotent create/update.
+Apply generated backlog to one or more GitLab projects.
 
-**Request Body:** `ApplyBacklogRequest`
+**Request Body:** `BatchApplyBacklogRequest`
+```json
+{
+  "prompt_id": "gen-abc-123",
+  "internal_project_id": "uuid-internal-project-id",
+  "projects": [
+    {
+      "project_id": "123",
+      "epics": [
+        {
+          "title": "Security Hardening",
+          "description": "Implement security improvements",
+          "labels": ["security"],
+          "related_to_iid": "42"
+        }
+      ],
+      "issues": [
+        {
+          "title": "Rotate service keys",
+          "description": "Update all service authentication keys",
+          "labels": ["security"],
+          "related_to_iid": "156",
+          "parent_epic_index": 0
+        }
+      ]
+    },
+    {
+      "project_id": "456",
+      "epics": [],
+      "issues": [
+        {
+          "title": "Fix authentication bug",
+          "description": "User reported login issue",
+          "labels": ["bug"],
+          "related_to_iid": null,
+          "parent_epic_index": null
+        }
+      ]
+    }
+  ]
+}
+```
 
-**Response:** `ApplyBacklogResponse`
+**Response:** `BatchApplyBacklogResponse`
+```json
+{
+  "project_results": [
+    {
+      "project_id": "123",
+      "success": true,
+      "results": {
+        "epics": [
+          {
+            "input_index": 0,
+            "action": "created",
+            "id": "567",
+            "web_url": "https://gitlab.example.com/groups/mygroup/-/epics/567"
+          }
+        ],
+        "issues": [
+          {
+            "input_index": 0,
+            "action": "created",
+            "id": "1346",
+            "web_url": "https://gitlab.example.com/mygroup/myproject/-/issues/1346"
+          }
+        ]
+      },
+      "errors": []
+    },
+    {
+      "project_id": "456",
+      "success": true,
+      "results": {
+        "epics": [],
+        "issues": [
+          {
+            "input_index": 0,
+            "action": "created",
+            "id": "234",
+            "web_url": "https://gitlab.example.com/othergroup/otherproject/-/issues/234"
+          }
+        ]
+      },
+      "errors": []
+    }
+  ],
+  "total_epics_created": 1,
+  "total_issues_created": 2,
+  "total_errors": 0,
+  "projects_succeeded": 2,
+  "projects_failed": 0
+}
+```
 
 **Behavior:**
-- Idempotent: identical payloads yield `unchanged` when no diffs
-- State: created/updated items are `opened`
-- Labels: unknown labels are ignored (may be reported as non-fatal warnings)
-- Linking: resolves created epic ids to link subsequent issues
-- Partial failures: continues processing and reports errors per item
+- Supports 1+ projects in single request
+- Each project processed independently (failures isolated)
+- Per-project error reporting with aggregated statistics
+- Automatic linking (`related_to_iid` for similar items, `parent_epic_index` for hierarchy)
+
+**Smart Routing:**
+Items routed to target project based on user-accepted matches or default project.
 
 **Apply Backlog Workflow:**
 
@@ -872,7 +982,7 @@ sequenceDiagram
     
     UI->>UI: User reviews<br/>& approves
     
-    UI->>GitLabClient: POST /apply-backlog<br/>with reviewed items
+    UI->>GitLabClient: POST /projects/apply-backlog<br/>with reviewed items
     activate GitLabClient
     GitLabClient->>GitLabClient: Check idempotency
     
@@ -1015,11 +1125,10 @@ To test with `gitlab_mock_service`:
    
    # Apply backlog
    curl -X POST \
-        -H "GitLab-Access-Token: <token>" \
         -H "Authorization: Bearer <jwt>" \
         -H "Content-Type: application/json" \
-        -d '{"project_id": "1", "prompt_id": "test", "epics": [], "issues": []}' \
-        http://localhost:8011/gitlab/projects/1/apply-backlog
+        -d '{"prompt_id": "test", "projects": [{"project_id": "1", "epics": [], "issues": []}]}' \
+        http://localhost:8011/gitlab/projects/apply-backlog
    ```
 
 ## Examples
@@ -1172,30 +1281,34 @@ Headers:
 
 **Request:**
 ```http
-POST /gitlab/projects/123/apply-backlog
+POST /gitlab/projects/apply-backlog
 Headers:
-  GitLab-Access-Token: <gitlab_access_token>
   Authorization: Bearer <local_jwt>
 Content-Type: application/json
 
 {
-  "project_id": "123",
   "prompt_id": "gen-abc-123",
-  "epics": [
+  "internal_project_id": "uuid-internal",
+  "projects": [
     {
-      "id": null,
-      "title": "Security Hardening",
-      "description": "Implement security improvements",
-      "labels": ["security"]
-    }
-  ],
-  "issues": [
-    {
-      "id": null,
-      "title": "Rotate service keys",
-      "description": "Update all service authentication keys",
-      "labels": ["security"],
-      "epic_id": null
+      "project_id": "123",
+      "epics": [
+        {
+          "title": "Security Hardening",
+          "description": "Implement security improvements",
+          "labels": ["security"],
+          "related_to_iid": null
+        }
+      ],
+      "issues": [
+        {
+          "title": "Rotate service keys",
+          "description": "Update all service authentication keys",
+          "labels": ["security"],
+          "related_to_iid": null,
+          "parent_epic_index": 0
+        }
+      ]
     }
   ]
 }
@@ -1204,25 +1317,36 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "results": {
-    "epics": [
-      {
-        "input_index": 0,
-        "action": "created",
-        "id": "567",
-        "web_url": "https://gitlab.example.com/groups/mygroup/-/epics/567"
-      }
-    ],
-    "issues": [
-      {
-        "input_index": 0,
-        "action": "created",
-        "id": "1346",
-        "web_url": "https://gitlab.example.com/mygroup/myproject/-/issues/1346"
-      }
-    ]
-  },
-  "errors": []
+  "project_results": [
+    {
+      "project_id": "123",
+      "success": true,
+      "results": {
+        "epics": [
+          {
+            "input_index": 0,
+            "action": "created",
+            "id": "567",
+            "web_url": "https://gitlab.example.com/groups/mygroup/-/epics/567"
+          }
+        ],
+        "issues": [
+          {
+            "input_index": 0,
+            "action": "created",
+            "id": "1346",
+            "web_url": "https://gitlab.example.com/mygroup/myproject/-/issues/1346"
+          }
+        ]
+      },
+      "errors": []
+    }
+  ],
+  "total_epics_created": 1,
+  "total_issues_created": 1,
+  "total_errors": 0,
+  "projects_succeeded": 1,
+  "projects_failed": 0
 }
 ```
 
@@ -1298,19 +1422,6 @@ Once deployed, interactive API documentation is available at:
 - **ReDoc:** `http://localhost:8011/redoc`
 - **OpenAPI JSON:** `http://localhost:8011/openapi.json`
 
-## Deployment Checklist
-
-- [x] Dockerfile configured with multi-stage build
-- [x] Health checks implemented
-- [x] Environment variables documented
-- [x] Dependencies locked in pyproject.toml
-- [ ] Add to docker-compose.yml
-- [ ] Configure service networking
-- [ ] Set up logging aggregation
-- [ ] Add monitoring/alerting
-- [ ] Run E2E tests in docker-compose environment
-- [ ] Performance/load testing
-
 ## Observability
 
 ### Health Checks
@@ -1330,17 +1441,7 @@ Once deployed, interactive API documentation is available at:
   - GitLab API calls
   - Embedding generation
   - Cache operations
-  - Error conditions
-
-### Metrics (Future)
-
-Planned metrics:
-- Request count/duration by endpoint
-- GitLab API error rates
-- Retry counts
-- Cache hit/miss rates
-- Embedding generation latency
-
+  
 ## Summary: Stateless OAuth Architecture
 
 The gitlab-client-service implements a **production-ready, stateless OAuth 2.0 flow** optimized for modern cloud deployments:
