@@ -1121,7 +1121,7 @@ To test with `gitlab_mock_service`:
    curl -X POST \
         -H "GitLab-Access-Token: <token>" \
         -H "Authorization: Bearer <jwt>" \
-        http://localhost:8011/gitlab/projects/multi/cache-embeddings?project_ids=1
+        "http://localhost:8011/gitlab/projects/multi/cache-embeddings?project_id=a1b2c3d4-5678-9abc-def0-123456789abc&gitlab_project_ids=1,2,3"
    
    # Apply backlog
    curl -X POST \
@@ -1172,7 +1172,7 @@ Headers:
 
 **Request:**
 ```http
-POST /gitlab/projects/multi/cache-embeddings?project_ids=123,456,789
+POST /gitlab/projects/multi/cache-embeddings?project_id=a1b2c3d4-5678-9abc-def0-123456789abc&gitlab_project_ids=123,456,789
 Headers:
   Authorization: Bearer <local_jwt>
 ```
@@ -1181,8 +1181,9 @@ Headers:
 ```json
 {
   "message": "Multi-project embedding caching started",
-  "project_ids": ["123", "456", "789"],
-  "project_count": 3
+  "project_id": "a1b2c3d4-5678-9abc-def0-123456789abc",
+  "gitlab_project_ids": ["123", "456", "789"],
+  "gitlab_project_count": 3
 }
 ```
 
@@ -1190,10 +1191,12 @@ Headers:
 
 **Example Progress Messages:**
 
+> **Note:** Progress messages use `project_id` (Project Management Service UUID) for UI filtering, not GitLab project IDs.
+
 1. **Started:**
 ```json
 {
-  "project_id": "123",
+  "project_id": "a1b2c3d4-5678-9abc-def0-123456789abc",
   "status": "processing",
   "process_step": "Caching embeddings (Project 1/3): Starting...",
   "processed_pct": 0.0,
@@ -1205,7 +1208,7 @@ Headers:
 2. **Fetching Items:**
 ```json
 {
-  "project_id": "123",
+  "project_id": "a1b2c3d4-5678-9abc-def0-123456789abc",
   "status": "processing",
   "process_step": "Caching embeddings (Project 1/3): Fetching items (50/150)...",
   "processed_pct": 11.0,
@@ -1219,7 +1222,7 @@ Headers:
 3. **Generating Embeddings:**
 ```json
 {
-  "project_id": "123",
+  "project_id": "a1b2c3d4-5678-9abc-def0-123456789abc",
   "status": "processing",
   "process_step": "Caching embeddings (Project 1/3): Generating embeddings (150/150)...",
   "processed_pct": 67.0,
@@ -1231,7 +1234,7 @@ Headers:
 4. **Caching:**
 ```json
 {
-  "project_id": "123",
+  "project_id": "a1b2c3d4-5678-9abc-def0-123456789abc",
   "status": "processing",
   "process_step": "Caching embeddings (Project 1/3): Stored 150 items",
   "processed_pct": 90.0,
@@ -1244,7 +1247,7 @@ Headers:
 5. **Completed:**
 ```json
 {
-  "project_id": "123",
+  "project_id": "a1b2c3d4-5678-9abc-def0-123456789abc",
   "status": "completed",
   "process_step": "Caching embeddings (Project 1/3): Completed",
   "processed_pct": 100.0,

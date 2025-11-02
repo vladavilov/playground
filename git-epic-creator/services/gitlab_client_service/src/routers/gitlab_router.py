@@ -468,7 +468,8 @@ async def apply_backlog(
 
 @router.post("/projects/multi/cache-embeddings", status_code=status.HTTP_202_ACCEPTED)
 async def cache_multiple_projects_embeddings(
-    project_ids: str = Query(..., description="Comma-separated list of GitLab project IDs"),
+    project_id: str = Query(..., description="Project Management Service project UUID"),
+    gitlab_project_ids: str = Query(..., description="Comma-separated list of GitLab project IDs"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     gitlab_client: gitlab.Gitlab = Depends(get_gitlab_client_dep),
     redis_client: redis.Redis = Depends(get_redis_client_dep),
@@ -480,25 +481,30 @@ async def cache_multiple_projects_embeddings(
     This endpoint starts a background task that processes all specified projects
     and returns immediately. Each project is cached independently.
     
+    Progress messages are published to ui:project_progress channel with the
+    Project Management Service project_id for UI filtering.
+    
     Args:
-        project_ids: Comma-separated GitLab project IDs (e.g., "123,456,789")
+        project_id: Project Management Service project UUID (for progress messages)
+        gitlab_project_ids: Comma-separated GitLab project IDs (e.g., "123,456,789")
         
     Returns:
         Status message with project IDs being processed
     """
-    # Parse project IDs
-    id_list = [pid.strip() for pid in project_ids.split(",") if pid.strip()]
+    # Parse GitLab project IDs
+    gitlab_id_list = [pid.strip() for pid in gitlab_project_ids.split(",") if pid.strip()]
     
-    if not id_list:
+    if not gitlab_id_list:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No project IDs provided"
+            detail="No GitLab project IDs provided"
         )
     
     logger.info(
         "Starting multi-project embedding caching",
-        project_ids=id_list,
-        project_count=len(id_list)
+        pm_project_id=project_id,
+        gitlab_project_ids=gitlab_id_list,
+        gitlab_project_count=len(gitlab_id_list)
     )
     
     async def cache_multi_embeddings_task():
@@ -508,11 +514,11 @@ async def cache_multiple_projects_embeddings(
         cache_client = RedisCacheClient(redis_client)
         notifier = ProgressNotifier(redis_client)
         
-        total_projects = len(id_list)
+        total_projects = len(gitlab_id_list)
         success_count = 0
         error_count = 0
         
-        for idx, project_id in enumerate(id_list, start=1):
+        for idx, gitlab_project_id in enumerate(gitlab_id_list, start=1):
             try:
                 await notifier.notify_started(
                     project_id=project_id,
@@ -526,7 +532,7 @@ async def cache_multiple_projects_embeddings(
                 
                 while True:
                     response = gitlab_service.list_project_backlog(
-                        project_id=project_id,
+                        project_id=gitlab_project_id,
                         state="all",
                         page=page,
                         per_page=settings.DEFAULT_PAGE_SIZE
@@ -548,7 +554,7 @@ async def cache_multiple_projects_embeddings(
                     page = response.pagination.next_page
                 
                 if not all_items:
-                    logger.warning("No work items found for embedding", project_id=project_id)
+                    logger.warning("No work items found for embedding", gitlab_project_id=gitlab_project_id)
                     await notifier.notify_completed(
                         project_id=project_id,
                         project_index=idx,
@@ -569,15 +575,15 @@ async def cache_multiple_projects_embeddings(
                     total_projects=total_projects
                 )
                 
-                # Clear old cache and store new embeddings with titles
-                await cache_client.clear_project_embeddings(project_id)
+                # Clear old cache and store new embeddings with titles (uses GitLab project ID)
+                await cache_client.clear_project_embeddings(gitlab_project_id)
                 
                 embeddings_dict = {
                     item.id: {"title": item.title, "embedding": embedding}
                     for item, embedding in zip(all_items, embeddings)
                 }
                 
-                await cache_client.set_embeddings_bulk(project_id, embeddings_dict)
+                await cache_client.set_embeddings_bulk(gitlab_project_id, embeddings_dict)
                 
                 await notifier.notify_cached(
                     project_id=project_id,
@@ -596,7 +602,8 @@ async def cache_multiple_projects_embeddings(
                 
                 logger.info(
                     "Embedding caching completed for project",
-                    project_id=project_id,
+                    pm_project_id=project_id,
+                    gitlab_project_id=gitlab_project_id,
                     project_index=idx,
                     total_projects=total_projects,
                     total_cached=len(embeddings_dict)
@@ -608,7 +615,8 @@ async def cache_multiple_projects_embeddings(
                 
                 logger.error(
                     "Embedding caching failed for project",
-                    project_id=project_id,
+                    pm_project_id=project_id,
+                    gitlab_project_id=gitlab_project_id,
                     project_index=idx,
                     total_projects=total_projects,
                     error=str(e),
@@ -627,7 +635,8 @@ async def cache_multiple_projects_embeddings(
         
         # Send overall completion notification
         await notifier.notify_all_completed(
-            project_ids=id_list,
+            project_id=project_id,
+            total_gitlab_projects=total_projects,
             success_count=success_count,
             error_count=error_count
         )
@@ -644,8 +653,9 @@ async def cache_multiple_projects_embeddings(
     
     return {
         "message": "Multi-project embedding caching started",
-        "project_ids": id_list,
-        "project_count": len(id_list)
+        "project_id": project_id,
+        "gitlab_project_ids": gitlab_id_list,
+        "gitlab_project_count": len(gitlab_id_list)
     }
 
 

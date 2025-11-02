@@ -1,4 +1,9 @@
-"""Redis cache client for storing and retrieving embeddings with titles."""
+"""Redis cache client for storing and retrieving embeddings with titles.
+
+This client stores embeddings keyed by GitLab project ID (not PM project ID).
+Embeddings are specific to GitLab work items and are shared across all PM projects
+that reference the same GitLab backlog projects.
+"""
 
 from typing import List, Optional, Dict, Tuple
 import json
@@ -9,7 +14,11 @@ logger = structlog.get_logger(__name__)
 
 
 class RedisCacheClient:
-    """Client for caching embeddings with titles in Redis."""
+    """Client for caching embeddings with titles in Redis.
+    
+    Cache keys use GitLab project IDs to allow sharing embeddings across
+    multiple PM projects that reference the same GitLab backlog.
+    """
     
     def __init__(self, redis_client: redis.Redis):
         """
@@ -25,11 +34,11 @@ class RedisCacheClient:
         Create Redis key for a work item embedding.
         
         Args:
-            project_id: Project ID
+            project_id: GitLab project ID (numeric string)
             work_item_id: Work item ID (epic or issue)
             
         Returns:
-            Redis key string
+            Redis key in format: embeddings:{gitlab_project_id}:{work_item_id}
         """
         return f"embeddings:{project_id}:{work_item_id}"
     
@@ -44,7 +53,7 @@ class RedisCacheClient:
         Store an embedding vector with title in Redis.
         
         Args:
-            project_id: Project ID
+            project_id: GitLab project ID (numeric string)
             work_item_id: Work item ID
             embedding: Embedding vector
             title: Work item title
@@ -71,7 +80,7 @@ class RedisCacheClient:
         Retrieve embedding with title from Redis.
         
         Args:
-            project_id: Project ID
+            project_id: GitLab project ID (numeric string)
             work_item_id: Work item ID
             
         Returns:
@@ -106,7 +115,7 @@ class RedisCacheClient:
         Store multiple embeddings with titles in a single pipeline.
         
         Args:
-            project_id: Project ID
+            project_id: GitLab project ID (numeric string)
             embeddings: Dict mapping work_item_id to {"title": "...", "embedding": [...]}
         """
         if not embeddings:
@@ -136,7 +145,7 @@ class RedisCacheClient:
         Retrieve multiple embeddings with titles in a single pipeline.
         
         Args:
-            project_id: Project ID
+            project_id: GitLab project ID (numeric string)
             work_item_ids: List of work item IDs
             
         Returns:
@@ -169,10 +178,10 @@ class RedisCacheClient:
     
     async def clear_project_embeddings(self, project_id: str) -> int:
         """
-        Clear all embeddings for a project.
+        Clear all embeddings for a GitLab project.
         
         Args:
-            project_id: Project ID
+            project_id: GitLab project ID (numeric string)
             
         Returns:
             Number of keys deleted

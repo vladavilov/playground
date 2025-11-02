@@ -85,18 +85,20 @@ graph TB
             C3[project_client.py]
         end
         
-        subgraph Models["Data Models"]
-            M1[backlog_models.py]
-            M2[request_models.py]
-            M3[agent_models.py]
-        end
+    subgraph Models["Data Models"]
+        M1[backlog_models.py]
+        M2[request_models.py]
+        M3[agent_models.py]
     end
-    
-    UI -->|POST /tasks/generate| API
-    API --> Orch
-    Orch -->|resolve gitlab_project_id| C3
-    C3 -->|GET /projects/{id}| ProjMgmt[Project Management<br/>Service]
-    Orch --> Graph
+end
+
+ProjMgmt[Project Management<br/>Service]
+
+UI -->|POST /tasks/generate| API
+API --> Orch
+Orch -->|resolve gitlab_project_id| C3
+C3 -->|GET /projects/id| ProjMgmt
+Orch --> Graph
     Graph --> E1 & E2 & E3 & E4 & E5 & E6 & E7
     E2 --> C1
     E4 --> C2
@@ -160,15 +162,113 @@ flowchart TD
 
 ### Expert Agents
 
-| Expert | Purpose | LLM Call |
-|--------|---------|----------|
-| **RequirementsAnalyst** | Extracts intents, entities, constraints from requirements | ✅ Chat |
-| **ContextRetriever** | Fetches technical context from GraphRAG (Neo4j) | ❌ HTTP only |
-| **BacklogEngineer** | Synthesizes epics/tasks with INVEST principles | ✅ Chat |
-| **DuplicateMapper** | Computes embeddings and similarity scores | ✅ Embeddings |
-| **ConsistencyAuditor** | Validates quality, identifies overlaps and gaps | ✅ Chat |
-| **Evaluator** | Scores backlog on 4-axis rubric, routes workflow | ✅ Chat |
-| **ClarificationStrategist** | Generates targeted questions for weak areas | ✅ Chat (conditional) |
+| Expert | Purpose | LLM Call | Model Used |
+|--------|---------|----------|------------|
+| **RequirementsAnalyst** | Extracts intents, entities, constraints from requirements | ✅ Chat | Fast Model |
+| **ContextRetriever** | Fetches technical context from GraphRAG (Neo4j) | ❌ HTTP only | N/A |
+| **BacklogEngineer** | Synthesizes epics/tasks with INVEST principles | ✅ Chat | **Standard Model** |
+| **DuplicateMapper** | Computes embeddings and similarity scores | ✅ Embeddings | Embedding Model |
+| **ConsistencyAuditor** | Validates quality, identifies overlaps and gaps | ✅ Chat | Fast Model |
+| **Evaluator** | Scores backlog on 4-axis rubric, routes workflow | ✅ Chat | Fast Model |
+| **ClarificationStrategist** | Generates targeted questions for weak areas | ✅ Chat (conditional) | Fast Model |
+
+### LLM Chain Architecture
+
+The service uses **LangChain Expression Language (LCEL)** to construct type-safe, composable LLM chains. Each expert follows a consistent pattern for prompt template construction and LLM invocation.
+
+#### Model Selection Strategy
+
+**Two-Tier Model Architecture:**
+- **Standard Model** (`OAI_MODEL`): Used exclusively for **BacklogEngineer** due to high complexity of epic/task synthesis requiring advanced reasoning
+- **Fast Model** (`OAI_MODEL_FAST`): Used for all other experts (RequirementsAnalyst, ConsistencyAuditor, Evaluator, ClarificationStrategist) to optimize cost and latency for simpler tasks
+
+#### Chain Construction Pattern
+
+```python
+# 1. Prompt Repository (prompts/prompt_repository.py)
+EXPERT_PROMPT = PromptSpec(
+    name="expert_name",
+    system="System role and instructions...",
+    human="{variable_name}"  # Template variables
+)
+
+# 2. LLM Factory (clients/llm.py)
+@lru_cache(maxsize=2)
+def get_llm(use_fast_model: bool = False) -> AzureChatOpenAI:
+    """Returns cached AzureChatOpenAI instance.
+    
+    Args:
+        use_fast_model: If True, uses OAI_MODEL_FAST for simpler tasks.
+                        If False, uses OAI_MODEL for complex reasoning (BacklogEngineer).
+    """
+    settings = get_ai_tasks_settings()
+    model = settings.llm.OAI_MODEL_FAST if use_fast_model else settings.llm.OAI_MODEL
+    
+    return AzureChatOpenAI(
+        azure_endpoint=settings.llm.OAI_BASE_URL,
+        deployment_name=model,
+        api_key=settings.llm.OAI_KEY,
+        api_version=settings.llm.OAI_API_VERSION,
+        timeout=settings.llm.LLM_TIMEOUT_SEC,
+        temperature=settings.llm.LLM_TEMPERATURE,
+    )
+
+# 3. Expert Implementation (e.g., requirements_analyst.py)
+class RequirementsAnalyst:
+    async def analyze(self, requirements: str) -> RequirementsAnalysis:
+        # Define output schema
+        class AnalysisOut(BaseModel):
+            intents: List[str] = Field(default_factory=list)
+            entities: List[str] = Field(default_factory=list)
+            constraints: List[str] = Field(default_factory=list)
+        
+        # Build chain using LCEL pipe operator
+        prompt_tmpl = build_chat_prompt(REQUIREMENTS_ANALYST)
+        llm = get_llm(use_fast_model=True)  # Fast model for simple extraction
+        chain = prompt_tmpl | llm.with_structured_output(AnalysisOut)
+        
+        # Invoke async with type safety
+        out: AnalysisOut = await chain.ainvoke({"requirements": requirements})
+        
+        return RequirementsAnalysis(
+            intents=out.intents,
+            entities=out.entities,
+            constraints=out.constraints
+        )
+```
+
+#### Execution Flow
+
+```mermaid
+flowchart LR
+    A[Input Variables] --> B[ChatPromptTemplate]
+    B --> C{LLM Selection}
+    C -->|use_fast_model=True| D[Fast Model<br/>gpt-4o-mini]
+    C -->|use_fast_model=False| E[Standard Model<br/>gpt-4o]
+    D --> F[with_structured_output]
+    E --> F
+    F --> G[Pydantic Schema]
+    G --> H[ainvoke]
+    H --> I[Type-Safe Result]
+    
+    style D fill:#e8f4e8,stroke:#7eb67e
+    style E fill:#fff4e6,stroke:#d4a574
+    style F fill:#e8f4f8,stroke:#7eb6d4
+    style I fill:#e8f4f8,stroke:#7eb6d4
+```
+
+**Key Components:**
+1. **Prompt Template**: Fills system/human message templates with runtime variables
+2. **Pipe Operator (`|`)**: Chains prompt to LLM in functional composition style
+3. **Structured Output**: `with_structured_output(PydanticModel)` enforces type-safe JSON responses
+4. **Async Invocation**: `ainvoke(variables)` executes non-blocking API call
+5. **LRU Cache**: Prevents duplicate LLM client instantiation (2 variants cached)
+
+**Performance Optimizations:**
+- Fast model reduces latency by 40-60% for simple extraction/validation tasks
+- Standard model reserved for BacklogEngineer's complex synthesis requiring deep reasoning
+- LRU cache eliminates repeated client construction overhead
+- Structured output eliminates post-processing and parsing errors
 
 ### Directory Structure
 

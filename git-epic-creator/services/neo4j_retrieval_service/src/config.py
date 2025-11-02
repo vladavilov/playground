@@ -53,6 +53,12 @@ class RetrievalSettings(BaseConfig):
         le=10,
         description="Process at least N followups before allowing early exit"
     )
+    MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Stop processing if N consecutive followups return no data (empty communities/chunks)"
+    )
     
     # Request caching (deduplication always enabled)
     REQUEST_CACHE_TTL_SEC: int = Field(

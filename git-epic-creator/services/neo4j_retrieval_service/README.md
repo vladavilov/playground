@@ -311,6 +311,31 @@ improved coverage.
         -   Key facts with citations
         -   Residual uncertainties.
 
+### Early Exit Optimizations
+
+The service implements two early exit strategies to optimize performance and cost:
+
+**1. High Confidence Exit**
+- Triggered when a followup achieves confidence ≥ `CONFIDENCE_THRESHOLD_EARLY_EXIT` (default: 0.85)
+- Must process at least `MIN_FOLLOWUPS_BEFORE_EXIT` (default: 2) followups before eligible
+- Skips remaining followups to save LLM calls and execution time
+
+**2. No Data Exit**
+- Triggered when `MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT` (default: 2) consecutive followups return no chunks
+- Indicates the knowledge graph contains no relevant data for the query
+- Stops retrieval immediately and returns empty result:
+  ```json
+  {
+    "final_answer": "",
+    "key_facts": [],
+    "residual_uncertainty": "",
+    "no_data_found": true
+  }
+  ```
+- **Rationale**: Prevents wasting tokens and LLM calls when graph is empty or query is out of scope
+- **Behavior**: Skips LLM aggregation phase entirely for efficiency
+- **Use Case**: Gracefully handles empty graphs, new projects, or queries outside indexed content domain
+
 ------------------------------------------------------------------------
 
 ## 4. Primer Phase Details
@@ -547,5 +572,19 @@ RETRY_BACKOFF_MAX_SEC=60              # Max backoff ceiling (default: 60)
 ```
 
 The service automatically retries HTTP 429 (rate limit) errors with exponential backoff + jitter.
+
+### Early Exit Configuration
+
+Control when retrieval stops processing followups:
+
+```bash
+CONFIDENCE_THRESHOLD_EARLY_EXIT=0.85        # Stop if confidence exceeds this (0.0-1.0, default: 0.85)
+MIN_FOLLOWUPS_BEFORE_EXIT=2                 # Min followups before early exit allowed (default: 2)
+MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT=2           # Stop after N consecutive empty followups (default: 2)
+```
+
+- **CONFIDENCE_THRESHOLD_EARLY_EXIT**: When a followup reaches high confidence, skip remaining followups
+- **MIN_FOLLOWUPS_BEFORE_EXIT**: Prevents premature exit by requiring minimum processing
+- **MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT**: Stops execution when consecutive followups find no chunks/communities (optimization for empty graphs)
 
 ------------------------------------------------------------------------

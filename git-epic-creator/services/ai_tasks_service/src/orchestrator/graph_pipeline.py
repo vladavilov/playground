@@ -46,7 +46,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
       - result: GeneratedBacklogBundle | None
       - auth_header: str (optional)
       - gitlab_token: str (optional)
-      - gitlab_project_id: str (optional, numeric GitLab project ID)
+      - gitlab_project_ids: list[str] (array of numeric GitLab project IDs)
     """
     class State(TypedDict, total=False):
         # Chat history with reducer
@@ -69,7 +69,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         result: Any
         auth_header: str
         gitlab_token: str
-        gitlab_project_id: str
+        gitlab_project_ids: list[str]
 
     # Initialize experts
     analyst = RequirementsAnalyst()

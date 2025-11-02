@@ -293,8 +293,8 @@ class ProjectsPageController extends BasePageController {
   async _handleCacheEmbeddings(project) {
     if (this.cachingEmbeddings) return;
     
-    const projectIds = project.gitlab_backlog_project_ids;
-    if (!projectIds || projectIds.length === 0) {
+    const gitlabProjectIds = project.gitlab_backlog_project_ids;
+    if (!gitlabProjectIds || gitlabProjectIds.length === 0) {
       alert('No GitLab backlog projects linked');
       return;
     }
@@ -303,10 +303,10 @@ class ProjectsPageController extends BasePageController {
       this.cachingEmbeddings = true;
       this.projectDetails.render(project, this.cachingEmbeddings);
       
-      const url = `/projects/multi/cache-embeddings?project_ids=${projectIds.join(',')}`;
+      const url = `/projects/multi/cache-embeddings?project_id=${project.id}&gitlab_project_ids=${gitlabProjectIds.join(',')}`;
       await this.gitlabApi.post(url, {});
       
-      this.uploadPanel.appendLog(`Caching embeddings for ${projectIds.length} project(s)`, 'text-emerald-600');
+      this.uploadPanel.appendLog(`Caching embeddings for ${gitlabProjectIds.length} project(s)`, 'text-emerald-600');
     } catch (error) {
       console.error('Failed to cache embeddings:', error);
       alert('Failed to cache embeddings: ' + ApiClient.formatError(error));

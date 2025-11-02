@@ -251,6 +251,7 @@ class _State(TypedDict, total=False):
     followup_results: List[Dict[str, Any]]
     tree: Dict[str, Any]
     result_json: Dict[str, Any]
+    no_data_found: bool  # Flag indicating no communities/chunks found during retrieval
     # Request-level caches to avoid duplicate work
     _cache_embeddings: Dict[str, List[float]]  # key: text -> embedding vector
     _cache_neighborhoods: Dict[str, Dict[str, Any]]  # key: chunk_id -> expanded data
@@ -854,6 +855,7 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         chunk_index = settings.vector_index.CHUNK_VECTOR_INDEX_NAME
         
         total_followups = len(state.get("followups") or [])
+        consecutive_empty_count = 0
         
         try:
             with _repo_ctx() as repo:
@@ -890,6 +892,42 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
                             state["project_id"],
                             state,
                         )
+
+                        # Track empty data for early exit optimization
+                        if not chunks or len(chunks) == 0:
+                            consecutive_empty_count += 1
+                            logger.info(
+                                "followup_no_data_found",
+                                followup_index=idx,
+                                consecutive_empty=consecutive_empty_count,
+                                max_allowed=settings.MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT,
+                                message=f"No chunks found for followup {idx}"
+                            )
+                            
+                            # Early exit if too many consecutive empty results
+                            if consecutive_empty_count >= settings.MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT:
+                                logger.warning(
+                                    "early_exit_no_data",
+                                    followup_index=idx,
+                                    consecutive_empty=consecutive_empty_count,
+                                    threshold=settings.MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT,
+                                    processed=len(results),
+                                    skipped=total_followups - len(results),
+                                    message="No data found in consecutive followups, stopping retrieval"
+                                )
+                                # Set flag to indicate no data scenario
+                                return {"followup_results": results, "no_data_found": True}
+                            
+                            # Skip LLM call for this followup (no data to process)
+                            logger.debug(
+                                "followup_skipped_no_data",
+                                followup_index=idx,
+                                message="Skipping LLM call due to empty chunks"
+                            )
+                            continue
+                        else:
+                            # Reset counter on successful data retrieval
+                            consecutive_empty_count = 0
 
                         # Reuse community_brief from state (already computed in primer_node)
                         target_communities_brief = state.get("community_brief", [])
@@ -1128,6 +1166,39 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         )
 
     async def aggregate_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        # Check if no data was found during retrieval
+        if state.get("no_data_found", False):
+            logger.warning(
+                "aggregate_no_data_found",
+                message="No data found in retrieval, returning empty result without LLM aggregation"
+            )
+            
+            # Return empty result structure
+            empty_result = {
+                "final_answer": "",
+                "key_facts": [],
+                "residual_uncertainty": "",
+                "no_data_found": True
+            }
+            
+            # Publish completion with no data status
+            if publisher:
+                try:
+                    prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
+                    await publisher.publish_retrieval_update(
+                        project_id=UUID(state["project_id"]),
+                        retrieval_id=state["retrieval_id"],
+                        phase=RetrievalStatus.COMPLETED,
+                        thought_summary="**No Data Found**",
+                        details_md="No relevant communities or chunks found in the knowledge graph for this query. The graph may be empty or the query may be outside the scope of indexed content.",
+                        progress_pct=100.0,
+                        prompt_id=prompt_id_uuid,
+                    )
+                except Exception as exc:
+                    logger.debug("publish_failed", phase="no_data_completion", error=str(exc))
+            
+            return {"tree": {}, "result_json": empty_result}
+        
         llm = get_llm()
         prompt = aggregator_prompt()
         

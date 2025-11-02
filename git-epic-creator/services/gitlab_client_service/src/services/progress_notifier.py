@@ -1,6 +1,11 @@
-"""Redis pub/sub progress notifier for embedding caching tasks."""
+"""Redis pub/sub progress notifier for embedding caching tasks.
 
-from typing import Optional, List
+This notifier publishes progress for caching embeddings from multiple GitLab projects
+that belong to a single internal Project Management project. All messages use the
+PM project_id for UI filtering.
+"""
+
+from typing import Optional
 import structlog
 import redis.asyncio as redis
 from pydantic import BaseModel
@@ -12,13 +17,17 @@ logger = structlog.get_logger(__name__)
 
 
 class EmbeddingProgressMessage(BaseModel):
-    """Progress message for embedding caching operations."""
-    project_id: str
+    """Progress message for embedding caching operations.
+    
+    Note: project_id is the Project Management Service UUID (not GitLab project ID).
+    This ensures UI can filter messages by the internal project.
+    """
+    project_id: str  # PM Service UUID for UI filtering
     status: str  # 'processing', 'completed', 'error'
     process_step: str
     processed_pct: Optional[float] = None
-    project_index: Optional[int] = None
-    total_projects: Optional[int] = None
+    project_index: Optional[int] = None  # Current GitLab project being processed
+    total_projects: Optional[int] = None  # Total GitLab projects to process
     error_message: Optional[str] = None
     error_tip: Optional[str] = None
     scanned: Optional[int] = None
@@ -30,6 +39,12 @@ class ProgressNotifier(RedisProgressPublisher):
     """Publishes embedding caching progress events to Redis pub/sub.
     
     Publishes to channel: ui:project_progress
+    
+    Architecture:
+    - One internal PM project_id maps to multiple GitLab project IDs
+    - All progress messages use the PM project_id for UI filtering
+    - project_index/total_projects track progress across GitLab projects
+    
     Inherits common publish infrastructure from RedisProgressPublisher.
     """
     
@@ -51,7 +66,13 @@ class ProgressNotifier(RedisProgressPublisher):
         project_index: Optional[int] = None,
         total_projects: Optional[int] = None
     ) -> bool:
-        """Notify that embedding caching has started for a project."""
+        """Notify that embedding caching has started.
+        
+        Args:
+            project_id: PM Service project UUID
+            project_index: Current GitLab project number being processed (1-based)
+            total_projects: Total number of GitLab projects to process
+        """
         step = "Caching embeddings: Starting..."
         if project_index and total_projects:
             step = f"Caching embeddings (Project {project_index}/{total_projects}): Starting..."
@@ -164,21 +185,27 @@ class ProgressNotifier(RedisProgressPublisher):
     
     async def notify_all_completed(
         self,
-        project_ids: List[str],
+        project_id: str,
+        total_gitlab_projects: int,
         success_count: int,
         error_count: int
     ) -> bool:
-        """Notify that all projects have been processed."""
-        total = len(project_ids)
-        step = f"Embedding caching completed: {success_count} successful, {error_count} failed out of {total} total"
+        """Notify that all GitLab projects have been processed.
         
-        # Use first project ID as representative (UI filters by project anyway)
+        Args:
+            project_id: PM Service project UUID
+            total_gitlab_projects: Total number of GitLab projects processed
+            success_count: Number of successfully processed GitLab projects
+            error_count: Number of failed GitLab projects
+        """
+        step = f"Embedding caching completed: {success_count} successful, {error_count} failed out of {total_gitlab_projects} total"
+        
         message = EmbeddingProgressMessage(
-            project_id=project_ids[0] if project_ids else "multi",
+            project_id=project_id,
             status="completed" if error_count == 0 else "completed_with_errors",
             process_step=step,
             processed_pct=100.0,
-            total_projects=total
+            total_projects=total_gitlab_projects
         )
         return await self._publish_message(message)
     
