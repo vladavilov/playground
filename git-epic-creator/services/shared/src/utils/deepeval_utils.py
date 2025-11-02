@@ -16,7 +16,6 @@ importing DeepEval to ensure all PostHog instances are disabled.
 import os
 import re
 import json
-import random
 from typing import Dict, Optional, Any
 from functools import lru_cache
 import asyncio
@@ -416,12 +415,10 @@ async def evaluate_with_metrics(
 ) -> Dict[str, float]:
     """Evaluate test case with multiple DeepEval metrics.
     
-    This is the main entry point for running DeepEval evaluations with:
     - Telemetry disabled at module import
     - Shared model instance from configuration
-    - Serialized execution for GEval/StrictGEval metrics to avoid rate limits
-    - Random jitter between GEval calls (50-150ms) to distribute load
-    - Parallel execution for non-GEval metrics
+    - ALL metrics execute in parallel (Azure OpenAI handles rate limiting internally)
+    - No artificial jitter delays (removed for performance)
     - Hardcoded timeout protection (30s per metric)
     - Graceful error handling
     
@@ -486,6 +483,7 @@ async def evaluate_with_metrics(
         "deepeval_evaluation_starting",
         metrics_count=len(metrics_config),
         timeout=_METRIC_TIMEOUT_SECONDS,
+        parallel_execution=True,
     )
     
     scores: Dict[str, float] = {}
@@ -496,77 +494,44 @@ async def evaluate_with_metrics(
         
         logger.debug("litellm_model_loaded_from_config")
         
-        # Separate GEval/StrictGEval metrics from others for serialization
-        geval_metrics = {}
-        other_metrics = {}
+        # Execute ALL metrics in parallel (Azure OpenAI handles rate limiting)
+        tasks = []
+        metric_names = []
         
         for metric_name, metric_config in metrics_config.items():
-            metric_class = metric_config["class"]
-            class_name = metric_class.__name__ if hasattr(metric_class, "__name__") else str(metric_class)
-            
-            if class_name in ("GEval", "StrictGEval"):
-                geval_metrics[metric_name] = metric_config
-            else:
-                other_metrics[metric_name] = metric_config
+            task = _execute_single_metric(metric_name, metric_config, model, test_case)
+            tasks.append(task)
+            metric_names.append(metric_name)
         
         logger.debug(
-            "metrics_categorized",
-            geval_count=len(geval_metrics),
-            other_count=len(other_metrics),
+            "metrics_executing_parallel",
+            total_metrics=len(tasks),
+            metric_names=metric_names,
         )
         
-        # Execute GEval metrics serially with jitter to avoid rate limits
-        for metric_name, metric_config in geval_metrics.items():
-            # Add random jitter before each GEval call (except first)
-            if scores:  # Skip jitter for first metric
-                jitter_ms = random.uniform(50, 150)
-                logger.debug("geval_jitter", metric=metric_name, jitter_ms=jitter_ms)
-                await asyncio.sleep(jitter_ms / 1000.0)
-            
-            try:
-                score = await _execute_single_metric(metric_name, metric_config, model, test_case)
-                scores[metric_name] = score
-            except Exception as e:
+        # Execute all metrics concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        for metric_name, result in zip(metric_names, results):
+            if isinstance(result, Exception):
                 logger.warning(
-                    "geval_metric_failed",
+                    "metric_execution_exception",
                     metric=metric_name,
-                    error=str(e),
-                    error_type=type(e).__name__,
+                    error=str(result),
+                    error_type=type(result).__name__,
                 )
                 scores[metric_name] = 0.0
-        
-        # Execute other metrics in parallel
-        if other_metrics:
-            tasks = []
-            metric_names = []
-            
-            for metric_name, metric_config in other_metrics.items():
-                task = _execute_single_metric(metric_name, metric_config, model, test_case)
-                tasks.append(task)
-                metric_names.append(metric_name)
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            for metric_name, result in zip(metric_names, results):
-                if isinstance(result, Exception):
-                    logger.warning(
-                        "metric_execution_exception",
-                        metric=metric_name,
-                        error=str(result),
-                        error_type=type(result).__name__,
-                    )
-                    scores[metric_name] = 0.0
-                elif result is None:
-                    scores[metric_name] = 0.0
-                else:
-                    scores[metric_name] = float(result)
+            elif result is None:
+                scores[metric_name] = 0.0
+            else:
+                scores[metric_name] = float(result)
         
         logger.info(
             "deepeval_evaluation_completed",
             scores=scores,
             metrics_executed=len(scores),
-            geval_serialized=len(geval_metrics),
-            other_parallelized=len(other_metrics),
+            parallel_execution=True,
         )
         
     except Exception as e:

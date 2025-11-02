@@ -119,42 +119,53 @@ Orch --> Graph
 
 ### Ensemble-of-Experts Pattern
 
-The service orchestrates 7 specialized expert agents using **LangGraph StateGraph**:
+The service orchestrates 7 specialized expert agents using **LangGraph StateGraph** with **parallel execution optimization**:
 
 ```mermaid
 flowchart TD
     API[POST /tasks/generate]
     Init[1. Init<br/>Trim messages, initialize state]
-    Analyze[2. Analyze<br/>RequirementsAnalyst<br/>Extract intents, entities, constraints]
+    
+    subgraph Parallel1["🚀 Parallel Block 1"]
+        Analyze[2a. Analyze<br/>RequirementsAnalyst<br/>Extract intents, entities, constraints]
+        FetchBacklog[2b. Fetch Backlog<br/>GitLabClient<br/>Get existing epics/issues]
+    end
+    
     Retrieve[3. Retrieve<br/>ContextRetriever<br/>Fetch GraphRAG context]
-    FetchBacklog[4. Fetch Backlog<br/>GitLabClient<br/>Get existing epics/issues]
+    Validate[4. Validate Context<br/>Check context sufficiency]
     Draft[5. Draft<br/>BacklogEngineer<br/>Synthesize epics/tasks]
-    MapDupes[6. Map Duplicates<br/>DuplicateMapper<br/>Compute similarity scores]
-    Audit[7. Audit<br/>ConsistencyAuditor<br/>Validate quality]
-    Supervisor{8. Supervisor<br/>Evaluator<br/>Score & Route}
-    Finalize[9a. Finalize<br/>Generate markdown,<br/>return bundle]
-    Clarify[9b. Clarify<br/>Generate questions,<br/>request user input]
+    
+    subgraph Parallel2["🚀 Parallel Block 2"]
+        MapDupes[6a. Map Duplicates<br/>DuplicateMapper<br/>Compute similarity scores]
+        Audit[6b. Audit<br/>ConsistencyAuditor<br/>Validate quality]
+    end
+    
+    Supervisor{7. Supervisor<br/>Evaluator<br/>Score & Route}
+    Finalize[8a. Finalize<br/>Generate markdown,<br/>return bundle]
+    Clarify[8b. Clarify<br/>Generate questions,<br/>request user input]
     
     API --> Init
-    Init --> Analyze
-    Analyze --> Retrieve
-    Retrieve --> FetchBacklog
-    FetchBacklog --> Draft
-    Draft --> MapDupes
-    MapDupes --> Audit
-    Audit --> Supervisor
+    Init --> Parallel1
+    Parallel1 --> Retrieve
+    Retrieve --> Validate
+    Validate --> Draft
+    Draft --> Parallel2
+    Parallel2 --> Supervisor
     Supervisor -->|score ≥ target| Finalize
     Supervisor -->|iteration ≥ max_iters| Clarify
     Supervisor -->|else| Draft
     
     style API fill:#e8f4f8,stroke:#7eb6d4,stroke-width:2px
     style Init fill:#f5f5f5,stroke:#999,stroke-width:1px
+    style Parallel1 fill:#d4f4dd,stroke:#5cb85c,stroke-width:3px
+    style Parallel2 fill:#d4f4dd,stroke:#5cb85c,stroke-width:3px
     style Analyze fill:#e8f4e8,stroke:#7eb67e,stroke-width:2px
     style Retrieve fill:#e8f4e8,stroke:#7eb67e,stroke-width:2px
     style FetchBacklog fill:#e8f4e8,stroke:#7eb67e,stroke-width:2px
     style Draft fill:#e8f4e8,stroke:#7eb67e,stroke-width:2px
     style MapDupes fill:#e8f4e8,stroke:#7eb67e,stroke-width:2px
     style Audit fill:#e8f4e8,stroke:#7eb67e,stroke-width:2px
+    style Validate fill:#f5f5f5,stroke:#999,stroke-width:1px
     style Supervisor fill:#fff4e6,stroke:#d4a574,stroke-width:2px
     style Finalize fill:#e8f4f8,stroke:#7eb6d4,stroke-width:2px
     style Clarify fill:#fff4e6,stroke:#d4a574,stroke-width:2px
@@ -537,7 +548,11 @@ Submitting to GitLab Project 789 (user selected):
 | 3        | 1.5s          | 150-300        | ~25MB        |
 | 5        | 1.8s          | 250-500        | ~35MB        |
 
-*Note: Parallel fetching keeps overhead minimal even with multiple projects*
+**Performance Notes:**
+- **Parallel fetching** keeps overhead minimal even with multiple projects
+- GitLab fetch runs **concurrently with requirements analysis** (Parallel Block 1)
+- Multiple projects fetched **simultaneously** using `asyncio.gather()`
+- Each additional project adds only ~0.1-0.3s due to parallelization
 
 ## Integration Points
 
@@ -558,43 +573,62 @@ sequenceDiagram
     AI->>ProjMgmt: GET /projects/{project_id}
     ProjMgmt-->>AI: {id, gitlab_backlog_project_ids: [123, 456, 789]}
     Note over AI: Resolve internal UUID<br/>to array of GitLab project IDs
-    AI->>Redis: Publish: analyzing_requirements
-    AI->>AI: RequirementsAnalyst (LLM)
-    AI->>OpenAI: Chat completion<br/>(extract intents/entities)
-    OpenAI-->>AI: {intents, entities, constraints}
     
-    AI->>Redis: Publish: retrieving_context
-    AI->>Neo4j: POST /retrieve<br/>(queries, top_k)
-    Neo4j-->>AI: {context, key_facts}
-    
-    AI->>Redis: Publish: fetching_backlog
-    par Fetch from multiple projects in parallel
+    Note over AI: 🚀 PARALLEL BLOCK 1: Analysis + Fetch
+    par Requirements Analysis (parallel)
+        AI->>Redis: Publish: analyzing_requirements
+        AI->>AI: RequirementsAnalyst (LLM)
+        AI->>OpenAI: Chat completion<br/>(extract intents/entities)
+        OpenAI-->>AI: {intents, entities, constraints}
+    and Fetch from multiple projects (parallel)
+        AI->>Redis: Publish: fetching_backlog
         AI->>GitLab: GET /gitlab/projects/123/backlog
         GitLab-->>AI: {items} + add project_id:123
-    and
         AI->>GitLab: GET /gitlab/projects/456/backlog
         GitLab-->>AI: {items} + add project_id:456
-    and
         AI->>GitLab: GET /gitlab/projects/789/backlog
         GitLab-->>AI: {items} + add project_id:789
     end
     Note over AI: Aggregate all backlogs<br/>Each item tagged with source project_id
     Note over AI: Total: {epics, issues}<br/>with cached embeddings + project_id
     
+    AI->>Redis: Publish: retrieving_context
+    AI->>Neo4j: POST /retrieve<br/>(queries, top_k)
+    Neo4j-->>AI: {context, key_facts}
+    
     AI->>Redis: Publish: drafting_backlog
     AI->>AI: BacklogEngineer (LLM)
     AI->>OpenAI: Chat completion<br/>(synthesize epics/tasks)
     OpenAI-->>AI: {epics, tasks, assumptions}
     
-    AI->>Redis: Publish: mapping_duplicates
-    AI->>OpenAI: Embeddings API<br/>(new task titles only)
-    OpenAI-->>AI: [embeddings]
-    Note over AI: Compute cosine similarity<br/>vs all GitLab items (tagged with project_id)
-    Note over AI: Each match includes:<br/>- similarity score<br/>- project_id (source)<br/>- item details
+    Note over AI: 🚀 PARALLEL BLOCK 2: Mapping + Audit
+    par Duplicate Mapping (parallel)
+        AI->>Redis: Publish: mapping_duplicates
+        AI->>OpenAI: Embeddings API<br/>(new task titles only)
+        OpenAI-->>AI: [embeddings]
+        Note over AI: Compute cosine similarity<br/>vs all GitLab items (tagged with project_id)
+        Note over AI: Each match includes:<br/>- similarity score<br/>- project_id (source)<br/>- item details
+    and Consistency Audit (parallel)
+        AI->>AI: ConsistencyAuditor (LLM)
+        AI->>OpenAI: Chat completion<br/>(validate quality)
+        OpenAI-->>AI: {issues, suggestions, overlaps}
+    end
     
     AI->>Redis: Publish: evaluating
-    AI->>AI: ConsistencyAuditor (LLM)
-    AI->>AI: Evaluator (LLM)
+    AI->>AI: Evaluator (DeepEval 4 metrics in parallel)
+    par DeepEval Metrics (parallel)
+        AI->>OpenAI: Coverage metric
+        OpenAI-->>AI: score
+    and
+        AI->>OpenAI: Specificity metric
+        OpenAI-->>AI: score
+    and
+        AI->>OpenAI: Feasibility metric
+        OpenAI-->>AI: score
+    and
+        AI->>OpenAI: Duplication metric
+        OpenAI-->>AI: score
+    end
     
     alt Score ≥ Target
         AI->>Redis: Publish: completed

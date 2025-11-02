@@ -2,6 +2,7 @@
 
 from typing import Any, Optional
 import json
+import asyncio
 from pydantic import BaseModel
 import structlog
 
@@ -46,31 +47,36 @@ class RedisProgressPublisher:
         message: BaseModel, 
         channel: Optional[str] = None
     ) -> bool:
-        """Publish Pydantic message to Redis channel.
+        """Publish Pydantic message to Redis channel (fire-and-forget).
+        
+        Uses background task to avoid blocking workflow on Redis I/O.
+        Errors are logged but don't affect workflow execution.
         
         Args:
             message: Pydantic model instance to publish
             channel: Optional channel name override (uses default if None)
             
         Returns:
-            True if published successfully, False on error
+            True (task created; actual publish happens in background)
         """
-        try:
-            target = self._channel(channel)
-            serialized = json.dumps(message.model_dump(exclude_none=True))
-            await self.redis_client.publish(target, serialized)
-            logger.debug(
-                "progress_message_published",
-                channel=target,
-                message_type=message.model_dump().get("message_type"),
-            )
-            return True
-        except Exception as exc:
-            logger.error(
-                "progress_message_publish_failed",
-                channel=self._channel(channel),
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
-            return False
+        async def _background_publish() -> None:
+            try:
+                target = self._channel(channel)
+                serialized = json.dumps(message.model_dump(exclude_none=True))
+                await self.redis_client.publish(target, serialized)
+                logger.debug(
+                    "progress_message_published",
+                    channel=target,
+                    message_type=message.model_dump().get("message_type"),
+                )
+            except Exception as exc:
+                logger.error(
+                    "progress_message_publish_failed",
+                    channel=self._channel(channel),
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+        
+        asyncio.create_task(_background_publish())
+        return True
 

@@ -174,16 +174,40 @@ class DuplicateMapper:
             },
         )
 
-    def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for list of texts.
+    def _get_embeddings(self, texts: List[str], batch_size: int = 100) -> List[List[float]]:
+        """Get embeddings for list of texts with batching for large inputs.
         
         Note: Texts should be titles only to match GitLab's embedding strategy.
+        
+        Args:
+            texts: List of text strings to embed
+            batch_size: Batch size for embedding API calls (default 100)
+            
+        Returns:
+            List of embeddings (one per text)
         """
-        response = self.client.embeddings.create(
-            model=self.embed_model,
-            input=texts,
-        )
-        return [item.embedding for item in response.data]
+        if not texts:
+            return []
+        
+        # If texts fit in single batch, process directly
+        if len(texts) <= batch_size:
+            response = self.client.embeddings.create(
+                model=self.embed_model,
+                input=texts,
+            )
+            return [item.embedding for item in response.data]
+        
+        # Process in batches for large inputs
+        all_embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            response = self.client.embeddings.create(
+                model=self.embed_model,
+                input=batch,
+            )
+            all_embeddings.extend([item.embedding for item in response.data])
+        
+        return all_embeddings
 
     def _find_similar_from_matrix(
         self,
