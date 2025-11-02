@@ -23,7 +23,7 @@ def configure_settings_for_json() -> Dict[str, Any]:
 
     azure_base = llm.OAI_BASE_URL
     azure_api_version = llm.OAI_API_VERSION
-    chat_model_name = llm.OAI_MODEL
+    chat_model_name = llm.OAI_MODEL_FAST
     
     # Use separate embedding model name and deployment name for proper tiktoken usage
     embed_model_name = llm.OAI_EMBED_MODEL_NAME

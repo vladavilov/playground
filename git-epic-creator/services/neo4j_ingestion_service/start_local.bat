@@ -109,7 +109,7 @@ set PROJECT_MANAGEMENT_SERVICE_URL=http://localhost:8003
 
 REM OpenAI Configuration
 set OAI_KEY=KEY
-set OAI_MODEL=gpt-4.1
+set OAI_MODEL_FAST=gpt-4.1
 set OAI_EMBED_MODEL_NAME=text-embedding-3-small
 set OAI_EMBED_DEPLOYMENT_NAME=text-embedding-3-small
 set OAI_BASE_URL=http://localhost:8010/v1
