@@ -80,6 +80,9 @@ export class GraphVisualizer {
       this.nodes = this._processNodes(graphData.nodes);
       this.links = this._processLinks(graphData.relationships, this.nodes);
       
+      // Detect and assign communities for clustering
+      this._detectCommunities();
+      
       // Create visualization container
       this._createVisualization(container);
       
@@ -106,7 +109,7 @@ export class GraphVisualizer {
   }
   
   /**
-   * Process nodes with enhanced data.
+   * Process nodes with enhanced data including community assignment.
    * @private
    */
   _processNodes(rawNodes) {
@@ -118,6 +121,8 @@ export class GraphVisualizer {
       color: this.colorPalette[node.label]?.primary || '#94a3b8',
       gradient: this.colorPalette[node.label]?.gradient || ['#94a3b8', '#cbd5e1'],
       size: this.nodeSizes[node.label] || 24,
+      // Community assignment for clustering (will be set later)
+      community: null,
       // D3 force simulation properties
       x: Math.random() * 800,
       y: Math.random() * 600,
@@ -156,6 +161,106 @@ export class GraphVisualizer {
     
     const type = node.label.replace(/__/g, '');
     return `${type} ${node.id.substring(0, 6)}`;
+  }
+  
+  /**
+   * Detect communities and assign nodes to clusters.
+   * Uses IN_COMMUNITY relationships from Neo4j or falls back to connectivity-based clustering.
+   * @private
+   */
+  _detectCommunities() {
+    // Create a map of node ID to node object
+    const nodeMap = new Map(this.nodes.map(n => [n.id, n]));
+    
+    // First, try to use explicit __Community__ nodes from Neo4j
+    const communityNodes = this.nodes.filter(n => n.label === '__Community__');
+    
+    if (communityNodes.length > 0) {
+      // Use Neo4j community assignments
+      this.links.forEach(link => {
+        if (link.type === 'IN_COMMUNITY') {
+          const sourceNode = nodeMap.get(link.source.id || link.source);
+          const targetNode = nodeMap.get(link.target.id || link.target);
+          
+          if (sourceNode && targetNode && targetNode.label === '__Community__') {
+            // Assign community ID from the community node
+            const communityId = targetNode.properties.community || targetNode.id;
+            sourceNode.community = communityId;
+          }
+        }
+      });
+    } else {
+      // Fallback: Use simple connectivity-based clustering
+      this._assignConnectivityBasedCommunities();
+    }
+    
+    // Assign default community to nodes without one
+    this.nodes.forEach(node => {
+      if (node.community === null) {
+        // Assign based on node type for basic grouping
+        node.community = node.label;
+      }
+    });
+    
+    console.log('Community detection complete:', {
+      totalNodes: this.nodes.length,
+      communitiesFound: new Set(this.nodes.map(n => n.community)).size
+    });
+  }
+  
+  /**
+   * Assign communities based on graph connectivity (fallback method).
+   * @private
+   */
+  _assignConnectivityBasedCommunities() {
+    const visited = new Set();
+    let communityId = 0;
+    
+    // Build adjacency list
+    const adjacency = new Map();
+    this.nodes.forEach(node => adjacency.set(node.id, []));
+    
+    this.links.forEach(link => {
+      const sourceId = link.source.id || link.source;
+      const targetId = link.target.id || link.target;
+      
+      if (adjacency.has(sourceId)) adjacency.get(sourceId).push(targetId);
+      if (adjacency.has(targetId)) adjacency.get(targetId).push(sourceId);
+    });
+    
+    // BFS to find connected components
+    const bfs = (startId) => {
+      const queue = [startId];
+      const component = [];
+      visited.add(startId);
+      
+      while (queue.length > 0) {
+        const nodeId = queue.shift();
+        component.push(nodeId);
+        
+        const neighbors = adjacency.get(nodeId) || [];
+        neighbors.forEach(neighborId => {
+          if (!visited.has(neighborId)) {
+            visited.add(neighborId);
+            queue.push(neighborId);
+          }
+        });
+      }
+      
+      return component;
+    };
+    
+    // Assign communities
+    this.nodes.forEach(node => {
+      if (!visited.has(node.id)) {
+        const component = bfs(node.id);
+        component.forEach(nodeId => {
+          const n = this.nodes.find(x => x.id === nodeId);
+          if (n) n.community = `cluster_${communityId}`;
+        });
+        communityId++;
+      }
+    });
   }
   
   /**
@@ -266,31 +371,83 @@ export class GraphVisualizer {
   }
   
   /**
-   * Initialize D3 force simulation.
+   * Initialize D3 force simulation with community-based clustering.
    * @private
    */
   _initializeSimulation() {
+    // Calculate community centers for clustering
+    const communities = new Set(this.nodes.map(n => n.community));
+    const communityCount = communities.size;
+    const clusterCenters = new Map();
+    
+    // Arrange clusters in a circular pattern
+    const radius = Math.min(this.width, this.height) * 0.35;
+    const centerX = this.width / 2;
+    const centerY = this.height / 2;
+    
+    Array.from(communities).forEach((community, i) => {
+      const angle = (2 * Math.PI * i) / communityCount;
+      clusterCenters.set(community, {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle)
+      });
+    });
+    
+    // Custom clustering force to pull nodes toward their community center
+    const clusterForce = () => {
+      const alpha = this.simulation.alpha();
+      const strength = 0.15 * alpha; // Adaptive strength
+      
+      this.nodes.forEach(node => {
+        const center = clusterCenters.get(node.community);
+        if (center) {
+          node.vx += (center.x - node.x) * strength;
+          node.vy += (center.y - node.y) * strength;
+        }
+      });
+    };
+    
     this.simulation = d3.forceSimulation(this.nodes)
       .force('link', d3.forceLink(this.links)
         .id(d => d.id)
-        .distance(120)
-        .strength(0.5))
+        .distance(d => {
+          // Shorter links within same community, longer between communities
+          const source = d.source;
+          const target = d.target;
+          const sameCommunity = source.community === target.community;
+          return sameCommunity ? 60 : 150;
+        })
+        .strength(d => {
+          // Stronger links within same community
+          const source = d.source;
+          const target = d.target;
+          const sameCommunity = source.community === target.community;
+          return sameCommunity ? 0.8 : 0.3;
+        }))
       .force('charge', d3.forceManyBody()
-        .strength(-800)
-        .distanceMax(300))
+        .strength(d => {
+          // Community nodes have stronger repulsion
+          return d.label === '__Community__' ? -1200 : -600;
+        })
+        .distanceMax(250))
       .force('center', d3.forceCenter(this.width / 2, this.height / 2))
       .force('collision', d3.forceCollide()
-        .radius(d => d.size + 10)
-        .strength(0.7))
-      .alphaDecay(0.02)
-      .velocityDecay(0.3);
+        .radius(d => d.size + 15)
+        .strength(0.8))
+      .force('cluster', clusterForce)
+      .alphaDecay(0.015)
+      .velocityDecay(0.4);
   }
   
   /**
-   * Render the graph with premium visuals.
+   * Render the graph with premium visuals including cluster boundaries.
    * @private
    */
   _renderGraph() {
+    // Create cluster hulls (visual boundaries for communities)
+    const hullGroup = this.mainGroup.append('g').attr('class', 'hulls');
+    this._renderClusterHulls(hullGroup);
+    
     // Create link elements
     const linkGroup = this.mainGroup.append('g').attr('class', 'links');
     
@@ -300,7 +457,14 @@ export class GraphVisualizer {
       .append('line')
       .attr('stroke', d => d.color)
       .attr('stroke-width', d => d.width)
-      .attr('stroke-opacity', 0.6)
+      .attr('stroke-opacity', d => {
+        // Make IN_COMMUNITY links more visible
+        return d.type === 'IN_COMMUNITY' ? 0.8 : 0.6;
+      })
+      .attr('stroke-dasharray', d => {
+        // Dashed lines for IN_COMMUNITY relationships
+        return d.type === 'IN_COMMUNITY' ? '5,5' : 'none';
+      })
       .attr('class', 'graph-link');
     
     // Create node group
@@ -371,6 +535,9 @@ export class GraphVisualizer {
     
     // Update positions on simulation tick
     this.simulation.on('tick', () => {
+      // Update cluster hulls
+      this._updateClusterHulls(hullGroup);
+      
       linkElements
         .attr('x1', d => d.source.x)
         .attr('y1', d => d.source.y)
@@ -383,6 +550,128 @@ export class GraphVisualizer {
     // Store elements for later use
     this.nodeElements = nodeElements;
     this.linkElements = linkElements;
+  }
+  
+  /**
+   * Render cluster hulls (visual boundaries for communities).
+   * @private
+   */
+  _renderClusterHulls(hullGroup) {
+    // Group nodes by community
+    const communities = new Map();
+    this.nodes.forEach(node => {
+      if (!communities.has(node.community)) {
+        communities.set(node.community, []);
+      }
+      communities.get(node.community).push(node);
+    });
+    
+    // Create hull paths for each community with 3+ nodes
+    const hullData = Array.from(communities.entries())
+      .filter(([_, nodes]) => nodes.length >= 3)
+      .map(([community, nodes]) => ({ community, nodes }));
+    
+    this.hullPaths = hullGroup.selectAll('path')
+      .data(hullData)
+      .enter()
+      .append('path')
+      .attr('class', 'cluster-hull')
+      .attr('fill', (d, i) => {
+        // Generate subtle colors for clusters
+        const hue = (i * 137.5) % 360; // Golden angle for color distribution
+        return `hsla(${hue}, 60%, 85%, 0.3)`;
+      })
+      .attr('stroke', (d, i) => {
+        const hue = (i * 137.5) % 360;
+        return `hsla(${hue}, 60%, 70%, 0.5)`;
+      })
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '8,4')
+      .style('pointer-events', 'none');
+  }
+  
+  /**
+   * Update cluster hulls on each tick.
+   * @private
+   */
+  _updateClusterHulls(hullGroup) {
+    if (!this.hullPaths) return;
+    
+    this.hullPaths.attr('d', d => {
+      const points = d.nodes.map(n => [n.x, n.y]);
+      if (points.length < 3) return null;
+      
+      // Calculate convex hull using gift wrapping algorithm
+      const hull = this._convexHull(points);
+      if (hull.length < 3) return null;
+      
+      // Expand hull slightly for padding
+      const centroid = hull.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0])
+        .map(v => v / hull.length);
+      
+      const expandedHull = hull.map(p => {
+        const dx = p[0] - centroid[0];
+        const dy = p[1] - centroid[1];
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const padding = 40; // Padding around nodes
+        return [
+          p[0] + (dx / dist) * padding,
+          p[1] + (dy / dist) * padding
+        ];
+      });
+      
+      // Create smooth curve through hull points
+      return this._smoothHullPath(expandedHull);
+    });
+  }
+  
+  /**
+   * Calculate convex hull using gift wrapping algorithm.
+   * @private
+   */
+  _convexHull(points) {
+    if (points.length < 3) return points;
+    
+    // Find leftmost point
+    let leftmost = 0;
+    for (let i = 1; i < points.length; i++) {
+      if (points[i][0] < points[leftmost][0]) leftmost = i;
+    }
+    
+    const hull = [];
+    let current = leftmost;
+    
+    do {
+      hull.push(points[current]);
+      let next = (current + 1) % points.length;
+      
+      for (let i = 0; i < points.length; i++) {
+        const cross = (points[next][0] - points[current][0]) * (points[i][1] - points[current][1]) -
+                      (points[next][1] - points[current][1]) * (points[i][0] - points[current][0]);
+        if (cross < 0) next = i;
+      }
+      
+      current = next;
+    } while (current !== leftmost && hull.length < points.length);
+    
+    return hull;
+  }
+  
+  /**
+   * Create smooth path through hull points using cardinal spline.
+   * @private
+   */
+  _smoothHullPath(points) {
+    if (points.length < 3) return null;
+    
+    // Close the path
+    const closed = [...points, points[0]];
+    
+    // Use D3's curve generator for smooth paths
+    const line = d3.line()
+      .curve(d3.curveCatmullRomClosed.alpha(0.5));
+    
+    return line(closed);
   }
   
   /**

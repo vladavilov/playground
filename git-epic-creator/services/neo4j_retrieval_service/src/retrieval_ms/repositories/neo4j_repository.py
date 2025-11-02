@@ -365,10 +365,13 @@ class Neo4jRepository:
             end_id = dict(end_node).get("id", str(end_node.element_id if hasattr(end_node, 'element_id') else end_node.id))
             
             if rel:
+                # Extract relationship type from Neo4j relationship object
+                # Neo4j relationship objects have a 'type' attribute that contains the relationship type string
+                extracted_type = rel.type if hasattr(rel, 'type') else type(rel).__name__
                 return {
                     "source": start_id,
                     "target": end_id,
-                    "type": type(rel).__name__ if hasattr(type(rel), '__name__') else "RELATED",
+                    "type": extracted_type,
                     "properties": dict(rel) if rel else {}
                 }
             elif rel_type:
