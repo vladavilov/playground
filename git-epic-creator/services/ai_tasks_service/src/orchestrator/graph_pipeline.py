@@ -8,6 +8,7 @@ import asyncio
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 
@@ -91,6 +92,7 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         auth_header: str
         gitlab_token: str
         gitlab_project_ids: list[str]
+        previous_backlog: Any  # Previous GeneratedBacklogBundle for conversation continuity
 
     # Initialize experts
     analyst = RequirementsAnalyst()
@@ -110,7 +112,11 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             details_md="**Workflow Initialization**\nStarting requirements analysis pipeline.",
         )
         incoming_msgs = state.get("messages") or []
-        if incoming_msgs:
+        has_previous_backlog = state.get("previous_backlog") is not None
+        
+        # Only trim messages for new conversations (no previous backlog)
+        # For refinement conversations, preserve full history
+        if incoming_msgs and not has_previous_backlog:
             trimmed = trim_messages(
                 incoming_msgs,
                 strategy="last",
@@ -120,7 +126,9 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
                 end_on=("human", "tool"),
             )
         else:
+            # Preserve all messages for conversation continuity
             trimmed = incoming_msgs
+        
         return {
             "iteration": [0],
             "target": target,
@@ -721,9 +729,11 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
     builder.add_edge("finalize", END)
     builder.add_edge("clarify", END)
 
-    # PERFORMANCE: No checkpointer = no state serialization overhead between nodes
-    # Workflow is single-shot (no mid-execution persistence needed)
-    graph = builder.compile()
+    # Conversation persistence using InMemorySaver for multi-turn refinement
+    # Matches pattern from ai_requirements_service
+    checkpointer = InMemorySaver()
+    
+    graph = builder.compile(checkpointer=checkpointer)
     return graph
 
 

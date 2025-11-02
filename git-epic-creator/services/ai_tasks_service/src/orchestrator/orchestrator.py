@@ -40,6 +40,32 @@ async def run_backlog_workflow(
 
     # Create/resolve prompt_id
     prompt_id_local = prompt_id_opt or uuid4()
+    thread_id = f"{project_id}:{prompt_id_local}"
+    
+    # Load previous conversation if prompt_id exists (for conversation continuity)
+    previous_backlog = None
+    existing_messages = []
+    
+    if prompt_id_opt:
+        # Create graph temporarily to access checkpointer
+        graph = await lg_pipeline.create_backlog_graph(publisher, target=target, max_iters=max_iters)
+        config_dict = {"configurable": {"thread_id": thread_id}}
+        
+        try:
+            state_snapshot = await graph.aget_state(config_dict)
+            if state_snapshot and state_snapshot.values:
+                existing_messages = state_snapshot.values.get("messages", [])
+                previous_result = state_snapshot.values.get("result")
+                if isinstance(previous_result, GeneratedBacklogBundle):
+                    previous_backlog = previous_result
+                logger.info(
+                    "loaded_previous_state",
+                    thread_id=thread_id,
+                    message_count=len(existing_messages),
+                    has_previous_backlog=previous_backlog is not None,
+                )
+        except Exception as e:
+            logger.warning("failed_to_load_previous_state", error=str(e), thread_id=thread_id)
     
     # Fetch gitlab_project_ids from project_management_service
     project_client = ProjectClient(
@@ -75,10 +101,11 @@ async def run_backlog_workflow(
         )
         # Continue workflow without GitLab integration rather than failing
     
-    # Build initial message
-    msgs: List[dict] = [{"role": "user", "content": requirements}]
+    # Build messages list: previous messages + new message
+    msgs: List[dict] = existing_messages.copy() if existing_messages else []
+    msgs.append({"role": "user", "content": requirements})
     
-    # Run LangGraph pipeline
+    # Run LangGraph pipeline with conversation context
     graph = await lg_pipeline.create_backlog_graph(publisher, target=target, max_iters=max_iters)
     result_state = await graph.ainvoke(
         {
@@ -89,8 +116,9 @@ async def run_backlog_workflow(
             "auth_header": auth_header,
             "gitlab_token": gitlab_token,
             "gitlab_project_ids": gitlab_project_ids,
+            "previous_backlog": previous_backlog,
         },
-        {"configurable": {"thread_id": f"{project_id}:{prompt_id_local}"}},
+        {"configurable": {"thread_id": thread_id}},
     )
     
     bundle = result_state.get("result")
