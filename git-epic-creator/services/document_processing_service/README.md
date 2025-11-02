@@ -386,6 +386,7 @@ The service implements comprehensive exception handling to prevent silent task f
    - Explicit try-except wrapper catches all processor exceptions
    - Failed documents are tracked separately and processing continues for remaining documents
    - Full exception context logged with `exc_info=True` for stack traces
+   - **Error Summary Generation**: Collects error messages from all failed documents and builds a comprehensive error summary that is included in the final status update to Project Management Service
 
 2. **Docling Processor Layer** (`docling_processor.py`):
    - Specific handlers for `requests.exceptions.Timeout`, `ConnectionError`, `HTTPError`, `RequestException`
@@ -398,6 +399,7 @@ The service implements comprehensive exception handling to prevent silent task f
    - Celery hard time limit: 3600s (1 hour) prevents indefinite hangs
    - `SoftTimeLimitExceeded` exception handled explicitly
    - Generic exception handler logs full context
+   - **Error Reporting**: Sends final status update with `error_message` field when partial failures occur, allowing UI to display specific error information even when some documents succeeded
 
 #### Timeout Configuration
 - **VLM API Timeout**: `DOCLING_VLM_TIMEOUT` (default 90s) - Controls remote VLM API call timeout
@@ -417,13 +419,23 @@ When investigating failures, look for these log events:
 - `FALLBACK_TIKA_ALSO_EMPTY` - Tika fallback also returned minimal text
 - `FALLBACK_TIKA_FAILED` / `FALLBACK_TIKA_EXCEPTION` - Tika fallback error
 - `DOCLING_VLM_API_TIMEOUT` - Remote VLM API call timed out
-- `DOCLING_VLM_API_CONNECTION_ERROR` - Network/DNS issues
+- `DOCLING_VLM_API_CONNECTION_ERROR` - Network/DNS issues (e.g., host resolution failures)
 - `DOCLING_VLM_API_HTTP_ERROR` - HTTP errors (401, 403, 429, 500)
 - `DOCLING_PROCESSING_FAILED` - Unexpected processor failure
 - `TASK_SOFT_TIMEOUT` - Task exceeded 55-minute soft limit
 - `TASK_EXECUTION_FAILED` - Task-level exception
+- `PROJECT PROCESSING COMPLETED` - Final summary with counts of processed/failed/empty documents and error summary
 
 All error logs include full exception details (`exc_info=True`) with stack traces and VLM configuration context.
+
+#### Error Reporting to UI
+When document processing completes with failures:
+- **Partial Failures**: If some documents succeed but others fail, the service sends a final status update to Project Management Service with `status="active"` and includes `error_message` containing:
+  - Count of failed and empty documents
+  - Specific error messages from up to 5 failed documents
+  - Example: "3 document(s) failed processing; 2 document(s) had empty content. Errors: file1.pdf: VLM API connection error: [Errno 11001] getaddrinfo failed; file2.docx: Processing timeout"
+- **Total Failures**: If all documents fail, the service sends `status="rag_failed"` with comprehensive error message
+- **UI Display**: The Project Management Service publishes these updates via Redis pub/sub to the UI, which displays them in the project logs panel and status indicators
 
 ### Operational notes
 - Subscriber uses consumer group `document_processors` on `task_streams:document_processing` and enqueues Celery with `process_project_documents_task(project_id)`.

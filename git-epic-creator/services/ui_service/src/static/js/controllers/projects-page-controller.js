@@ -345,10 +345,10 @@ class ProjectsPageController extends BasePageController {
       const nextStatus = (msg?.status || '').toLowerCase();
       const pctVal = Number.isFinite(msg?.processed_pct) ? msg.processed_pct : null;
       
-      // Update project in list (match against gitlab_backlog_project_ids)
+      // Update project in list (match against project.id - Project Management Service UUID)
       for (const project of this.state.projects) {
-        const gitlabIds = project.gitlab_backlog_project_ids || [];
-        if (!gitlabIds.includes(idStr)) continue;
+        // Compare project_id from message against project.id from Project Management Service
+        if (String(project.id) !== idStr) continue;
         
         let changed = false;
         if (nextStatus && nextStatus !== (project.status || '').toLowerCase()) {
@@ -380,18 +380,15 @@ class ProjectsPageController extends BasePageController {
       }
       
       // Update upload panel if selected project matches
-      if (this.selectedProject) {
-        const selectedGitlabIds = this.selectedProject.gitlab_backlog_project_ids || [];
-        if (selectedGitlabIds.includes(idStr)) {
-          const stepLabel = (msg.process_step && String(msg.process_step).trim() !== '') 
-            ? String(msg.process_step) 
-            : (nextStatus || 'unknown');
-          
-          const safePct = pctVal != null ? Math.max(0, Math.min(100, Math.round(pctVal))) : null;
-          
-          this.uploadPanel.updateProgress(stepLabel, safePct, nextStatus);
-          this.uploadPanel.appendLog(stepLabel);
-        }
+      if (this.selectedProject && String(this.selectedProject.id) === idStr) {
+        const stepLabel = (msg.process_step && String(msg.process_step).trim() !== '') 
+          ? String(msg.process_step) 
+          : (nextStatus || 'unknown');
+        
+        const safePct = pctVal != null ? Math.max(0, Math.min(100, Math.round(pctVal))) : null;
+        
+        this.uploadPanel.updateProgress(stepLabel, safePct, nextStatus);
+        this.uploadPanel.appendLog(stepLabel);
       }
     } catch (err) {
       console.error('Failed to handle project progress:', err);

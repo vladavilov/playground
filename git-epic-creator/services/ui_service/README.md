@@ -505,7 +505,7 @@ sequenceDiagram
 **SSE Event Subscription** - Listens to channels with event types:
 
 Channels:
-- `ui:project_progress` - General project updates
+- `ui:project_progress` - General project updates (document processing, RAG ingestion, etc.)
 - `ui:ai_requirements_progress` - Requirements gathering
 - `ui:ai_tasks_progress` - Task generation
 
@@ -524,6 +524,12 @@ Event types:
 - Status badges update in real-time
 - Thought streams append to active thinking box
 - Automatic scrolling to latest updates
+
+**Project Progress Matching**:
+- The `project_progress` event handler in `projects-page-controller.js` matches `msg.project_id` against `project.id` (both are Project Management Service UUIDs)
+- This ensures document processing and RAG ingestion status updates are properly displayed in the project logs panel
+- Upload panel shows real-time progress with percentage complete and status messages
+- Error messages from failed document processing are displayed in the logs panel with specific failure details
 
 ### State Management
 

@@ -213,6 +213,8 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
             # Only trigger ingestion if there are valid documents with content
             processed_count = result.get("processed_documents", 0)
             empty_count = result.get("empty_documents", 0)
+            failed_count = result.get("failed_documents", 0)
+            error_summary = result.get("error_summary", None)
             
             if processed_count > 0:
                 # We have valid documents with content - trigger ingestion
@@ -237,6 +239,30 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                         client=sync_client,
                         enqueue=_enqueue_ingestion,
                     )
+                    
+                    # If there were partial failures, send final status update with error info
+                    if error_summary:
+                        logger.info(
+                            "Sending final status update with partial failure information",
+                            project_id=project_id,
+                            processed_count=processed_count,
+                            failed_count=failed_count,
+                            empty_count=empty_count
+                        )
+                        try:
+                            async def _update_status_with_errors():
+                                async with ProjectManagementClient() as client:
+                                    await client.update_project_status(
+                                        project_id=project_id,
+                                        status="active",
+                                        error_message=error_summary,
+                                        process_step=f"Processed {processed_count} documents with {failed_count + empty_count} failures",
+                                        authorization_header=auth_header,
+                                    )
+                            run_async(_update_status_with_errors())
+                        except Exception as status_error:
+                            logger.error('Failed to update project status with error summary', error=str(status_error))
+                            
                 except Exception as pub_error:
                     logger.error('Failed to enqueue ingestion task', error=str(pub_error))
             else:
@@ -245,13 +271,13 @@ def process_project_documents_task(self, project_id: str) -> Dict[str, Any]:
                     "Skipping ingestion trigger - no valid documents with content",
                     project_id=project_id,
                     empty_documents=empty_count,
-                    failed_documents=result.get("failed_documents", 0),
+                    failed_documents=failed_count,
                     total_documents=result.get("total_documents", 0)
                 )
                 
                 # Update project status to indicate empty content issue
                 try:
-                    error_message = f"All documents ({empty_count}) have empty or whitespace-only content"
+                    error_message = error_summary or f"All documents ({empty_count}) have empty or whitespace-only content"
                     async def _update_status():
                         async with ProjectManagementClient() as client:
                             await client.update_project_status(

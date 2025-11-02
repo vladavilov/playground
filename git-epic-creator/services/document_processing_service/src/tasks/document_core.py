@@ -7,7 +7,7 @@ so it can be tested with lightweight fakes without patching Celery or asyncio.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable
 from pathlib import Path
 import json
 from uuid import UUID
@@ -19,7 +19,7 @@ import structlog
 Logger = structlog.stdlib.BoundLogger
 
 
-def _extract_filtered_metadata(raw_metadata: Dict[str, Any], filename: str) -> Dict[str, Any]:
+def _extract_filtered_metadata(raw_metadata: dict[str, Any], filename: str) -> dict[str, Any]:
     """
     Extract and filter relevant metadata for GraphRAG ingestion.
     
@@ -86,9 +86,9 @@ def process_project_documents_core(
     project_id: str,
     blob_client: Any,
     document_processor: Any,
-    send_progress_update: Callable[[str, int, int], Dict[str, Any]],
+    send_progress_update: Callable[[str, int, int], dict[str, Any]],
     logger: Logger | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Process all documents for a project from blob storage.
 
@@ -126,12 +126,13 @@ def process_project_documents_core(
             "error_message": error_msg,
         }
 
-    file_list: List[str] = getattr(list_result, "file_list", []) or []
+    file_list: list[str] = getattr(list_result, "file_list", []) or []
     total_documents = len(file_list)
     processed_documents = 0
     failed_documents = 0
     empty_documents = 0
-    documents_for_ingestion: List[Dict[str, Any]] = []
+    documents_for_ingestion: list[dict[str, Any]] = []
+    error_messages: list[str] = []  # Track error messages for failed documents
 
     if total_documents == 0:
         log.info(
@@ -181,6 +182,8 @@ def process_project_documents_core(
             download_result = blob_client.download_file(blob_name, temp_file_path, project_id=project_uuid)
             if not getattr(download_result, "success", False):
                 failed_documents += 1
+                error_msg = f"{blob_name}: Download failed - {getattr(download_result, 'error_message', 'unknown error')}"
+                error_messages.append(error_msg)
                 log.error("Failed to download file", blob_name=blob_name, error=getattr(download_result, "error_message", None))
                 continue
 
@@ -199,6 +202,8 @@ def process_project_documents_core(
             except Exception as proc_exc:
                 # Catch ANY exception from the processor to prevent silent task loss
                 failed_documents += 1
+                error_msg = f"{blob_name}: {type(proc_exc).__name__}: {str(proc_exc)}"
+                error_messages.append(error_msg)
                 log.error(
                     "DOCUMENT_PROCESSING_EXCEPTION",
                     blob_name=blob_name,
@@ -281,6 +286,8 @@ def process_project_documents_core(
                     log.error("Exception while uploading output JSON", error=str(upload_exc))
             else:
                 failed_documents += 1
+                error_msg = f"{blob_name}: {getattr(processing_result, 'error_message', 'Processing failed')}"
+                error_messages.append(error_msg)
                 log.error("Document processing failed", blob_name=blob_name, error=getattr(processing_result, "error_message", None))
 
             # Progress update
@@ -350,6 +357,22 @@ def process_project_documents_core(
         already_deleted_count=already_deleted_count,
     )
 
+    # Build error summary if there were failures
+    error_summary = None
+    if failed_documents > 0 or empty_documents > 0:
+        parts = []
+        if failed_documents > 0:
+            parts.append(f"{failed_documents} document(s) failed processing")
+        if empty_documents > 0:
+            parts.append(f"{empty_documents} document(s) had empty content")
+        error_summary = "; ".join(parts)
+        
+        # Include specific error messages (limit to first 5 to avoid huge messages)
+        if error_messages:
+            error_summary += f". Errors: {'; '.join(error_messages[:5])}"
+            if len(error_messages) > 5:
+                error_summary += f" (and {len(error_messages) - 5} more)"
+
     return {
         "success": True,
         "project_id": project_id,
@@ -357,6 +380,7 @@ def process_project_documents_core(
         "processed_documents": processed_documents,
         "failed_documents": failed_documents,
         "empty_documents": empty_documents,
+        "error_summary": error_summary,
         "documents_for_ingestion": documents_for_ingestion,
         "cleanup": {
             "deleted_count": deleted_count,

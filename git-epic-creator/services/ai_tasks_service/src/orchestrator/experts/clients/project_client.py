@@ -1,6 +1,6 @@
 """HTTP client for Project Management service."""
 
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from uuid import UUID
 import httpx
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
@@ -100,7 +100,7 @@ class ProjectClient:
         self,
         project_id: UUID,
         auth_header: str | None = None,
-    ) -> List[str]:
+    ) -> list[str]:
         """Fetch all gitlab_backlog_project_ids for a project.
         
         Projects support multiple GitLab backlog projects for comprehensive

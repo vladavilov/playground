@@ -1,40 +1,31 @@
 /**
  * TypewriterBox Component
  * 
- * Creates a reusable thinking box with typewriter effect for agent messages.
- * Uses marked.js for markdown-to-HTML conversion and TypewriterJS for typing animation.
+ * Creates a reusable thinking box with typewriter effect for markdown messages.
  * 
  * @module components/typewriter-box
  */
 
 'use strict';
 
-import { escapeHtml, scrollToBottom, smartScrollToBottom } from '../utils/dom-helpers.js';
+import { scrollToBottom, smartScrollToBottom } from '../utils/dom-helpers.js';
 import { renderMarkdown } from '../utils/markdown-renderer.js';
 
-/**
- * Creates a reusable thinking box with typewriter effect for agent messages.
- * Displays text character by character with smooth cursor effect.
- */
 export class TypewriterBox {
   constructor(containerElement, promptId = null) {
     this.containerElement = containerElement;
     this.promptId = promptId;
-    this.element = null;
-    this.messagesContainer = null;
-    this.summaryLabel = null;
-    this.summaryIcon = null;
     this.startedAt = Date.now();
     this.messageQueue = [];
     this.isTyping = false;
     this.currentTypewriter = null;
     this.currentContainer = null;
+    this.currentMessage = null;
     
     this._createElements();
   }
   
   _createElements() {
-    // Create details/summary structure
     const wrap = document.createElement('details');
     wrap.className = 'thinking-box border border-indigo-200 rounded-lg p-4 bg-indigo-50/50 backdrop-blur-sm my-3';
     wrap.open = true;
@@ -54,7 +45,6 @@ export class TypewriterBox {
     const messages = document.createElement('div');
     messages.className = 'mt-3 space-y-1.5 text-sm text-slate-600 break-words overflow-hidden';
     
-    // Create animated thinking footer
     const thinkingFooter = document.createElement('div');
     thinkingFooter.className = 'thinking-footer mt-3 pt-3 border-t border-indigo-200/50 flex items-center justify-center gap-2 opacity-70';
     
@@ -67,7 +57,6 @@ export class TypewriterBox {
     
     thinkingFooter.appendChild(spinner);
     thinkingFooter.appendChild(thinkingText);
-    
     wrap.appendChild(summary);
     wrap.appendChild(messages);
     wrap.appendChild(thinkingFooter);
@@ -83,91 +72,58 @@ export class TypewriterBox {
   }
   
   setPromptId(newId) {
-    if (newId) {
-      this.promptId = newId;
-    }
+    if (newId) this.promptId = newId;
   }
   
-  /**
-   * Removes cursor from container
-   * Handles both custom cursor class and Typewriter library's cursor
-   */
   _removeCursor(container) {
     if (!container) return;
     
-    // Try to find and remove custom cursor class inside container
-    const customCursor = container.querySelector('.typewriter-cursor');
-    if (customCursor) {
-      customCursor.remove();
+    container.querySelectorAll('.Typewriter__cursor, .typewriter-cursor').forEach(c => c.remove());
+    
+    if (container.nextSibling?.nodeType === 1 && 
+        container.nextSibling.classList?.contains('Typewriter__cursor')) {
+      container.nextSibling.remove();
     }
     
-    // Try to find and remove Typewriter library's cursor class inside container
-    const libraryCursor = container.querySelector('.Typewriter__cursor');
-    if (libraryCursor) {
-      libraryCursor.remove();
-    }
-    
-    // Check for cursor as next sibling (library sometimes adds it as sibling)
-    if (container.nextSibling) {
-      const nextEl = container.nextSibling;
-      if (nextEl.nodeType === 1) { // Element node
-        if (nextEl.classList && (nextEl.classList.contains('Typewriter__cursor') || nextEl.classList.contains('typewriter-cursor'))) {
-          nextEl.remove();
-        }
-      }
-    }
-    
-    // Comprehensive cleanup: find all cursors in parent container
     if (container.parentElement) {
-      const allCursors = container.parentElement.querySelectorAll('.Typewriter__cursor, .typewriter-cursor');
-      allCursors.forEach(cursor => {
-        // Only remove if it's related to this container or has no content
-        if (!cursor.previousSibling || cursor.previousSibling === container || cursor.textContent.trim() === '▎' || cursor.textContent.trim() === '|') {
+      container.parentElement.querySelectorAll('.Typewriter__cursor, .typewriter-cursor').forEach(cursor => {
+        const text = cursor.textContent.trim();
+        if (!cursor.previousSibling || cursor.previousSibling === container || text === '▎' || text === '|') {
           cursor.remove();
         }
       });
     }
   }
   
-  /**
-   * Appends markdown text with typewriter effect.
-   * Uses marked.js to convert markdown to HTML, then TypewriterJS to animate.
-   */
   appendMarkdown(md) {
     if (!md) return;
     
-    // Create message container
     const messageDiv = document.createElement('div');
     messageDiv.className = 'typewriter-message break-words';
     this.messagesContainer.appendChild(messageDiv);
     
-    // Add to queue and process
-    this.messageQueue.push({
-      text: String(md),
-      container: messageDiv,
-      isMarkdown: true
-    });
+    this.messageQueue.push({ text: String(md), container: messageDiv });
+    
+    if (this.isTyping && this.currentTypewriter) {
+      this._finishCurrentMessage();
+    }
     
     this._processQueue();
   }
   
-  /**
-   * Appends plain text stream with typewriter effect.
-   */
-  appendStream(text) {
-    if (!text) return;
+  _finishCurrentMessage() {
+    if (!this.currentTypewriter || !this.currentContainer) return;
     
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'text-xs text-slate-500 break-words typewriter-message';
-    this.messagesContainer.appendChild(messageDiv);
+    this.currentTypewriter.stop();
     
-    this.messageQueue.push({
-      text: String(text),
-      container: messageDiv,
-      isMarkdown: false
-    });
+    if (this.currentMessage) {
+      this.currentMessage.container.innerHTML = renderMarkdown(this.currentMessage.text, { inline: true });
+    }
     
-    this._processQueue();
+    this._removeCursor(this.currentContainer);
+    this.currentTypewriter = null;
+    this.currentMessage = null;
+    this.isTyping = false;
   }
   
   async _processQueue() {
@@ -184,90 +140,60 @@ export class TypewriterBox {
   }
   
   async _typeMessage(message) {
-    const { text, container, isMarkdown } = message;
+    const { text, container } = message;
+    this.currentMessage = message;
     
     return new Promise((resolve) => {
-      try {
-        // Remove cursor from previous container
-        if (this.currentContainer && this.currentContainer !== container) {
-          this._removeCursor(this.currentContainer);
-        }
-        this.currentContainer = container;
-        
-        // Convert markdown to HTML if needed
-        let htmlContent = text;
-        if (isMarkdown) {
-          // Use centralized markdown renderer with inline mode
-          htmlContent = renderMarkdown(text, { inline: true });
-        }
-        
-        // Check if TypewriterJS is available
-        if (typeof Typewriter === 'undefined') {
-          // Fallback: display instantly if TypewriterJS not loaded
-          console.warn('[TypewriterBox] TypewriterJS not loaded, displaying content instantly');
-          container.innerHTML = htmlContent;
-          scrollToBottom(this.containerElement);
-          resolve();
-          return;
-        }
-        
-        // Initial scroll (smart scroll - only if user is near bottom)
-        smartScrollToBottom(this.containerElement);
-        
-        // Periodically scroll during typing (smart scroll - respects user position)
-        const scrollInterval = setInterval(() => {
-          smartScrollToBottom(this.containerElement);
-        }, 150);
-        
-        // Create typewriter instance with proper options including onComplete callback
-        this.currentTypewriter = new Typewriter(container, {
-          loop: false,
-          delay: 0.1,
-          cursor: '▎', // Custom cursor
-          html: true
-        });
-        
-        // Type the HTML content
-        this.currentTypewriter
-          .typeString(htmlContent)
-          .callFunction(() => {
-            // Clear scroll interval and remove cursor after typing completes
-            clearInterval(scrollInterval);
-            this._removeCursor(container);
-            resolve();
-          })
-          .start();
-          
-      } catch (error) {
-        console.error('[TypewriterBox] Error in _typeMessage:', error);
-        // Emergency fallback: display escaped text
-        container.innerHTML = `<div class="text-rose-600 text-xs">Error displaying message: ${escapeHtml(error.message)}</div>`;
-        scrollToBottom(this.containerElement);
-        resolve();
+      if (this.currentContainer && this.currentContainer !== container) {
+        this._removeCursor(this.currentContainer);
       }
+      this.currentContainer = container;
+      
+      const htmlContent = renderMarkdown(text, { inline: true });
+      
+      if (typeof Typewriter === 'undefined') {
+        container.innerHTML = htmlContent;
+        scrollToBottom(this.containerElement);
+        this.currentMessage = null;
+        resolve();
+        return;
+      }
+      
+      smartScrollToBottom(this.containerElement);
+      
+      const scrollInterval = setInterval(() => smartScrollToBottom(this.containerElement), 150);
+      
+      this.currentTypewriter = new Typewriter(container, {
+        loop: false,
+        delay: 0.001,
+        natural: false,
+        cursor: '▎',
+        html: true
+      });
+      
+      this.currentTypewriter
+        .typeString(htmlContent)
+        .callFunction(() => {
+          clearInterval(scrollInterval);
+          this._removeCursor(container);
+          this.currentMessage = null;
+          resolve();
+        })
+        .start();
     });
   }
   
-  /**
-   * Marks the thinking box as finished.
-   * Immediately completes any ongoing typing animation and displays remaining text.
-   * @param {string} status - 'ok' or 'error'
-   */
   finish(status = 'ok') {
-    // Complete any pending messages immediately without animation
-    if (this.messageQueue.length > 0) {
-      this.messageQueue.forEach(msg => {
-        const { text, container, isMarkdown } = msg;
-        if (isMarkdown) {
-          container.innerHTML = renderMarkdown(text, { inline: true });
-        } else {
-          container.textContent = text;
-        }
-      });
-      this.messageQueue = [];
+    if (this.currentMessage) {
+      this.currentMessage.container.innerHTML = renderMarkdown(this.currentMessage.text, { inline: false });
+      this.currentMessage = null;
     }
     
-    // Stop any active typewriter and ensure typing is marked as complete
+    this.messageQueue.forEach(msg => {
+      msg.container.innerHTML = renderMarkdown(msg.text, { inline: true });
+    });
+    this.messageQueue = [];
+    
     if (this.currentTypewriter) {
       this.currentTypewriter.stop();
     }
@@ -279,26 +205,19 @@ export class TypewriterBox {
       ? 'inline-block w-2 h-2 rounded-full bg-emerald-500' 
       : 'inline-block w-2 h-2 rounded-full bg-rose-500';
     
-    // Remove any remaining cursors
     if (this.currentContainer) {
       this._removeCursor(this.currentContainer);
     }
-    // Also check all message containers for stray cursors
-    const allContainers = this.messagesContainer.querySelectorAll('.typewriter-message');
-    allContainers.forEach(container => this._removeCursor(container));
     
-    // Hide thinking footer
+    this.messagesContainer.querySelectorAll('.typewriter-message').forEach(c => this._removeCursor(c));
+    
     if (this.thinkingFooter) {
       this.thinkingFooter.style.display = 'none';
     }
     
-    // Close the details box
     this.element.open = false;
   }
   
-  /**
-   * Returns the underlying DOM element.
-   */
   getElement() {
     return this.element;
   }
