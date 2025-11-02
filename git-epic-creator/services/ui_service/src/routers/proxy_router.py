@@ -44,7 +44,9 @@ def _identify_target_service(path: str) -> str:
     Returns:
         Service identifier for audience claim
     """
-    if "/project" in path:
+    if "/neo4j" in path:
+        return "neo4j-retrieval-service"
+    elif "/project" in path:
         return "project-service"
     elif "/workflow" in path:
         return "workflow-service"
@@ -262,6 +264,7 @@ async def get_ui_config():
         "aiWorkflowApiBase": "/workflow",
         "aiTasksApiBase": "/tasks",
         "gitlabApiBase": "/gitlab",
+        "neo4jApiBase": "/neo4j",
         "gitlabAuthStatusPath": "/auth/gitlab/status",
         "gitlabAuthAuthorizePath": "/auth/gitlab/authorize",
         "progressChannel": UI_PROJECT_PROGRESS_CHANNEL,
@@ -326,6 +329,23 @@ async def proxy_gitlab_auth(request: Request, path: str):
         query_params["user_id"] = request.session.get("oid", "")
         target_url += f"?{urlencode(query_params)}"
     elif request.url.query:
+        target_url += f"?{request.url.query}"
+    
+    return await _forward(request, target_url)
+
+
+@router.get("/neo4j/project/{project_id}/graph")
+async def proxy_neo4j_project_graph(project_id: str, request: Request):
+    """
+    Proxy project graph visualization requests to neo4j-retrieval-service.
+    
+    This endpoint forwards graph visualization requests with proper S2S authentication.
+    """
+    retrieval_service_url = get_app_settings().http_client.GRAPH_RAG_SERVICE_URL.rstrip("/")
+    target_url = f"{retrieval_service_url}/retrieve/project/{project_id}/graph"
+    
+    # Forward query parameters (e.g., limit)
+    if request.url.query:
         target_url += f"?{request.url.query}"
     
     return await _forward(request, target_url)

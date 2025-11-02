@@ -19,6 +19,7 @@ import { ProjectList } from '../components/project-list.js';
 import { ProjectDetails } from '../components/project-details.js';
 import { UploadPanel } from '../components/upload-panel.js';
 import { ProjectModals } from '../components/project-modals.js';
+import { GraphVisualizer } from '../components/graph-visualizer.js';
 
 /**
  * Projects page controller.
@@ -39,6 +40,8 @@ class ProjectsPageController extends BasePageController {
     // This will be fully configured after initialize() runs
     this.projectApi = null;
     this.gitlabApi = null;
+    this.neo4jApi = null;
+    this.graphVisualizer = null;
   }
   
   /**
@@ -71,6 +74,13 @@ class ProjectsPageController extends BasePageController {
     elements.projectDetails = document.getElementById('projectDetails');
     elements.uploadSection = document.getElementById('uploadSection');
     
+    // Graph modal elements
+    elements.graphModal = document.getElementById('graphModal');
+    elements.graphContainer = document.getElementById('graphContainer');
+    elements.graphModalSubtitle = document.getElementById('graphModalSubtitle');
+    elements.graphLoadingOverlay = document.getElementById('graphLoadingOverlay');
+    elements.closeGraphModal = document.getElementById('closeGraphModal');
+    
     return elements;
   }
   
@@ -93,6 +103,13 @@ class ProjectsPageController extends BasePageController {
       this.state.config,
       () => this.handle401Error(),
       { baseUrl: gitlabBase, loadingManager: this.loadingManager }
+    );
+    
+    const neo4jBase = this.state.config.neo4jApiBase?.replace(/\/$/, '') || '/neo4j';
+    this.neo4jApi = new ApiClient(
+      this.state.config,
+      () => this.handle401Error(),
+      { baseUrl: neo4jBase, loadingManager: this.loadingManager }
     );
     
     // Initialize components
@@ -123,9 +140,19 @@ class ProjectsPageController extends BasePageController {
         onDelete: (p) => this.projectModals.openDeleteModal(p),
         onOpenRequirements: (p) => this._openRequirements(p),
         onOpenTasks: (p) => this._openTasks(p),
-        onCacheEmbeddings: (p) => this._handleCacheEmbeddings(p)
+        onCacheEmbeddings: (p) => this._handleCacheEmbeddings(p),
+        onViewGraph: (p) => this._handleViewGraph(p)
       }
     );
+    
+    // Graph visualizer component
+    this.graphVisualizer = new GraphVisualizer({
+      containerId: 'graphContainer',
+      onError: (err) => {
+        console.error('Graph visualization error:', err);
+        alert('Failed to visualize graph: ' + (err.message || 'Unknown error'));
+      }
+    });
     
     // Upload panel component
     this.uploadPanel = new UploadPanel(
@@ -162,6 +189,13 @@ class ProjectsPageController extends BasePageController {
     
     // Panel toggle for mobile
     this._setupPanelToggle();
+    
+    // Graph modal close handler
+    if (this.domElements.closeGraphModal) {
+      this.domElements.closeGraphModal.addEventListener('click', () => {
+        this._closeGraphModal();
+      });
+    }
   }
   
   /**
@@ -457,6 +491,119 @@ class ProjectsPageController extends BasePageController {
       
       const hideBtn = this.domElements.togglePanel;
       if (hideBtn) hideBtn.classList.add('lg:hidden');
+    }
+  }
+  
+  /**
+   * Handles viewing the knowledge graph for a project.
+   * @private
+   */
+  async _handleViewGraph(project) {
+    if (!project || !project.id) {
+      console.error('Cannot view graph: No project selected');
+      return;
+    }
+    
+    try {
+      // Show modal with loading state
+      this._openGraphModal(project);
+      
+      // Fetch graph data from backend
+      console.log('Fetching graph data for project:', project.id);
+      const graphData = await this.neo4jApi.get(`/project/${project.id}/graph`);
+      
+      // Update subtitle with stats
+      if (this.domElements.graphModalSubtitle) {
+        const stats = graphData.stats || {};
+        const nodeCount = stats.node_count || 0;
+        const relCount = stats.relationship_count || 0;
+        this.domElements.graphModalSubtitle.textContent = 
+          `${project.name} • ${nodeCount} nodes • ${relCount} relationships`;
+      }
+      
+      // Hide loading overlay
+      if (this.domElements.graphLoadingOverlay) {
+        this.domElements.graphLoadingOverlay.classList.add('hidden');
+      }
+      
+      // Render graph
+      await this.graphVisualizer.renderFromData(graphData);
+      
+      console.log('Graph visualization rendered successfully');
+      
+    } catch (error) {
+      console.error('Failed to load graph:', error);
+      
+      // Hide loading overlay
+      if (this.domElements.graphLoadingOverlay) {
+        this.domElements.graphLoadingOverlay.classList.add('hidden');
+      }
+      
+      // Show error in graph container
+      if (this.domElements.graphContainer) {
+        this.domElements.graphContainer.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #dc2626; text-align: center; padding: 2rem;">
+            <svg style="width: 64px; height: 64px; margin-bottom: 1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <h3 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem;">Failed to Load Graph</h3>
+            <p style="color: #64748b; max-width: 400px;">${ApiClient.formatError(error)}</p>
+            <button onclick="document.getElementById('closeGraphModal').click()" 
+                    style="margin-top: 1rem; padding: 0.5rem 1rem; background: #4f46e5; color: white; border-radius: 0.375rem; border: none; cursor: pointer;">
+              Close
+            </button>
+          </div>
+        `;
+      }
+    }
+  }
+  
+  /**
+   * Opens the graph visualization modal.
+   * @private
+   */
+  _openGraphModal(project) {
+    if (!this.domElements.graphModal) return;
+    
+    // Show modal
+    this.domElements.graphModal.classList.remove('hidden');
+    this.domElements.graphModal.classList.add('flex');
+    
+    // Show loading overlay
+    if (this.domElements.graphLoadingOverlay) {
+      this.domElements.graphLoadingOverlay.classList.remove('hidden');
+    }
+    
+    // Clear previous graph
+    if (this.domElements.graphContainer) {
+      this.domElements.graphContainer.innerHTML = '';
+    }
+    
+    // Set subtitle
+    if (this.domElements.graphModalSubtitle) {
+      this.domElements.graphModalSubtitle.textContent = 'Loading graph data...';
+    }
+  }
+  
+  /**
+   * Closes the graph visualization modal.
+   * @private
+   */
+  _closeGraphModal() {
+    if (!this.domElements.graphModal) return;
+    
+    // Hide modal
+    this.domElements.graphModal.classList.add('hidden');
+    this.domElements.graphModal.classList.remove('flex');
+    
+    // Clean up graph visualizer
+    if (this.graphVisualizer) {
+      this.graphVisualizer.destroy();
+    }
+    
+    // Clear container
+    if (this.domElements.graphContainer) {
+      this.domElements.graphContainer.innerHTML = '';
     }
   }
 }

@@ -217,4 +217,207 @@ class Neo4jRepository:
             })
         return result
 
+    def get_project_graph(self, project_id: str, limit: int = 500) -> Dict[str, Any]:
+        """
+        Fetch complete project graph for visualization.
+        
+        Returns all nodes and relationships related to a project, optimized for
+        graph visualization with Neovis.js. Includes project node, entities, 
+        documents, chunks, communities, and their relationships.
+        
+        Args:
+            project_id: Project UUID
+            limit: Maximum total nodes to return (default 500)
+        
+        Returns:
+            Dict with nodes, relationships, and statistics
+        """
+        # Query to fetch all nodes and relationships for the project
+        query = """
+        MATCH (p:__Project__ {id: $projectId})
+        
+        // Collect all node types
+        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(entity:__Entity__)
+        WITH p, collect(DISTINCT entity)[0..$limit] AS entities
+        
+        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(doc:__Document__)
+        WITH p, entities, collect(DISTINCT doc)[0..$limit] AS documents
+        
+        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(chunk:__Chunk__)
+        WITH p, entities, documents, collect(DISTINCT chunk)[0..$limit] AS chunks
+        
+        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(comm:__Community__)
+        WITH p, entities, documents, chunks, collect(DISTINCT comm)[0..$limit] AS communities
+        
+        // Collect relationships
+        UNWIND entities AS e
+        OPTIONAL MATCH (e)-[rel:RELATED]-(e2:__Entity__)-[:IN_PROJECT]->(p)
+        WITH p, entities, documents, chunks, communities, 
+             collect(DISTINCT {start: e, end: e2, rel: rel}) AS entity_rels
+        
+        UNWIND documents AS d
+        OPTIONAL MATCH (d)-[hc:HAS_CHUNK]->(chunk_target)
+        WHERE chunk_target IN chunks
+        WITH p, entities, documents, chunks, communities, entity_rels,
+             collect(DISTINCT {start: d, end: chunk_target, rel: hc}) AS doc_chunk_rels
+        
+        UNWIND chunks AS c
+        OPTIONAL MATCH (c)-[he:HAS_ENTITY]->(entity_target)
+        WHERE entity_target IN entities
+        WITH p, entities, documents, chunks, communities, entity_rels, doc_chunk_rels,
+             collect(DISTINCT {start: c, end: entity_target, rel: he}) AS chunk_entity_rels
+        
+        UNWIND entities + chunks AS node
+        OPTIONAL MATCH (node)-[ic:IN_COMMUNITY]->(comm_target)
+        WHERE comm_target IN communities
+        WITH p, entities, documents, chunks, communities, 
+             entity_rels, doc_chunk_rels, chunk_entity_rels,
+             collect(DISTINCT {start: node, end: comm_target, rel: ic}) AS comm_rels
+        
+        // Add IN_PROJECT relationships
+        WITH p, entities, documents, chunks, communities,
+             entity_rels, doc_chunk_rels, chunk_entity_rels, comm_rels,
+             [node IN entities + documents + chunks + communities | 
+              {start: node, end: p, type: 'IN_PROJECT'}] AS project_rels
+        
+        RETURN p, entities, documents, chunks, communities,
+               entity_rels, doc_chunk_rels, chunk_entity_rels, comm_rels, project_rels
+        """
+        
+        result = list(self._session.run(query, projectId=project_id, limit=limit))
+        
+        if not result:
+            return {
+                "nodes": [],
+                "relationships": [],
+                "stats": {
+                    "node_count": 0,
+                    "relationship_count": 0,
+                    "node_types": {}
+                }
+            }
+        
+        row = result[0]
+        
+        # Helper to extract node properties
+        def node_to_dict(node: Any, label: str) -> Dict[str, Any]:
+            if node is None:
+                return None
+            props = dict(node)
+            # Get Neo4j internal ID
+            node_id = str(node.element_id if hasattr(node, 'element_id') else node.id)
+            return {
+                "id": props.get("id", node_id),
+                "label": label,
+                "properties": props
+            }
+        
+        # Build nodes list
+        nodes = []
+        node_types = {}
+        
+        # Add project node
+        project_node = row.get("p")
+        if project_node:
+            nodes.append(node_to_dict(project_node, "__Project__"))
+            node_types["__Project__"] = 1
+        
+        # Add entities
+        for entity in (row.get("entities") or []):
+            if entity:
+                nodes.append(node_to_dict(entity, "__Entity__"))
+                node_types["__Entity__"] = node_types.get("__Entity__", 0) + 1
+        
+        # Add documents
+        for doc in (row.get("documents") or []):
+            if doc:
+                nodes.append(node_to_dict(doc, "__Document__"))
+                node_types["__Document__"] = node_types.get("__Document__", 0) + 1
+        
+        # Add chunks
+        for chunk in (row.get("chunks") or []):
+            if chunk:
+                nodes.append(node_to_dict(chunk, "__Chunk__"))
+                node_types["__Chunk__"] = node_types.get("__Chunk__", 0) + 1
+        
+        # Add communities
+        for comm in (row.get("communities") or []):
+            if comm:
+                nodes.append(node_to_dict(comm, "__Community__"))
+                node_types["__Community__"] = node_types.get("__Community__", 0) + 1
+        
+        # Build relationships list
+        relationships = []
+        
+        # Helper to extract relationship
+        def rel_to_dict(rel_data: Dict) -> Dict[str, Any]:
+            if not rel_data:
+                return None
+            start_node = rel_data.get("start")
+            end_node = rel_data.get("end")
+            rel = rel_data.get("rel")
+            rel_type = rel_data.get("type")
+            
+            if not start_node or not end_node:
+                return None
+            
+            start_id = dict(start_node).get("id", str(start_node.element_id if hasattr(start_node, 'element_id') else start_node.id))
+            end_id = dict(end_node).get("id", str(end_node.element_id if hasattr(end_node, 'element_id') else end_node.id))
+            
+            if rel:
+                return {
+                    "source": start_id,
+                    "target": end_id,
+                    "type": type(rel).__name__ if hasattr(type(rel), '__name__') else "RELATED",
+                    "properties": dict(rel) if rel else {}
+                }
+            elif rel_type:
+                return {
+                    "source": start_id,
+                    "target": end_id,
+                    "type": rel_type,
+                    "properties": {}
+                }
+            return None
+        
+        # Add entity relationships
+        for rel_data in (row.get("entity_rels") or []):
+            rel_dict = rel_to_dict(rel_data)
+            if rel_dict:
+                relationships.append(rel_dict)
+        
+        # Add document-chunk relationships
+        for rel_data in (row.get("doc_chunk_rels") or []):
+            rel_dict = rel_to_dict(rel_data)
+            if rel_dict:
+                relationships.append(rel_dict)
+        
+        # Add chunk-entity relationships
+        for rel_data in (row.get("chunk_entity_rels") or []):
+            rel_dict = rel_to_dict(rel_data)
+            if rel_dict:
+                relationships.append(rel_dict)
+        
+        # Add community relationships
+        for rel_data in (row.get("comm_rels") or []):
+            rel_dict = rel_to_dict(rel_data)
+            if rel_dict:
+                relationships.append(rel_dict)
+        
+        # Add IN_PROJECT relationships
+        for rel_data in (row.get("project_rels") or []):
+            rel_dict = rel_to_dict(rel_data)
+            if rel_dict:
+                relationships.append(rel_dict)
+        
+        return {
+            "nodes": nodes,
+            "relationships": relationships,
+            "stats": {
+                "node_count": len(nodes),
+                "relationship_count": len(relationships),
+                "node_types": node_types
+            }
+        }
+
 
