@@ -78,7 +78,19 @@ class Neo4jIngestor:
                         batch_start = time.time()
                         
                         result = session.run(statement, rows=batch)
-                        record = result.single()
+                        
+                        # Defensive: Check for multiple records (indicates query bug)
+                        records = list(result)
+                        if len(records) > 1:
+                            logger.warning(
+                                "batch_query_returned_multiple_rows",
+                                batch=f"{batch_num}/{total_batches}",
+                                record_count=len(records),
+                                expected=1,
+                                message="Query should return single row; using first result"
+                            )
+                        
+                        record = records[0] if records else None
                         
                         # Extract count from first column of result (handles different return names)
                         batch_count = 0

@@ -3,16 +3,17 @@
 // SCOPED to specific project for multi-tenancy safety
 // ROBUST: Handles empty entity_ids via fallback logic (existing relationships or text_unit_ids)
 MATCH (p:__Project__ {id: $project_id})
-MATCH (c:__Community__)-[:IN_PROJECT]->(p) 
-WHERE c.project_id = $project_id
+MATCH (c:__Community__)-[:IN_PROJECT]->(p)
 WITH c, p, coalesce(c.entity_ids, []) AS stored_entity_ids, coalesce(c.text_unit_ids, []) AS text_unit_ids
 
 // Path 1: Use stored entity_ids if available
 CALL (c, p, stored_entity_ids) {
-  WITH c, p, stored_entity_ids
   OPTIONAL MATCH (e:__Entity__)-[:IN_PROJECT]->(p)
   WHERE size(stored_entity_ids) > 0 
-    AND ANY(eid IN stored_entity_ids WHERE eid = e.id OR eid IN e.merged_ids)
+    AND (
+      ANY(eid IN stored_entity_ids WHERE eid = e.id OR eid IN e.merged_ids)
+      OR ANY(eid IN stored_entity_ids WHERE toUpper(eid) = e.norm_title)
+    )
   // Filter out NULLs from collection (when OPTIONAL MATCH found nothing)
   WITH collect(DISTINCT e) AS all_entities
   RETURN [e IN all_entities WHERE e IS NOT NULL] AS entities_from_stored
@@ -27,7 +28,6 @@ CALL (c, p) {
 
 // Path 3: Fallback to text_unit_ids -> chunks -> entities
 CALL (c, p, text_unit_ids) {
-  WITH c, p, text_unit_ids
   OPTIONAL MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p)
   WHERE size(text_unit_ids) > 0 AND ch.id IN text_unit_ids
   OPTIONAL MATCH (ch)-[:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p)
@@ -58,6 +58,7 @@ FOREACH (ignored IN CASE WHEN ch IS NOT NULL THEN [1] ELSE [] END |
 WITH DISTINCT c, p, effective_entities
 
 // SECOND: Process communities WITH entities for entity relationships
+// Filter and process only communities with entities
 WITH c, p, effective_entities
 WHERE size(effective_entities) > 0
 
@@ -75,27 +76,34 @@ MATCH (ch:__Chunk__)-[:HAS_ENTITY]->(e)
 WHERE (ch)-[:IN_PROJECT]->(p)
 MERGE (ch)-[:IN_COMMUNITY]->(c)
 
-// Return to community level for final cleanup
-WITH DISTINCT c, p
+// Count communities processed with entities
+WITH count(DISTINCT c) AS communities_with_entities_processed
+
+// Re-query project independently, preserving the count
+WITH communities_with_entities_processed
+MATCH (p:__Project__ {id: $project_id})
 
 // Re-match ALL communities for deduplication (including those without entities)
+WITH p, communities_with_entities_processed
 MATCH (c_all:__Community__)-[:IN_PROJECT]->(p)
 WHERE c_all.project_id = p.id
 
 // Deduplicate Entity -> Community relationships
-WITH c_all, p
+WITH c_all, p, communities_with_entities_processed
 OPTIONAL MATCH (e:__Entity__)-[r:IN_COMMUNITY]->(c_all)
-WITH c_all, p, e, collect(r) AS rels
+WITH c_all, p, e, collect(r) AS rels, communities_with_entities_processed
 WHERE size(rels) > 1
 FOREACH (rel IN rels[1..] | DELETE rel)
 
 // Deduplicate Chunk -> Community relationships
-WITH DISTINCT c_all, p
+WITH DISTINCT c_all, p, communities_with_entities_processed
 OPTIONAL MATCH (ch:__Chunk__)-[r:IN_COMMUNITY]->(c_all)
-WITH c_all, p, ch, collect(r) AS rels
+WITH c_all, p, ch, collect(r) AS rels, communities_with_entities_processed
 WHERE size(rels) > 1
 FOREACH (rel IN rels[1..] | DELETE rel)
 
-// Return statistics for monitoring
-WITH DISTINCT c_all
-RETURN count(DISTINCT c_all) AS communities_processed
+// Return comprehensive statistics for monitoring
+WITH count(DISTINCT c_all) AS total_communities, communities_with_entities_processed
+RETURN total_communities AS communities_processed,
+       communities_with_entities_processed,
+       total_communities - communities_with_entities_processed AS communities_without_entities

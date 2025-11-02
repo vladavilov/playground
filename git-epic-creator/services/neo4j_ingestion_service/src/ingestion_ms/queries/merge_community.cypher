@@ -5,11 +5,14 @@ MERGE (c:__Community__ {community: value.community, project_id: pid})
 SET c.id = toString(value.community) + '_' + pid, c += value 
 MERGE (c)-[:IN_PROJECT]->(p)
 
-// Match entities by entity_ids (supports merged_ids lookup)
+// Match entities by entity_ids (supports merged_ids lookup and norm_title fallback)
 WITH c, p, value
 OPTIONAL MATCH (e_id:__Entity__)-[:IN_PROJECT]->(p)
 WHERE size(coalesce(value.entity_ids, [])) > 0 
-  AND ANY(eid IN value.entity_ids WHERE eid = e_id.id OR eid IN e_id.merged_ids)
+  AND (
+    ANY(eid IN value.entity_ids WHERE eid = e_id.id OR eid IN e_id.merged_ids)
+    OR ANY(eid IN value.entity_ids WHERE toUpper(eid) = e_id.norm_title)
+  )
 WITH c, p, value, collect(DISTINCT e_id) AS entities_from_ids
 
 // Match chunks and their entities from text_unit_ids
