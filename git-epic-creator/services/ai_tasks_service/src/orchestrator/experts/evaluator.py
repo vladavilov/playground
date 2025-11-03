@@ -99,19 +99,32 @@ class Evaluator:
         Returns:
             Dict with component scores (coverage, specificity, feasibility, duplication)
         """
-        # Build backlog text representation
+        settings = get_ai_tasks_settings()
+        
+        # Build backlog text representation with trimming (token optimization)
         parts: list[str] = []
-        for epic in draft.epics:
-            parts.append(f"Epic {epic.id}: {epic.title}. {epic.description}")
-            for task in epic.tasks:
-                ac_text = "; ".join(task.acceptance_criteria)
-                deps_text = f" (depends on: {', '.join(task.dependencies)})" if task.dependencies else ""
-                parts.append(f"  Task {task.id}: {task.title}. {task.description}. ACs: {ac_text}{deps_text}")
+        for epic in draft.epics[:settings.MAX_EPICS_FOR_EVAL]:  # Trim epics
+            # Trim epic description to first 200 chars
+            epic_desc = epic.description[:200] + "..." if len(epic.description) > 200 else epic.description
+            parts.append(f"Epic {epic.id}: {epic.title}. {epic_desc}")
+            
+            for task in epic.tasks[:settings.MAX_TASKS_PER_EPIC_EVAL]:  # Trim tasks per epic
+                # Trim task description to first 150 chars
+                task_desc = task.description[:150] + "..." if len(task.description) > 150 else task.description
+                # Trim acceptance criteria
+                ac_text = "; ".join(task.acceptance_criteria[:settings.MAX_AC_PER_TASK_EVAL])
+                # Trim dependencies to first 3
+                deps_text = f" (depends on: {', '.join(task.dependencies[:3])})" if task.dependencies else ""
+                parts.append(f"  Task {task.id}: {task.title}. {task_desc}. ACs: {ac_text}{deps_text}")
+        
+        # Add indicator if content was trimmed
+        if len(draft.epics) > settings.MAX_EPICS_FOR_EVAL:
+            parts.append(f"... and {len(draft.epics) - settings.MAX_EPICS_FOR_EVAL} more epics (trimmed for evaluation)")
         
         if draft.assumptions:
-            parts.append("Assumptions: " + "; ".join(draft.assumptions))
+            parts.append("Assumptions: " + "; ".join(draft.assumptions[:3]))  # Limit to 3
         if draft.risks:
-            parts.append("Risks: " + "; ".join(draft.risks))
+            parts.append("Risks: " + "; ".join(draft.risks[:3]))  # Limit to 3
         
         backlog_text = "\n".join(p for p in parts if p) or "Empty backlog"
         
@@ -130,20 +143,30 @@ class Evaluator:
             )
             contexts.append("No audit issues found")
         
+        # Build smaller retrieval context (only issues, no suggestions) to avoid duplication
+        retrieval_contexts = []
+        if findings.issues:
+            # Limit to 3 issues for retrieval context (reduce token usage)
+            retrieval_contexts.append("Issues: " + "; ".join(findings.issues[:3]))
+        
+        if not retrieval_contexts:
+            retrieval_contexts.append("No issues found")
+        
         logger.info(
             "deepeval_test_case_building",
             backlog_text_length=len(backlog_text),
             contexts_count=len(contexts),
+            retrieval_contexts_count=len(retrieval_contexts),
             requirements_length=len(requirements),
         )
         
         try:
-            # Build test case
+            # Build test case with optimized context (avoid duplication)
             test_case = LLMTestCase(
-                input=requirements,
+                input=requirements[:500],  # Trim requirements for faster processing
                 actual_output=backlog_text,
-                retrieval_context=contexts,
-                context=contexts,
+                retrieval_context=retrieval_contexts,  # Smaller, focused context
+                context=contexts,  # Full context for evaluation
             )
             logger.debug("deepeval_test_case_created", backlog_text_length=len(backlog_text))
             
@@ -178,8 +201,24 @@ class Evaluator:
                     },
                 },
                 "feasibility": {
-                    "class": AnswerRelevancyMetric,
-                    "kwargs": {},
+                    "class": StrictGEval,
+                    "kwargs": {
+                        "name": "Technical Feasibility",
+                        "criteria": (
+                            "Tasks must be technically feasible within project constraints. "
+                            "Check for: realistic scope, clear implementation path, available technology stack."
+                        ),
+                        "evaluation_steps": [
+                            "Review task descriptions for technical feasibility markers",
+                            "Check if tasks reference existing services/APIs from context",
+                            "Assess if acceptance criteria are achievable with known tech stack",
+                            "Count tasks with unclear implementation vs clear technical approach",
+                            "Score: (feasible_tasks / total_tasks)"
+                        ],
+                        "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
+                        "strict_mode": False,
+                        "verbose_mode": False,
+                    },
                 },
                 "duplication": {
                     "class": StrictGEval,

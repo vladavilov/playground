@@ -61,6 +61,23 @@ class AITasksSettings(BaseConfig):
         le=1.0,
     )
 
+    # Evaluation optimization (token reduction for metrics)
+    MAX_EPICS_FOR_EVAL: int = Field(
+        default=3,
+        description="Maximum epics to include in evaluation context (token optimization)",
+        ge=1,
+    )
+    MAX_TASKS_PER_EPIC_EVAL: int = Field(
+        default=5,
+        description="Maximum tasks per epic for evaluation context",
+        ge=1,
+    )
+    MAX_AC_PER_TASK_EVAL: int = Field(
+        default=3,
+        description="Maximum acceptance criteria per task for evaluation",
+        ge=1,
+    )
+
     # Shared configurations
     http: HTTPClientSettings = Field(default_factory=HTTPClientSettings)
     llm: LlmConfig = Field(default_factory=LlmConfig)

@@ -296,7 +296,7 @@ def _get_litellm_model() -> Any:
         )
     
     model_instance = LiteLLMModel(
-        model=f"azure/{llm_config.OAI_MODEL}",
+        model=f"azure/{llm_config.OAI_MODEL_FAST}",
         api_key=llm_config.OAI_KEY,
         api_base=llm_config.OAI_BASE_URL,
         api_version=llm_config.OAI_API_VERSION,
@@ -494,38 +494,68 @@ async def evaluate_with_metrics(
         
         logger.debug("litellm_model_loaded_from_config")
         
-        # Execute ALL metrics in parallel (Azure OpenAI handles rate limiting)
-        tasks = []
-        metric_names = []
+        # Split metrics into lightweight and heavyweight for optimized execution
+        # Heavyweight metrics (coverage, feasibility) run sequentially with shorter prompts
+        # Lightweight metrics (specificity, duplication) run in parallel
+        lightweight_metrics = {}
+        heavyweight_metrics = {}
         
         for metric_name, metric_config in metrics_config.items():
-            task = _execute_single_metric(metric_name, metric_config, model, test_case)
-            tasks.append(task)
-            metric_names.append(metric_name)
-        
-        logger.debug(
-            "metrics_executing_parallel",
-            total_metrics=len(tasks),
-            metric_names=metric_names,
-        )
-        
-        # Execute all metrics concurrently
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        for metric_name, result in zip(metric_names, results):
-            if isinstance(result, Exception):
-                logger.warning(
-                    "metric_execution_exception",
-                    metric=metric_name,
-                    error=str(result),
-                    error_type=type(result).__name__,
-                )
-                scores[metric_name] = 0.0
-            elif result is None:
-                scores[metric_name] = 0.0
+            if metric_name in ("coverage", "feasibility"):
+                heavyweight_metrics[metric_name] = metric_config
             else:
-                scores[metric_name] = float(result)
+                lightweight_metrics[metric_name] = metric_config
+        
+        # Execute lightweight metrics in parallel first
+        if lightweight_metrics:
+            lightweight_tasks = []
+            lightweight_names = []
+            for metric_name, metric_config in lightweight_metrics.items():
+                task = _execute_single_metric(metric_name, metric_config, model, test_case)
+                lightweight_tasks.append(task)
+                lightweight_names.append(metric_name)
+            
+            logger.debug(
+                "lightweight_metrics_executing_parallel",
+                total_metrics=len(lightweight_tasks),
+                metric_names=lightweight_names,
+            )
+            
+            lightweight_results = await asyncio.gather(*lightweight_tasks, return_exceptions=True)
+            
+            # Process lightweight results
+            for metric_name, result in zip(lightweight_names, lightweight_results):
+                if isinstance(result, Exception):
+                    logger.warning(
+                        "lightweight_metric_execution_exception",
+                        metric=metric_name,
+                        error=str(result),
+                        error_type=type(result).__name__,
+                    )
+                    scores[metric_name] = 0.0
+                elif result is None:
+                    scores[metric_name] = 0.0
+                else:
+                    scores[metric_name] = float(result)
+        
+        # Execute heavyweight metrics sequentially
+        if heavyweight_metrics:
+            for metric_name, metric_config in heavyweight_metrics.items():
+                logger.debug("heavyweight_metric_executing_sequential", metric=metric_name)
+                try:
+                    result = await _execute_single_metric(metric_name, metric_config, model, test_case)
+                    if result is None:
+                        scores[metric_name] = 0.0
+                    else:
+                        scores[metric_name] = float(result)
+                except Exception as e:
+                    logger.warning(
+                        "heavyweight_metric_failed",
+                        metric=metric_name,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                    scores[metric_name] = 0.0
         
         logger.info(
             "deepeval_evaluation_completed",

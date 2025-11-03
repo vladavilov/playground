@@ -39,8 +39,11 @@ class ContextRetriever:
         Returns:
             RetrievedContext with context answer, key facts, and citations
         """
+        # Summarize requirements to reduce query size (token optimization)
+        summarized_requirements = self._summarize_requirements(analysis.requirements_text)
+        
         # Build query emphasizing implementation details
-        query = self._build_query(analysis)
+        query = self._build_query(analysis, summarized_requirements)
         
         try:
             data = await self.client.retrieve(
@@ -180,32 +183,49 @@ class ContextRetriever:
             citations=dedup_citations,
         )
 
-    def _build_query(self, analysis: RequirementsAnalysis) -> str:
-        """Build GraphRAG query emphasizing technical implementation details."""
-        intents = [i.strip() for i in analysis.intents if isinstance(i, str) and i.strip()]
-        entities = [e.strip() for e in analysis.entities if isinstance(e, str) and e.strip()]
-        constraints = [c.strip() for c in analysis.constraints if isinstance(c, str) and c.strip()]
+    def _summarize_requirements(self, requirements_text: str) -> str:
+        """Reduce requirements text to core intent for retrieval query (token optimization).
+        
+        Args:
+            requirements_text: Full requirements text
+            
+        Returns:
+            Summarized requirements (max 300 chars)
+        """
+        MAX_REQ_LENGTH = 300
+        
+        if len(requirements_text) <= MAX_REQ_LENGTH:
+            return requirements_text
+        
+        # Take first 300 chars and add ellipsis at last word boundary
+        return requirements_text[:MAX_REQ_LENGTH].rsplit(' ', 1)[0] + "..."
+
+    def _build_query(self, analysis: RequirementsAnalysis, summarized_requirements: str) -> str:
+        """Build GraphRAG query emphasizing technical implementation details (optimized)."""
+        # Limit extracted elements for token efficiency
+        intents = [i.strip() for i in analysis.intents if isinstance(i, str) and i.strip()][:5]
+        entities = [e.strip() for e in analysis.entities if isinstance(e, str) and e.strip()][:8]
+        constraints = [c.strip() for c in analysis.constraints if isinstance(c, str) and c.strip()][:5]
         
         lines = [
-            "### Technical Context Query for Epic/Story Generation",
+            "### Technical Context Query",
             "",
-            "**Original Requirements:**",
-            analysis.requirements_text.strip(),
+            "**Requirements:**",
+            summarized_requirements,
             "",
-            "**Technical Intents:**",
+            "**Intents:**",
             *([f"- {i}" for i in intents] if intents else ["- (none)"]),
             "",
         ]
         
-        # Add entities if present
+        # Add entities if present (simplified formatting)
         if entities:
             lines.extend([
-                "**Entities Involved:**",
-                f"{', '.join(entities)}",
+                "**Entities:** " + ", ".join(entities),
                 "",
             ])
         
-        # Add constraints if present
+        # Add constraints if present (simplified formatting)
         if constraints:
             lines.extend([
                 "**Constraints:**",
@@ -213,55 +233,15 @@ class ContextRetriever:
                 "",
             ])
         
-        # Comprehensive technical context request with STRUCTURED output requirement
+        # Simplified technical context request (removed verbose formatting)
         lines.extend([
-            "**Required Technical Context (STRUCTURED FORMAT):**",
+            "**Required Context:**",
+            "1. Technology Stack (languages, frameworks, databases, infrastructure)",
+            "2. Service Architecture (existing services, APIs, endpoints)",
+            "3. Data Layer (models, schemas, access patterns)",
+            "4. Integration Points (external systems, inter-service communication)",
             "",
-            "⚠️ CRITICAL: Provide context in the following EXACT structure. Be SPECIFIC with names, versions, and actual technologies found in the codebase/documentation.",
-            "",
-            "## 1. Technology Stack",
-            "List the EXACT technologies, versions, and tools used in this project:",
-            "- **Languages**: [specific languages with versions, e.g., Python 3.11, TypeScript 5.0]",
-            "- **Backend Frameworks**: [specific frameworks, e.g., FastAPI 0.110, Django 4.2, Spring Boot 3.1]",
-            "- **Frontend Frameworks**: [if applicable, e.g., React 18, Vue 3, Angular 16]",
-            "- **Databases**: [specific DB technologies and versions, e.g., PostgreSQL 15, Neo4j 5.x, MongoDB 6.0]",
-            "- **Caching/Messaging**: [e.g., Redis 7.x, RabbitMQ 3.12, Kafka 3.5]",
-            "- **CI/CD & Version Control**: [e.g., GitLab CI/CD, GitHub Actions, Jenkins, Jira, Linear]",
-            "- **Infrastructure**: [e.g., Docker 24.x, Kubernetes 1.28, Azure/AWS/GCP]",
-            "- **Testing Tools**: [e.g., pytest 7.x, jest 29, JUnit 5]",
-            "",
-            "## 2. Service Architecture",
-            "List existing services/microservices with their EXACT names:",
-            "- **[exact-service-name]**: [purpose, tech stack, key endpoints]",
-            "  * Example: user-auth-service (FastAPI): Handles authentication, /api/v1/auth/login, /api/v1/auth/token",
-            "",
-            "## 3. Data Layer",
-            "- **Schemas/Models**: [existing data models relevant to requirements, with exact names]",
-            "- **Access Patterns**: [ORM/framework used: SQLAlchemy, Prisma, Entity Framework, etc.]",
-            "- **Database Names**: [exact database/schema names used in the project]",
-            "",
-            "## 4. API Conventions",
-            "- **Endpoint Patterns**: [actual patterns used, e.g., /api/v1/resource, /v2/resource]",
-            "- **Authentication**: [exact mechanism: JWT with Azure AD, OAuth2, API keys, etc.]",
-            "- **Response Formats**: [JSON schemas, error handling patterns, status code conventions]",
-            "",
-            "## 5. Integration & Dependencies",
-            "- **External Systems**: [third-party APIs, SaaS services, tools: Stripe, Twilio, SendGrid, etc.]",
-            "- **Inter-Service Communication**: [specific patterns: REST APIs, gRPC, message queues with technology]",
-            "- **Project Management Tools**: [exact system used: GitLab Issues, Jira, Linear, GitHub Projects]",
-            "",
-            "## 6. Deployment & Infrastructure",
-            "- **Containerization**: [Docker, Podman, etc. with base images if known]",
-            "- **Orchestration**: [Kubernetes, Docker Swarm, ECS, etc.]",
-            "- **Cloud Provider**: [Azure, AWS, GCP, on-premise]",
-            "- **Configuration Management**: [environment variables, config files, Azure App Configuration, etc.]",
-            "",
-            "**CRITICAL INSTRUCTIONS:**",
-            "- Use EXACT names from codebase/documentation (not generic terms)",
-            "- If information is not available, explicitly state 'Not found in context'",
-            "- Prioritize ACTUAL project details over generic architectural patterns",
-            "- Include specific versions when available",
-            "- Avoid placeholder examples - only provide what exists in the project",
+            "Provide SPECIFIC names and versions from project documentation.",
         ])
         
         return "\n".join(lines)
