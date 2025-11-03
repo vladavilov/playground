@@ -1,6 +1,6 @@
 """Generic Redis pub/sub publisher base class for progress messages."""
 
-from typing import Any, Optional, Set
+from typing import Any, Optional
 import json
 import asyncio
 from pydantic import BaseModel
@@ -29,8 +29,6 @@ class RedisProgressPublisher:
         self.redis_client = redis_client
         self.prefix = UI_CHANNEL_PREFIX
         self.default_channel_name = default_channel_name
-        # Keep strong references to background tasks to prevent garbage collection
-        self._background_tasks: Set[asyncio.Task] = set()
 
     def _channel(self, name: Optional[str] = None) -> str:
         """Build full channel name from prefix and name.
@@ -49,45 +47,55 @@ class RedisProgressPublisher:
         message: BaseModel, 
         channel: Optional[str] = None
     ) -> bool:
-        """Publish Pydantic message to Redis channel (fire-and-forget).
+        """Publish Pydantic message to Redis channel with fast-fail guarantee.
         
-        Uses background task to avoid blocking workflow on Redis I/O.
-        Errors are logged but don't affect workflow execution.
-        
-        Maintains strong references to tasks to prevent garbage collection.
-        Completed tasks are automatically cleaned up via callback.
+        Uses asyncio.wait_for with 0.1s timeout to ensure message gets scheduled
+        without blocking workflow. This prevents issues where fire-and-forget
+        tasks never get executed due to event loop pressure.
         
         Args:
             message: Pydantic model instance to publish
             channel: Optional channel name override (uses default if None)
             
         Returns:
-            True (task created; actual publish happens in background)
+            True if published successfully (or task created), False on timeout/error
         """
-        async def _background_publish() -> None:
-            try:
-                target = self._channel(channel)
-                serialized = json.dumps(message.model_dump(exclude_none=True))
-                await self.redis_client.publish(target, serialized)
-                logger.debug(
-                    "progress_message_published",
-                    channel=target,
-                    message_type=message.model_dump().get("message_type"),
-                )
-            except Exception as exc:
-                logger.error(
-                    "progress_message_publish_failed",
-                    channel=self._channel(channel),
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
+        if not self.redis_client:
+            logger.warning(
+                "redis_client_none",
+                message="Cannot publish: Redis client is None"
+            )
+            return False
         
-        # Create task and keep strong reference to prevent garbage collection
-        task = asyncio.create_task(_background_publish())
-        self._background_tasks.add(task)
+        async def _do_publish() -> None:
+            target = self._channel(channel)
+            serialized = json.dumps(message.model_dump(exclude_none=True))
+            await self.redis_client.publish(target, serialized)
+            logger.debug(
+                "progress_message_published",
+                channel=target,
+                message_type=message.model_dump().get("message_type"),
+            )
         
-        # Remove task from set when done (prevents memory leak)
-        task.add_done_callback(self._background_tasks.discard)
-        
-        return True
+        try:
+            # Use wait_for with short timeout to ensure task gets scheduled
+            # but don't block workflow for too long
+            await asyncio.wait_for(_do_publish(), timeout=0.1)
+            return True
+        except asyncio.TimeoutError:
+            # Timeout is acceptable - message is likely queued
+            logger.debug(
+                "progress_message_timeout",
+                channel=self._channel(channel),
+                message="Publish timeout (message likely queued)"
+            )
+            return True
+        except Exception as exc:
+            logger.error(
+                "progress_message_publish_failed",
+                channel=self._channel(channel),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return False
 

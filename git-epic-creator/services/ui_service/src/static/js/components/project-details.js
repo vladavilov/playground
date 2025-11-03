@@ -25,7 +25,6 @@ export class ProjectDetails {
    * @param {Function} callbacks.onOpenRequirements - Open requirements callback
    * @param {Function} callbacks.onOpenTasks - Open tasks callback
    * @param {Function} callbacks.onCacheEmbeddings - Cache embeddings callback
-   * @param {Function} callbacks.onViewGraph - View graph callback
    */
   constructor(container, callbacks) {
     this.container = container;
@@ -78,23 +77,9 @@ export class ProjectDetails {
    */
   _createDetailsView(p) {
     return el('div', {}, [
-      // Header with name, graph icon, and status
+      // Header with name and status
       el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
         el('div', { class: 'text-lg font-semibold' }, p.name || '(untitled)'),
-        el('button', { 
-          class: 'inline-flex items-center justify-center w-7 h-7 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:border-indigo-300 transition-all', 
-          title: 'View knowledge graph visualization', 
-          onclick: () => this.callbacks.onViewGraph(p),
-          'aria-label': 'View knowledge graph'
-        }, [
-          el('svg', { 
-            class: 'w-4 h-4',
-            fill: 'none',
-            stroke: 'currentColor',
-            viewBox: '0 0 24 24',
-            innerHTML: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>'
-          })
-        ]),
         getStatusBadge(p.status)
       ]),
       

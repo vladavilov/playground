@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Project Console</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body class="h-dvh overflow-hidden bg-slate-50 text-slate-900">
   <div class="h-full grid grid-cols-1 lg:grid-cols-12">
@@ -230,41 +229,6 @@
         <button id="deleteCancelBtn" class="px-3 py-2 border rounded">Cancel</button>
         <button id="deleteConfirmBtn" class="px-3 py-2 bg-rose-600 text-white rounded">Delete</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Graph Visualization Modal -->
-  <div id="graphModal" class="fixed inset-0 bg-slate-900/95 hidden z-50" style="width: 100vw; height: 100vh;">
-    <div class="w-full h-full flex flex-col">
-      <!-- Modal Header -->
-      <div class="p-4 flex justify-between items-center border-b border-slate-700 bg-slate-900">
-        <div class="flex items-center gap-3">
-          <svg class="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-          </svg>
-          <div>
-            <h3 class="text-white text-lg font-semibold">Knowledge Graph Visualization</h3>
-            <p class="text-slate-400 text-sm" id="graphModalSubtitle">Loading graph data...</p>
-          </div>
-        </div>
-        <button id="closeGraphModal" class="text-slate-400 hover:text-white transition-colors px-3 py-2 rounded hover:bg-slate-800">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-          </svg>
-        </button>
-      </div>
-      
-      <!-- Loading Overlay -->
-      <div id="graphLoadingOverlay" class="absolute inset-0 bg-slate-900/80 flex items-center justify-center z-10">
-        <div class="text-center">
-          <div class="animate-spin h-12 w-12 border-4 border-slate-600 border-t-indigo-500 rounded-full mx-auto mb-4"></div>
-          <p class="text-white text-lg font-medium">Loading knowledge graph...</p>
-          <p class="text-slate-400 text-sm mt-2">Fetching nodes and relationships</p>
-        </div>
-      </div>
-      
-      <!-- Graph Container -->
-      <div id="graphContainer" class="flex-1 w-full relative bg-slate-50" style="min-height: 0;"></div>
     </div>
   </div>
 

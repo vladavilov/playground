@@ -848,246 +848,226 @@ async def _create_graph(get_session: GetSessionFn, get_llm: GetLlmFn, get_embedd
         }
 
     async def followups_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute followups in parallel for maximum throughput.
+        
+        Performance optimization: All followups are independent and can be
+        executed concurrently. This reduces total processing time from
+        O(n * followup_time) to O(max(followup_times)).
+        """
         k = _ensure_top_k(state)
         cids = list(state.get("communities") or [])
         llm = get_llm()
-        results: List[Dict[str, Any]] = []
         chunk_index = settings.vector_index.CHUNK_VECTOR_INDEX_NAME
         
-        total_followups = len(state.get("followups") or [])
-        consecutive_empty_count = 0
+        followups = list(state.get("followups") or [])
+        total_followups = len(followups)
+        
+        if not followups:
+            logger.warning("followups_node_no_followups", message="No followups to process")
+            return {"followup_results": []}
+        
+        async def _process_single_followup(idx: int, f: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            """Process a single followup with error isolation.
+            
+            Returns None on failure/skip, allowing other followups to succeed.
+            """
+            try:
+                qtext = str(f.get("question", ""))
+                if not qtext:
+                    logger.warning(
+                        "followup_empty_question",
+                        followup_index=idx,
+                        message="Skipping followup with empty question"
+                    )
+                    return None
+                
+                logger.debug(
+                    "processing_followup_parallel",
+                    followup_index=idx,
+                    question=qtext[:100],
+                )
+                
+                # Embed query (cached to avoid duplicate work)
+                qvec = await _embed_with_cache(qtext, state)
+                
+                # Validate embedding dimension on first followup only
+                if idx == 0:
+                    expected_dim = settings.vector_index.VECTOR_INDEX_DIMENSIONS
+                    _validate_embedding_dimension(qvec, expected_dim, f"Followup-{idx}")
+                
+                # Fetch and expand chunks (uses Neo4j session from context)
+                with _repo_ctx() as repo:
+                    chunks = _scoped_chunks_expanded(
+                        repo,
+                        cids,
+                        chunk_index,
+                        qvec,
+                        k,
+                        state["project_id"],
+                        state,
+                    )
+                
+                # Skip if no chunks found
+                if not chunks or len(chunks) == 0:
+                    logger.info(
+                        "followup_no_data_found",
+                        followup_index=idx,
+                        message=f"No chunks found for followup {idx}"
+                    )
+                    return None
+                
+                # Reuse community_brief from state
+                target_communities_brief = state.get("community_brief", [])
+                
+                # Prepare prompt data with truncation
+                chunks_preview_json = _truncate_for_prompt(
+                    chunks,
+                    max_items=settings.MAX_CHUNKS_FOR_PROMPT,
+                    label=f"chunks_preview_followup_{idx}",
+                )
+                target_communities_json = _truncate_for_prompt(
+                    target_communities_brief,
+                    max_items=settings.MAX_COMMUNITIES_FOR_PROMPT,
+                    label=f"target_communities_followup_{idx}",
+                )
+                
+                # Extract valid chunk IDs for prompt (prevents hallucination)
+                valid_chunk_ids = [
+                    str(chunk.get("chunk_id")) 
+                    for chunk in chunks 
+                    if chunk.get("chunk_id") is not None
+                ]
+                valid_chunk_ids_str = ", ".join(valid_chunk_ids)
+                
+                # Execute LLM call
+                prompt = local_executor_prompt()
+                local_response = await _format_invoke_parse(
+                    prompt,
+                    llm,
+                    f"Local executor {idx}",
+                    qtext=qtext,
+                    target_communities=target_communities_json,
+                    chunks_preview=chunks_preview_json,
+                    valid_chunk_ids=valid_chunk_ids_str,
+                )
+                
+                # Validate and normalize response
+                local_validated = _parse_and_validate(
+                    json.dumps(local_response),
+                    LocalExecutorResponse,
+                    f"Local executor (followup {idx})",
+                )
+                
+                # Create minimal result for aggregation
+                minimal_result = _create_minimal_followup_result(local_validated, qtext, chunks)
+                
+                logger.debug(
+                    "followup_result_created",
+                    followup_index=idx,
+                    has_answer=bool(minimal_result.get("answer")),
+                    citations_count=len(minimal_result.get("citations", [])),
+                    confidence=minimal_result.get("confidence"),
+                )
+                
+                # Publish progress update (non-blocking)
+                if publisher:
+                    try:
+                        progress = 40.0 + ((idx + 1) / total_followups) * 40.0
+                        prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
+                        await publisher.publish_retrieval_update(
+                            project_id=UUID(state["project_id"]),
+                            retrieval_id=state["retrieval_id"],
+                            phase=RetrievalStatus.EXECUTING_FOLLOWUP,
+                            thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
+                            details_md=(
+                                f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n\n"
+                                f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
+                                f"**Citations:**  \n" +
+                                (
+                                    "\n".join(
+                                        [
+                                            f"- [{c.get('document_name', 'Unknown')}] \"{c.get('span', '')[:120]}...\""
+                                            for c in minimal_result.get('citations', []) or []
+                                        ]
+                                    )
+                                    if minimal_result.get('citations') else "No citations."
+                                ) +
+                                (
+                                    f"\n__Confidence:__ {minimal_result.get('confidence'):.2f}"
+                                    if isinstance(minimal_result.get('confidence'), (float, int)) else ""
+                                )
+                            ),
+                            progress_pct=progress,
+                            prompt_id=prompt_id_uuid,
+                        )
+                    except Exception as exc:
+                        logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
+                
+                return minimal_result
+                
+            except Exception as exc:
+                logger.error(
+                    "followup_processing_failed",
+                    followup_index=idx,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    followup_question=f.get("question", "N/A") if isinstance(f, dict) else str(f)[:100],
+                    message="Followup failed - will be excluded from results"
+                )
+                return None
         
         try:
-            with _repo_ctx() as repo:
-                for idx, f in enumerate(list(state.get("followups") or [])):
-                    try:
-                        qtext = str(f.get("question", ""))
-                        if not qtext:
-                            logger.warning(
-                                "followup_empty_question",
-                                followup_index=idx,
-                                message="Skipping followup with empty question"
-                            )
-                            continue
-                        
-                        logger.debug(
-                            "processing_followup",
-                            followup_index=idx,
-                            question=qtext[:100],
-                        )
-                        
-                        qvec = await _embed_with_cache(qtext, state)
-                        
-                        # Validate embedding dimension on first followup (avoid redundant checks)
-                        if idx == 0:
-                            expected_dim = settings.vector_index.VECTOR_INDEX_DIMENSIONS
-                            _validate_embedding_dimension(qvec, expected_dim, f"Followup-{idx}")
-
-                        chunks = _scoped_chunks_expanded(
-                            repo,
-                            cids,
-                            chunk_index,
-                            qvec,
-                            k,
-                            state["project_id"],
-                            state,
-                        )
-
-                        # Track empty data for early exit optimization
-                        if not chunks or len(chunks) == 0:
-                            consecutive_empty_count += 1
-                            logger.info(
-                                "followup_no_data_found",
-                                followup_index=idx,
-                                consecutive_empty=consecutive_empty_count,
-                                max_allowed=settings.MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT,
-                                message=f"No chunks found for followup {idx}"
-                            )
-                            
-                            # Early exit if too many consecutive empty results
-                            if consecutive_empty_count >= settings.MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT:
-                                logger.warning(
-                                    "early_exit_no_data",
-                                    followup_index=idx,
-                                    consecutive_empty=consecutive_empty_count,
-                                    threshold=settings.MAX_EMPTY_FOLLOWUPS_BEFORE_EXIT,
-                                    processed=len(results),
-                                    skipped=total_followups - len(results),
-                                    message="No data found in consecutive followups, stopping retrieval"
-                                )
-                                # Set flag to indicate no data scenario
-                                return {"followup_results": results, "no_data_found": True}
-                            
-                            # Skip LLM call for this followup (no data to process)
-                            logger.debug(
-                                "followup_skipped_no_data",
-                                followup_index=idx,
-                                message="Skipping LLM call due to empty chunks"
-                            )
-                            continue
-                        else:
-                            # Reset counter on successful data retrieval
-                            consecutive_empty_count = 0
-
-                        # Reuse community_brief from state (already computed in primer_node)
-                        target_communities_brief = state.get("community_brief", [])
-
-                        # Use truncation to prevent token overflow
-                        chunks_preview_json = _truncate_for_prompt(
-                            chunks,
-                            max_items=settings.MAX_CHUNKS_FOR_PROMPT,
-                            label=f"chunks_preview_followup_{idx}",
-                        )
-                        target_communities_json = _truncate_for_prompt(
-                            target_communities_brief,
-                            max_items=settings.MAX_COMMUNITIES_FOR_PROMPT,
-                            label=f"target_communities_followup_{idx}",
-                        )
-                        
-                        # Extract valid chunk IDs for prompt (prevents hallucination)
-                        valid_chunk_ids = [
-                            str(chunk.get("chunk_id")) 
-                            for chunk in chunks 
-                            if chunk.get("chunk_id") is not None
-                        ]
-                        valid_chunk_ids_str = ", ".join(valid_chunk_ids)
-
-                        prompt = local_executor_prompt()
-                        local_response = await _format_invoke_parse(
-                            prompt,
-                            llm,
-                            "Local executor",
-                            qtext=qtext,
-                            target_communities=target_communities_json,
-                            chunks_preview=chunks_preview_json,
-                            valid_chunk_ids=valid_chunk_ids_str,
-                        )
-                        
-                        # Explicit cleanup of large JSON strings after LLM call
-                        del chunks_preview_json, target_communities_json
-
-                        # CRITICAL FIX: Validate and normalize response
-                        local_validated = _parse_and_validate(
-                            json.dumps(local_response),
-                            LocalExecutorResponse,
-                            f"Local executor (followup {idx})",
-                        )
-
-                        # Create minimal result for aggregation - strips unnecessary context
-                        # Aggregator only needs: question, answer, citations, confidence, new_followups
-                        minimal_result = _create_minimal_followup_result(local_validated, qtext, chunks)
-                        
-                        logger.debug(
-                            "followup_result_created",
-                            followup_index=idx,
-                            has_answer=bool(minimal_result.get("answer")),
-                            citations_count=len(minimal_result.get("citations", [])),
-                            confidence=minimal_result.get("confidence"),
-                            new_followups_count=len(minimal_result.get("new_followups", [])),
-                        )
-
-                        results.append(minimal_result)
-                        
-                        # Explicit cleanup of large chunk data after processing
-                        del chunks, local_response, local_validated
-                        
-                         # Publish followup execution status
-                        if publisher:
-                            try:
-                                progress = 40.0 + ((idx + 1) / total_followups) * 40.0  # 40-80% range
-                                prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
-                                await publisher.publish_retrieval_update(
-                                    project_id=UUID(state["project_id"]),
-                                    retrieval_id=state["retrieval_id"],
-                                    phase=RetrievalStatus.EXECUTING_FOLLOWUP,
-                                    thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
-                                    details_md=(
-                                        f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n\n"
-                                        f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
-                                        f"**Citations:**  \n" +
-                                        (
-                                            "\n".join(
-                                                [
-                                                    f"- [{c.get('document_name', 'Unknown')}] \"{c.get('span', '')[:120]}...\""
-                                                    for c in minimal_result.get('citations', []) or []
-                                                ]
-                                            )
-                                            if minimal_result.get('citations') else "No citations."
-                                        ) +
-                                        (
-                                            f"\n__Confidence:__ {minimal_result.get('confidence'):.2f}"
-                                            if isinstance(minimal_result.get('confidence'), (float, int)) else ""
-                                        ) +
-                                        (
-                                            f"\n__New Follow-ups:__ {len(minimal_result.get('new_followups', []))}"
-                                            if 'new_followups' in minimal_result else ""
-                                        )
-                                    ),
-                                    progress_pct=progress,
-                                    prompt_id=prompt_id_uuid,
-                                )
-                            except Exception as exc:
-                                logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
-
-                        # Check for early exit based on confidence threshold
-                        if idx >= settings.MIN_FOLLOWUPS_BEFORE_EXIT - 1:
-                            confidence = minimal_result.get("confidence", 0.0)
-                            if confidence >= settings.CONFIDENCE_THRESHOLD_EARLY_EXIT:
-                                logger.info(
-                                    "early_exit_triggered",
-                                    followup_index=idx,
-                                    confidence=confidence,
-                                    threshold=settings.CONFIDENCE_THRESHOLD_EARLY_EXIT,
-                                    processed=len(results),
-                                    skipped=total_followups - len(results),
-                                    message="High confidence reached, skipping remaining followups"
-                                )
-                                break  # Exit loop early
-                        
-                    except Exception as exc:
-                        logger.error(
-                            "followup_processing_failed",
-                            followup_index=idx,
-                            error=str(exc),
-                            error_type=type(exc).__name__,
-                            followup_question=f.get("question", "N/A") if isinstance(f, dict) else str(f)[:100],
-                            message="Skipping this followup and continuing with next"
-                        )
-                        # Continue processing other followups
-                        continue
-                
-                # Calculate validation success: count non-empty answers or non-empty citations
-                valid_results = [
-                    r for r in results 
-                    if (r.get("answer") and r.get("answer").strip()) 
-                    or (r.get("citations") and len(r.get("citations")) > 0)
-                ]
-                
-                # Check if early exit occurred
-                was_early_exit = len(results) < total_followups
-                
-                logger.info(
-                    "retrieval.followups.done",
-                    processed=len(results),
-                    validated=len(valid_results),
-                    total_followups=total_followups,
-                    early_exit=was_early_exit,
-                    success_rate=f"{len(valid_results)}/{total_followups}",
-                    message=f"Processed {len(results)}, validated {len(valid_results)} of {total_followups} followups"
+            # Execute all followups in parallel
+            logger.info(
+                "followups_parallel_execution_start",
+                total_followups=total_followups,
+                message=f"Executing {total_followups} followups in parallel"
+            )
+            
+            tasks = [
+                _process_single_followup(idx, f) 
+                for idx, f in enumerate(followups)
+            ]
+            results_with_none = await asyncio.gather(*tasks, return_exceptions=False)
+            
+            # Filter out None results (failed/skipped followups)
+            results = [r for r in results_with_none if r is not None]
+            
+            # Calculate validation success
+            valid_results = [
+                r for r in results 
+                if (r.get("answer") and r.get("answer").strip()) 
+                or (r.get("citations") and len(r.get("citations")) > 0)
+            ]
+            
+            logger.info(
+                "retrieval.followups.done",
+                processed=len(results),
+                validated=len(valid_results),
+                total_followups=total_followups,
+                success_rate=f"{len(valid_results)}/{total_followups}",
+                message=f"Parallel execution: processed {len(results)}, validated {len(valid_results)} of {total_followups} followups"
+            )
+            
+            # Check if no data was found at all
+            if len(results) == 0:
+                logger.warning(
+                    "followups_all_empty",
+                    message="No data found in any followups"
                 )
-                return {"followup_results": results}
-                
+                return {"followup_results": [], "no_data_found": True}
+            
+            return {"followup_results": results}
+            
         except Exception as exc:
             logger.error(
                 "followups_node_critical_failure",
                 error=str(exc),
                 error_type=type(exc).__name__,
                 total_followups=total_followups,
-                results_collected=len(results),
-                message="Critical failure in followups node, returning partial results"
+                message="Critical failure in followups node"
             )
-            # Return whatever results we collected before the failure
-            return {"followup_results": results}
+            return {"followup_results": []}
 
     def _enrich_citations_from_followups(agg_validated: AggregatorResponse, followup_results: List[Dict[str, Any]]) -> None:
         """Enrich aggregated key_facts citations with full metadata from followup results.

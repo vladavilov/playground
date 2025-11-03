@@ -10,7 +10,7 @@ class RetrySettings(BaseSettings):
     """Environment-driven settings for retry/backoff policy."""
 
     RETRY_MAX_ATTEMPTS: int = 3
-    RETRY_BACKOFF_BASE_SEC: int = 2
+    RETRY_BACKOFF_BASE_SEC: int = 1  # Reduced from 2s for faster error recovery
     RETRY_BACKOFF_FACTOR: int = 2
     RETRY_BACKOFF_MAX_SEC: int = 60
 
