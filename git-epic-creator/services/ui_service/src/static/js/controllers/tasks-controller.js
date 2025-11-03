@@ -148,7 +148,9 @@ class TasksController extends ChatBaseController {
         `<div class="text-sm text-indigo-700">✓ Generated ${epicCount} epic(s) with ${taskCount} task(s)</div>`
       );
       
-      // Note: Don't finish the box here - let SSE events handle it
+      // Finish the thinking box when backlog arrives
+      const box = pid ? this.getOrCreateBoxForPromptId(pid) : this.boxManager.activeBox;
+      if (box) box.finish('ok');
     } catch (error) {
       const errorMsg = ApiClient.formatError(error);
       this.chatUI.appendAssistantMessage(

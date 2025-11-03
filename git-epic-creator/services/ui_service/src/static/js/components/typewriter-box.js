@@ -68,7 +68,7 @@ export class TypewriterBox {
     this.thinkingFooter = thinkingFooter;
     
     this.containerElement.appendChild(wrap);
-    scrollToBottom(this.containerElement);
+    smartScrollToBottom(this.containerElement);
   }
   
   setPromptId(newId) {
@@ -98,17 +98,26 @@ export class TypewriterBox {
   appendMarkdown(md) {
     if (!md) return;
     
+    // Replace ### headers with bold text for better display in thinking box
+    const processedMd = this._preprocessMarkdown(String(md));
+    
     const messageDiv = document.createElement('div');
     messageDiv.className = 'typewriter-message break-words';
     this.messagesContainer.appendChild(messageDiv);
     
-    this.messageQueue.push({ text: String(md), container: messageDiv });
+    this.messageQueue.push({ text: processedMd, container: messageDiv });
     
     if (this.isTyping && this.currentTypewriter) {
       this._finishCurrentMessage();
     }
     
     this._processQueue();
+  }
+  
+  _preprocessMarkdown(text) {
+    // Replace ### headers with bold text format
+    // Handles both "### Text" and "###Text" formats
+    return text.replace(/^###\s*(.+)$/gm, '**$1**');
   }
   
   _finishCurrentMessage() {
@@ -153,7 +162,7 @@ export class TypewriterBox {
       
       if (typeof Typewriter === 'undefined') {
         container.innerHTML = htmlContent;
-        scrollToBottom(this.containerElement);
+        smartScrollToBottom(this.containerElement);
         this.currentMessage = null;
         resolve();
         return;
