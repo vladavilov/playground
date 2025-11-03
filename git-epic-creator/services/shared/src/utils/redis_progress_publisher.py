@@ -1,6 +1,6 @@
 """Generic Redis pub/sub publisher base class for progress messages."""
 
-from typing import Any, Optional
+from typing import Any, Optional, Set
 import json
 import asyncio
 from pydantic import BaseModel
@@ -29,6 +29,8 @@ class RedisProgressPublisher:
         self.redis_client = redis_client
         self.prefix = UI_CHANNEL_PREFIX
         self.default_channel_name = default_channel_name
+        # Keep strong references to background tasks to prevent garbage collection
+        self._background_tasks: Set[asyncio.Task] = set()
 
     def _channel(self, name: Optional[str] = None) -> str:
         """Build full channel name from prefix and name.
@@ -51,6 +53,9 @@ class RedisProgressPublisher:
         
         Uses background task to avoid blocking workflow on Redis I/O.
         Errors are logged but don't affect workflow execution.
+        
+        Maintains strong references to tasks to prevent garbage collection.
+        Completed tasks are automatically cleaned up via callback.
         
         Args:
             message: Pydantic model instance to publish
@@ -77,6 +82,12 @@ class RedisProgressPublisher:
                     error_type=type(exc).__name__,
                 )
         
-        asyncio.create_task(_background_publish())
+        # Create task and keep strong reference to prevent garbage collection
+        task = asyncio.create_task(_background_publish())
+        self._background_tasks.add(task)
+        
+        # Remove task from set when done (prevents memory leak)
+        task.add_done_callback(self._background_tasks.discard)
+        
         return True
 

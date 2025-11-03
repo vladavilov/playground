@@ -371,10 +371,185 @@ export class GraphVisualizer {
   }
   
   /**
-   * Initialize D3 force simulation with community-based clustering.
+   * Initialize layout - static hierarchical or physics-based.
    * @private
    */
   _initializeSimulation() {
+    // Use static layout by default (physics disabled)
+    this.physicsEnabled = false;
+    
+    if (this.physicsEnabled) {
+      this._initializePhysicsSimulation();
+    } else {
+      this._initializeStaticLayout();
+    }
+  }
+  
+  /**
+   * Initialize static hierarchical layout (Neo4j browser style).
+   * @private
+   */
+  _initializeStaticLayout() {
+    // Create hierarchical layout based on node types
+    const centerX = this.width / 2;
+    const centerY = this.height / 2;
+    
+    // Group nodes by type and community
+    const nodesByType = {
+      '__Project__': [],
+      '__Community__': [],
+      '__Document__': [],
+      '__Entity__': [],
+      '__Chunk__': []
+    };
+    
+    this.nodes.forEach(node => {
+      if (nodesByType[node.label]) {
+        nodesByType[node.label].push(node);
+      }
+    });
+    
+    // Layout strategy: Radial layout with hierarchy
+    // Center: Project node
+    // Inner ring: Communities
+    // Middle ring: Documents and Entities
+    // Outer ring: Chunks
+    
+    const projectNodes = nodesByType['__Project__'];
+    const communityNodes = nodesByType['__Community__'];
+    const documentNodes = nodesByType['__Document__'];
+    const entityNodes = nodesByType['__Entity__'];
+    const chunkNodes = nodesByType['__Chunk__'];
+    
+    // Position project node at center
+    projectNodes.forEach(node => {
+      node.x = centerX;
+      node.y = centerY;
+      node.fx = centerX;
+      node.fy = centerY;
+    });
+    
+    // Position communities in inner ring
+    const communityRadius = Math.min(this.width, this.height) * 0.15;
+    communityNodes.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / Math.max(communityNodes.length, 1);
+      node.x = centerX + communityRadius * Math.cos(angle);
+      node.y = centerY + communityRadius * Math.sin(angle);
+      node.fx = node.x;
+      node.fy = node.y;
+    });
+    
+    // Group entities and chunks by their community
+    const nodesByCommunity = new Map();
+    
+    // Find which nodes belong to which community via IN_COMMUNITY links
+    this.links.forEach(link => {
+      if (link.type === 'IN_COMMUNITY') {
+        const sourceId = link.source.id || link.source;
+        const targetId = link.target.id || link.target;
+        const sourceNode = this.nodes.find(n => n.id === sourceId);
+        const targetNode = this.nodes.find(n => n.id === targetId);
+        
+        if (sourceNode && targetNode && targetNode.label === '__Community__') {
+          if (!nodesByCommunity.has(targetNode.id)) {
+            nodesByCommunity.set(targetNode.id, []);
+          }
+          nodesByCommunity.get(targetNode.id).push(sourceNode);
+        }
+      }
+    });
+    
+    // Position documents in middle ring
+    const documentRadius = Math.min(this.width, this.height) * 0.28;
+    documentNodes.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / Math.max(documentNodes.length, 1);
+      node.x = centerX + documentRadius * Math.cos(angle);
+      node.y = centerY + documentRadius * Math.sin(angle);
+      node.fx = node.x;
+      node.fy = node.y;
+    });
+    
+    // Position entities around their communities or in middle ring
+    const entityRadius = Math.min(this.width, this.height) * 0.32;
+    const positionedEntities = new Set();
+    
+    // First, position entities that belong to communities
+    communityNodes.forEach((commNode, commIndex) => {
+      const communityMembers = nodesByCommunity.get(commNode.id) || [];
+      const entities = communityMembers.filter(n => n.label === '__Entity__');
+      
+      if (entities.length > 0) {
+        const commAngle = (2 * Math.PI * commIndex) / Math.max(communityNodes.length, 1);
+        const localRadius = 80;
+        
+        entities.forEach((entity, i) => {
+          const localAngle = commAngle + (2 * Math.PI * i) / entities.length;
+          entity.x = commNode.x + localRadius * Math.cos(localAngle);
+          entity.y = commNode.y + localRadius * Math.sin(localAngle);
+          entity.fx = entity.x;
+          entity.fy = entity.y;
+          positionedEntities.add(entity.id);
+        });
+      }
+    });
+    
+    // Position remaining entities without community
+    const unpositionedEntities = entityNodes.filter(n => !positionedEntities.has(n.id));
+    unpositionedEntities.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / Math.max(unpositionedEntities.length, 1);
+      node.x = centerX + entityRadius * Math.cos(angle);
+      node.y = centerY + entityRadius * Math.sin(angle);
+      node.fx = node.x;
+      node.fy = node.y;
+    });
+    
+    // Position chunks in outer ring around their communities or documents
+    const chunkRadius = Math.min(this.width, this.height) * 0.42;
+    const positionedChunks = new Set();
+    
+    // Position chunks that belong to communities
+    communityNodes.forEach((commNode, commIndex) => {
+      const communityMembers = nodesByCommunity.get(commNode.id) || [];
+      const chunks = communityMembers.filter(n => n.label === '__Chunk__');
+      
+      if (chunks.length > 0) {
+        const commAngle = (2 * Math.PI * commIndex) / Math.max(communityNodes.length, 1);
+        const localRadius = 120;
+        
+        chunks.forEach((chunk, i) => {
+          const localAngle = commAngle + (2 * Math.PI * i) / chunks.length;
+          chunk.x = commNode.x + localRadius * Math.cos(localAngle);
+          chunk.y = commNode.y + localRadius * Math.sin(localAngle);
+          chunk.fx = chunk.x;
+          chunk.fy = chunk.y;
+          positionedChunks.add(chunk.id);
+        });
+      }
+    });
+    
+    // Position remaining chunks without community
+    const unpositionedChunks = chunkNodes.filter(n => !positionedChunks.has(n.id));
+    unpositionedChunks.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / Math.max(unpositionedChunks.length, 1);
+      node.x = centerX + chunkRadius * Math.cos(angle);
+      node.y = centerY + chunkRadius * Math.sin(angle);
+      node.fx = node.x;
+      node.fy = node.y;
+    });
+    
+    // Create a dummy simulation that doesn't move nodes (for compatibility)
+    this.simulation = d3.forceSimulation(this.nodes)
+      .force('link', d3.forceLink(this.links).id(d => d.id).strength(0))
+      .alphaTarget(0)
+      .alpha(0)
+      .stop();
+  }
+  
+  /**
+   * Initialize physics-based force simulation with community-based clustering.
+   * @private
+   */
+  _initializePhysicsSimulation() {
     // Calculate community centers for clustering
     const communities = new Set(this.nodes.map(n => n.community));
     const communityCount = communities.size;
@@ -445,8 +620,8 @@ export class GraphVisualizer {
    */
   _renderGraph() {
     // Create cluster hulls (visual boundaries for communities)
-    const hullGroup = this.mainGroup.append('g').attr('class', 'hulls');
-    this._renderClusterHulls(hullGroup);
+    this.hullGroup = this.mainGroup.append('g').attr('class', 'hulls');
+    this._renderClusterHulls(this.hullGroup);
     
     // Create link elements
     const linkGroup = this.mainGroup.append('g').attr('class', 'links');
@@ -533,10 +708,10 @@ export class GraphVisualizer {
         this._handleNodeClick(event, d, nodeElements);
       });
     
-    // Update positions on simulation tick
-    this.simulation.on('tick', () => {
+    // Update positions on simulation tick (or immediately for static layout)
+    const updatePositions = () => {
       // Update cluster hulls
-      this._updateClusterHulls(hullGroup);
+      this._updateClusterHulls(this.hullGroup);
       
       linkElements
         .attr('x1', d => d.source.x)
@@ -545,7 +720,14 @@ export class GraphVisualizer {
         .attr('y2', d => d.target.y);
       
       nodeElements.attr('transform', d => `translate(${d.x},${d.y})`);
-    });
+    };
+    
+    this.simulation.on('tick', updatePositions);
+    
+    // For static layout, render immediately
+    if (!this.physicsEnabled) {
+      updatePositions();
+    }
     
     // Store elements for later use
     this.nodeElements = nodeElements;
@@ -884,8 +1066,7 @@ export class GraphVisualizer {
     
     const buttons = [
       { id: 'fitView', icon: '⊡', title: 'Fit to View', action: () => this._fitToView() },
-      { id: 'resetGraph', icon: '↻', title: 'Reset', action: () => this._resetGraph() },
-      { id: 'pausePhysics', icon: '⏸', title: 'Pause Physics', action: () => this._togglePhysics() }
+      { id: 'resetGraph', icon: '↻', title: 'Reset', action: () => this._resetGraph() }
     ];
     
     buttons.forEach(btn => {
@@ -898,6 +1079,40 @@ export class GraphVisualizer {
       button.onclick = btn.action;
       panel.appendChild(button);
     });
+    
+    // Physics toggle button with state indicator
+    const physicsButton = document.createElement('button');
+    physicsButton.id = 'togglePhysicsBtn';
+    this.physicsButton = physicsButton;
+    
+    const updatePhysicsButton = () => {
+      if (this.physicsEnabled) {
+        physicsButton.innerHTML = '⏸';
+        physicsButton.title = 'Disable Physics (Static Layout)';
+        physicsButton.style.background = '#dbeafe';
+      } else {
+        physicsButton.innerHTML = '▶';
+        physicsButton.title = 'Enable Physics (Dynamic Layout)';
+        physicsButton.style.background = 'transparent';
+      }
+    };
+    
+    physicsButton.style.cssText = 'width: 36px; height: 36px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;';
+    physicsButton.onmouseover = () => {
+      if (!this.physicsEnabled) {
+        physicsButton.style.background = '#f1f5f9';
+      }
+    };
+    physicsButton.onmouseout = () => {
+      updatePhysicsButton();
+    };
+    physicsButton.onclick = () => {
+      this._togglePhysics();
+      updatePhysicsButton();
+    };
+    
+    updatePhysicsButton();
+    panel.appendChild(physicsButton);
     
     return panel;
   }
@@ -1006,10 +1221,59 @@ export class GraphVisualizer {
    * @private
    */
   _togglePhysics() {
-    if (this.simulation.alpha() > 0) {
-      this.simulation.stop();
+    this.physicsEnabled = !this.physicsEnabled;
+    
+    if (this.physicsEnabled) {
+      // Switch to physics-based layout
+      console.log('Enabling physics simulation...');
+      
+      // Remove fixed positions
+      this.nodes.forEach(node => {
+        node.fx = null;
+        node.fy = null;
+      });
+      
+      // Reinitialize with physics
+      if (this.simulation) {
+        this.simulation.stop();
+      }
+      this._initializePhysicsSimulation();
+      
+      // Restart rendering
+      this.simulation.on('tick', () => {
+        this._updateClusterHulls(this.hullGroup);
+        
+        this.linkElements
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+        
+        this.nodeElements.attr('transform', d => `translate(${d.x},${d.y})`);
+      });
+      
+      this.simulation.alpha(1).restart();
     } else {
-      this.simulation.alpha(0.3).restart();
+      // Switch to static layout
+      console.log('Disabling physics simulation...');
+      
+      if (this.simulation) {
+        this.simulation.stop();
+      }
+      
+      // Reinitialize with static layout
+      this._initializeStaticLayout();
+      
+      // Update positions immediately
+      this._updateClusterHulls(this.hullGroup);
+      
+      this.linkElements
+        .attr('x1', d => d.source.x)
+        .attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x)
+        .attr('y2', d => d.target.y);
+      
+      this.nodeElements.attr('transform', d => `translate(${d.x},${d.y})`);
     }
   }
   

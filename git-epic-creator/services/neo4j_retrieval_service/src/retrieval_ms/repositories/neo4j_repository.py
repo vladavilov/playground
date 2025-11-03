@@ -217,7 +217,7 @@ class Neo4jRepository:
             })
         return result
 
-    def get_project_graph(self, project_id: str, limit: int = 500) -> Dict[str, Any]:
+    def get_project_graph(self, project_id: str, limit: int = 5000) -> Dict[str, Any]:
         """
         Fetch complete project graph for visualization.
         
@@ -232,53 +232,76 @@ class Neo4jRepository:
         Returns:
             Dict with nodes, relationships, and statistics
         """
-        # Query to fetch all nodes and relationships for the project
+        # Optimized query using CALL subqueries for isolated node collection
         query = """
         MATCH (p:__Project__ {id: $projectId})
         
-        // Collect all node types
-        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(entity:__Entity__)
-        WITH p, collect(DISTINCT entity)[0..$limit] AS entities
+        // Collect nodes using CALL subqueries with LIMIT per type
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(entity:__Entity__)
+            WITH entity LIMIT $limit
+            RETURN collect(entity) AS entities
+        }
         
-        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(doc:__Document__)
-        WITH p, entities, collect(DISTINCT doc)[0..$limit] AS documents
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(doc:__Document__)
+            WITH doc LIMIT $limit
+            RETURN collect(doc) AS documents
+        }
         
-        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(chunk:__Chunk__)
-        WITH p, entities, documents, collect(DISTINCT chunk)[0..$limit] AS chunks
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(chunk:__Chunk__)
+            WITH chunk LIMIT $limit
+            RETURN collect(chunk) AS chunks
+        }
         
-        OPTIONAL MATCH (p)<-[:IN_PROJECT]-(comm:__Community__)
-        WITH p, entities, documents, chunks, collect(DISTINCT comm)[0..$limit] AS communities
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(comm:__Community__)
+            WITH comm LIMIT $limit
+            RETURN collect(comm) AS communities
+        }
         
-        // Collect relationships
-        UNWIND entities AS e
-        OPTIONAL MATCH (e)-[rel:RELATED]-(e2:__Entity__)-[:IN_PROJECT]->(p)
-        WITH p, entities, documents, chunks, communities, 
-             collect(DISTINCT {start: e, end: e2, rel: rel}) AS entity_rels
+        // Collect relationships using direct pattern matching (avoids IN operator)
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(e1:__Entity__)-[rel:RELATED]-(e2:__Entity__)-[:IN_PROJECT]->(p)
+            WITH e1, e2, rel LIMIT $limit
+            RETURN collect(DISTINCT {start: e1, end: e2, rel: rel}) AS entity_rels
+        }
         
-        UNWIND documents AS d
-        OPTIONAL MATCH (d)-[hc:HAS_CHUNK]->(chunk_target)
-        WHERE chunk_target IN chunks
-        WITH p, entities, documents, chunks, communities, entity_rels,
-             collect(DISTINCT {start: d, end: chunk_target, rel: hc}) AS doc_chunk_rels
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(d:__Document__)-[hc:HAS_CHUNK]->(c:__Chunk__)-[:IN_PROJECT]->(p)
+            WITH d, c, hc LIMIT $limit
+            RETURN collect(DISTINCT {start: d, end: c, rel: hc}) AS doc_chunk_rels
+        }
         
-        UNWIND chunks AS c
-        OPTIONAL MATCH (c)-[he:HAS_ENTITY]->(entity_target)
-        WHERE entity_target IN entities
-        WITH p, entities, documents, chunks, communities, entity_rels, doc_chunk_rels,
-             collect(DISTINCT {start: c, end: entity_target, rel: he}) AS chunk_entity_rels
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(ch:__Chunk__)-[he:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p)
+            WITH ch, e, he LIMIT $limit
+            RETURN collect(DISTINCT {start: ch, end: e, rel: he}) AS chunk_entity_rels
+        }
         
-        UNWIND entities + chunks AS node
-        OPTIONAL MATCH (node)-[ic:IN_COMMUNITY]->(comm_target)
-        WHERE comm_target IN communities
-        WITH p, entities, documents, chunks, communities, 
-             entity_rels, doc_chunk_rels, chunk_entity_rels,
-             collect(DISTINCT {start: node, end: comm_target, rel: ic}) AS comm_rels
+        CALL {
+            WITH p
+            MATCH (p)<-[:IN_PROJECT]-(node)-[ic:IN_COMMUNITY]->(comm:__Community__)-[:IN_PROJECT]->(p)
+            WHERE node:__Entity__ OR node:__Chunk__
+            WITH node, comm, ic LIMIT $limit
+            RETURN collect(DISTINCT {start: node, end: comm, rel: ic}) AS comm_rels
+        }
         
-        // Add IN_PROJECT relationships
-        WITH p, entities, documents, chunks, communities,
-             entity_rels, doc_chunk_rels, chunk_entity_rels, comm_rels,
-             [node IN entities + documents + chunks + communities | 
-              {start: node, end: p, type: 'IN_PROJECT'}] AS project_rels
+        CALL {
+            WITH p
+            MATCH (p)<-[ip:IN_PROJECT]-(node)
+            WHERE node:__Entity__ OR node:__Document__ OR node:__Chunk__ OR node:__Community__
+            WITH node, p, ip LIMIT $limit
+            RETURN collect(DISTINCT {start: node, end: p, rel: ip}) AS project_rels
+        }
         
         RETURN p, entities, documents, chunks, communities,
                entity_rels, doc_chunk_rels, chunk_entity_rels, comm_rels, project_rels
