@@ -65,8 +65,7 @@ def create_llm(use_fast_model: bool = False) -> AzureChatOpenAI:
         model=model,
         use_fast_model=use_fast_model,
         endpoint=cfg.OAI_BASE_URL,
-        temperature=client.temperature,
-        timeout=client.timeout,
+        temperature=client.temperature
     )
     
     return client
