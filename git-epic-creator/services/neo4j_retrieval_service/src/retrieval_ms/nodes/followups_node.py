@@ -12,6 +12,7 @@ from uuid import UUID
 from contextlib import contextmanager
 import asyncio
 import json
+import re
 import structlog
 
 from retrieval_ms.nodes.base_node import BaseNode
@@ -110,6 +111,54 @@ class FollowupsNode(BaseNode):
         
         return cached_results
     
+    def _clean_answer_text(self, answer: str, valid_chunk_ids: set[str]) -> str:
+        """Remove chunk_id references from answer text.
+        
+        Removes patterns like:
+        - [chunk: <chunk_id>]
+        - [chunk <chunk_id>]
+        - (chunk: <chunk_id>)
+        - chunk_id: <chunk_id>
+        - Any other chunk_id references
+        
+        Args:
+            answer: Raw answer text from LLM
+            valid_chunk_ids: Set of valid chunk IDs to match against
+            
+        Returns:
+            Cleaned answer text without chunk_id references
+        """
+        if not answer:
+            return answer
+        
+        cleaned = answer
+        
+        # Remove common chunk reference patterns
+        # Pattern 1: [chunk: <chunk_id>] or [chunk <chunk_id>]
+        cleaned = re.sub(r'\[chunk:?\s*[a-zA-Z0-9_-]+\]', '', cleaned, flags=re.IGNORECASE)
+        
+        # Pattern 2: (chunk: <chunk_id>) or (chunk <chunk_id>)
+        cleaned = re.sub(r'\(chunk:?\s*[a-zA-Z0-9_-]+\)', '', cleaned, flags=re.IGNORECASE)
+        
+        # Pattern 3: chunk_id: <chunk_id> or chunk ID: <chunk_id>
+        cleaned = re.sub(r'chunk\s*id:?\s*[a-zA-Z0-9_-]+', '', cleaned, flags=re.IGNORECASE)
+        
+        # Pattern 4: [<chunk_id>] where chunk_id is in valid set (more specific)
+        for chunk_id in valid_chunk_ids:
+            # Escape special regex characters in chunk_id
+            escaped_id = re.escape(str(chunk_id))
+            # Remove [chunk_id] or (chunk_id) patterns
+            cleaned = re.sub(rf'\[{escaped_id}\]', '', cleaned)
+            cleaned = re.sub(rf'\({escaped_id}\)', '', cleaned)
+        
+        # Clean up extra whitespace (multiple spaces, newlines at boundaries)
+        cleaned = re.sub(r'\s+', ' ', cleaned)  # Multiple spaces to single space
+        cleaned = re.sub(r'\s+([.,;:!?])', r'\1', cleaned)  # Space before punctuation
+        cleaned = re.sub(r'([.,;:!?])\s*([.,;:!?])', r'\1\2', cleaned)  # Multiple punctuation
+        cleaned = cleaned.strip()
+        
+        return cleaned
+    
     def _create_minimal_followup_result(
         self,
         local_validated: LocalExecutorResponse,
@@ -206,9 +255,12 @@ class FollowupsNode(BaseNode):
                     message="Unknown citation type - skipping"
                 )
         
+        # Clean answer text to remove chunk_id references
+        cleaned_answer = self._clean_answer_text(local_validated.answer, valid_chunk_ids)
+        
         minimal_result = {
             "question": qtext,
-            "answer": local_validated.answer,
+            "answer": cleaned_answer,
             "citations": enriched_citations,
             "confidence": local_validated.confidence,
         }
