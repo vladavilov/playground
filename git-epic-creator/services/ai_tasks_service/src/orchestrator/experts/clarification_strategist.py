@@ -4,7 +4,7 @@ from typing import Dict, List
 from pydantic import BaseModel, Field
 
 from task_models.agent_models import BacklogDraft, EvaluationReport, ClarificationPlan
-from orchestrator.experts.clients.llm import get_llm
+from utils.llm_client_factory import create_llm
 from orchestrator.prompts import CLARIFICATION_STRATEGIST, build_chat_prompt
 
 
@@ -51,7 +51,7 @@ class ClarificationStrategist:
         
         prompt_tmpl = build_chat_prompt(CLARIFICATION_STRATEGIST)
         
-        llm = get_llm(use_fast_model=True)
+        llm = create_llm(use_fast_model=True)
         chain = prompt_tmpl | llm.with_structured_output(ClarificationOut)
         out: ClarificationOut = await chain.ainvoke({
             "requirements": requirements,

@@ -72,8 +72,18 @@ def test_health_endpoints_report_ready(monkeypatch):
 
     monkeypatch.setattr(httpx.AsyncClient, "request", _fake_request, raising=True)
 
-    # Patch neo4j session factory imported into main module
-    monkeypatch.setattr(main_mod, "get_neo4j_session", lambda: _FakeNeo4jSession(), raising=True)
+    # Patch Neo4jClient in app state to return fake session
+    from utils.neo4j_client import Neo4jClient
+    
+    class FakeNeo4jClient:
+        def get_session(self, database=None):
+            return _FakeNeo4jSession()
+        def close(self):
+            pass
+    
+    # Mock the Neo4j client in app state
+    if hasattr(main_mod.app, 'state'):
+        main_mod.app.state.neo4j_client = FakeNeo4jClient()
 
     # Patch neo4j driver creation point in main module scope if any is used
     # Health endpoint should open driver via service code; we simulate success via run("RETURN 1")

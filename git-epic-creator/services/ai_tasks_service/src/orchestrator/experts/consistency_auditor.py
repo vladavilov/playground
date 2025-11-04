@@ -4,8 +4,9 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from task_models.agent_models import BacklogDraft, AuditFindings
-from orchestrator.experts.clients.llm import get_llm
+from utils.llm_client_factory import create_llm
 from orchestrator.prompts import CONSISTENCY_AUDITOR, build_chat_prompt
+from utils.chunk_utils import truncate_chunk_text
 
 
 class ConsistencyAuditor:
@@ -38,7 +39,7 @@ class ConsistencyAuditor:
         
         prompt_tmpl = build_chat_prompt(CONSISTENCY_AUDITOR)
         
-        llm = get_llm(use_fast_model=True)
+        llm = create_llm(use_fast_model=True)
         chain = prompt_tmpl | llm.with_structured_output(AuditOut)
         out: AuditOut = await chain.ainvoke({
             "requirements": requirements,
@@ -56,9 +57,10 @@ class ConsistencyAuditor:
         lines: List[str] = []
         
         for epic in draft.epics:
+            epic_desc = truncate_chunk_text(epic.description, 2000)
             lines.extend([
                 f"**Epic {epic.id}**: {epic.title}",
-                f"  Description: {epic.description[:200]}...",
+                f"  Description: {epic_desc}",
                 f"  Tasks: {len(epic.tasks)}",
             ])
             

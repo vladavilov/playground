@@ -3,8 +3,8 @@ from langchain_core.prompts import ChatPromptTemplate
 
 def hyde_prompt() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_messages([
-        ("system", "You are assisting a retrieval system. Write a short, factual paragraph that would likely appear in an ideal answer to this user question."),
-        ("user", "Question: \"{question}\"\nHypothetical answer paragraph:"),
+        ("system", "You are assisting a retrieval system. Write a short, factual paragraph (2-3 sentences) that would likely appear in an ideal answer to this user question."),
+        ("user", "Question: \"{question}\"\nHypothetical answer paragraph (2-3 sentences):"),
     ])
 
 
@@ -16,13 +16,13 @@ def primer_prompt() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_messages([
         ("system", "You are DRIFT-Search Primer."),
         ("user", (
-            "You are DRIFT-Search Primer.\n"
-            "Input: user question + community summaries + sample chunks.\n"
+            "Input: user question + community summaries.\n"
             "Tasks:\n"
             "- Draft initial answer (note uncertainty if needed).\n"
             "- Generate 2–6 follow-up questions.\n"
             "Return JSON: {{ initial_answer, followups:[{{question}}], rationale }}\n\n"
-            "User question: {question}\n, community details: {community_details}\n, sample chunks: {sample_chunks}"
+            "User question: {question}\n"
+            "Community details: {community_details}"
         )),
     ])
 
@@ -31,7 +31,6 @@ def local_executor_prompt() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_messages([
         ("system", "You are DRIFT-Search Local Executor."),
         ("user", (
-            "You are DRIFT-Search Local Executor.\n"
             "Input: follow-up question + retrieved chunks + graph neighborhoods.\n"
             "Tasks:\n"
             "- Answer follow-up using ONLY provided context.\n"
@@ -60,16 +59,26 @@ def aggregator_prompt() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_messages([
         ("system", "You are DRIFT-Search Aggregator."),
         ("user", (
-            "You are DRIFT-Search Aggregator.\n"
             "User question: {question}\n"
             "Q/A tree (primer + follow-ups): {tree}\n"
             "Tasks:\n"
             "1. Produce final concise answer.\n"
-            "2. List key facts with citations (chunk IDs as strings).\n"
+            "2. List key facts with citations using ONLY chunk_id values.\n"
             "3. Note any residual uncertainty.\n"
             "Return JSON:\n"
-            '{{ "final_answer": "<string>", "key_facts": [{{"fact": "<string>", "citations": ["<chunk_id>", ...]}}], "residual_uncertainty": "<string>" }}\n'
-            "IMPORTANT: citations must be an array of STRINGS (chunk IDs from the provided context)"
+            '{{ "final_answer": "<string>", "key_facts": [{{"fact": "<string>", "citations": ["<chunk_id>", "<chunk_id>", ...]}}], "residual_uncertainty": "<string>" }}\n\n'
+            "CITATION REQUIREMENTS (CRITICAL):\n"
+            "- Citations MUST be chunk_id strings ONLY (e.g., \"abc123\", \"def456\")\n"
+            "- You MUST extract chunk_id from the valid citations list below\n"
+            "- DO NOT return formatted strings like \"[document_name] \\\"text\\\"\"\n"
+            "- DO NOT invent or hallucinate chunk_ids\n"
+            "- Valid citations with chunk_ids:\n"
+            "{valid_citations}\n"
+            "- Extract chunk_id from each citation (format: ... (chunk_id: <id>))\n"
+            "- If you cannot find evidence in these citations, return an empty citations array\n\n"
+            "EXAMPLE:\n"
+            "Input citation: \"[file.py] \\\"some text\\\" (chunk_id: abc123)\"\n"
+            "Output in citations array: \"abc123\""
         )),
     ])
 

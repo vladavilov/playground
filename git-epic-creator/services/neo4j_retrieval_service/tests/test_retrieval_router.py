@@ -120,14 +120,29 @@ def test_retrieve_returns_aggregated_json(monkeypatch):
     # Import module fresh to ensure monkeypatch applies cleanly
     mod = importlib.import_module("services.neo4j_retrieval_service.src.routers.retrieval_router".replace("/", "."))
 
-    # Patch session and http client factories
-    monkeypatch.setattr(mod, "_neo4j_session", lambda: FakeNeo4jSession())
-    monkeypatch.setattr(mod, "_oai_client", lambda: FakeHttpClient())
+    # Create fake Neo4jClient that returns fake session
+    class FakeNeo4jClient:
+        def get_session(self, database=None):
+            return FakeNeo4jSession()
+        def close(self):
+            pass
+    
+    # Patch dependency injection to return fake Neo4jClient
+    from utils.app_factory import get_neo4j_client_from_state
+    original_get_neo4j_client = get_neo4j_client_from_state
+    
+    def mock_get_neo4j_client(request):
+        fake_client = FakeNeo4jClient()
+        return fake_client
+    
+    monkeypatch.setattr(mod, "get_neo4j_client_from_state", mock_get_neo4j_client)
 
     app = mount_app(mod)
+    # Add fake client to app state for dependency injection
+    app.state.neo4j_client = FakeNeo4jClient()
     client = TestClient(app)
 
-    resp = client.post("/retrieve", json={"query": "what are the main components of the bridge?", "top_k": 2})
+    resp = client.post("/retrieve", json={"query": "what are the main components of the bridge?", "top_k": 2, "project_id": "test-project"})
     assert resp.status_code == 200
     body = resp.json()
 

@@ -7,9 +7,10 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
-from langchain_core.messages.utils import trim_messages, count_tokens_approximately
+from langchain_core.messages.utils import trim_messages
 import structlog
 from config import get_ai_requirements_settings
+from utils.token_utils import count_message_tokens
 
 from workflow_models.requirements_models import RequirementsBundle
 from workflow_models.agent_models import AuditFindings
@@ -85,8 +86,8 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
             trimmed = trim_messages(
                 incoming_msgs,
                 strategy="last",
-                token_counter=count_tokens_approximately,
-                max_tokens=512,
+                token_counter=count_message_tokens,  # Use accurate tiktoken-based counter
+                max_tokens=1024,
                 start_on="human",
                 end_on=("human", "tool"),
             )

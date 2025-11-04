@@ -7,13 +7,14 @@ import structlog
 
 from task_models.agent_models import RequirementsAnalysis, RetrievedContext, BacklogDraft, AuditFindings
 from task_models.backlog_models import Epic, Task
-from orchestrator.experts.clients.llm import get_llm
+from utils.llm_client_factory import create_llm
 from orchestrator.prompts import (
     BACKLOG_ENGINEER,
     BACKLOG_ENGINEER_EPICS_ONLY,
     BACKLOG_ENGINEER_TASKS_ONLY,
     build_chat_prompt,
 )
+from utils.chunk_utils import truncate_chunk_text
 
 logger = structlog.get_logger(__name__)
 
@@ -120,12 +121,10 @@ class BacklogEngineer:
         Returns:
             Summarized context with reduced token count
         """
-        MAX_CONTEXT_ANSWER_LENGTH = 1000  # chars
-        MAX_KEY_FACTS = 5
+        MAX_CONTEXT_ANSWER_LENGTH = 10000  # chars
+        MAX_KEY_FACTS = 10
         
-        summarized_answer = context.context_answer[:MAX_CONTEXT_ANSWER_LENGTH]
-        if len(context.context_answer) > MAX_CONTEXT_ANSWER_LENGTH:
-            summarized_answer += "... (truncated for token efficiency)"
+        summarized_answer = truncate_chunk_text(context.context_answer, MAX_CONTEXT_ANSWER_LENGTH)
         
         return RetrievedContext(
             context_answer=summarized_answer,
@@ -156,7 +155,7 @@ class BacklogEngineer:
         
         prompt_tmpl = build_chat_prompt(BACKLOG_ENGINEER_EPICS_ONLY)
         
-        llm = get_llm(use_fast_model=True)  # Use fast model for epics
+        llm = create_llm(use_fast_model=True)  # Use fast model for epics
         chain = prompt_tmpl | llm.with_structured_output(EpicOutlinesOut)
         out: EpicOutlinesOut = await chain.ainvoke({"prompt_content": prompt_content})
         
@@ -193,7 +192,7 @@ class BacklogEngineer:
         
         prompt_tmpl = build_chat_prompt(BACKLOG_ENGINEER_TASKS_ONLY)
         
-        llm = get_llm(use_fast_model=True)  # Use fast model for tasks too
+        llm = create_llm(use_fast_model=True)  # Use fast model for tasks too
         chain = prompt_tmpl | llm.with_structured_output(TasksOut)
         out: TasksOut = await chain.ainvoke({"prompt_content": prompt_content})
         
@@ -233,7 +232,7 @@ class BacklogEngineer:
         
         prompt_tmpl = build_chat_prompt(BACKLOG_ENGINEER)  # Reuse main prompt
         
-        llm = get_llm(use_fast_model=True)  # Fast model sufficient
+        llm = create_llm(use_fast_model=True)  # Fast model sufficient
         chain = prompt_tmpl | llm.with_structured_output(AssumptionsRisksOut)
         out: AssumptionsRisksOut = await chain.ainvoke({"prompt_content": prompt_content})
         

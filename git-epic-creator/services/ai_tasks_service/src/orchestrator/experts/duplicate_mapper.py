@@ -4,11 +4,12 @@ from typing import List, Dict, Any
 import structlog
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from openai import AzureOpenAI
 
 from task_models.agent_models import BacklogDraft, DuplicateMappings
 from task_models.backlog_models import Epic, Task, SimilarMatch
 from config import get_ai_tasks_settings
+from utils.llm_client_factory import create_embedder
+from utils.embedding_service import EmbeddingService
 
 logger = structlog.get_logger(__name__)
 
@@ -19,14 +20,10 @@ class DuplicateMapper:
     def __init__(self) -> None:
         settings = get_ai_tasks_settings()
         self.similarity_threshold = settings.SIMILARITY_THRESHOLD
-        # Use deployment name for Azure API calls
-        self.embed_model = settings.llm.embedding_deployment_name
         
-        self.client = AzureOpenAI(
-            api_key=settings.llm.OAI_KEY,
-            api_version=settings.llm.OAI_API_VERSION,
-            azure_endpoint=settings.llm.OAI_BASE_URL,
-        )
+        # Use shared embedding service for error handling and logging
+        embedder = create_embedder()
+        self.embedding_service = EmbeddingService(embedder)
 
     async def map_duplicates(
         self,
@@ -66,19 +63,16 @@ class DuplicateMapper:
                 generated_refs.append((epic_idx, task_idx))
         
         # Extract embeddings from GitLab items (already computed by gitlab_client_service)
-        # Each item should have 'project_id' field indicating source GitLab project
         gitlab_embeddings = []
         gitlab_refs = []  # (kind, item_dict)
         
         for item in gitlab_epics:
-            # Reuse embedding from gitlab_client_service if available
             embedding = item.get("title_embedding", [])
             if embedding:
                 gitlab_embeddings.append(embedding)
                 gitlab_refs.append(("epic", item))
         
         for item in gitlab_issues:
-            # Reuse embedding from gitlab_client_service if available
             embedding = item.get("title_embedding", [])
             if embedding:
                 gitlab_embeddings.append(embedding)
@@ -96,150 +90,145 @@ class DuplicateMapper:
                 stats={"total_matches": 0, "no_gitlab_embeddings": True},
             )
         
-        # Get embeddings for generated items only
+        # Get embeddings for generated items using shared embedding service
+        # EmbeddingService handles error logging and HTTPException conversion
         try:
-            generated_embeddings = self._get_embeddings(generated_texts)
+            generated_embeddings = await self.embedding_service.embed_batch(generated_texts)
             logger.info(
-                "Generated embeddings for new items",
-                generated_count=len(generated_embeddings),
-                gitlab_reused_count=len(gitlab_embeddings),
+                "duplicate_mapping_embeddings_generated",
+                count=len(generated_texts),
+                embedding_dim=len(generated_embeddings[0]) if generated_embeddings else 0,
             )
-        except Exception as e:
-            logger.warning("Embedding generation failed for new items", error=str(e))
+        except Exception as exc:
+            # EmbeddingService already logged the error, just return gracefully
             return DuplicateMappings(
                 enriched_epics=draft.epics,
-                stats={"total_matches": 0, "error": str(e)},
+                stats={"total_matches": 0, "embedding_error": str(exc)},
             )
         
-        # Compute all similarities at once using sklearn (vectorized)
-        generated_matrix = np.array(generated_embeddings)
-        gitlab_matrix = np.array(gitlab_embeddings)
-        similarity_matrix = cosine_similarity(generated_matrix, gitlab_matrix)
+        # Compute similarity matrix
+        try:
+            similarity_matrix = cosine_similarity(generated_embeddings, gitlab_embeddings)
+            logger.debug(
+                "Computed similarity matrix",
+                shape=similarity_matrix.shape,
+                max_similarity=float(similarity_matrix.max()) if similarity_matrix.size > 0 else 0.0,
+            )
+        except Exception as exc:
+            logger.error(
+                "Similarity computation failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return DuplicateMappings(
+                enriched_epics=draft.epics,
+                stats={"total_matches": 0, "similarity_error": str(exc)},
+            )
         
         # Build enriched epics with similar matches
         enriched_epics = []
         total_matches = 0
-        total_similarity = 0.0
+        similarity_scores = []
         
         for epic_idx, epic in enumerate(draft.epics):
-            enriched_epic = epic.model_copy(deep=True)
+            # Get generated item indices for this epic
+            epic_item_indices = [i for i, (ei, ti) in enumerate(generated_refs) if ei == epic_idx and ti is None]
+            task_item_indices = [i for i, (ei, ti) in enumerate(generated_refs) if ei == epic_idx and ti is not None]
+            
+            # Find similar matches for epic
+            epic_similar = []
+            if epic_item_indices:
+                epic_item_idx = epic_item_indices[0]
+                similarities = similarity_matrix[epic_item_idx]
+                for gitlab_idx, score in enumerate(similarities):
+                    if score >= self.similarity_threshold:
+                        kind, gitlab_item = gitlab_refs[gitlab_idx]
+                        epic_similar.append(
+                            SimilarMatch(
+                                id=str(gitlab_item.get("id", "")),
+                                kind=kind,
+                                title=gitlab_item.get("title", ""),
+                                project_id=str(gitlab_item.get("project_id", "")),
+                                status=gitlab_item.get("state"),
+                                similarity=float(score),
+                                url=gitlab_item.get("web_url", ""),
+                            )
+                        )
+                        total_matches += 1
+                        similarity_scores.append(float(score))
+            
+            # Sort epic matches by similarity
+            epic_similar.sort(key=lambda x: x.similarity, reverse=True)
+            
+            # Find similar matches for tasks
             enriched_tasks = []
-            
-            # Find similar epics for this epic
-            gen_ref = (epic_idx, None)
-            gen_idx = generated_refs.index(gen_ref)
-            
-            similar_epics = self._find_similar_from_matrix(
-                gen_idx,
-                similarity_matrix,
-                gitlab_refs,
-                self.similarity_threshold,
-            )
-            
-            if similar_epics:
-                enriched_epic.similar = similar_epics
-                total_matches += len(similar_epics)
-                total_similarity += sum(m.similarity for m in similar_epics)
-            
-            # Find similar issues for each task
             for task_idx, task in enumerate(epic.tasks):
-                gen_ref = (epic_idx, task_idx)
-                gen_idx = generated_refs.index(gen_ref)
+                task_item_indices_for_this_task = [
+                    i for i, (ei, ti) in enumerate(generated_refs)
+                    if ei == epic_idx and ti == task_idx
+                ]
                 
-                similar_tasks = self._find_similar_from_matrix(
-                    gen_idx,
-                    similarity_matrix,
-                    gitlab_refs,
-                    self.similarity_threshold,
+                task_similar = []
+                if task_item_indices_for_this_task:
+                    task_item_idx = task_item_indices_for_this_task[0]
+                    similarities = similarity_matrix[task_item_idx]
+                    for gitlab_idx, score in enumerate(similarities):
+                        if score >= self.similarity_threshold:
+                            kind, gitlab_item = gitlab_refs[gitlab_idx]
+                            task_similar.append(
+                                SimilarMatch(
+                                    id=str(gitlab_item.get("id", "")),
+                                    kind=kind,
+                                    title=gitlab_item.get("title", ""),
+                                    project_id=str(gitlab_item.get("project_id", "")),
+                                    status=gitlab_item.get("state"),
+                                    similarity=float(score),
+                                    url=gitlab_item.get("web_url", ""),
+                                )
+                            )
+                            total_matches += 1
+                            similarity_scores.append(float(score))
+                
+                # Sort task matches by similarity
+                task_similar.sort(key=lambda x: x.similarity, reverse=True)
+                
+                # Create enriched task
+                enriched_tasks.append(
+                    Task(
+                        id=task.id,
+                        title=task.title,
+                        description=task.description,
+                        acceptance_criteria=task.acceptance_criteria,
+                        dependencies=task.dependencies,
+                        similar=task_similar,
+                    )
                 )
-                
-                enriched_task = task.model_copy(deep=True)
-                if similar_tasks:
-                    enriched_task.similar = similar_tasks
-                    total_matches += len(similar_tasks)
-                    total_similarity += sum(m.similarity for m in similar_tasks)
-                
-                enriched_tasks.append(enriched_task)
             
-            enriched_epic.tasks = enriched_tasks
-            enriched_epics.append(enriched_epic)
+            # Create enriched epic
+            enriched_epics.append(
+                Epic(
+                    id=epic.id,
+                    title=epic.title,
+                    description=epic.description,
+                    tasks=enriched_tasks,
+                    similar=epic_similar,
+                )
+            )
         
-        avg_similarity = (total_similarity / total_matches) if total_matches > 0 else 0.0
+        avg_similarity = float(np.mean(similarity_scores)) if similarity_scores else 0.0
+        
+        logger.info(
+            "Duplicate mapping complete",
+            total_matches=total_matches,
+            avg_similarity=avg_similarity,
+            threshold=self.similarity_threshold,
+        )
         
         return DuplicateMappings(
             enriched_epics=enriched_epics,
             stats={
                 "total_matches": total_matches,
                 "avg_similarity": avg_similarity,
+                "threshold": self.similarity_threshold,
             },
         )
-
-    def _get_embeddings(self, texts: List[str], batch_size: int = 100) -> List[List[float]]:
-        """Get embeddings for list of texts with batching for large inputs.
-        
-        Note: Texts should be titles only to match GitLab's embedding strategy.
-        
-        Args:
-            texts: List of text strings to embed
-            batch_size: Batch size for embedding API calls (default 100)
-            
-        Returns:
-            List of embeddings (one per text)
-        """
-        if not texts:
-            return []
-        
-        # If texts fit in single batch, process directly
-        if len(texts) <= batch_size:
-            response = self.client.embeddings.create(
-                model=self.embed_model,
-                input=texts,
-            )
-            return [item.embedding for item in response.data]
-        
-        # Process in batches for large inputs
-        all_embeddings = []
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            response = self.client.embeddings.create(
-                model=self.embed_model,
-                input=batch,
-            )
-            all_embeddings.extend([item.embedding for item in response.data])
-        
-        return all_embeddings
-
-    def _find_similar_from_matrix(
-        self,
-        query_idx: int,
-        similarity_matrix: np.ndarray,
-        gitlab_refs: List[tuple],
-        threshold: float,
-    ) -> List[SimilarMatch]:
-        """Find similar items above threshold from precomputed similarity matrix.
-        
-        Each match includes project_id to indicate which GitLab project it came from.
-        """
-        similarities = similarity_matrix[query_idx]
-        
-        # Get indices above threshold
-        above_threshold = np.where(similarities >= threshold)[0]
-        
-        # Create matches with project_id
-        matches = [
-            SimilarMatch(
-                kind=gitlab_refs[idx][0],
-                id=str(gitlab_refs[idx][1].get("id", "")),
-                title=gitlab_refs[idx][1].get("title", ""),
-                project_id=str(gitlab_refs[idx][1].get("project_id", "")),
-                status=gitlab_refs[idx][1].get("state") or gitlab_refs[idx][1].get("status"),
-                similarity=float(similarities[idx]),
-                url=gitlab_refs[idx][1].get("web_url"),
-            )
-            for idx in above_threshold
-        ]
-        
-        # Sort by similarity descending, return top 3
-        return sorted(matches, key=lambda m: m.similarity, reverse=True)[:3]
-
-

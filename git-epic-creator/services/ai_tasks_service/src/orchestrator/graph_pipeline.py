@@ -10,9 +10,10 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
-from langchain_core.messages.utils import trim_messages, count_tokens_approximately
+from langchain_core.messages.utils import trim_messages
 
 from task_models.request_models import GeneratedBacklogBundle
+from utils.token_utils import count_message_tokens
 from task_models.agent_models import AuditFindings
 from orchestrator.experts.requirements_analyst import RequirementsAnalyst
 from orchestrator.experts.context_retriever import ContextRetriever
@@ -120,8 +121,8 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             trimmed = trim_messages(
                 incoming_msgs,
                 strategy="last",
-                token_counter=count_tokens_approximately,
-                max_tokens=512,
+                token_counter=count_message_tokens,  # Use accurate tiktoken-based counter
+                max_tokens=1024,
                 start_on="human",
                 end_on=("human", "tool"),
             )

@@ -1,15 +1,15 @@
 from typing import Any, Dict
-from contextlib import contextmanager
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request
 from utils.local_auth import get_local_user_verified, LocalUser
+from utils.app_factory import get_neo4j_client_from_state
+from utils.llm_client_factory import create_llm, create_embedder
+from utils.neo4j_client import Neo4jClient
 from pydantic import BaseModel
 import structlog
 
-from services.clients import get_llm, get_embedder, get_neo4j_session
 from services.retrieval_service import Neo4jRetrievalService
 from services.retrieval_status_publisher import RetrievalStatusPublisher
-from retrieval_ms.repositories.neo4j_repository import Neo4jRepository
 
 logger = structlog.get_logger(__name__)
 
@@ -21,16 +21,6 @@ class RetrievalRequest(BaseModel):
     top_k: int = 1
     project_id: str
     prompt_id: str | None = None  # Optional parent workflow prompt_id for UI tracking
-
-
-@contextmanager
-def _get_neo4j_repository():
-    """Context manager for Neo4j repository with session management.
-    
-    Provides consistent session lifecycle management across endpoints.
-    """
-    with get_neo4j_session() as session:
-        yield Neo4jRepository(session)
 
 
 def _handle_infrastructure_error(exc: Exception, context: str, **log_context) -> None:
@@ -57,7 +47,12 @@ def _handle_infrastructure_error(exc: Exception, context: str, **log_context) ->
     ) from exc
 
 @retrieval_router.post("")
-async def retrieve(req: RetrievalRequest, request: Request, current_user: LocalUser = Depends(get_local_user_verified)) -> Dict[str, Any]:
+async def retrieve(
+    req: RetrievalRequest, 
+    request: Request, 
+    neo4j_client: Neo4jClient = Depends(get_neo4j_client_from_state),
+    current_user: LocalUser = Depends(get_local_user_verified)
+) -> Dict[str, Any]:
     """Retrieve context from Neo4j graph.
     
     Returns 200 with empty structure if no data found (not an error).
@@ -71,10 +66,14 @@ async def retrieve(req: RetrievalRequest, request: Request, current_user: LocalU
         if not publisher:
             logger.warning("redis_client_not_found", message="Progress updates will not be published")
         
+        # Create session factory from Neo4jClient
+        def get_session_factory():
+            return neo4j_client.get_session()
+        
         service = Neo4jRetrievalService(
-            get_session=get_neo4j_session, 
-            get_llm=get_llm, 
-            get_embedder=get_embedder,
+            get_session=get_session_factory, 
+            get_llm=create_llm, 
+            get_embedder=create_embedder,
             publisher=publisher
         )
         result = await service.retrieve(

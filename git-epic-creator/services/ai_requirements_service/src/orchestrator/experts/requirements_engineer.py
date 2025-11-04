@@ -2,8 +2,9 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from workflow_models.requirements_models import Requirement
 from workflow_models.agent_models import DraftRequirements, PromptAnalysis, RetrievedContext, AuditFindings
-from orchestrator.experts.clients.llm import get_llm
+from utils.llm_client_factory import create_llm
 from orchestrator.prompts import build_chat_prompt, REQUIREMENTS_ENGINEER
+from utils.chunk_utils import truncate_chunk_text
 
 
 class RequirementsEngineer:
@@ -51,7 +52,7 @@ class RequirementsEngineer:
             risks: List[str] = Field(default_factory=list)
 
         tmpl = build_chat_prompt(REQUIREMENTS_ENGINEER)
-        llm = get_llm()
+        llm = create_llm()
         chain = tmpl | llm.with_structured_output(DraftOut)
         out: DraftOut = await chain.ainvoke({"intents": intents, "contexts": contexts, "findings": findings_payload})
 
@@ -96,7 +97,8 @@ class RequirementsEngineer:
             for req in bundle.business_requirements:
                 lines.append(f"- {req.id}: {req.title}")
                 if hasattr(req, 'description') and req.description:
-                    lines.append(f"  Description: {req.description[:150]}...")
+                    desc = truncate_chunk_text(req.description, 1000)
+                    lines.append(f"  Description: {desc}")
         
         # Functional Requirements
         if hasattr(bundle, 'functional_requirements') and bundle.functional_requirements:
@@ -105,7 +107,8 @@ class RequirementsEngineer:
             for req in bundle.functional_requirements:
                 lines.append(f"- {req.id}: {req.title}")
                 if hasattr(req, 'description') and req.description:
-                    lines.append(f"  Description: {req.description[:150]}...")
+                    desc = truncate_chunk_text(req.description, 1000)
+                    lines.append(f"  Description: {desc}")
         
         lines.append("")
         lines.append("NOTE: Build upon these requirements. Preserve them unless user asks to change/remove specific ones.")

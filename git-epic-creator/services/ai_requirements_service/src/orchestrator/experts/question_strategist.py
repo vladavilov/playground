@@ -2,7 +2,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator
 from workflow_models.requirements_models import ClarificationQuestion
 from workflow_models.agent_models import DraftRequirements, ClarificationPlan
-from orchestrator.experts.clients.llm import get_llm
+from utils.llm_client_factory import create_llm
 from orchestrator.prompts import build_chat_prompt, QUESTION_STRATEGIST
 
 
@@ -37,7 +37,7 @@ class QuestionStrategist:
                 return value
 
         tmpl = build_chat_prompt(QUESTION_STRATEGIST)
-        llm = get_llm(use_fast_model=False)
+        llm = create_llm(use_fast_model=False)
         chain = tmpl | llm.with_structured_output(QList)
         out: QList = await chain.ainvoke({"prompt": prompt, "draft": draft_payload, "axes": axes_payload})
         questions: list[ClarificationQuestion] = []

@@ -6,9 +6,11 @@ import structlog
 
 from task_models.agent_models import BacklogDraft, AuditFindings, EvaluationReport
 from config import get_ai_tasks_settings
-from orchestrator.experts.clients.llm import get_llm
+from utils.llm_client_factory import create_llm
 from orchestrator.prompts import EVALUATOR, build_chat_prompt
 from utils.deepeval_utils import evaluate_with_metrics, StrictGEval
+from utils.chunk_utils import truncate_chunk_text
+from utils.token_utils import count_tokens
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
 from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric
 
@@ -47,7 +49,7 @@ class Evaluator:
         
         prompt_tmpl = build_chat_prompt(EVALUATOR)
         
-        llm = get_llm(use_fast_model=True)
+        llm = create_llm(use_fast_model=True)
         chain = prompt_tmpl | llm.with_structured_output(EvalOut)
         out: EvalOut = await chain.ainvoke({
             "requirements": requirements,
@@ -104,13 +106,11 @@ class Evaluator:
         # Build backlog text representation with trimming (token optimization)
         parts: list[str] = []
         for epic in draft.epics[:settings.MAX_EPICS_FOR_EVAL]:  # Trim epics
-            # Trim epic description to first 200 chars
-            epic_desc = epic.description[:200] + "..." if len(epic.description) > 200 else epic.description
+            epic_desc = truncate_chunk_text(epic.description, 2000)
             parts.append(f"Epic {epic.id}: {epic.title}. {epic_desc}")
             
             for task in epic.tasks[:settings.MAX_TASKS_PER_EPIC_EVAL]:  # Trim tasks per epic
-                # Trim task description to first 150 chars
-                task_desc = task.description[:150] + "..." if len(task.description) > 150 else task.description
+                task_desc = truncate_chunk_text(task.description, 1500)
                 # Trim acceptance criteria
                 ac_text = "; ".join(task.acceptance_criteria[:settings.MAX_AC_PER_TASK_EVAL])
                 # Trim dependencies to first 3
@@ -127,6 +127,16 @@ class Evaluator:
             parts.append("Risks: " + "; ".join(draft.risks[:3]))  # Limit to 3
         
         backlog_text = "\n".join(p for p in parts if p) or "Empty backlog"
+        
+        # Monitor token usage for backlog serialization
+        backlog_tokens = count_tokens(backlog_text, model_name="gpt-4o")
+        logger.info(
+            "backlog_serialization_metrics",
+            char_length=len(backlog_text),
+            token_count=backlog_tokens,
+            epics_included=min(len(draft.epics), settings.MAX_EPICS_FOR_EVAL),
+            total_epics=len(draft.epics),
+        )
         
         # Build context from findings
         contexts = []

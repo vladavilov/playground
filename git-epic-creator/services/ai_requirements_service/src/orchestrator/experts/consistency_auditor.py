@@ -1,7 +1,7 @@
 from workflow_models.agent_models import DraftRequirements, RetrievedContext, AuditFindings
 from typing import List, Set, Dict
 from pydantic import BaseModel, Field
-from orchestrator.experts.clients.llm import get_llm
+from utils.llm_client_factory import create_llm
 from orchestrator.prompts import build_chat_prompt, CONSISTENCY_AUDITOR
 import structlog
 from utils.deepeval_utils import evaluate_with_metrics
@@ -61,7 +61,7 @@ class ConsistencyAuditor:
             suggestions: List[str] = Field(default_factory=list)
 
         tmpl = build_chat_prompt(CONSISTENCY_AUDITOR)
-        llm = get_llm(use_fast_model=True)
+        llm = create_llm(use_fast_model=True)
         chain = tmpl | llm.with_structured_output(Critique)
         out: Critique = await chain.ainvoke({
             "requirements": payload["requirements"],

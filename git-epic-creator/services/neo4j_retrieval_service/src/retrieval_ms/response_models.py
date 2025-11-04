@@ -191,15 +191,17 @@ class LocalExecutorResponse(BaseModel):
 class KeyFact(BaseModel):
     """Key fact with citations.
     
-    Citations can be either:
-    - Strings (chunk IDs from LLM aggregator)
-    - Dicts (enriched with chunk_id, span, document_name from post-processing)
+    Citations flow:
+    - From LLM aggregator: chunk_id strings (e.g., "abc123")
+    - After enrichment: dicts with full metadata {chunk_id, span, document_name}
+    
+    The model accepts both formats to support the enrichment pipeline.
     """
     
     fact: str = Field(..., description="Key fact statement")
     citations: List[Union[str, dict]] = Field(
         default_factory=list, 
-        description="Citations: either chunk ID strings or enriched citation objects"
+        description="Citations: chunk_id strings from LLM, enriched to dicts after processing"
     )
     
     @field_validator("fact", mode="before")
@@ -213,11 +215,15 @@ class KeyFact(BaseModel):
     @field_validator("citations", mode="before")
     @classmethod
     def normalize_citations(cls, v):
-        """Preserve both string and dict citations.
+        """Normalize citations from aggregator LLM output.
         
-        After LLM aggregation, citations are strings (chunk IDs).
-        After enrichment, citations are dicts with full metadata.
-        This validator preserves both formats for downstream flexibility.
+        Expected input from LLM: chunk_id strings (e.g., ["abc123", "def456"])
+        After enrichment: dicts with {chunk_id, span, document_name}
+        
+        This validator ensures:
+        - Empty strings are filtered out
+        - Non-string/non-dict types are coerced to string
+        - Both formats are preserved for enrichment pipeline
         """
         if not isinstance(v, list):
             return []
@@ -227,19 +233,26 @@ class KeyFact(BaseModel):
             if item is None:
                 continue
             elif isinstance(item, dict):
-                # Preserve enriched citation objects
+                # Already enriched citation object - preserve as-is
                 normalized.append(item)
             elif isinstance(item, str):
-                # Preserve string chunk IDs
-                normalized.append(item)
+                # String citation (expected to be chunk_id from LLM)
+                chunk_id = item.strip()
+                if chunk_id:  # Only include non-empty chunk_ids
+                    normalized.append(chunk_id)
+                else:
+                    logger.debug(
+                        "citation_empty_string_filtered",
+                        message="Filtered empty string citation"
+                    )
             else:
-                # Coerce unknown types to string
+                # Coerce unknown types to string (chunk_id)
                 logger.debug(
                     "citation_coerced_to_string",
                     type=type(item).__name__,
-                    message="Coercing non-string/non-dict citation to string"
+                    message="Coercing non-string/non-dict citation to chunk_id string"
                 )
-                normalized.append(str(item))
+                normalized.append(str(item).strip())
         
         return normalized
 

@@ -25,7 +25,10 @@ dependencies = [
     "celery",
     "azure-storage-blob",
     "tenacity",
-    "python-jose[cryptography]"
+    "python-jose[cryptography]",
+    "tiktoken",
+    "langchain-core",
+    "langchain-openai",
 ]
 
 [tool.pytest.ini_options]
