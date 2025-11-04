@@ -119,7 +119,12 @@ class FollowupsNode(BaseNode):
     ) -> Dict[str, Any]:
         """Create minimal followup result with validated citations."""
         # Build lookup map: chunk_id -> document_name
-        chunk_to_doc = {item.get("chunk_id"): item.get("document_name", "unknown") for item in chunks}
+        # Filter out None chunk_ids to ensure valid mapping
+        chunk_to_doc = {
+            str(item.get("chunk_id")): item.get("document_name", "unknown")
+            for item in chunks
+            if item.get("chunk_id") is not None
+        }
         valid_chunk_ids = set(chunk_to_doc.keys())
         
         # Validate citations using shared utility
@@ -130,10 +135,81 @@ class FollowupsNode(BaseNode):
             context_label=context_label,
         )
         
+        # Ensure all citations are dicts with document_name (handle string citations)
+        enriched_citations = []
+        for cit in validated_citations:
+            if isinstance(cit, str):
+                # Citation is just a chunk_id string - enrich it with document_name
+                chunk_id = str(cit).strip()
+                if chunk_id in chunk_to_doc:
+                    # Look up document_name and span from chunks
+                    doc_name = chunk_to_doc.get(chunk_id, "unknown")
+                    # Try to find span from original chunks
+                    span = ""
+                    for chunk in chunks:
+                        if str(chunk.get("chunk_id")) == chunk_id:
+                            # Extract a snippet from chunk text as span
+                            chunk_text = chunk.get("text", "")
+                            span = chunk_text[:150] + "..." if len(chunk_text) > 150 else chunk_text
+                            break
+                    
+                    enriched_citations.append({
+                        "chunk_id": chunk_id,
+                        "span": span,
+                        "document_name": doc_name
+                    })
+                    logger.debug(
+                        "citation_string_enriched",
+                        context=context_label,
+                        chunk_id=chunk_id,
+                        document_name=doc_name,
+                        message="Enriched string citation with document_name and span"
+                    )
+                else:
+                    logger.warning(
+                        "citation_string_not_found_in_chunks",
+                        context=context_label,
+                        chunk_id=chunk_id,
+                        available_chunk_ids=list(chunk_to_doc.keys())[:5],
+                        message="String citation chunk_id not found in chunks - skipping"
+                    )
+            elif isinstance(cit, dict):
+                # Citation is already a dict - ensure it has document_name
+                chunk_id = cit.get("chunk_id")
+                if chunk_id:
+                    # Ensure document_name is set (defensive check)
+                    if not cit.get("document_name") or cit.get("document_name") == "unknown":
+                        doc_name = chunk_to_doc.get(str(chunk_id), "unknown")
+                        if doc_name and doc_name != "unknown":
+                            cit["document_name"] = doc_name
+                            logger.debug(
+                                "citation_document_name_restored",
+                                context=context_label,
+                                chunk_id=chunk_id,
+                                document_name=doc_name,
+                                message="Restored document_name for citation dict"
+                            )
+                    enriched_citations.append(cit)
+                else:
+                    logger.warning(
+                        "citation_dict_missing_chunk_id",
+                        context=context_label,
+                        citation=cit,
+                        message="Citation dict missing chunk_id - skipping"
+                    )
+            else:
+                logger.warning(
+                    "citation_unknown_type",
+                    context=context_label,
+                    citation_type=type(cit).__name__,
+                    citation=cit,
+                    message="Unknown citation type - skipping"
+                )
+        
         minimal_result = {
             "question": qtext,
             "answer": local_validated.answer,
-            "citations": validated_citations,
+            "citations": enriched_citations,
             "confidence": local_validated.confidence,
         }
         
