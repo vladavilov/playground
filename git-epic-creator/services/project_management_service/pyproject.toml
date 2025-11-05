@@ -12,17 +12,17 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "pydantic",
-    "structlog",
-    "asyncpg",
-    "psycopg2-binary>=2.9.9",
-    "redis[hiredis]",
-    "azure-storage-blob",
-    "python-multipart",
-    "httpx>=0.24.0",
-    "tenacity>=8.0.0",
+    "fastapi==0.121.0",
+    "uvicorn==0.38.0",
+    "pydantic==2.12.3",
+    "structlog==25.5.0",
+    "asyncpg==0.30.0",
+    "psycopg2-binary==2.9.11",
+    "redis[hiredis]==7.0.1",
+    "azure-storage-blob==12.27.1",
+    "python-multipart==0.0.20",
+    "httpx==0.28.1",
+    "tenacity==9.1.2",
     "shared @ file:../shared"
 ]
 
