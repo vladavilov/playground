@@ -39,6 +39,7 @@ class GitLabClientService:
         return GitLabWorkItem(
             kind="epic",
             id=str(epic.id),
+            iid=str(epic.iid),
             title=epic.title,
             description=epic.description or "",
             state=epic.state,
@@ -60,6 +61,7 @@ class GitLabClientService:
         return GitLabWorkItem(
             kind="issue",
             id=str(issue.id),
+            iid=str(issue.iid),
             title=issue.title,
             description=issue.description or "",
             state=issue.state,

@@ -305,12 +305,13 @@ export class TasksEditor extends BaseEditor {
       const matchPercent = Math.round((sim.similarity || 0) * 100);
       const decision = sim.link_decision || 'pending';
       const simUrl = sim.url || '#';
+      const displayId = sim.iid || sim.id; // Prefer IID for display
       
       let statusColor = 'text-amber-600 bg-amber-50';
       let statusText = '⏱ Pending Decision';
       if (decision === 'accepted') {
         statusColor = 'text-emerald-600 bg-emerald-50';
-        statusText = '✓ Will Use This';
+        statusText = '✓ Will Link';
       } else if (decision === 'rejected') {
         statusColor = 'text-slate-500 bg-slate-50';
         statusText = '✗ Ignored';
@@ -322,7 +323,7 @@ export class TasksEditor extends BaseEditor {
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold text-slate-600">${esc(sim.kind).toUpperCase()}</span>
               <a href="${esc(simUrl)}" target="_blank" class="text-blue-600 hover:underline font-medium truncate" title="${esc(sim.title || 'Untitled')}">
-                #${esc(sim.id)}: ${esc(sim.title || 'Untitled')}
+                #${esc(displayId)}: ${esc(sim.title || 'Untitled')}
               </a>
               <span class="text-xs text-slate-500">(${matchPercent}% match)</span>
             </div>
@@ -330,7 +331,7 @@ export class TasksEditor extends BaseEditor {
           </div>
           ${sim.status ? `<div class="text-xs text-slate-500 mb-2">Status: ${esc(sim.status)}</div>` : ''}
           <div class="text-xs text-slate-600">
-            You can accept this match to update the existing ${itemType.toLowerCase()} instead of creating a new one.
+            Accept to link this ${itemType.toLowerCase()}. You can link to multiple similar items.
           </div>
         </div>
       `;

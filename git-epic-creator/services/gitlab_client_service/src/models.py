@@ -7,6 +7,7 @@ Kind = Literal["epic", "issue"]
 class GitLabWorkItem(BaseModel):
     kind: Kind
     id: str
+    iid: str = Field(description="Internal ID (IID) - used for linking within project/group")
     title: str
     title_embedding: List[float] = Field(default_factory=list)
     description: str = ""
@@ -40,9 +41,9 @@ class ApplyBacklogWorkItem(BaseModel):
         None,
         description="User-selected target GitLab project ID (overrides payload-level project_id)"
     )
-    related_to_iid: Optional[str] = Field(
-        None,
-        description="IID of similar/related item to link to (creates related link)"
+    related_to_iids: List[str] = Field(
+        default_factory=list,
+        description="List of IIDs of similar/related items to link to (creates multiple related links for many-to-many relationships)"
     )
 
 class ApplyBacklogIssue(ApplyBacklogWorkItem):

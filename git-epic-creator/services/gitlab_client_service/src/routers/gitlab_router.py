@@ -263,7 +263,8 @@ async def apply_backlog(
                         labels=epic_data.labels
                     )
                     
-                    epic_iid_map[idx] = work_item.id
+                    # Store IID for parent-child linking (not ID)
+                    epic_iid_map[idx] = work_item.iid
                     
                     results.epics.append(ApplyBacklogItemResult(
                         input_index=idx,
@@ -272,29 +273,30 @@ async def apply_backlog(
                         web_url=work_item.web_url
                     ))
                     
-                    # Link to similar epic if specified
-                    if epic_data.related_to_iid:
-                        try:
-                            gitlab_service.create_epic_link(
-                                group_id=str(target_group.id),
-                                source_epic_iid=work_item.id,
-                                target_epic_iid=epic_data.related_to_iid,
-                                link_type="relates_to"
-                            )
-                            logger.info(
-                                "Epic linked to similar item",
-                                project_id=target_project,
-                                source_epic_iid=work_item.id,
-                                target_epic_iid=epic_data.related_to_iid
-                            )
-                        except Exception as link_error:
-                            logger.warning(
-                                "Failed to link epic to similar item",
-                                project_id=target_project,
-                                source_epic_iid=work_item.id,
-                                target_epic_iid=epic_data.related_to_iid,
-                                error=str(link_error)
-                            )
+                    # Link to multiple similar epics if specified (many-to-many)
+                    if epic_data.related_to_iids:
+                        for target_epic_iid in epic_data.related_to_iids:
+                            try:
+                                gitlab_service.create_epic_link(
+                                    group_id=str(target_group.id),
+                                    source_epic_iid=work_item.iid,
+                                    target_epic_iid=target_epic_iid,
+                                    link_type="relates_to"
+                                )
+                                logger.info(
+                                    "Epic linked to similar item",
+                                    project_id=target_project,
+                                    source_epic_iid=work_item.iid,
+                                    target_epic_iid=target_epic_iid
+                                )
+                            except Exception as link_error:
+                                logger.warning(
+                                    "Failed to link epic to similar item",
+                                    project_id=target_project,
+                                    source_epic_iid=work_item.iid,
+                                    target_epic_iid=target_epic_iid,
+                                    error=str(link_error)
+                                )
                 
                 except Exception as e:
                     logger.error(
@@ -330,7 +332,7 @@ async def apply_backlog(
                         web_url=work_item.web_url
                     ))
                     
-                    # Link to parent epic if specified
+                    # Link to parent epic if specified (Flow 1: one parent only)
                     if issue_data.parent_epic_index is not None:
                         parent_epic_iid = epic_iid_map.get(issue_data.parent_epic_index)
                         if parent_epic_iid:
@@ -344,7 +346,7 @@ async def apply_backlog(
                                         issue_id=work_item.id
                                     )
                                     logger.info(
-                                        "Issue linked to parent epic",
+                                        "Issue linked to parent epic (hierarchy)",
                                         project_id=target_project,
                                         issue_id=work_item.id,
                                         epic_iid=parent_epic_iid
@@ -358,29 +360,30 @@ async def apply_backlog(
                                         error=str(link_error)
                                     )
                     
-                    # Link to similar issue if specified
-                    if issue_data.related_to_iid:
-                        try:
-                            gitlab_service.create_issue_link(
-                                project_id=target_project,
-                                source_issue_iid=work_item.id,
-                                target_issue_iid=issue_data.related_to_iid,
-                                link_type="relates_to"
-                            )
-                            logger.info(
-                                "Issue linked to similar item",
-                                project_id=target_project,
-                                source_issue_iid=work_item.id,
-                                target_issue_iid=issue_data.related_to_iid
-                            )
-                        except Exception as link_error:
-                            logger.warning(
-                                "Failed to link issue to similar item",
-                                project_id=target_project,
-                                source_issue_iid=work_item.id,
-                                target_issue_iid=issue_data.related_to_iid,
-                                error=str(link_error)
-                            )
+                    # Link to multiple similar issues if specified (Flow 2: many-to-many)
+                    if issue_data.related_to_iids:
+                        for target_issue_iid in issue_data.related_to_iids:
+                            try:
+                                gitlab_service.create_issue_link(
+                                    project_id=target_project,
+                                    source_issue_iid=work_item.iid,
+                                    target_issue_iid=target_issue_iid,
+                                    link_type="relates_to"
+                                )
+                                logger.info(
+                                    "Issue linked to similar item (many-to-many)",
+                                    project_id=target_project,
+                                    source_issue_iid=work_item.iid,
+                                    target_issue_iid=target_issue_iid
+                                )
+                            except Exception as link_error:
+                                logger.warning(
+                                    "Failed to link issue to similar item",
+                                    project_id=target_project,
+                                    source_issue_iid=work_item.iid,
+                                    target_issue_iid=target_issue_iid,
+                                    error=str(link_error)
+                                )
                 
                 except Exception as e:
                     logger.error(

@@ -191,7 +191,7 @@ export class BacklogRenderer extends BaseRenderer {
     let html = `<div class="similar-items-container mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
       <div class="flex items-center justify-between mb-2">
         <div class="font-semibold text-blue-800 text-xs">${title}</div>
-        <div class="text-xs text-blue-600">Choose an action for each match:</div>
+        <div class="text-xs text-blue-600">You can link to multiple matches:</div>
       </div>`;
     
     similarItems.forEach((sim, simIdx) => {
@@ -209,19 +209,22 @@ export class BacklogRenderer extends BaseRenderer {
         statusBadge = '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded font-medium">⏱ Pending</span>';
       }
       
+      const displayId = sim.iid || sim.id; // Prefer IID for display (internal ID)
+      
       html += `
         <div class="similar-item flex items-start justify-between gap-2 p-2 bg-white border border-blue-100 rounded mt-2" 
              data-epic-idx="${epicIdx}" 
              data-task-idx="${taskIdx !== null ? taskIdx : ''}" 
              data-sim-idx="${simIdx}"
              data-sim-id="${esc(sim.id)}"
+             data-sim-iid="${esc(sim.iid || sim.id)}"
              data-sim-kind="${esc(sim.kind)}"
              data-sim-project-id="${esc(sim.project_id || '')}">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-1">
               <span class="text-xs font-medium text-slate-600">${esc(sim.kind).toUpperCase()}</span>
               <a href="${esc(simUrl)}" target="_blank" class="text-blue-600 hover:underline text-xs font-medium truncate" title="${esc(sim.title || 'Untitled')}">
-                #${esc(sim.id)}: ${esc(sim.title || 'Untitled')}
+                #${esc(displayId)}: ${esc(sim.title || 'Untitled')}
               </a>
               <span class="text-xs text-slate-500">(${matchPercent}% match)</span>
               ${sim.project_id ? `<span class="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded font-mono" title="GitLab Project ID">proj:${esc(sim.project_id)}</span>` : ''}
@@ -232,13 +235,13 @@ export class BacklogRenderer extends BaseRenderer {
             </div>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button class="similar-action-btn accept-btn px-2 py-1 text-xs bg-emerald-500 hover:bg-emerald-600 text-white rounded transition-colors ${decision === 'accepted' ? 'opacity-50' : ''}" 
-                    title="Use this existing ${itemType.toLowerCase()} (link or update)"
+            <button class="similar-action-btn accept-btn px-2 py-1 text-xs bg-emerald-500 hover:bg-emerald-600 text-white rounded transition-all duration-200 ${decision === 'accepted' ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md active:scale-95'}" 
+                    title="Link to this existing ${itemType.toLowerCase()}"
                     data-action="accept"
                     ${decision === 'accepted' ? 'disabled' : ''}>
               ✓ Use
             </button>
-            <button class="similar-action-btn reject-btn px-2 py-1 text-xs bg-slate-400 hover:bg-slate-500 text-white rounded transition-colors ${decision === 'rejected' ? 'opacity-50' : ''}" 
+            <button class="similar-action-btn reject-btn px-2 py-1 text-xs bg-slate-400 hover:bg-slate-500 text-white rounded transition-all duration-200 ${decision === 'rejected' ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md active:scale-95'}" 
                     title="Ignore this match and create new"
                     data-action="reject"
                     ${decision === 'rejected' ? 'disabled' : ''}>
