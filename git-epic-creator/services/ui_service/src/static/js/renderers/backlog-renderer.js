@@ -90,18 +90,15 @@ export class BacklogRenderer extends BaseRenderer {
     
     let html = `
       <div class="epic-card bg-white border border-slate-200 rounded-lg p-4 mb-4 shadow-sm">
-        <div class="flex items-start justify-between gap-3 mb-3">
-          <div class="flex-1">
-            <h3 class="epic-title font-semibold text-slate-800">${esc(epic.title)}</h3>
-            <div class="epic-description text-sm text-slate-600 mt-1 prose prose-sm max-w-none">${descriptionHtml}</div>
-          </div>
-          <div class="flex flex-col items-end gap-2">
-            <div class="flex items-center gap-1 card-actions-container">
-              <span class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium whitespace-nowrap">Epic ${epicIdx + 1}</span>
-            </div>
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <h3 class="epic-title font-semibold text-slate-800 flex-1">${esc(epic.title)}</h3>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-medium whitespace-nowrap">Epic ${epicIdx + 1}</span>
+            <div class="card-actions-container flex items-center gap-1"></div>
             ${projectDropdown}
           </div>
         </div>
+        <div class="epic-description text-sm text-slate-600 prose prose-sm max-w-none mb-3">${descriptionHtml}</div>
     `;
     
     // Similar matches for epic
@@ -136,18 +133,15 @@ export class BacklogRenderer extends BaseRenderer {
     
     let html = `
       <div class="task-item border border-slate-200 rounded-lg p-3 bg-slate-50" data-epic-idx="${epicIdx}" data-task-idx="${taskIdx}">
-        <div class="flex items-start justify-between gap-2">
-          <div class="flex-1">
-            <div class="task-title font-medium text-sm text-slate-800">${esc(task.title)}</div>
-            <div class="task-description text-xs text-slate-600 mt-1 prose prose-xs max-w-none">${descriptionHtml}</div>
-          </div>
-          <div class="flex flex-col items-end gap-1.5">
-            <div class="flex items-center gap-1 card-actions-container">
-              <span class="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded text-xs whitespace-nowrap">T${taskIdx + 1}</span>
-            </div>
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <div class="task-title font-medium text-sm text-slate-800 flex-1">${esc(task.title)}</div>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <span class="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded text-xs whitespace-nowrap">T${taskIdx + 1}</span>
+            <div class="card-actions-container flex items-center gap-1"></div>
             ${projectDropdown}
           </div>
         </div>
+        <div class="task-description text-xs text-slate-600 prose prose-xs max-w-none">${descriptionHtml}</div>
     `;
     
     // Acceptance criteria
