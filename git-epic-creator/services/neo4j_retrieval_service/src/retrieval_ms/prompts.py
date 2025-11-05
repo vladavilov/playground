@@ -35,6 +35,7 @@ def local_executor_prompt() -> ChatPromptTemplate:
             "Tasks:\n"
             "- Answer follow-up using ONLY provided context.\n"
             "- Cite chunk spans where evidence comes from.\n"
+            "- Do not add chunk id and spans to the answer text.\n"
             "- Propose 0–3 additional follow-ups (if needed).\n"
             "- Assign confidence [0..1] and whether to continue.\n\n"
             "Return JSON with strict schema:\n"
@@ -47,7 +48,6 @@ def local_executor_prompt() -> ChatPromptTemplate:
             "  Valid chunk IDs: {valid_chunk_ids}\n"
             "- If you cannot find evidence in these chunks, return an empty citations array\n\n"
             "OTHER REQUIREMENTS:\n"
-            "- chunk_id must be a STRING (use the exact chunk_id from the valid list)\n"
             "- new_followups must be an array of objects with 'question' field, NOT plain strings.\n"
             'Example: {{"new_followups": [{{"question": "clarify X"}}, {{"question": "explain Y"}}]}}\n\n'
             "Follow-up: {qtext}\nTarget communities: {target_communities}\nScoped chunk contexts: {chunks_preview}"
