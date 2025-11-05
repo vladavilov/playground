@@ -109,14 +109,15 @@ export async function initializeMermaid(container = document.body) {
   // Process each diagram individually to handle failures gracefully
   for (const node of nodes) {
     try {
-      // Mark as processed before rendering to avoid retry loops
-      node.setAttribute('data-processed', 'true');
-      
       // Add containment wrapper to prevent overflow
       node.style.maxWidth = '100%';
       node.style.overflowX = 'hidden';
       
+      // Render the diagram
       await mermaid.run({ nodes: [node] });
+      
+      // Mark as processed after successful render
+      node.setAttribute('data-processed', 'true');
       
       // Ensure SVG is contained
       const svg = node.querySelector('svg');
@@ -127,6 +128,9 @@ export async function initializeMermaid(container = document.body) {
       
     } catch (error) {
       console.error('[MarkdownRenderer] Mermaid diagram failed to render:', error);
+      
+      // Mark as processed to prevent retry loops
+      node.setAttribute('data-processed', 'true');
       
       // Store error details for AI fix
       const diagramSource = node.textContent.trim();
