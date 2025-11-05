@@ -128,10 +128,12 @@ class RequirementsController extends ChatBaseController {
   
   /**
    * Gets SSE event handlers for requirements screen.
+   * Merges base class handlers (retrieval_progress) with requirements-specific handlers.
    * @override
    */
   getSSEEventHandlers() {
     return {
+      ...super.getSSEEventHandlers(),
       'ai_requirements_progress': (evt) => {
         try {
           const msg = JSON.parse(evt.data);
@@ -157,30 +159,6 @@ class RequirementsController extends ChatBaseController {
           }
         } catch (err) {
           console.error('Failed to process ai_requirements_progress event:', err);
-        }
-      },
-      'retrieval_progress': (evt) => {
-        try {
-          const msg = JSON.parse(evt.data);
-          if (!this.isCurrentProjectEvent(msg)) {
-            return;
-          }
-          
-          this.updateProjectStatus(msg.phase || 'retrieving');
-          
-          const md = msg.details_md || msg.thought_summary || 'Retrieving context...';
-          const rid = msg.prompt_id || null;
-          const box = this.getOrCreateBoxForPromptId(rid);
-          
-          if (box) {
-            box.appendMarkdown(md);
-            
-            if (msg.phase === 'error') {
-              box.finish('error');
-            }
-          }
-        } catch (err) {
-          console.error('Failed to process retrieval_progress event:', err);
         }
       }
     };

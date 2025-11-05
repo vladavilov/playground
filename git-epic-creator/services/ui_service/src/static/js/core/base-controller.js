@@ -240,6 +240,42 @@ export class ChatBaseController extends BasePageController {
   }
   
   /**
+   * Gets SSE event handlers for this page.
+   * Provides common 'retrieval_progress' handler that all chat-based pages need.
+   * Subclasses should override and merge with their specific handlers.
+   * @override
+   * @returns {Object} Map of event name to handler function
+   */
+  getSSEEventHandlers() {
+    return {
+      'retrieval_progress': (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (!this.isCurrentProjectEvent(msg)) {
+            return;
+          }
+          
+          this.updateProjectStatus(msg.phase || 'retrieving');
+          
+          const md = msg.details_md || msg.thought_summary || 'Retrieving context...';
+          const rid = msg.prompt_id || null;
+          const box = this.getOrCreateBoxForPromptId(rid);
+          
+          if (box) {
+            box.appendMarkdown(md);
+            
+            if (msg.phase === 'error') {
+              box.finish('error');
+            }
+          }
+        } catch (err) {
+          console.error('Failed to process retrieval_progress event:', err);
+        }
+      }
+    };
+  }
+  
+  /**
    * Sends a request to the API.
    * Must be implemented by subclasses.
    * @param {string} text - Request text/prompt

@@ -165,10 +165,12 @@ class TasksController extends ChatBaseController {
   
   /**
    * Gets SSE event handlers for tasks screen.
+   * Merges base class handlers (retrieval_progress) with tasks-specific handlers.
    * @override
    */
   getSSEEventHandlers() {
     return {
+      ...super.getSSEEventHandlers(),
       'ai_tasks_progress': (evt) => {
         try {
           const msg = JSON.parse(evt.data);

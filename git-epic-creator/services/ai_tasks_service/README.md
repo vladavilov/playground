@@ -846,7 +846,7 @@ REDIS_URL=redis://redis:6379
 # Workflow Parameters
 CLARIFICATION_SCORE_TARGET=0.75           # Target score for finalization (0.0-1.0)
 MAX_AGENT_ITERS=3                         # Maximum refinement iterations
-SIMILARITY_THRESHOLD=0.83                 # Cosine similarity for duplicates (0.0-1.0)
+SIMILARITY_THRESHOLD=0.7                  # Cosine similarity for duplicates (0.0-1.0)
 RETRIEVAL_TOP_K=2                         # Number of GraphRAG results per query
 
 # Evaluation Weights (must sum to 1.0)

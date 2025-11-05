@@ -138,7 +138,7 @@ ui-service acts as a **transparent proxy** for all GitLab OAuth and API interact
 
 ### Server-Sent Events
 - `GET /events` - SSE stream for project progress updates
-  - Channels: `ui:project_progress`, `ui:ai_workflow_progress`, `ui:ai_tasks_progress`
+  - Channels: `ui:project_progress`, `ui:ai_workflow_progress`, `ui:ai_tasks_progress`, `ui:retrieval_progress`
 
 ### Static UI Pages
 - `GET /projects.html` - Main project selection page
@@ -508,6 +508,7 @@ Channels:
 - `ui:project_progress` - General project updates (document processing, RAG ingestion, etc.)
 - `ui:ai_requirements_progress` - Requirements gathering
 - `ui:ai_tasks_progress` - Task generation
+- `ui:retrieval_progress` - Neo4j GraphRAG context retrieval (used by both requirements and tasks pages)
 
 Event types:
 - `analyzing_requirements`
@@ -811,7 +812,7 @@ POST /tasks/tasks/generate
   "message": "User message",
   "options": {
     "top_k": 2,
-    "similarity_threshold": 0.83,
+    "similarity_threshold": 0.7,
     "max_iters": 3
   }
 }

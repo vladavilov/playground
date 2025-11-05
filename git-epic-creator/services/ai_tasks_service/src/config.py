@@ -55,7 +55,7 @@ class AITasksSettings(BaseConfig):
     )
 
     SIMILARITY_THRESHOLD: float = Field(
-        default=0.83,
+        default=0.6,
         description="Cosine similarity threshold for duplicate detection",
         ge=0.0,
         le=1.0,
