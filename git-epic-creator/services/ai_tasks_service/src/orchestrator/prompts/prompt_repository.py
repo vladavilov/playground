@@ -170,7 +170,7 @@ BACKLOG_ENGINEER_TASKS_ONLY = PromptSpec(
         "    - flowchart: For process/data flows (e.g., flowchart LR; A[Service]-->B[DB])\n"
         "    - sequenceDiagram: For interactions (e.g., sequenceDiagram; participant C; C->>S: Request)\n"
         "    - classDiagram: For data models (e.g., classDiagram; class User; User: +id string)\n"
-        "    - ERDiagram: For database schemas (e.g., ERD; USER ||--o{ ORDER: has)\n"
+        "    - erDiagram: For database schemas (e.g., erDiagram; USER ||--o{{ ORDER : places)\n"
         "    Include diagram ONLY if task involves processes, interactions, or data models\n"
         "  * ## Details: API endpoints (method, path, request/response schemas), data models (tables, fields, types), configs\n"
         "  * ## Integration: Specific services/APIs from context (exact names)\n"

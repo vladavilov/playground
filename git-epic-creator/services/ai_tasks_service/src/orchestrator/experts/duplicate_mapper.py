@@ -146,6 +146,7 @@ class DuplicateMapper:
                         epic_similar.append(
                             SimilarMatch(
                                 id=str(gitlab_item.get("id", "")),
+                                iid=str(gitlab_item.get("iid", "")),
                                 kind=kind,
                                 title=gitlab_item.get("title", ""),
                                 project_id=str(gitlab_item.get("project_id", "")),
@@ -178,6 +179,7 @@ class DuplicateMapper:
                             task_similar.append(
                                 SimilarMatch(
                                     id=str(gitlab_item.get("id", "")),
+                                    iid=str(gitlab_item.get("iid", "")),
                                     kind=kind,
                                     title=gitlab_item.get("title", ""),
                                     project_id=str(gitlab_item.get("project_id", "")),

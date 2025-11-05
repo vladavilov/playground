@@ -11,8 +11,6 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 from contextlib import contextmanager
 import asyncio
-import json
-import re
 import structlog
 
 from retrieval_ms.nodes.base_node import BaseNode
@@ -33,9 +31,46 @@ from config import get_retrieval_settings
 
 logger = structlog.get_logger(__name__)
 
+# Constants for adaptive processing and nested followups
+OVERLAP_RATIO_THRESHOLD = 0.5  # Threshold for triggering adaptive compression
+MAX_NESTED_FOLLOWUPS = 2  # Maximum nested followups per execution run
+NESTED_INDEX_MULTIPLIER = 1000  # Multiplier for nested followup index calculation
+SPAN_TRUNCATION_LENGTH = 150  # Maximum length for citation span extraction
+MINIMUM_SPAN_LENGTH = 5  # Minimum span length for valid citations
+
 
 class FollowupsNode(BaseNode):
     """Execute followup questions in parallel for maximum throughput."""
+    
+    @staticmethod
+    def _filter_none_results(results: List[Optional[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Filter out None results from parallel execution.
+        
+        Args:
+            results: List of results that may contain None values
+            
+        Returns:
+            List with None values filtered out
+        """
+        return [r for r in results if r is not None]
+    
+    @staticmethod
+    def _is_valid_followup_result(result: Dict[str, Any]) -> bool:
+        """Check if a followup result is valid.
+        
+        A result is valid if it has:
+        - Non-empty answer OR
+        - At least one valid citation
+        
+        Args:
+            result: Followup result dict
+            
+        Returns:
+            True if result is valid, False otherwise
+        """
+        has_answer = bool(result.get("answer", "").strip())
+        has_citations = bool(result.get("citations") and len(result.get("citations")) > 0)
+        return has_answer or has_citations
     
     @contextmanager
     def _repo_ctx(self):
@@ -81,15 +116,13 @@ class FollowupsNode(BaseNode):
         
         # Check cache for already-expanded chunks
         cache = state.get("_cache_neighborhoods", {})
-        cached_results = []
-        chunks_to_expand = []
         
-        for chunk_id in chunks:
-            if chunk_id in cache:
-                logger.debug("neighborhood_cache_hit", chunk_id=chunk_id)
-                cached_results.append(cache[chunk_id])
-            else:
-                chunks_to_expand.append(chunk_id)
+        # Separate cached and uncached chunks
+        cached_results = [cache[chunk_id] for chunk_id in chunks if chunk_id in cache]
+        chunks_to_expand = [chunk_id for chunk_id in chunks if chunk_id not in cache]
+        
+        if cached_results:
+            logger.debug("neighborhood_cache_hit", count=len(cached_results))
         
         # Expand only uncached chunks
         if chunks_to_expand:
@@ -100,10 +133,9 @@ class FollowupsNode(BaseNode):
                 max_chunk_text_len=settings.MAX_CHUNK_TEXT_LENGTH
             )
             
-            # Cache results
+            # Cache new results
             for item in expanded:
-                cid = item.get("chunk_id")
-                if cid:
+                if cid := item.get("chunk_id"):
                     cache[cid] = item
             
             state["_cache_neighborhoods"] = cache
@@ -111,53 +143,156 @@ class FollowupsNode(BaseNode):
         
         return cached_results
     
-    def _clean_answer_text(self, answer: str, valid_chunk_ids: set[str]) -> str:
-        """Remove chunk_id references from answer text.
-        
-        Removes patterns like:
-        - [chunk: <chunk_id>]
-        - [chunk <chunk_id>]
-        - (chunk: <chunk_id>)
-        - chunk_id: <chunk_id>
-        - Any other chunk_id references
+    async def _spawn_and_execute_nested_followups(
+        self,
+        idx: int,
+        local_validated: LocalExecutorResponse,
+        state: Dict[str, Any],
+        k: int,
+        cids: List[int],
+        chunk_index: str,
+        depth: int,
+        nested_counter: asyncio.Lock,
+        nested_count_dict: Dict[str, int],
+    ) -> List[Dict[str, Any]]:
+        """Spawn and execute nested followups if available.
         
         Args:
-            answer: Raw answer text from LLM
-            valid_chunk_ids: Set of valid chunk IDs to match against
+            idx: Parent followup index
+            local_validated: LLM response with new_followups
+            state: Graph state
+            k: Top-k chunks to retrieve
+            cids: Community IDs
+            chunk_index: Vector index name
+            depth: Current nesting depth
+            nested_counter: Lock for thread-safe nested followup counting
+            nested_count_dict: Shared dict to track total nested followups spawned
             
         Returns:
-            Cleaned answer text without chunk_id references
+            List of nested followup results
         """
-        if not answer:
-            return answer
+        nested_results = []
         
-        cleaned = answer
+        if not (local_validated.new_followups and depth == 0 and nested_counter and nested_count_dict):
+            return nested_results
         
-        # Remove common chunk reference patterns
-        # Pattern 1: [chunk: <chunk_id>] or [chunk <chunk_id>]
-        cleaned = re.sub(r'\[chunk:?\s*[a-zA-Z0-9_-]+\]', '', cleaned, flags=re.IGNORECASE)
+        # Check if we can spawn nested followups
+        current_count = nested_count_dict.get("count", 0)
+        if current_count >= MAX_NESTED_FOLLOWUPS:
+            return nested_results
         
-        # Pattern 2: (chunk: <chunk_id>) or (chunk <chunk_id>)
-        cleaned = re.sub(r'\(chunk:?\s*[a-zA-Z0-9_-]+\)', '', cleaned, flags=re.IGNORECASE)
+        # Determine how many nested followups we can spawn
+        available_slots = MAX_NESTED_FOLLOWUPS - current_count
+        nested_followups_to_spawn = local_validated.new_followups[:available_slots]
         
-        # Pattern 3: chunk_id: <chunk_id> or chunk ID: <chunk_id>
-        cleaned = re.sub(r'chunk\s*id:?\s*[a-zA-Z0-9_-]+', '', cleaned, flags=re.IGNORECASE)
+        if not nested_followups_to_spawn:
+            return nested_results
         
-        # Pattern 4: [<chunk_id>] where chunk_id is in valid set (more specific)
-        for chunk_id in valid_chunk_ids:
-            # Escape special regex characters in chunk_id
-            escaped_id = re.escape(str(chunk_id))
-            # Remove [chunk_id] or (chunk_id) patterns
-            cleaned = re.sub(rf'\[{escaped_id}\]', '', cleaned)
-            cleaned = re.sub(rf'\({escaped_id}\)', '', cleaned)
+        # Atomically reserve slots for nested followups
+        nested_followups_to_spawn_final = []
+        async with nested_counter:
+            # Double-check limit after acquiring lock
+            current_count = nested_count_dict.get("count", 0)
+            if current_count < MAX_NESTED_FOLLOWUPS:
+                available_slots = MAX_NESTED_FOLLOWUPS - current_count
+                nested_followups_to_spawn_final = local_validated.new_followups[:available_slots]
+                
+                if nested_followups_to_spawn_final:
+                    # Update counter atomically
+                    nested_count_dict["count"] = current_count + len(nested_followups_to_spawn_final)
+                    logger.info(
+                        "nested_followups_spawning",
+                        parent_index=idx,
+                        spawning_count=len(nested_followups_to_spawn_final),
+                        total_nested_count=nested_count_dict["count"],
+                        message="Spawning nested followup executions"
+                    )
         
-        # Clean up extra whitespace (multiple spaces, newlines at boundaries)
-        cleaned = re.sub(r'\s+', ' ', cleaned)  # Multiple spaces to single space
-        cleaned = re.sub(r'\s+([.,;:!?])', r'\1', cleaned)  # Space before punctuation
-        cleaned = re.sub(r'([.,;:!?])\s*([.,;:!?])', r'\1\2', cleaned)  # Multiple punctuation
-        cleaned = cleaned.strip()
+        # Execute nested followups outside lock (in parallel)
+        if nested_followups_to_spawn_final:
+            nested_tasks = [
+                self._process_single_followup(
+                    idx=idx * NESTED_INDEX_MULTIPLIER + nested_idx,
+                    followup={"question": nf.question},
+                    state=state,
+                    k=k,
+                    cids=cids,
+                    chunk_index=chunk_index,
+                    total_followups=len(nested_followups_to_spawn_final),
+                    depth=depth + 1,
+                    nested_counter=nested_counter,
+                    nested_count_dict=nested_count_dict,
+                )
+                for nested_idx, nf in enumerate(nested_followups_to_spawn_final)
+            ]
+            
+            # Execute nested followups in parallel
+            nested_results_with_none = await asyncio.gather(*nested_tasks, return_exceptions=False)
+            nested_results = self._filter_none_results(nested_results_with_none)
+            
+            logger.info(
+                "nested_followups_completed",
+                parent_index=idx,
+                spawned_count=len(nested_followups_to_spawn_final),
+                completed_count=len(nested_results),
+                message="Nested followup executions completed"
+            )
         
-        return cleaned
+        return nested_results
+    
+    async def _publish_followup_progress(
+        self,
+        idx: int,
+        minimal_result: Dict[str, Any],
+        qtext: str,
+        total_followups: int,
+        depth: int,
+        state: Dict[str, Any],
+    ) -> None:
+        """Publish progress update for a followup execution.
+        
+        Args:
+            idx: Followup index
+            minimal_result: Followup result with answer and citations
+            qtext: Question text
+            total_followups: Total number of followups
+            depth: Nesting depth (0 = initial, 1 = nested)
+            state: Graph state with project_id, retrieval_id, prompt_id
+        """
+        if not self._publisher:
+            return
+        
+        try:
+            progress = 40.0 + ((idx + 1) / total_followups) * 40.0
+            prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
+            depth_label = f" (nested depth {depth})" if depth > 0 else ""
+            
+            await self._publisher.publish_retrieval_update(
+                project_id=UUID(state["project_id"]),
+                retrieval_id=state["retrieval_id"],
+                phase=RetrievalStatus.EXECUTING_FOLLOWUP,
+                thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}{depth_label}**",
+                details_md=(
+                    f"**Follow-up {idx + 1}/{total_followups}{depth_label}:** {qtext}\n\n"
+                    f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
+                    f"**Citations:**  \n" +
+                    (
+                        "\n".join([
+                            f"- [{c.get('document_name', 'Unknown')}] \"{c.get('span', '')[:120]}...\""
+                            for c in minimal_result.get('citations', []) or []
+                        ])
+                        if minimal_result.get('citations') else "No citations."
+                    ) +
+                    (
+                        f"\n__Confidence:__ {minimal_result.get('confidence'):.2f}"
+                        if isinstance(minimal_result.get('confidence'), (float, int)) else ""
+                    )
+                ),
+                progress_pct=progress,
+                prompt_id=prompt_id_uuid,
+            )
+        except Exception as exc:
+            logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
     
     def _create_minimal_followup_result(
         self,
@@ -166,9 +301,12 @@ class FollowupsNode(BaseNode):
         chunks: List[Dict[str, Any]],
         context_label: str,
     ) -> Dict[str, Any]:
-        """Create minimal followup result with validated citations."""
+        """Create minimal followup result with validated citations.
+        
+        Note: validate_citations already returns enriched dict citations with
+        {chunk_id, span, document_name}, so no additional enrichment is needed.
+        """
         # Build lookup map: chunk_id -> document_name
-        # Filter out None chunk_ids to ensure valid mapping
         chunk_to_doc = {
             str(item.get("chunk_id")): item.get("document_name", "unknown")
             for item in chunks
@@ -176,7 +314,7 @@ class FollowupsNode(BaseNode):
         }
         valid_chunk_ids = set(chunk_to_doc.keys())
         
-        # Validate citations using shared utility
+        # Validate citations using shared utility (returns enriched dicts)
         validated_citations = validate_citations(
             local_validated.citations,
             valid_chunk_ids,
@@ -184,84 +322,10 @@ class FollowupsNode(BaseNode):
             context_label=context_label,
         )
         
-        # Ensure all citations are dicts with document_name (handle string citations)
-        enriched_citations = []
-        for cit in validated_citations:
-            if isinstance(cit, str):
-                # Citation is just a chunk_id string - enrich it with document_name
-                chunk_id = str(cit).strip()
-                if chunk_id in chunk_to_doc:
-                    # Look up document_name and span from chunks
-                    doc_name = chunk_to_doc.get(chunk_id, "unknown")
-                    # Try to find span from original chunks
-                    span = ""
-                    for chunk in chunks:
-                        if str(chunk.get("chunk_id")) == chunk_id:
-                            # Extract a snippet from chunk text as span
-                            chunk_text = chunk.get("text", "")
-                            span = chunk_text[:150] + "..." if len(chunk_text) > 150 else chunk_text
-                            break
-                    
-                    enriched_citations.append({
-                        "chunk_id": chunk_id,
-                        "span": span,
-                        "document_name": doc_name
-                    })
-                    logger.debug(
-                        "citation_string_enriched",
-                        context=context_label,
-                        chunk_id=chunk_id,
-                        document_name=doc_name,
-                        message="Enriched string citation with document_name and span"
-                    )
-                else:
-                    logger.warning(
-                        "citation_string_not_found_in_chunks",
-                        context=context_label,
-                        chunk_id=chunk_id,
-                        available_chunk_ids=list(chunk_to_doc.keys())[:5],
-                        message="String citation chunk_id not found in chunks - skipping"
-                    )
-            elif isinstance(cit, dict):
-                # Citation is already a dict - ensure it has document_name
-                chunk_id = cit.get("chunk_id")
-                if chunk_id:
-                    # Ensure document_name is set (defensive check)
-                    if not cit.get("document_name") or cit.get("document_name") == "unknown":
-                        doc_name = chunk_to_doc.get(str(chunk_id), "unknown")
-                        if doc_name and doc_name != "unknown":
-                            cit["document_name"] = doc_name
-                            logger.debug(
-                                "citation_document_name_restored",
-                                context=context_label,
-                                chunk_id=chunk_id,
-                                document_name=doc_name,
-                                message="Restored document_name for citation dict"
-                            )
-                    enriched_citations.append(cit)
-                else:
-                    logger.warning(
-                        "citation_dict_missing_chunk_id",
-                        context=context_label,
-                        citation=cit,
-                        message="Citation dict missing chunk_id - skipping"
-                    )
-            else:
-                logger.warning(
-                    "citation_unknown_type",
-                    context=context_label,
-                    citation_type=type(cit).__name__,
-                    citation=cit,
-                    message="Unknown citation type - skipping"
-                )
-        
-        # Clean answer text to remove chunk_id references
-        cleaned_answer = self._clean_answer_text(local_validated.answer, valid_chunk_ids)
-        
         minimal_result = {
             "question": qtext,
-            "answer": cleaned_answer,
-            "citations": enriched_citations,
+            "answer": local_validated.answer,
+            "citations": validated_citations,
             "confidence": local_validated.confidence,
         }
         
@@ -286,8 +350,27 @@ class FollowupsNode(BaseNode):
         cids: List[int],
         chunk_index: str,
         total_followups: int,
+        depth: int = 0,
+        nested_counter: Optional[asyncio.Lock] = None,
+        nested_count_dict: Optional[Dict[str, int]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Process a single followup with error isolation."""
+        """Process a single followup with error isolation and nested followup support.
+        
+        Args:
+            idx: Followup index
+            followup: Followup question dict
+            state: Graph state
+            k: Top-k chunks to retrieve
+            cids: Community IDs
+            chunk_index: Vector index name
+            total_followups: Total number of followups in current batch
+            depth: Nesting depth (0 = initial, 1 = nested)
+            nested_counter: Lock for thread-safe nested followup counting
+            nested_count_dict: Shared dict to track total nested followups spawned
+            
+        Returns:
+            Followup result dict with optional nested results
+        """
         settings = get_retrieval_settings()
         
         try:
@@ -330,12 +413,13 @@ class FollowupsNode(BaseNode):
             
             # Reduce limit if high overlap
             adaptive_limit = settings.MAX_CHUNKS_FOR_PROMPT
-            if overlap_ratio > 0.5:
+            if overlap_ratio > OVERLAP_RATIO_THRESHOLD:
                 adaptive_limit = max(10, settings.MAX_CHUNKS_FOR_PROMPT // 2)
                 logger.info(
                     "adaptive_chunk_limit_reduced",
                     followup_index=idx,
                     overlap_ratio=overlap_ratio,
+                    threshold=OVERLAP_RATIO_THRESHOLD,
                     original_limit=settings.MAX_CHUNKS_FOR_PROMPT,
                     adaptive_limit=adaptive_limit,
                 )
@@ -349,8 +433,10 @@ class FollowupsNode(BaseNode):
             
             # Prepare prompt data
             target_communities_brief = state.get("community_brief", [])
+        
+            chunks_for_prompt_truncated = chunks_for_prompt[:adaptive_limit]
             chunks_preview_json = truncate_for_prompt(
-                chunks_for_prompt,
+                chunks_for_prompt_truncated,
                 max_items=adaptive_limit,
                 label=f"chunks_preview_followup_{idx}",
             )
@@ -360,9 +446,7 @@ class FollowupsNode(BaseNode):
                 label=f"target_communities_followup_{idx}",
             )
             
-            # Extract valid chunk IDs from truncated chunks (after compression/truncation)
-            # This ensures valid_chunk_ids matches what's in chunks_preview_json
-            chunks_for_prompt_truncated = chunks_for_prompt[:adaptive_limit]
+            # Extract valid chunk IDs from the same truncated chunks used in prompt
             valid_chunk_ids_str = ", ".join([
                 str(chunk.get("chunk_id"))
                 for chunk in chunks_for_prompt_truncated
@@ -405,50 +489,30 @@ class FollowupsNode(BaseNode):
             )
             
             # Quality check (for observability, still return result)
-            has_valid_citation = len(minimal_result.get("citations", [])) > 0
-            is_high_confidence = minimal_result.get("confidence", 0) >= 0.7
-            has_answer = bool(minimal_result.get("answer", "").strip())
-            
-            if not has_answer or not (has_valid_citation or is_high_confidence):
+            if not self._is_valid_followup_result(minimal_result):
+                is_high_confidence = minimal_result.get("confidence", 0) >= 0.7
                 logger.warning(
                     "followup_low_quality",
                     followup_index=idx,
-                    has_answer=has_answer,
-                    has_citations=has_valid_citation,
+                    has_answer=bool(minimal_result.get("answer", "").strip()),
+                    has_citations=bool(minimal_result.get("citations")),
                     confidence=minimal_result.get("confidence", 0),
+                    is_high_confidence=is_high_confidence,
                 )
             
             # Publish progress
-            if self._publisher:
-                try:
-                    progress = 40.0 + ((idx + 1) / total_followups) * 40.0
-                    prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
-                    await self._publisher.publish_retrieval_update(
-                        project_id=UUID(state["project_id"]),
-                        retrieval_id=state["retrieval_id"],
-                        phase=RetrievalStatus.EXECUTING_FOLLOWUP,
-                        thought_summary=f"🔎 **Follow-up {idx + 1}/{total_followups}**",
-                        details_md=(
-                            f"**Follow-up {idx + 1}/{total_followups}:** {qtext}\n\n"
-                            f"**Answer:** {minimal_result.get('answer') or 'No answer found.'}\n\n"
-                            f"**Citations:**  \n" +
-                            (
-                                "\n".join([
-                                    f"- [{c.get('document_name', 'Unknown')}] \"{c.get('span', '')[:120]}...\""
-                                    for c in minimal_result.get('citations', []) or []
-                                ])
-                                if minimal_result.get('citations') else "No citations."
-                            ) +
-                            (
-                                f"\n__Confidence:__ {minimal_result.get('confidence'):.2f}"
-                                if isinstance(minimal_result.get('confidence'), (float, int)) else ""
-                            )
-                        ),
-                        progress_pct=progress,
-                        prompt_id=prompt_id_uuid,
-                    )
-                except Exception as exc:
-                    logger.debug("publish_failed", phase="followup", followup_idx=idx, error=str(exc))
+            await self._publish_followup_progress(
+                idx, minimal_result, qtext, total_followups, depth, state
+            )
+            
+            # Handle nested followups if new_followups are found and limit not reached
+            nested_results = await self._spawn_and_execute_nested_followups(
+                idx, local_validated, state, k, cids, chunk_index, depth, nested_counter, nested_count_dict
+            )
+            
+            # Attach nested results to parent result
+            if nested_results:
+                minimal_result["nested_followups"] = nested_results
             
             return minimal_result
             
@@ -463,13 +527,13 @@ class FollowupsNode(BaseNode):
             return None
     
     async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute all followups in parallel.
+        """Execute all followups in parallel with nested followup support.
         
         Args:
             state: Graph state with followups, communities, project_id
             
         Returns:
-            State updates with followup_results and optional no_data_found flag
+            State updates with followup_results (including nested results) and optional no_data_found flag
         """
         settings = get_retrieval_settings()
         k = self._ensure_top_k(state)
@@ -484,43 +548,68 @@ class FollowupsNode(BaseNode):
             return {"followup_results": []}
         
         try:
+            # Initialize nested followup tracking
+            nested_counter = asyncio.Lock()
+            nested_count_dict: Dict[str, int] = {"count": 0}
+            
             # Execute all followups in parallel
             logger.info(
                 "followups_parallel_execution_start",
                 total_followups=total_followups,
-                message=f"Executing {total_followups} followups in parallel"
+                max_nested_followups=MAX_NESTED_FOLLOWUPS,
+                message=f"Executing {total_followups} followups in parallel with nested followup support (max {MAX_NESTED_FOLLOWUPS})"
             )
             
             tasks = [
-                self._process_single_followup(idx, f, state, k, cids, chunk_index, total_followups)
+                self._process_single_followup(
+                    idx, f, state, k, cids, chunk_index, total_followups,
+                    depth=0,
+                    nested_counter=nested_counter,
+                    nested_count_dict=nested_count_dict,
+                )
                 for idx, f in enumerate(followups)
             ]
             results_with_none = await asyncio.gather(*tasks, return_exceptions=False)
             
             # Filter out None results
-            results = [r for r in results_with_none if r is not None]
+            results = self._filter_none_results(results_with_none)
             
-            # Calculate validation success
-            valid_results = [
-                r for r in results
-                if (r.get("answer") and r.get("answer").strip())
-                or (r.get("citations") and len(r.get("citations")) > 0)
-            ]
+            # Flatten nested results into main results list
+            flattened_results = []
+            for result in results:
+                flattened_results.append(result)
+                # Add nested followups as separate entries if they exist
+                nested_followups = result.get("nested_followups", [])
+                if nested_followups:
+                    flattened_results.extend(nested_followups)
+                    logger.debug(
+                        "nested_followups_flattened",
+                        parent_question=result.get("question", "")[:50],
+                        nested_count=len(nested_followups),
+                        message="Flattened nested followups for external script compatibility"
+                    )
             
+            # Validate results
+            valid_results = [r for r in flattened_results if self._is_valid_followup_result(r)]
+            
+            total_nested_spawned = nested_count_dict.get("count", 0)
             logger.info(
                 "retrieval.followups.done",
                 processed=len(results),
+                flattened_total=len(flattened_results),
                 validated=len(valid_results),
                 total_followups=total_followups,
+                nested_followups_spawned=total_nested_spawned,
                 success_rate=f"{len(valid_results)}/{total_followups}",
+                message="Followup execution completed with nested followups (flattened)"
             )
             
             # Check if no data was found
-            if len(results) == 0:
+            if len(flattened_results) == 0:
                 logger.warning("followups_all_empty", message="No data found in any followups")
                 return {"followup_results": [], "no_data_found": True}
             
-            return {"followup_results": results}
+            return {"followup_results": flattened_results}
             
         except Exception as exc:
             logger.error(

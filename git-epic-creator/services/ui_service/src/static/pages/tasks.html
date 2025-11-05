@@ -291,22 +291,38 @@
       margin-bottom: 1.5rem;
     }
     
-    /* Mermaid diagram styling */
+    /* Mermaid diagram styling with proper containment */
     .mermaid {
       margin: 1rem 0;
       padding: 1rem;
       background: #f8fafc;
       border-radius: 0.5rem;
       border: 1px solid #e2e8f0;
-      overflow-x: auto;
+      overflow: hidden; /* Changed from overflow-x: auto to prevent horizontal scroll */
       display: flex;
       justify-content: center;
       align-items: center;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     
     .mermaid svg {
       max-width: 100%;
       height: auto;
+      display: block;
+    }
+    
+    /* Error state for failed mermaid diagrams */
+    .mermaid-error {
+      max-width: 100%;
+      overflow: hidden;
+    }
+    
+    .mermaid-error pre {
+      overflow-x: auto;
+      max-width: 100%;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
   </style>
 </head>

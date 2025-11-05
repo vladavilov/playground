@@ -132,26 +132,6 @@ def truncate_for_prompt(
             message=f"Truncated {label} to prevent token overflow"
         )
     
-    # Count tokens for monitoring
-    actual_tokens = count_tokens(serialized, model_name=model_name)
-    
-    if actual_tokens > warn_threshold_tokens:
-        logger.warning(
-            "prompt_data_large",
-            label=label,
-            serialized_length=len(serialized),
-            actual_tokens=actual_tokens,
-            warn_threshold=warn_threshold_tokens,
-            message="Large prompt may cause token pressure or LLM output simplification"
-        )
-    else:
-        logger.debug(
-            "prompt_data_size",
-            label=label,
-            serialized_length=len(serialized),
-            actual_tokens=actual_tokens,
-        )
-    
     return serialized
 
 
