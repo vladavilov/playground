@@ -9,6 +9,7 @@ class SimilarMatch(BaseModel):
 
     kind: str = Field(..., description="Type of work item: 'epic' or 'issue'")
     id: str = Field(..., description="GitLab work item ID")
+    iid: str = Field(..., description="GitLab internal ID (IID) - used for linking within project/group")
     title: str = Field(..., description="Work item title")
     project_id: str = Field(..., description="GitLab project ID where this item exists")
     status: Optional[str] = Field(None, description="Work item status (e.g., open, closed)")
