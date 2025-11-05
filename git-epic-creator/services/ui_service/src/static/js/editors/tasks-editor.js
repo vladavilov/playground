@@ -12,6 +12,7 @@
 import { BaseEditor } from '../core/base-editor.js';
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
 import { renderMarkdown } from '../utils/markdown-renderer.js';
+import { renderSimilarItems as renderSimilarItemsUtil } from '../components/similar-items-renderer.js';
 
 /**
  * Enhanced editor for backlog (epics and tasks) with multiple editing modes.
@@ -21,6 +22,9 @@ export class TasksEditor extends BaseEditor {
   
   constructor(bundle, onSave) {
     super(bundle, onSave);
+    
+    // Reference to controller for event handling (will be set by controller)
+    this.controller = null;
     
     // Set up delete callback with tasks-specific logic
     this.setDeleteCallback((metadata) => {
@@ -45,6 +49,90 @@ export class TasksEditor extends BaseEditor {
     this.setAIEnhanceCallback((metadata) => {
       // TODO: Implement AI enhancement
       alert('AI enhancement feature will be available soon!');
+    });
+  }
+  
+  /**
+   * Sets the controller reference for event handling.
+   * @param {Object} controller - Tasks controller instance
+   */
+  setController(controller) {
+    this.controller = controller;
+  }
+  
+  /**
+   * Sets up focus modal event handlers, including similar items buttons.
+   * @override
+   */
+  setupFocusModalHandlers(modal, item, metadata) {
+    // Call parent implementation
+    super.setupFocusModalHandlers(modal, item, metadata);
+    
+    // Add similar items button handlers
+    this.setupSimilarItemsHandlers(modal);
+  }
+  
+  /**
+   * Sets up fullscreen modal event handlers, including similar items buttons.
+   * @override
+   */
+  setupFullscreenModalHandlers(modal, item, metadata) {
+    // Call parent implementation
+    super.setupFullscreenModalHandlers(modal, item, metadata);
+    
+    // Add similar items button handlers
+    this.setupSimilarItemsHandlers(modal);
+  }
+  
+  /**
+   * Sets up event delegation for similar items action buttons.
+   * Works for both focus and fullscreen modes.
+   * @param {HTMLElement} modal - Modal element
+   * @private
+   */
+  setupSimilarItemsHandlers(modal) {
+    if (!this.controller) return;
+    
+    modal.addEventListener('click', (e) => {
+      const btn = e.target.closest('.similar-action-btn');
+      if (!btn) return;
+      
+      // Prevent double-clicks
+      if (this.controller.processingLinkDecision || btn.disabled) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const action = btn.dataset.action;
+      const similarItem = btn.closest('.similar-item');
+      if (!similarItem) return;
+      
+      const epicIdx = parseInt(similarItem.dataset.epicIdx);
+      const taskIdxStr = similarItem.dataset.taskIdx;
+      const taskIdx = taskIdxStr ? parseInt(taskIdxStr) : null;
+      const simIdx = parseInt(similarItem.dataset.simIdx);
+      
+      // Visual feedback
+      btn.style.transform = 'scale(0.95)';
+      setTimeout(() => {
+        btn.style.transform = '';
+      }, 150);
+      
+      // Delegate to controller's handler
+      this.controller.handleLinkDecision(action, epicIdx, taskIdx, simIdx);
+      
+      // Refresh preview to show updated similar item status
+      // Trigger input event on first field to cause preview update
+      setTimeout(() => {
+        const firstInput = modal.querySelector('input, textarea');
+        if (firstInput) {
+          firstInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }, 250);
     });
   }
   
@@ -282,6 +370,7 @@ export class TasksEditor extends BaseEditor {
   
   /**
    * Renders similar matches section for focus mode.
+   * Uses shared utility with focus mode styling and interactive buttons.
    * @param {Object} item - Epic or task object
    * @returns {string} HTML string
    * @private
@@ -291,57 +380,15 @@ export class TasksEditor extends BaseEditor {
       return '';
     }
     
-    const isFullscreen = this.currentMode === 'fullscreen';
-    const headingClass = isFullscreen ? 'text-sm mb-3' : 'text-xs mb-2';
-    const itemType = this.editingItem?.itemType === 'epic' ? 'Epic' : 'Issue';
+    // Extract metadata from editingItem to get context
+    const epicIdx = this.editingItem?.epicIdx ?? 0;
+    const taskIdx = this.editingItem?.taskIdx ?? null;
+    const context = this.editingItem?.itemType === 'epic' ? 'epic' : 'task';
     
-    let html = `
-      <div>
-        <h4 class="${headingClass} font-semibold text-slate-500 uppercase tracking-wide">🔗 Similar GitLab ${itemType}s</h4>
-        <div class="space-y-2">
-    `;
-    
-    item.similar.forEach((sim, simIdx) => {
-      const matchPercent = Math.round((sim.similarity || 0) * 100);
-      const decision = sim.link_decision || 'pending';
-      const simUrl = sim.url || '#';
-      const displayId = sim.iid || sim.id; // Prefer IID for display
-      
-      let statusColor = 'text-amber-600 bg-amber-50';
-      let statusText = '⏱ Pending Decision';
-      if (decision === 'accepted') {
-        statusColor = 'text-emerald-600 bg-emerald-50';
-        statusText = '✓ Will Link';
-      } else if (decision === 'rejected') {
-        statusColor = 'text-slate-500 bg-slate-50';
-        statusText = '✗ Ignored';
-      }
-      
-      html += `
-        <div class="p-3 border border-slate-200 rounded bg-slate-50">
-          <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-semibold text-slate-600">${esc(sim.kind).toUpperCase()}</span>
-              <a href="${esc(simUrl)}" target="_blank" class="text-blue-600 hover:underline font-medium truncate" title="${esc(sim.title || 'Untitled')}">
-                #${esc(displayId)}: ${esc(sim.title || 'Untitled')}
-              </a>
-              <span class="text-xs text-slate-500">(${matchPercent}% match)</span>
-            </div>
-            <span class="px-2 py-0.5 ${statusColor} rounded text-xs font-medium">${statusText}</span>
-          </div>
-          ${sim.status ? `<div class="text-xs text-slate-500 mb-2">Status: ${esc(sim.status)}</div>` : ''}
-          <div class="text-xs text-slate-600">
-            Accept to link this ${itemType.toLowerCase()}. You can link to multiple similar items.
-          </div>
-        </div>
-      `;
+    // Use shared utility with focus mode settings
+    return renderSimilarItemsUtil(item.similar, context, epicIdx, taskIdx, {
+      mode: 'focus',
+      showButtons: true
     });
-    
-    html += `
-        </div>
-      </div>
-    `;
-    
-    return html;
   }
 }

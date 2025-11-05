@@ -278,6 +278,9 @@ class TasksController extends ChatBaseController {
       () => this.handleEnhancedEditorSave()
     );
     
+    // Set controller reference for event handling in focus mode
+    this.enhancedEditor.setController(this);
+    
     // Enable inline editing mode
     this.enhancedEditor.enableInlineEditing();
     

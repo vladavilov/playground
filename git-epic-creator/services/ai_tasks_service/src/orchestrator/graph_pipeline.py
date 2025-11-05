@@ -18,12 +18,11 @@ from task_models.agent_models import AuditFindings
 from orchestrator.experts.requirements_analyst import RequirementsAnalyst
 from orchestrator.experts.context_retriever import ContextRetriever
 from orchestrator.experts.backlog_engineer import BacklogEngineer
-from orchestrator.experts.duplicate_mapper import DuplicateMapper
 from orchestrator.experts.consistency_auditor import ConsistencyAuditor
 from orchestrator.experts.evaluator import Evaluator
 from orchestrator.experts.clarification_strategist import ClarificationStrategist
 from orchestrator.experts.clients.gitlab_client import GitLabClient
-from task_models.agent_models import BacklogDraft
+from orchestrator.experts.duplicate_mapper import DuplicateMapper
 from config import get_ai_tasks_settings
 import structlog
 
@@ -59,7 +58,6 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
       - context: RetrievedContext
       - gitlab_backlog: Dict (epics and issues from GitLab)
       - draft: BacklogDraft
-      - mappings: DuplicateMappings
       - findings: AuditFindings
       - report: EvaluationReport
       - iteration: int[]
@@ -82,7 +80,6 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         context: Any
         gitlab_backlog: Any
         draft: Any
-        mappings: Any
         findings: Any
         report: Any
         iteration: Annotated[list[int], add]
@@ -99,7 +96,6 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
     analyst = RequirementsAnalyst()
     retriever = ContextRetriever()
     engineer = BacklogEngineer()
-    mapper = DuplicateMapper()
     auditor = ConsistencyAuditor()
     evaluator = Evaluator()
     strategist = ClarificationStrategist()
@@ -461,125 +457,26 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         
         return {"draft": draft}
 
-    async def quality_check_parallel_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        """OPTIMIZED: Run duplicate mapping and consistency audit in parallel (independent operations)."""
+    async def audit_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Run consistency audit on draft backlog."""
         start_time = time.perf_counter()
         
-        # Define duplicate mapping task
-        async def do_map_duplicates():
-            map_start = time.perf_counter()
-            mappings = await mapper.map_duplicates(
-                state["draft"],
-                state["gitlab_backlog"],
-            )
-            _log_node_timing("map_duplicates", time.perf_counter() - map_start, state)
-            
-            stats = mappings.stats
-            
-            try:
-                md_lines: list[str] = [
-                    "**Duplicate Mapping Analysis**",
-                    "Identified similar items between generated backlog and GitLab:",
-                    "",
-                ]
-                
-                total_matches = stats.get("total_matches", 0)
-                avg_similarity = stats.get("avg_similarity", 0.0)
-                
-                md_lines.append(f"**Statistics:**")
-                md_lines.append(f"- Total matches: **{total_matches}**")
-                md_lines.append(f"- Average similarity: **{avg_similarity:.2f}**")
-                md_lines.append("")
-                
-                # Show top duplicate matches
-                if mappings.enriched_epics:
-                    high_similarity_items = []
-                    for epic in mappings.enriched_epics:
-                        if epic.similar:
-                            for sim in epic.similar:
-                                if sim.similarity >= 0.7:  # High similarity threshold
-                                    high_similarity_items.append({
-                                        "generated": f"{epic.id}: {epic.title}",
-                                        "gitlab": f"{sim.kind} {sim.id}",
-                                        "similarity": sim.similarity
-                                    })
-                        
-                        for task in epic.tasks:
-                            if task.similar:
-                                for sim in task.similar:
-                                    if sim.similarity >= 0.7:
-                                        high_similarity_items.append({
-                                            "generated": f"{task.id}: {task.title}",
-                                            "gitlab": f"{sim.kind} {sim.id}",
-                                            "similarity": sim.similarity
-                                        })
-                    
-                    if high_similarity_items:
-                        md_lines.append(f"**High-confidence matches** (similarity ≥ 0.7):")
-                        for item in high_similarity_items[:5]:  # Show top 5
-                            md_lines.append(f"- {item['generated']} ↔ {item['gitlab']} ({item['similarity']:.2f})")
-                        if len(high_similarity_items) > 5:
-                            md_lines.append(f"- ... and {len(high_similarity_items) - 5} more")
-                
-                details_md = "\n".join(md_lines)
-                await publisher.publish_backlog_update(
-                    project_id=state["project_id"],
-                    prompt_id=state.get("prompt_id"),
-                    status="mapping_duplicates",
-                    thought_summary=f"Found {total_matches} similar items (avg similarity: {avg_similarity:.2f}).",
-                    details_md=details_md,
-                )
-            except Exception:
-                await publisher.publish_backlog_update(
-                    project_id=state["project_id"],
-                    prompt_id=state.get("prompt_id"),
-                    status="mapping_duplicates",
-                    thought_summary=f"Found {stats.get('total_matches', 0)} similar items (avg similarity: {stats.get('avg_similarity', 0.0):.2f}).",
-                )
-            
-            return mappings
+        audit_draft = state["draft"]
         
-        # Define audit task
-        async def do_audit():
-            audit_start = time.perf_counter()
-            audit_draft = state["draft"]
-            
-            findings = await auditor.audit(
-                audit_draft,
-                state.get("requirements", ""),
-            )
-            _log_node_timing("audit", time.perf_counter() - audit_start, state)
-            
-            return findings
-        
-        # Execute both tasks in parallel
-        mappings, findings = await asyncio.gather(
-            do_map_duplicates(),
-            do_audit(),
+        findings = await auditor.audit(
+            audit_draft,
+            state.get("requirements", ""),
         )
         
-        _log_node_timing("quality_check_parallel", time.perf_counter() - start_time, state)
+        _log_node_timing("audit", time.perf_counter() - start_time, state)
         
-        return {
-            "mappings": mappings,
-            "findings": findings,
-        }
+        return {"findings": findings}
 
     async def supervisor_node(state: Dict[str, Any]) -> Command[Literal["finalize", "clarify", "draft"]]:
         start_time = time.perf_counter()
-        # Build draft for evaluation (use enriched if available)
-        eval_draft = state["draft"]
-        if state.get("mappings"):
-            # Create a draft with enriched epics
-            from task_models.agent_models import BacklogDraft
-            eval_draft = BacklogDraft(
-                epics=state["mappings"].enriched_epics,
-                assumptions=state["draft"].assumptions,
-                risks=state["draft"].risks,
-            )
-        
+        # Evaluate draft without duplicate enrichment (internal quality assessment only)
         report = await evaluator.evaluate(
-            eval_draft,
+            state["draft"],
             state["findings"],
             state.get("requirements", ""),
         )
@@ -654,12 +551,52 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         return "\n".join(markdown_lines)
 
     async def finalize_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Finalize workflow: enrich draft with duplicate mappings and return bundle."""
+        start_time = time.perf_counter()
         prompt_id = state.get("prompt_id") or uuid4()
         
-        # Use enriched epics if available
-        final_epics = state["draft"].epics
-        if state.get("mappings"):
-            final_epics = state["mappings"].enriched_epics
+        mapper = DuplicateMapper()
+        
+        map_start = time.perf_counter()
+        mappings = await mapper.map_duplicates(
+            state["draft"],
+            state["gitlab_backlog"],
+        )
+        _log_node_timing("map_duplicates", time.perf_counter() - map_start, state)
+        
+        # Publish duplicate mapping update
+        stats = mappings.stats
+        total_matches = stats.get("total_matches", 0)
+        avg_similarity = stats.get("avg_similarity", 0.0)
+        
+        try:
+            md_lines: list[str] = [
+                "**Duplicate Mapping Analysis**",
+                "Identified similar items between generated backlog and GitLab:",
+                "",
+                f"**Statistics:**",
+                f"- Total matches: **{total_matches}**",
+                f"- Average similarity: **{avg_similarity:.2f}**",
+            ]
+            
+            details_md = "\n".join(md_lines)
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="mapping_duplicates",
+                thought_summary=f"Found {total_matches} similar items (avg similarity: {avg_similarity:.2f}).",
+                details_md=details_md,
+            )
+        except Exception:
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="mapping_duplicates",
+                thought_summary=f"Found {total_matches} similar items (avg similarity: {avg_similarity:.2f}).",
+            )
+        
+        # Use enriched epics from duplicate mapping
+        final_epics = mappings.enriched_epics
         
         bundle = GeneratedBacklogBundle(
             prompt_id=prompt_id,
@@ -672,9 +609,14 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             clarification_questions=None,
             markdown_text=_build_markdown_text(final_epics),
         )
+        
+        _log_node_timing("finalize", time.perf_counter() - start_time, state)
         return {"result": bundle}
 
     async def clarify_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate clarification questions: enrich draft with duplicate mappings and return bundle."""
+        start_time = time.perf_counter()
+        
         plan = await strategist.propose(
             draft=state["draft"],
             requirements=state.get("requirements", ""),
@@ -684,10 +626,48 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
         
         prompt_id = state.get("prompt_id") or uuid4()
         
-        # Use enriched epics if available
-        final_epics = state["draft"].epics
-        if state.get("mappings"):
-            final_epics = state["mappings"].enriched_epics
+        mapper = DuplicateMapper()
+        
+        map_start = time.perf_counter()
+        mappings = await mapper.map_duplicates(
+            state["draft"],
+            state["gitlab_backlog"],
+        )
+        _log_node_timing("map_duplicates", time.perf_counter() - map_start, state)
+        
+        # Publish duplicate mapping update
+        stats = mappings.stats
+        total_matches = stats.get("total_matches", 0)
+        avg_similarity = stats.get("avg_similarity", 0.0)
+        
+        try:
+            md_lines: list[str] = [
+                "**Duplicate Mapping Analysis**",
+                "Identified similar items between generated backlog and GitLab:",
+                "",
+                f"**Statistics:**",
+                f"- Total matches: **{total_matches}**",
+                f"- Average similarity: **{avg_similarity:.2f}**",
+            ]
+            
+            details_md = "\n".join(md_lines)
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="mapping_duplicates",
+                thought_summary=f"Found {total_matches} similar items (avg similarity: {avg_similarity:.2f}).",
+                details_md=details_md,
+            )
+        except Exception:
+            await publisher.publish_backlog_update(
+                project_id=state["project_id"],
+                prompt_id=state.get("prompt_id"),
+                status="mapping_duplicates",
+                thought_summary=f"Found {total_matches} similar items (avg similarity: {avg_similarity:.2f}).",
+            )
+        
+        # Use enriched epics from duplicate mapping
+        final_epics = mappings.enriched_epics
         
         from task_models.request_models import ClarificationQuestion
         questions = [ClarificationQuestion(id=q["id"], text=q["text"]) for q in plan.questions]
@@ -703,6 +683,8 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
             clarification_questions=questions,
             markdown_text=_build_markdown_text(final_epics),
         )
+        
+        _log_node_timing("clarify", time.perf_counter() - start_time, state)
         return {"result": bundle}
 
     builder = StateGraph(State)
@@ -711,21 +693,21 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("validate_context", validate_context_node)
     builder.add_node("draft", draft_node)
-    builder.add_node("quality_check_parallel", quality_check_parallel_node)
+    builder.add_node("audit", audit_node)
     builder.add_node("supervisor", supervisor_node)
     builder.add_node("finalize", finalize_node)
     builder.add_node("clarify", clarify_node)
 
     # OPTIMIZED FLOW: 
     # 1. analyze and fetch_backlog run in parallel after init
-    # 2. map_duplicates and audit run in parallel after draft
+    # 2. audit runs after draft (duplicate mapping moved to finalize/clarify nodes)
     builder.add_edge(START, "init")
     builder.add_edge("init", "analyze_and_fetch_parallel")
     builder.add_edge("analyze_and_fetch_parallel", "retrieve")
     builder.add_edge("retrieve", "validate_context")
     builder.add_edge("validate_context", "draft")
-    builder.add_edge("draft", "quality_check_parallel")
-    builder.add_edge("quality_check_parallel", "supervisor")
+    builder.add_edge("draft", "audit")
+    builder.add_edge("audit", "supervisor")
     # supervisor returns Command to goto next node
     builder.add_edge("finalize", END)
     builder.add_edge("clarify", END)
