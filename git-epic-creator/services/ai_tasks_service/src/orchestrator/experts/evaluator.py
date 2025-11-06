@@ -193,7 +193,15 @@ class Evaluator:
                         "criteria": (
                             "Epics and tasks must be technically specific, implementable, and testable. "
                             "Each work item should include concrete technical details (APIs, endpoints, data models, services, infrastructure), "
-                            "clear implementation approach, and well-formed Given/When/Then acceptance criteria with specific values."
+                            "clear implementation approach, and well-formed Given/When/Then acceptance criteria with specific values.\n\n"
+                            "Scoring Guidance (0.00-1.00 in 0.15 steps):\n"
+                            "- 0.00: No concrete technical details; ACs vague or missing\n"
+                            "- 0.15: Minimal specifics; isolated examples without consistent detail\n"
+                            "- 0.30: Some items include APIs/data; ACs partially measurable\n"
+                            "- 0.45: About half of items provide concrete technical HOW and G/W/T\n"
+                            "- 0.60: Majority provide APIs/models+values; a few vague spots\n"
+                            "- 0.75: Strong specificity with rare vague items\n"
+                            "- 0.90-1.00: Uniformly specific with measurable AC values across items\n"
                         ),
                         "evaluation_steps": [
                             "Parse all epics and tasks from the backlog output",
@@ -203,7 +211,8 @@ class Evaluator:
                             "Check if acceptance criteria include specific values (status codes, field names, thresholds) rather than vague statements",
                             "Assess if tasks specify HOW to implement (frameworks, libraries, patterns) not just WHAT business need",
                             "Count tasks with vague descriptions (e.g., 'user-friendly', 'improve', 'enhance' without specifics)",
-                            "Score based on: (tasks with concrete technical details / total tasks) weighted with (criteria following Given/When/Then / total criteria)"
+                            "Score based on: (tasks with concrete technical details / total tasks) weighted with (criteria following Given/When/Then / total criteria)",
+                            "Provide a brief justification listing top deduction reasons (only the largest contributors to point loss)"
                         ],
                         "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
                         "strict_mode": False,
@@ -216,14 +225,23 @@ class Evaluator:
                         "name": "Technical Feasibility",
                         "criteria": (
                             "Tasks must be technically feasible within project constraints. "
-                            "Check for: realistic scope, clear implementation path, available technology stack."
+                            "Check for: realistic scope, clear implementation path, available technology stack.\n\n"
+                            "Scoring Guidance (0.00-1.00 in 0.15 steps):\n"
+                            "- 0.00: Plans contradict stack/constraints; no viable path\n"
+                            "- 0.15: Rare feasibility; most items impractical\n"
+                            "- 0.30: Some viable items; many unclear paths\n"
+                            "- 0.45: About half have clear and realistic implementation\n"
+                            "- 0.60: Most items feasible with minor risks\n"
+                            "- 0.75: Strong feasibility; isolated concerns\n"
+                            "- 0.90-1.00: Fully feasible within known stack and constraints\n"
                         ),
                         "evaluation_steps": [
                             "Review task descriptions for technical feasibility markers",
                             "Check if tasks reference existing services/APIs from context",
                             "Assess if acceptance criteria are achievable with known tech stack",
                             "Count tasks with unclear implementation vs clear technical approach",
-                            "Score: (feasible_tasks / total_tasks)"
+                            "Score: (feasible_tasks / total_tasks)",
+                            "Provide a brief justification listing top deduction reasons (only the largest contributors to point loss)"
                         ],
                         "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
                         "strict_mode": False,
@@ -237,7 +255,15 @@ class Evaluator:
                         "criteria": (
                             "Backlog should minimize duplication and overlap. Each epic and task should address a distinct capability "
                             "without repeating work covered by other items. Tasks should not implement the same API endpoint, modify the "
-                            "same data model, or duplicate acceptance criteria found elsewhere in the backlog."
+                            "same data model, or duplicate acceptance criteria found elsewhere in the backlog.\n\n"
+                            "Scoring Guidance (0.00-1.00 in 0.15 steps):\n"
+                            "- 0.00: Duplicates pervasive across epics and tasks\n"
+                            "- 0.15: Frequent duplicates; major consolidation needed\n"
+                            "- 0.30: Some duplicates across tasks/ACs\n"
+                            "- 0.45: Noticeable overlap in select areas\n"
+                            "- 0.60: Minor overlaps; mostly distinct\n"
+                            "- 0.75: Rare overlap; strong uniqueness\n"
+                            "- 0.90-1.00: No meaningful duplication\n"
                         ),
                         "evaluation_steps": [
                             "Extract all epic and task titles and descriptions from the backlog",
@@ -247,7 +273,8 @@ class Evaluator:
                             "Check audit findings context for mentions of duplicate or overlapping work",
                             "Assess if similar work could be consolidated into single tasks without loss of clarity",
                             "Calculate duplication score: 1.0 - (number of identified overlaps / total work items)",
-                            "Apply penalties for: exact duplicate technical components (0.3), similar functionality (0.2), redundant acceptance criteria (0.1)"
+                            "Apply penalties for: exact duplicate technical components (0.3), similar functionality (0.2), redundant acceptance criteria (0.1)",
+                            "Provide a brief justification listing top duplication clusters that contributed most to deductions"
                         ],
                         "evaluation_params": [LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.CONTEXT],
                         "strict_mode": False,

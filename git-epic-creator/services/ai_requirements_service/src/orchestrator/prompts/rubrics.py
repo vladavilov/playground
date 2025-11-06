@@ -59,7 +59,7 @@ def completeness_rubric() -> Dict[str, Any]:
             "Compute ded_ambiguity = 0.05 if ACTUAL_OUTPUT contains >3 vague terms (e.g., 'user-friendly', 'fast', 'should be able to'), else 0.00",
             "Compute raw_score = 0.5 * coverage + 0.5 * testability + bonus - (ded_missing + ded_untestable + ded_ambiguity)",
             "Clamp final score to [0.00, 1.00] and round to two decimals",
-            "Provide a brief justification citing counts (covered/testable/missing, bonuses, deductions)",
+            "Provide a brief justification citing counts (covered/testable/missing, bonuses, deductions). For deductions, list several reasons and include only the top contributors (those that deducted the most).",
         ],
         "evaluation_params": ["INPUT", "ACTUAL_OUTPUT"],
         "strict_mode": False,
