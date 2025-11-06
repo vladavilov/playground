@@ -12,8 +12,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "vllm==0.11.1.1",
-    "fastapi==0.121.1",
+    "vllm==0.10.1.1",
+    "fastapi==0.121.0",
     "uvicorn==0.38.0",
     "pydantic==2.12.3",
     "pydantic-settings==2.11.0",

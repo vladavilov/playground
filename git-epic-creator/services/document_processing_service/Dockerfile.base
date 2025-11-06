@@ -211,7 +211,7 @@ RUN set -e; \
     echo "  - preprocessor_config.json"
 
 # Install heavy Python dependencies directly (cached layer for faster service builds)
-RUN pip install --no-cache-dir docling[vlm] onnxruntime
+RUN pip install --no-cache-dir "docling[vlm]==2.58.0" "onnxruntime==1.32.2"
 
 # Hugging Face caches (only create directories for local VLM mode)
 ENV HF_HOME=/opt/hf-cache \
@@ -225,7 +225,7 @@ RUN if [ "$DOCLING_VLM_MODE" = "local" ]; then \
         echo "Creating Hugging Face cache directories..." && \
         mkdir -p "$HF_HOME" "$HUGGINGFACE_HUB_CACHE" "$TRANSFORMERS_CACHE" && \
         echo "Installing huggingface_hub for model download..." && \
-        pip install --no-cache-dir huggingface_hub && \
+        pip install --no-cache-dir "huggingface_hub==0.36.0" && \
         echo "Downloading SmolVLM model to docling-models directory..." && \
         python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='HuggingFaceTB/SmolVLM-256M-Instruct', local_dir='$DOCLING_ARTIFACTS_PATH/HuggingFaceTB--SmolVLM-256M-Instruct', local_dir_use_symlinks=False, cache_dir='$HUGGINGFACE_HUB_CACHE')" && \
         echo "SmolVLM model downloaded successfully to $DOCLING_ARTIFACTS_PATH/HuggingFaceTB--SmolVLM-256M-Instruct"; \
