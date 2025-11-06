@@ -141,6 +141,14 @@ class RequirementsController extends ChatBaseController {
             return;
           }
           
+          // Check if this is an enhancement progress message
+          if (msg.enhancement_mode && msg.item_id) {
+            // Route to enhancement progress handler
+            this.handleEnhancementProgress(msg);
+            return;
+          }
+          
+          // Standard full workflow progress (thinking box)
           this.updateProjectStatus(msg.status);
           
           const md = msg.details_md || msg.thought_summary || '...';
@@ -212,6 +220,9 @@ class RequirementsController extends ChatBaseController {
       this.state.currentBundle,
       () => this.handleEnhancedEditorSave()
     );
+    
+    // Set controller reference for AI enhancement callbacks
+    this.enhancedEditor.setController(this);
     
     // Enable inline editing mode
     this.enhancedEditor.enableInlineEditing();
@@ -415,6 +426,122 @@ class RequirementsController extends ChatBaseController {
     text += '\n---\n\Generate epics and tasks based on these requirements.';
     
     return text;
+  }
+  
+  /**
+   * Enhances a single requirement with AI-generated expansions.
+   * @param {Object} req - Requirement object
+   * @param {string} reqType - Requirement type: "business" or "functional"
+   * @param {number} index - Requirement index in bundle
+   * @returns {Promise<Object>} Enhanced requirement
+   */
+  async enhanceRequirement(req, reqType, index) {
+    if (!this.apiClient) {
+      throw new Error('API client not initialized');
+    }
+    
+    if (!this.state.currentProject?.project_id) {
+      throw new Error('No project selected');
+    }
+    
+    try {
+      // Prepare enhancement request
+      const enhanceRequest = {
+        project_id: this.state.currentProject.project_id,
+        requirement_id: req.id,
+        requirement_type: reqType,
+        current_content: {
+          id: req.id,
+          title: req.title || '',
+          description: req.description || '',
+          acceptance_criteria: req.acceptance_criteria || [],
+          priority: req.priority || 'Must',
+          rationale: req.rationale || ''
+        }
+      };
+      
+      // Call enhancement endpoint
+      const response = await this.apiClient.request(
+        '/ai-requirements/workflow/enhance',
+        {
+          method: 'POST',
+          body: JSON.stringify(enhanceRequest)
+        }
+      );
+      
+      // Return enhanced requirement
+      return {
+        id: response.id,
+        title: response.title,
+        description: response.description,
+        acceptance_criteria: response.acceptance_criteria,
+        rationale: response.rationale,
+        priority: response.priority || req.priority
+      };
+      
+    } catch (error) {
+      console.error('Enhancement API call failed:', error);
+      throw new Error(`Enhancement failed: ${ApiClient.formatError(error)}`);
+    }
+  }
+  
+  /**
+   * Handles enhancement progress updates from SSE.
+   * @param {Object} data - Progress message data
+   */
+  handleEnhancementProgress(data) {
+    // Check if this is an enhancement progress message
+    if (!data.enhancement_mode || !data.item_id) {
+      return;
+    }
+    
+    // Find the requirement index
+    const bundle = this.state.currentBundle;
+    if (!bundle) return;
+    
+    let reqIndex = -1;
+    let reqType = null;
+    
+    // Search in business requirements
+    reqIndex = bundle.business_requirements?.findIndex(r => r.id === data.item_id);
+    if (reqIndex !== -1) {
+      reqType = 'business';
+    } else {
+      // Search in functional requirements
+      reqIndex = bundle.functional_requirements?.findIndex(r => r.id === data.item_id);
+      if (reqIndex !== -1) {
+        reqType = 'functional';
+      }
+    }
+    
+    if (reqIndex === -1 || !reqType) {
+      return; // Not found, ignore
+    }
+    
+    // Find the card element
+    const card = document.querySelector(`.req-card:nth-child(${reqIndex + 1})`);
+    if (!card || !this.enhancedEditor) {
+      return;
+    }
+    
+    // Update progress on the card based on status
+    switch (data.status) {
+      case 'analyzing_item':
+        this.enhancedEditor.showCardProgress(card, 'Analyzing requirement...');
+        break;
+      case 'retrieving_context':
+        this.enhancedEditor.showCardProgress(card, 'Retrieving context...');
+        break;
+      case 'enhancing_item':
+        this.enhancedEditor.showCardProgress(card, 'Enhancing with AI...');
+        break;
+      case 'completed':
+        this.enhancedEditor.hideCardProgress(card);
+        break;
+      case 'error':
+        this.enhancedEditor.showCardError(card, data.thought_summary || 'Enhancement failed');
+        break;
+    }
   }
 }
 

@@ -49,4 +49,32 @@ class GeneratedBacklogBundle(BaseModel):
     )
 
 
+class EnhanceTaskRequest(BaseModel):
+    """Request for enhancing a single task/epic with AI."""
+
+    project_id: UUID = Field(..., description="Project identifier")
+    item_id: str = Field(..., description="Epic or task identifier")
+    item_type: str = Field(..., description='Item type: "epic" or "task"')
+    current_content: dict = Field(
+        ..., description="Current task/epic content (title, description, acceptance_criteria, etc.)"
+    )
+    parent_epic_content: Optional[dict] = Field(
+        None, description="Parent epic full content if this is a task (id, title, description for context)"
+    )
+
+
+class EnhancedTask(BaseModel):
+    """Enhanced task/epic returned by AI enhancement workflow."""
+
+    item_id: str = Field(..., description="Epic or task identifier")
+    title: str = Field(..., description="Enhanced title")
+    description: str = Field(..., description="Enhanced detailed description")
+    acceptance_criteria: List[str] = Field(
+        ..., description="Enhanced acceptance criteria"
+    )
+    dependencies: Optional[List[str]] = Field(
+        None, description="Task dependencies"
+    )
+
+
 

@@ -211,6 +211,36 @@ flowchart TD
 | **Evaluator** | Scores backlog on 4-axis rubric, routes workflow | ✅ Chat | Fast Model |
 | **ClarificationStrategist** | Generates targeted questions for weak areas | ✅ Chat (conditional) | Fast Model |
 
+### Single-Item Enhancement Workflow
+
+**POST /tasks/enhance** provides streamlined enhancement of individual epics or tasks. This lightweight workflow reuses existing experts while skipping evaluation and iteration for speed:
+
+**Pipeline Steps:**
+
+1. **Analyzing Item** - RequirementsAnalyst extracts intents from current epic/task content
+2. **Retrieving Context** - ContextRetriever fetches focused GraphRAG context specific to this item
+3. **Enhancing Item** - Uses TASK_ENHANCER prompt spec with Standard Model to:
+   - Expand description with sharp technical detail (APIs, data models, service integrations)
+   - Add/enhance mermaid diagrams (architecture, flowcharts, sequence diagrams)
+   - Validate and fix diagram syntax errors
+   - Enhance acceptance criteria with specific test scenarios
+   - Add dependencies and integration points
+   - Ground enhancements in retrieved context evidence
+4. **Return Enhanced Item** - Single-pass generation, no evaluation
+
+**Key Differences from Full Workflow:**
+- **Speed**: 3-5 seconds vs 20-30 seconds (70% faster)
+- **Scope**: Single epic/task instead of full backlog
+- **Context**: Focused retrieval only for this item
+- **Evaluation**: Skipped for speed (no scoring, no iteration)
+- **Progress**: Published with `item_id` for card-specific UI updates
+- **Code Reuse**: Leverages RequirementsAnalyst, ContextRetriever, and LCEL chain patterns
+
+**Progress Messages:**
+- Published to `ui:ai_tasks_progress` channel
+- Includes `item_id`, `item_type` ("epic" or "task"), and `enhancement_mode: true`
+- Statuses: `analyzing_item`, `retrieving_context`, `enhancing_item`, `completed`, `error`
+
 ### LLM Chain Architecture
 
 The service uses **LangChain Expression Language (LCEL)** to construct type-safe, composable LLM chains. Each expert follows a consistent pattern for prompt template construction and LLM invocation.
@@ -463,6 +493,95 @@ X-GitLab-Access-Token: <gitlab_token>  # Optional, forwarded from UI
   "markdown_text": null
 }
 ```
+
+### POST /tasks/enhance
+
+Single-item enhancement endpoint for focused AI expansion of individual epics or tasks.
+
+**Headers:**
+```http
+Authorization: Bearer <jwt_token>
+X-GitLab-Access-Token: <gitlab_token>  # Optional, forwarded from UI
+```
+
+**Request:**
+```json
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440000",
+  "item_id": "EPIC-001",
+  "item_type": "epic",  // or "task"
+  "current_content": {
+    "id": "EPIC-001",
+    "title": "User Authentication System",
+    "description": "Basic OAuth2 auth",
+    "acceptance_criteria": ["User can login", "Tokens are issued"],
+    "dependencies": []
+  },
+  "parent_epic_content": null  // Optional, for tasks only - full epic context (id, title, description, acceptance_criteria)
+}
+```
+
+**Response:**
+```json
+{
+  "item_id": "EPIC-001",
+  "title": "User Authentication System with OAuth2",
+  "description": "## Objective\nImplement comprehensive OAuth2-based authentication...\n\n## Architecture\n```mermaid\nflowchart LR\n  User --> OAuth[OAuth Provider]\n  OAuth --> API[Auth API]\n  API --> DB[(User DB)]\n```\n\n## Components\n- **Auth Service**: Handles OAuth flow, token generation\n- **User Service**: Manages user profiles\n\n## Success Criteria\n- 99.9% uptime for auth endpoint\n- Sub-200ms token validation\n\n## Complexity\nMedium (3-5 sprints)",
+  "acceptance_criteria": [
+    "Given valid OAuth credentials When user logs in Then JWT token issued with 1-hour expiry and refresh token with 30-day expiry",
+    "Given invalid credentials When login attempted Then return 401 with specific error code and retry guidance",
+    "Given OAuth provider timeout When login attempted Then retry 3 times with exponential backoff (1s, 2s, 4s)",
+    "Given concurrent login requests When same user logs in Then previous session invalidated and new token issued"
+  ],
+  "dependencies": []
+}
+```
+
+**Task Enhancement with Parent Epic Context:**
+
+When enhancing a task, provide full `parent_epic_content` to ensure alignment with the epic's architecture and components:
+
+```json
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440000",
+  "item_id": "TASK-001",
+  "item_type": "task",
+  "current_content": {
+    "id": "TASK-001",
+    "title": "Implement login endpoint",
+    "description": "Create POST /auth/login",
+    "acceptance_criteria": ["Returns JWT token"],
+    "dependencies": []
+  },
+  "parent_epic_content": {
+    "id": "EPIC-001",
+    "title": "User Authentication System",
+    "description": "## Objective\nImplement OAuth2-based authentication...\n\n## Architecture\n```mermaid\nflowchart LR\n  Client-->Gateway-->Auth-->DB\n```\n\n## Components\n- Auth Service (FastAPI)\n- User DB (PostgreSQL)\n- Redis for session storage",
+    "acceptance_criteria": [
+      "Given valid credentials When login Then JWT issued",
+      "Given invalid credentials When login Then 401 returned"
+    ]
+  }
+}
+```
+
+The enhanced task will reference the epic's architecture, use consistent terminology (FastAPI, PostgreSQL, Redis), and integrate with components mentioned in the epic.
+
+**Workflow:**
+1. **Analyzing Item** (status: `analyzing_item`) - Extract intents from current epic/task
+2. **Retrieving Context** (status: `retrieving_context`) - Fetch focused technical context from GraphRAG
+3. **Enhancing Item** (status: `enhancing_item`) - Expand with technical details, mermaid diagrams, enhanced ACs (using parent epic context for tasks)
+4. **Completed** (status: `completed`) - Return enhanced item
+
+**Performance:**
+- Latency: 3-5 seconds (vs 20-30s for full generation)
+- Token efficiency: ~70% reduction vs full workflow
+- Single-pass generation (no evaluation/iteration)
+
+**Progress Updates:**
+- Published to `ui:ai_tasks_progress` channel
+- Includes `item_id` for card-specific UI updates
+- Includes `enhancement_mode: true` flag
 
 ### GET /health
 

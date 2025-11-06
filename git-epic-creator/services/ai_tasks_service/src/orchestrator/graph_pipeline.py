@@ -23,6 +23,7 @@ from orchestrator.experts.evaluator import Evaluator
 from orchestrator.experts.clarification_strategist import ClarificationStrategist
 from orchestrator.experts.clients.gitlab_client import GitLabClient
 from orchestrator.experts.duplicate_mapper import DuplicateMapper
+from orchestrator.experts.backlog_enhancer import BacklogEnhancer
 from config import get_ai_tasks_settings
 import structlog
 
@@ -717,6 +718,142 @@ async def create_backlog_graph(publisher: Any, *, target: float, max_iters: int)
     checkpointer = InMemorySaver()
     
     graph = builder.compile(checkpointer=checkpointer)
+    return graph
+
+
+async def create_task_enhancement_graph(publisher: Any):
+    """Build a streamlined LangGraph StateGraph for single-task/epic enhancement.
+    
+    This is a simplified version of the full workflow that:
+    - Analyzes the task/epic to extract intents
+    - Retrieves focused GraphRAG context
+    - Enhances with detailed descriptions, diagrams, and acceptance criteria (using EPIC_ENHANCER or TASK_ENHANCER)
+    - Skips evaluation/iteration for speed
+    
+    The enhancement node selects the appropriate prompt:
+    - EPIC_ENHANCER: For epics (architecture focus, no parent context)
+    - TASK_ENHANCER: For tasks (implementation focus, includes parent epic context)
+    
+    State keys:
+      - project_id: UUID
+      - item_id: str
+      - item_type: str (epic or task)
+      - current_content: dict
+      - parent_epic_content: dict | None (full epic context for tasks)
+      - analysis, context: objects from experts
+      - result: dict (enhanced task/epic)
+    """
+    class EnhancementState(TypedDict, total=False):
+        project_id: Any
+        item_id: str
+        item_type: str
+        current_content: Dict[str, Any]
+        parent_epic_content: Dict[str, Any]
+        auth_header: str
+        analysis: Any
+        context: Any
+        result: Dict[str, Any]
+    
+    analyst = RequirementsAnalyst()
+    retriever = ContextRetriever()
+    enhancer = BacklogEnhancer()
+    
+    async def init_enhancement_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Initialize enhancement workflow."""
+        item_type = state.get("item_type", "item")
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=state["item_id"],
+            status="analyzing_item",
+            thought_summary=f"Analyzing {item_type} to extract key intents..."
+        )
+        return {}
+    
+    async def analyze_enhancement_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract intents from current task/epic."""
+        current = state["current_content"]
+        item_text = f"{current.get('title', '')}\n{current.get('description', '')}"
+        analysis = await analyst.analyze(item_text)
+        
+        logger.info("enhancement_intents_extracted",
+                   item_id=state["item_id"],
+                   intents_count=len(analysis.intents))
+        
+        return {"analysis": analysis}
+    
+    async def retrieve_enhancement_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Retrieve focused context for the task/epic."""
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=state["item_id"],
+            status="retrieving_context",
+            thought_summary="Retrieving relevant technical context from knowledge base..."
+        )
+        
+        auth_header = state.get("auth_header")
+        context = await retriever.retrieve(
+            state["analysis"],
+            state["project_id"],
+            auth_header=auth_header
+        )
+        
+        logger.info("enhancement_context_retrieved",
+                   item_id=state["item_id"],
+                   key_facts_count=len(context.key_facts or []),
+                   citations_count=len(context.citations or []))
+        
+        return {"context": context}
+    
+    async def enhance_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance the task/epic with AI-generated content using BacklogEnhancer expert."""
+        item_type = state.get("item_type", "item")
+        item_id = state["item_id"]
+        
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=item_id,
+            status="enhancing_item",
+            thought_summary=f"Enhancing {item_type} with technical details and validated diagrams..."
+        )
+        
+        # Delegate to BacklogEnhancer expert
+        result = await enhancer.enhance(
+            item_type=item_type,
+            item_id=item_id,
+            current_content=state["current_content"],
+            retrieved_context=state["context"],
+            parent_epic_content=state.get("parent_epic_content")
+        )
+        
+        logger.info("enhancement_completed",
+                   item_id=item_id,
+                   item_type=item_type,
+                   title_length=len(result["title"]),
+                   description_length=len(result["description"]),
+                   acceptance_criteria_count=len(result["acceptance_criteria"]))
+        
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=item_id,
+            status="completed",
+            thought_summary="Enhancement completed successfully"
+        )
+        
+        return {"result": result}
+    
+    builder = StateGraph(EnhancementState)
+    builder.add_node("init", init_enhancement_node)
+    builder.add_node("analyze", analyze_enhancement_node)
+    builder.add_node("retrieve", retrieve_enhancement_node)
+    builder.add_node("enhance", enhance_node)
+    
+    builder.add_edge(START, "init")
+    builder.add_edge("init", "analyze")
+    builder.add_edge("analyze", "retrieve")
+    builder.add_edge("retrieve", "enhance")
+    builder.add_edge("enhance", END)
+    
+    graph = builder.compile()
     return graph
 
 

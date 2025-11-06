@@ -872,5 +872,84 @@ export class BaseEditor {
       this.markSaved();
     }
   }
+  
+  /**
+   * Shows inline progress indicator on a card.
+   * @param {HTMLElement} card - The card element
+   * @param {string} message - Progress message to display
+   */
+  showCardProgress(card, message) {
+    if (!card) return;
+    
+    // Remove any existing progress indicator
+    this.hideCardProgress(card);
+    
+    // Create progress overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'ai-enhance-progress absolute inset-0 bg-white/90 backdrop-blur-sm flex items-center justify-center z-10';
+    overlay.innerHTML = `
+      <div class="flex items-center gap-3 px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm">
+        <div class="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"></div>
+        <span class="text-sm text-indigo-700 font-medium">${esc(message)}</span>
+      </div>
+    `;
+    
+    // Make card relative if it isn't already
+    if (window.getComputedStyle(card).position === 'static') {
+      card.style.position = 'relative';
+    }
+    
+    card.appendChild(overlay);
+  }
+  
+  /**
+   * Hides inline progress indicator from a card.
+   * @param {HTMLElement} card - The card element
+   */
+  hideCardProgress(card) {
+    if (!card) return;
+    
+    const overlay = card.querySelector('.ai-enhance-progress');
+    if (overlay) {
+      overlay.remove();
+    }
+  }
+  
+  /**
+   * Shows inline error message on a card.
+   * @param {HTMLElement} card - The card element
+   * @param {string} errorMsg - Error message to display
+   */
+  showCardError(card, errorMsg) {
+    if (!card) return;
+    
+    // Remove any existing indicators
+    this.hideCardProgress(card);
+    
+    // Create error overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'ai-enhance-progress absolute inset-0 bg-white/90 backdrop-blur-sm flex items-center justify-center z-10';
+    overlay.innerHTML = `
+      <div class="flex flex-col items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-lg shadow-sm max-w-sm">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <span class="text-sm text-red-700 font-medium">Enhancement failed</span>
+        </div>
+        <p class="text-xs text-red-600 text-center">${esc(errorMsg)}</p>
+        <button class="text-xs text-red-700 underline hover:text-red-800" onclick="this.closest('.ai-enhance-progress').remove()">
+          Dismiss
+        </button>
+      </div>
+    `;
+    
+    // Make card relative if it isn't already
+    if (window.getComputedStyle(card).position === 'static') {
+      card.style.position = 'relative';
+    }
+    
+    card.appendChild(overlay);
+  }
 }
 

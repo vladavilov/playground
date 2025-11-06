@@ -45,11 +45,69 @@ export class TasksEditor extends BaseEditor {
       this.onSave();
     });
     
-    // Set up AI enhance callback placeholder
-    this.setAIEnhanceCallback((metadata) => {
-      // TODO: Implement AI enhancement
-      alert('AI enhancement feature will be available soon!');
+    // Set up AI enhance callback
+    this.setAIEnhanceCallback(async (metadata) => {
+      await this.handleTaskEnhancement(metadata);
     });
+  }
+  
+  /**
+   * Handles AI enhancement of a single epic or task.
+   * @param {Object} metadata - Item metadata with epic/task, itemType, epicIdx, taskIdx
+   */
+  async handleTaskEnhancement(metadata) {
+    if (!this.controller) {
+      console.error('Controller not set on TasksEditor');
+      return;
+    }
+    
+    const { itemType, epicIdx, taskIdx } = metadata;
+    const item = itemType === 'epic' 
+      ? this.bundle.epics[epicIdx] 
+      : this.bundle.epics[epicIdx]?.tasks?.[taskIdx];
+    
+    if (!item) {
+      console.error('Could not find item for enhancement');
+      return;
+    }
+    
+    // Find the card element
+    const cardSelector = itemType === 'epic' 
+      ? `.epic-card:nth-child(${epicIdx + 1})`
+      : `.task-item[data-epic-idx="${epicIdx}"][data-task-idx="${taskIdx}"]`;
+    const card = document.querySelector(cardSelector);
+    
+    if (!card) {
+      console.error('Could not find card element for enhancement');
+      return;
+    }
+    
+    try {
+      // Show progress on the card
+      this.showCardProgress(card, 'Enhancing with AI...');
+      
+      // Call controller to perform enhancement
+      const enhanced = await this.controller.enhanceTask(item, itemType, epicIdx, taskIdx);
+      
+      // Update the item in the bundle
+      Object.assign(item, enhanced);
+      
+      // Mark as unsaved and trigger save
+      this.markUnsaved();
+      this.onSave();
+      
+      // Hide progress indicator
+      this.hideCardProgress(card);
+      
+      // Re-enable inline editing for the updated card
+      setTimeout(() => {
+        this.enableInlineEditing();
+      }, 100);
+      
+    } catch (error) {
+      console.error('Enhancement failed:', error);
+      this.showCardError(card, error.message || 'Enhancement failed. Please try again.');
+    }
   }
   
   /**

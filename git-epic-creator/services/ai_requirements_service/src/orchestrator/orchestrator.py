@@ -104,3 +104,53 @@ async def run_answers_workflow(
         clarification_questions=rebundled.clarification_questions,
     )
 
+
+async def run_single_requirement_enhancement(
+    project_id: UUID,
+    requirement_id: str,
+    requirement_type: str,
+    current_content: dict,
+    publisher: AiWorkflowStatusPublisher,
+    auth_header: str | None = None,
+) -> dict:
+    """Enhance a single requirement with AI-generated expansions.
+    
+    This is a streamlined workflow that:
+    1. Extracts intents from the current requirement
+    2. Retrieves focused GraphRAG context
+    3. Enhances the requirement with detailed description and acceptance criteria
+    4. Skips evaluation/iteration for speed
+    
+    Args:
+        project_id: Project UUID
+        requirement_id: Requirement identifier
+        requirement_type: "business" or "functional"
+        current_content: Current requirement content dict
+        publisher: Redis progress publisher
+        auth_header: Authentication header for GraphRAG service
+        
+    Returns:
+        Enhanced requirement dict with title, description, acceptance_criteria, rationale
+    """
+    logger.info("enhancement_workflow_started", 
+                project_id=str(project_id), 
+                requirement_id=requirement_id,
+                requirement_type=requirement_type)
+    
+    # Build enhancement graph
+    graph = await lg_pipeline.create_enhancement_graph(publisher)
+    
+    # Run enhancement pipeline
+    result_state = await graph.ainvoke({
+        "project_id": project_id,
+        "requirement_id": requirement_id,
+        "requirement_type": requirement_type,
+        "current_content": current_content,
+        "auth_header": auth_header,
+    })
+    
+    enhanced_dict = result_state.get("result")
+    if not enhanced_dict:
+        raise RuntimeError("Enhancement graph did not produce a result")
+    
+    return enhanced_dict

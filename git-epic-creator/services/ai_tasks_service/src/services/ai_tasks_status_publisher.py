@@ -55,3 +55,35 @@ class AiTasksStatusPublisher(RedisProgressPublisher):
             score=score,
         )
         return await self._publish_message(message)
+
+    async def publish_enhancement_progress(
+        self,
+        project_id: UUID,
+        item_id: str,
+        status: str,
+        thought_summary: str,
+        details_md: Optional[str] = None,
+    ) -> bool:
+        """Publish a single-item enhancement progress update.
+        
+        Args:
+            project_id: Project UUID
+            item_id: Epic or task identifier
+            status: One of: "analyzing_item", "retrieving_context", "enhancing_item", "completed", "error"
+            thought_summary: User-visible progress summary
+            details_md: Optional markdown details
+            
+        Returns:
+            True if published successfully, False otherwise
+        """
+        message = BacklogProgressMessage(
+            project_id=project_id,
+            prompt_id=None,  # No prompt_id for single-item enhancement
+            status=status,
+            thought_summary=thought_summary,
+            details_md=details_md,
+            item_id=item_id,
+            item_type="task",  # Generic - can be epic or task
+            enhancement_mode=True,
+        )
+        return await self._publish_message(message)

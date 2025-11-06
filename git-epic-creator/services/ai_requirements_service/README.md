@@ -22,6 +22,10 @@ Interfaces
   - POST /workflow/answers
     - Request: { project_id: UUID, prompt_id: UUID, answers: QuestionAnswer[] }
     - Response: RequirementsBundle; re‑runs the pipeline with the provided answers to attempt to reach score ≥ 0.70.
+  - POST /workflow/enhance
+    - Request: { project_id: UUID, requirement_id: string, requirement_type: "business"|"functional", current_content: dict }
+    - Response: Requirement (enhanced version, see Schemas)
+    - Behavior: Streamlined single-item enhancement workflow; retrieves focused context and expands one requirement with detailed descriptions, enhanced acceptance criteria, and validated mermaid diagrams. Skips evaluation/iteration for speed (3-5s vs 20-30s for full workflow). Publishes progress with item_id for card-specific UI updates.
   - GET /health
     - Returns liveness/readiness including connectivity to Redis and GraphRAG.
 
@@ -35,13 +39,17 @@ Message Schemas
 - WorkflowProgressMessage (user-visible step updates):
   - message_type: "ai_requirements_progress"
   - project_id: string (UUID)
+  - prompt_id?: string (UUID, optional for enhancement mode)
   - iteration?: integer (>=1)
-  - status: string (e.g., "analyzing_prompt", "retrieving_context", "drafting_requirements", "evaluating", "needs_clarification", "completed", "error")
+  - status: string (e.g., "analyzing_prompt", "retrieving_context", "drafting_requirements", "evaluating", "needs_clarification", "completed", "error", "analyzing_item", "enhancing_item")
   - score?: number in [0,1]
   - thought_summary: string (concise summary of progress/insight; no raw chain-of-thought)
   - details_md?: string (markdown-formatted step details)
   - message_id: string (UUID)
   - timestamp: string (ISO8601)
+  - item_id?: string (requirement ID for single-item enhancement)
+  - item_type?: string ("requirement" for enhancement mode)
+  - enhancement_mode?: boolean (true for single-item operations)
 
 Redis Pub/Sub
 
@@ -66,7 +74,13 @@ Data Models (local Pydantic)
   - description: string
   - rationale?: string
   - acceptance_criteria: string[]
-  - priority: string (e.g., Must/Should/Could/Won’t)
+  - priority: string (e.g., Must/Should/Could/Won't)
+
+- EnhanceRequirementRequest
+  - project_id: UUID
+  - requirement_id: string
+  - requirement_type: string ("business" or "functional")
+  - current_content: dict (current requirement fields)
 
 - ClarificationQuestion
   - id: string
@@ -155,6 +169,42 @@ Agentic Pipeline (expanded, requirements‑focused)
    - Generate targeted clarification_questions with expected_impact descriptions.
    - Publish WorkflowProgressMessage (status: needs_clarification, score).
    - On POST /workflow/answers: augment DecompositionGraph/RetrievedContext, repeat steps 2–6 until s ≥ 0.70 or question budget exhausted.
+
+Single-Item Enhancement Pipeline (Streamlined, No Evaluation)
+
+POST /workflow/enhance provides focused enhancement of individual BR/FR items. This is a lightweight workflow optimized for speed (3-5 seconds vs 20-30 seconds for full generation):
+
+1) Prompt Analysis
+   - Extract intents from current requirement using PromptAnalyst (reused)
+   - Publish WorkflowProgressMessage (status: analyzing_item, item_id, enhancement_mode: true)
+
+2) Focused Context Retrieval
+   - Retrieve GraphRAG context specific to this requirement using ContextRetriever (reused)
+   - Publish WorkflowProgressMessage (status: retrieving_context)
+
+3) Requirement Enhancement
+   - Select appropriate prompt based on requirement_type:
+     * BUSINESS_REQUIREMENT_ENHANCER: For BRs (business context, stakeholder value, success metrics)
+     * FUNCTIONAL_REQUIREMENT_ENHANCER: For FRs (functional behavior, technical detail, mermaid diagrams)
+   - Expand description with sharp detail (business or technical specificity)
+   - Add/enhance mermaid diagrams (flowcharts, sequence diagrams, ER diagrams) - MANDATORY for FRs
+   - Validate and fix diagram syntax errors
+   - Enhance acceptance criteria with specific test data and measurable outcomes
+   - Add rationale explaining business/technical justification
+   - Ground enhancements in retrieved context evidence
+   - Publish WorkflowProgressMessage (status: enhancing_item)
+
+4) Return Enhanced Requirement
+   - Publish WorkflowProgressMessage (status: completed)
+   - Return Requirement (enhanced version, no evaluation score, no iteration)
+
+Key Differences from Full Workflow:
+- Skips evaluation and iterative refinement (single-pass generation)
+- Focuses on one requirement instead of full bundle
+- Uses focused context retrieval (only relevant to this item)
+- ~70% faster
+- Publishes progress with item_id for card-specific UI updates
+- Reuses PromptAnalyst and ContextRetriever experts (DRY principle)
 
 Evaluation Rubric (configurable) and Technical Implementation
 

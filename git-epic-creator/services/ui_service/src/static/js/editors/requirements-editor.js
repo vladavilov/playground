@@ -22,6 +22,9 @@ export class RequirementsEditor extends BaseEditor {
   constructor(bundle, onSave) {
     super(bundle, onSave);
     
+    // Reference to controller for event handling (will be set by controller)
+    this.controller = null;
+    
     // Set up delete callback with requirements-specific logic
     this.setDeleteCallback((metadata) => {
       const { reqType, index } = metadata;
@@ -33,11 +36,69 @@ export class RequirementsEditor extends BaseEditor {
       this.onSave();
     });
     
-    // Set up AI enhance callback placeholder
-    this.setAIEnhanceCallback((metadata) => {
-      // TODO: Implement AI enhancement
-      alert('AI enhancement feature will be available soon!');
+    // Set up AI enhance callback
+    this.setAIEnhanceCallback(async (metadata) => {
+      await this.handleRequirementEnhancement(metadata);
     });
+  }
+  
+  /**
+   * Sets the controller reference for event handling.
+   * @param {Object} controller - Requirements controller instance
+   */
+  setController(controller) {
+    this.controller = controller;
+  }
+  
+  /**
+   * Handles AI enhancement of a single requirement.
+   * @param {Object} metadata - Requirement metadata with req, reqType, index
+   */
+  async handleRequirementEnhancement(metadata) {
+    if (!this.controller) {
+      console.error('Controller not set on RequirementsEditor');
+      return;
+    }
+    
+    const { req, reqType, index } = metadata;
+    
+    // Find the card element
+    const card = document.querySelector(`.req-card:nth-child(${index + 1})`);
+    if (!card) {
+      console.error('Could not find requirement card for enhancement');
+      return;
+    }
+    
+    try {
+      // Show progress on the card
+      this.showCardProgress(card, 'Enhancing with AI...');
+      
+      // Call controller to perform enhancement
+      const enhanced = await this.controller.enhanceRequirement(req, reqType, index);
+      
+      // Update the requirement in the bundle
+      const list = reqType === 'business' 
+        ? this.bundle.business_requirements 
+        : this.bundle.functional_requirements;
+      
+      Object.assign(list[index], enhanced);
+      
+      // Mark as unsaved and trigger save
+      this.markUnsaved();
+      this.onSave();
+      
+      // Hide progress indicator
+      this.hideCardProgress(card);
+      
+      // Re-enable inline editing for the updated card
+      setTimeout(() => {
+        this.enableInlineEditing();
+      }, 100);
+      
+    } catch (error) {
+      console.error('Enhancement failed:', error);
+      this.showCardError(card, error.message || 'Enhancement failed. Please try again.');
+    }
   }
   
   /**

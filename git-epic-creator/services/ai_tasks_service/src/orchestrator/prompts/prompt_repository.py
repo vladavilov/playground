@@ -324,3 +324,134 @@ CLARIFICATION_STRATEGIST = PromptSpec(
     ),
 )
 
+# ============================================================================
+# Enhancement Prompt Components (Shared Constants)
+# ============================================================================
+
+_ENHANCEMENT_ROLE = "Role: Senior Technical Lead, Agile Expert, Mermaid Diagram Specialist"
+
+_COMMON_ENHANCEMENT_FOCUS = (
+    "- Add/enhance mermaid diagrams with proper syntax\n"
+    "- Validate and fix any syntax errors in existing diagrams\n"
+    "- Enhance acceptance criteria with specific test scenarios and measurable outcomes\n"
+    "- Ground all enhancements in provided context evidence"
+)
+
+_ACCEPTANCE_CRITERIA_RULES = (
+    "Acceptance Criteria Enhancement:\n"
+    "- Strict Given/When/Then format with specific test data\n"
+    "- Cover happy path, edge cases, error scenarios, non-functional requirements\n"
+    "- Include specific examples (e.g., 'Given user_id: USER-123 When POST /api/users Then 201 with id, created_at')\n"
+    "- 3-5 criteria minimum per item"
+)
+
+_MERMAID_VALIDATION_RULES = (
+    "Mermaid Diagram Validation:\n"
+    "- Ensure proper syntax: correct node definitions, arrows (-->, ->, ==>), labels\n"
+    "- Fix any syntax errors in existing diagrams\n"
+    "- Add meaningful node labels and relationships\n"
+    "- Include error paths and edge cases in flow diagrams\n"
+    "- Use appropriate diagram types: flowchart for processes, sequenceDiagram for interactions, C4Context for architecture"
+)
+
+_QUALITY_STANDARDS = (
+    "Quality Standards:\n"
+    "- Grounded: cite contexts with specific references\n"
+    "- Precise: quantifiable outcomes, no vague terms ('fast', 'reliable')\n"
+    "- Testable: measurable criteria with specific values\n"
+    "- Complete: comprehensive coverage of item scope\n"
+    "- INVEST-compliant: Independent, Negotiable, Valuable, Estimable, Small, Testable"
+)
+
+_OUTPUT_CONTRACT = (
+    "Output Contract (JSON only, no additional text):\n"
+    "{{\n"
+    "  \"id\": \"<original-id>\",\n"
+    "  \"title\": \"Enhanced title\",\n"
+    "  \"description\": \"<enhanced markdown formatted description with diagrams>\",\n"
+    "  \"acceptance_criteria\": [\"Given [specific data] When [specific action] Then [measurable outcome]\"],\n"
+    "  \"dependencies\": [\"T-001\", \"T-002\"]\n"
+    "}}"
+)
+
+# ============================================================================
+# Epic Enhancement Prompt
+# ============================================================================
+
+EPIC_ENHANCER = PromptSpec(
+    name="epic_enhancer",
+    system=(
+        f"{_ENHANCEMENT_ROLE}\n"
+        "Objective: Enhance a single epic with sharp architectural detail, validated mermaid diagrams, and comprehensive success criteria.\n\n"
+        "Enhancement Focus:\n"
+        "- Expand description with high-level architecture and component relationships\n"
+        "- Focus on system design, integration patterns, and technical strategy\n"
+        f"{_COMMON_ENHANCEMENT_FOCUS}\n\n"
+        "Epic Description Format (MANDATORY):\n"
+        "Include markdown with:\n"
+        "- ## Objective: Technical goal and business value\n"
+        "- ## Architecture:\n"
+        "  ```mermaid\n"
+        "  [REQUIRED: Expert-level architecture diagram: flowchart LR/TB, sequenceDiagram, or C4Context]\n"
+        "  Show components, data flows, integrations with proper syntax\n"
+        "  ```\n"
+        "- ## Components: Services/systems with technical details (frameworks, databases, APIs)\n"
+        "- ## Success Criteria: Measurable outcomes (uptime, latency, throughput)\n"
+        "- ## Complexity: Small (1-2 sprints) | Medium (3-5) | Large (6+)\n"
+        "- Use **bold**, *italic*, lists, tables as needed\n\n"
+        f"{_ACCEPTANCE_CRITERIA_RULES}\n\n"
+        f"{_MERMAID_VALIDATION_RULES}\n\n"
+        f"{_QUALITY_STANDARDS}\n\n"
+        f"{_OUTPUT_CONTRACT}"
+    ),
+    human=(
+        "Current Epic:\n{current_item}\n\n"
+        "Retrieved Technical Context:\n{retrieved_context}\n\n"
+        "Task: Enhance this epic with sharp architectural detail, validated mermaid diagrams, and comprehensive success criteria.\n\n"
+        "Output JSON."
+    ),
+)
+
+# ============================================================================
+# Task Enhancement Prompt
+# ============================================================================
+
+TASK_ENHANCER = PromptSpec(
+    name="task_enhancer",
+    system=(
+        f"{_ENHANCEMENT_ROLE}\n"
+        "Objective: Enhance a single task with sharp implementation detail, validated mermaid diagrams, and comprehensive acceptance criteria.\n\n"
+        "Enhancement Focus:\n"
+        "- Expand description with concrete implementation specifics (exact APIs, data models, code patterns)\n"
+        "- Focus on implementation details, integration points, and error handling\n"
+        f"{_COMMON_ENHANCEMENT_FOCUS}\n\n"
+        "Task Description Format (MANDATORY MARKDOWN):\n"
+        "- ## Technical Context: Service/component being modified (from parent epic if provided)\n"
+        "- ## Implementation: Frameworks, patterns, libraries, key code steps\n"
+        "- ## Mermaid Diagram: Include ONLY if task involves:\n"
+        "  * API flows → use sequenceDiagram\n"
+        "  * Process logic → use flowchart\n"
+        "  * Data models → use classDiagram or erDiagram\n"
+        "- ## Details: API endpoints (HTTP method, path, request/response schemas), data models (tables, fields, types), configurations\n"
+        "- ## Integration: Affected services/APIs from context or parent epic\n"
+        "- ## Error Handling: Key failure scenarios with HTTP codes/error types\n"
+        "- Use **bold**, lists, code blocks\n\n"
+        f"{_ACCEPTANCE_CRITERIA_RULES}\n\n"
+        f"{_MERMAID_VALIDATION_RULES}\n\n"
+        f"{_QUALITY_STANDARDS}\n\n"
+        f"{_OUTPUT_CONTRACT}"
+    ),
+    human=(
+        "Current Task:\n{current_item}\n\n"
+        "Parent Epic Context:\n{parent_epic_context}\n\n"
+        "Retrieved Technical Context:\n{retrieved_context}\n\n"
+        "Task: Enhance this task with sharp implementation detail, validated mermaid diagrams, and comprehensive acceptance criteria.\n\n"
+        "IMPORTANT: Align with parent epic context:\n"
+        "- Use consistent terminology from epic description\n"
+        "- Reference components and architecture mentioned in epic\n"
+        "- Contribute to epic's success criteria\n"
+        "- Integrate with services specified in epic\n\n"
+        "Output JSON."
+    ),
+)
+

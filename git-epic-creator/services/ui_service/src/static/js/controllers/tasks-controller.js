@@ -180,7 +180,14 @@ class TasksController extends ChatBaseController {
             return;
           }
           
-          // Update status badge
+          // Check if this is an enhancement progress message
+          if (msg.enhancement_mode && msg.item_id) {
+            // Route to enhancement progress handler
+            this.handleEnhancementProgress(msg);
+            return;
+          }
+          
+          // Standard full workflow progress (thinking box)
           this.updateProjectStatus(msg.status);
           
           // Route to thinking box
@@ -715,6 +722,154 @@ class TasksController extends ChatBaseController {
   getAllAcceptedMatches(similar) {
     if (!similar || similar.length === 0) return [];
     return similar.filter(sim => sim.link_decision === 'accepted');
+  }
+  
+  /**
+   * Enhances a single epic or task with AI-generated expansions.
+   * @param {Object} item - Epic or task object
+   * @param {string} itemType - "epic" or "task"
+   * @param {number} epicIdx - Epic index in bundle
+   * @param {number|null} taskIdx - Task index in epic (null for epics)
+   * @returns {Promise<Object>} Enhanced item
+   */
+  async enhanceTask(item, itemType, epicIdx, taskIdx) {
+    if (!this.apiClient) {
+      throw new Error('API client not initialized');
+    }
+    
+    if (!this.state.projectId) {
+      throw new Error('No project selected');
+    }
+    
+    try {
+      // Prepare enhancement request
+      const enhanceRequest = {
+        project_id: this.state.projectId,
+        item_id: item.id || `${itemType}-${epicIdx}-${taskIdx ?? ''}`,
+        item_type: itemType,
+        current_content: {
+          id: item.id || `${itemType}-${epicIdx}-${taskIdx ?? ''}`,
+          title: item.title || '',
+          description: item.description || '',
+          acceptance_criteria: item.acceptance_criteria || [],
+          dependencies: item.dependencies || []
+        },
+        parent_epic_content: itemType === 'task' && this.state.backlogBundle?.epics?.[epicIdx]
+          ? {
+              id: this.state.backlogBundle.epics[epicIdx].id,
+              title: this.state.backlogBundle.epics[epicIdx].title || '',
+              description: this.state.backlogBundle.epics[epicIdx].description || '',
+              acceptance_criteria: this.state.backlogBundle.epics[epicIdx].acceptance_criteria || []
+            }
+          : null
+      };
+      
+      // Call enhancement endpoint
+      const response = await this.apiClient.request(
+        '/ai-tasks/tasks/enhance',
+        {
+          method: 'POST',
+          body: JSON.stringify(enhanceRequest)
+        }
+      );
+      
+      // Return enhanced item
+      const enhanced = {
+        title: response.title,
+        description: response.description,
+        acceptance_criteria: response.acceptance_criteria,
+        dependencies: response.dependencies || []
+      };
+      
+      // Re-render mermaid diagrams if description contains them
+      setTimeout(() => {
+        if (window.mermaid && enhanced.description.includes('```mermaid')) {
+          window.mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+        }
+      }, 100);
+      
+      return enhanced;
+      
+    } catch (error) {
+      console.error('Enhancement API call failed:', error);
+      throw new Error(`Enhancement failed: ${ApiClient.formatError(error)}`);
+    }
+  }
+  
+  /**
+   * Handles enhancement progress updates from SSE.
+   * @param {Object} data - Progress message data
+   */
+  handleEnhancementProgress(data) {
+    // Check if this is an enhancement progress message
+    if (!data.enhancement_mode || !data.item_id) {
+      return;
+    }
+    
+    // Find the epic/task in the bundle
+    const bundle = this.state.backlogBundle;
+    if (!bundle) return;
+    
+    let epicIdx = -1;
+    let taskIdx = null;
+    let itemType = null;
+    
+    // Search in epics
+    epicIdx = bundle.epics?.findIndex(e => e.id === data.item_id);
+    if (epicIdx !== -1) {
+      itemType = 'epic';
+    } else {
+      // Search in tasks
+      for (let eIdx = 0; eIdx < (bundle.epics?.length || 0); eIdx++) {
+        const epic = bundle.epics[eIdx];
+        const tIdx = epic.tasks?.findIndex(t => t.id === data.item_id);
+        if (tIdx !== -1) {
+          epicIdx = eIdx;
+          taskIdx = tIdx;
+          itemType = 'task';
+          break;
+        }
+      }
+    }
+    
+    if (epicIdx === -1 || !itemType) {
+      return; // Not found, ignore
+    }
+    
+    // Find the card element
+    const cardSelector = itemType === 'epic'
+      ? `.epic-card:nth-child(${epicIdx + 1})`
+      : `.task-item[data-epic-idx="${epicIdx}"][data-task-idx="${taskIdx}"]`;
+    const card = document.querySelector(cardSelector);
+    
+    if (!card || !this.enhancedEditor) {
+      return;
+    }
+    
+    // Update progress on the card based on status
+    switch (data.status) {
+      case 'analyzing_item':
+        this.enhancedEditor.showCardProgress(card, `Analyzing ${itemType}...`);
+        break;
+      case 'retrieving_context':
+        this.enhancedEditor.showCardProgress(card, 'Retrieving context...');
+        break;
+      case 'enhancing_item':
+        this.enhancedEditor.showCardProgress(card, 'Enhancing with AI...');
+        break;
+      case 'completed':
+        this.enhancedEditor.hideCardProgress(card);
+        // Re-render mermaid diagrams
+        setTimeout(() => {
+          if (window.mermaid) {
+            window.mermaid.init(undefined, card.querySelectorAll('.mermaid'));
+          }
+        }, 100);
+        break;
+      case 'error':
+        this.enhancedEditor.showCardError(card, data.thought_summary || 'Enhancement failed');
+        break;
+    }
   }
 }
 

@@ -129,3 +129,57 @@ async def run_backlog_workflow(
     raise RuntimeError("Graph pipeline did not produce a GeneratedBacklogBundle")
 
 
+async def run_single_task_enhancement(
+    project_id: UUID,
+    item_id: str,
+    item_type: str,
+    current_content: dict,
+    publisher: AiTasksStatusPublisher,
+    parent_epic_content: dict | None = None,
+    auth_header: str | None = None,
+) -> dict:
+    """Enhance a single task/epic with AI-generated expansions.
+    
+    This is a streamlined workflow that:
+    1. Extracts intents from the current task/epic
+    2. Retrieves focused GraphRAG context
+    3. Enhances the item with detailed description, acceptance criteria, and diagrams
+    4. Skips evaluation/iteration for speed
+    
+    Args:
+        project_id: Project UUID
+        item_id: Epic or task identifier
+        item_type: "epic" or "task"
+        current_content: Current item content dict
+        publisher: Redis progress publisher
+        parent_epic_content: Optional parent epic full content for tasks (provides context)
+        auth_header: Authentication header for GraphRAG service
+        
+    Returns:
+        Enhanced task/epic dict with title, description, acceptance_criteria, dependencies
+    """
+    logger.info("enhancement_workflow_started", 
+                project_id=str(project_id), 
+                item_id=item_id,
+                item_type=item_type)
+    
+    # Build enhancement graph
+    graph = await lg_pipeline.create_task_enhancement_graph(publisher)
+    
+    # Run enhancement pipeline
+    result_state = await graph.ainvoke({
+        "project_id": project_id,
+        "item_id": item_id,
+        "item_type": item_type,
+        "current_content": current_content,
+        "parent_epic_content": parent_epic_content,
+        "auth_header": auth_header,
+    })
+    
+    enhanced_dict = result_state.get("result")
+    if not enhanced_dict:
+        raise RuntimeError("Enhancement graph did not produce a result")
+    
+    return enhanced_dict
+
+

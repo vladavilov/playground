@@ -60,6 +60,16 @@ class BacklogProgressMessage(BaseModel):
         default_factory=datetime.now,
         description="Event timestamp (ISO8601)",
     )
+    # Enhancement mode fields (optional, for single-item operations)
+    item_id: Optional[str] = Field(
+        None, description="Item identifier for single-item enhancement operations"
+    )
+    item_type: Optional[str] = Field(
+        None, description="Item type: 'epic', 'task' for single-item operations"
+    )
+    enhancement_mode: Optional[bool] = Field(
+        None, description="True if this is a single-item enhancement operation"
+    )
 
     @field_validator("score")
     @classmethod
@@ -97,9 +107,9 @@ class WorkflowProgressMessage(BaseModel):
         description="Fixed message type identifier",
     )
     project_id: UUID = Field(..., description="Project ID", json_schema_extra={"format": "uuid"})
-    prompt_id: UUID = Field(
+    prompt_id: Optional[UUID] = Field(
         default_factory=uuid4,
-        description="Prompt identifier",
+        description="Prompt identifier (optional for single-item enhancement)",
         json_schema_extra={"format": "uuid"}
     )
     iteration: Optional[int] = Field(
@@ -121,6 +131,16 @@ class WorkflowProgressMessage(BaseModel):
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="Event timestamp (ISO8601)",
+    )
+    # Enhancement mode fields (optional, for single-item operations)
+    item_id: Optional[str] = Field(
+        None, description="Item identifier for single-item enhancement operations"
+    )
+    item_type: Optional[str] = Field(
+        None, description="Item type: 'requirement' for single-item operations"
+    )
+    enhancement_mode: Optional[bool] = Field(
+        None, description="True if this is a single-item enhancement operation"
     )
 
     @field_validator("score")

@@ -89,4 +89,25 @@ class RequirementsBundle(BaseModel):
         return v
 
 
+class EnhanceRequirementRequest(BaseModel):
+    """Request for enhancing a single requirement with AI."""
+
+    project_id: UUID = Field(..., description="Project identifier")
+    requirement_id: str = Field(..., description="Requirement identifier")
+    requirement_type: str = Field(
+        ..., description='Requirement type: "business" or "functional"'
+    )
+    current_content: dict = Field(
+        ..., description="Current requirement content (title, description, acceptance_criteria, etc.)"
+    )
+
+    @field_validator("requirement_type")
+    @classmethod
+    def _validate_requirement_type(cls, v: str) -> str:
+        """Ensure requirement_type is either 'business' or 'functional'."""
+        if v not in ("business", "functional"):
+            raise ValueError("requirement_type must be 'business' or 'functional'")
+        return v
+
+
 

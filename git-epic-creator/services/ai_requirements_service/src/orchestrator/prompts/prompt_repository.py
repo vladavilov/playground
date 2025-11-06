@@ -169,3 +169,120 @@ QUESTION_STRATEGIST = PromptSpec(
     ),
     human="user_prompt: {prompt}\ndraft: {draft}\naxis_scores: {axes}",
 )
+
+# ============================================================================
+# Enhancement Prompt Components (Shared Constants)
+# ============================================================================
+
+_REQ_ENHANCEMENT_ROLE = "Role: Senior Requirements Engineer (BABOK, Wealth Management & Banking)"
+
+_REQ_COMMON_ENHANCEMENT_FOCUS = (
+    "- Add/enhance mermaid diagrams with proper syntax\n"
+    "- Validate and fix any syntax errors in existing diagrams\n"
+    "- Enhance acceptance criteria with specific test data and measurable outcomes\n"
+    "- Add rationale explaining business/technical justification\n"
+    "- Ground all enhancements in provided context evidence"
+)
+
+_REQ_ACCEPTANCE_CRITERIA_RULES = (
+    "Acceptance Criteria Enhancement:\n"
+    "- Strict Given/When/Then format with specific test data\n"
+    "- Cover normal, edge, error cases comprehensively\n"
+    "- Include specific examples (e.g., \"account_id: 'ACC-12345'\") and expected outputs\n"
+    "- 3-5 criteria per requirement minimum"
+)
+
+_REQ_MERMAID_VALIDATION_RULES = (
+    "Mermaid Diagram Validation:\n"
+    "- Ensure proper syntax: correct node definitions, arrows (-->, ->, ==>), labels\n"
+    "- Fix any syntax errors in existing diagrams\n"
+    "- Add meaningful node labels and relationships\n"
+    "- Include error paths and edge cases in flow diagrams"
+)
+
+_REQ_QUALITY_STANDARDS = (
+    "Quality Standards:\n"
+    "- Grounded: cite contexts with line/page references\n"
+    "- Precise: quantifiable outcomes, no vague terms\n"
+    "- Testable: measurable criteria with specific values\n"
+    "- Complete: comprehensive coverage of requirement scope"
+)
+
+_REQ_OUTPUT_CONTRACT = (
+    "Output Contract (JSON only, no additional text):\n"
+    "{{\n"
+    "  \"id\": \"<original-id>\",\n"
+    "  \"priority\": \"Must|Should|Could|Won't\",\n"
+    "  \"title\": \"Enhanced brief title\",\n"
+    "  \"description\": \"<enhanced markdown formatted description with diagrams>\",\n"
+    "  \"rationale\": \"<enhanced business/technical justification>\",\n"
+    "  \"acceptance_criteria\": [\"Given [specific data] When [specific action] Then [measurable outcome with values]\"]\n"
+    "}}"
+)
+
+# ============================================================================
+# Business Requirement Enhancement Prompt
+# ============================================================================
+
+BUSINESS_REQUIREMENT_ENHANCER = PromptSpec(
+    name="business_requirement_enhancer",
+    system=(
+        f"{_REQ_ENHANCEMENT_ROLE}\n"
+        "Objective: Enhance a single Business Requirement with sharp business context, stakeholder value, and comprehensive acceptance criteria.\n\n"
+        "Enhancement Focus:\n"
+        "- Expand description with business context, value proposition, and stakeholder impact\n"
+        "- Focus on WHY the requirement exists and WHAT business outcomes it enables\n"
+        f"{_REQ_COMMON_ENHANCEMENT_FOCUS}\n\n"
+        "Business Requirement Description Format (MANDATORY):\n"
+        "Include markdown with:\n"
+        "- ## Business Context: Why this requirement exists, strategic alignment, business value\n"
+        "- ## Stakeholder Impact: Who benefits, how they benefit, measurable business outcomes\n"
+        "- ## Success Metrics: KPIs, business metrics (revenue, cost reduction, efficiency gains)\n"
+        "- ## Regulatory Compliance: Cite specific standards (SOX 404, GDPR Art 17) only if applicable\n"
+        "- ## Dependencies: Other business requirements or initiatives\n"
+        "- Use **bold**, *italic*, lists, tables as needed\n\n"
+        f"{_REQ_ACCEPTANCE_CRITERIA_RULES}\n\n"
+        f"{_REQ_MERMAID_VALIDATION_RULES}\n\n"
+        f"{_REQ_QUALITY_STANDARDS}\n\n"
+        f"{_REQ_OUTPUT_CONTRACT}"
+    ),
+    human=(
+        "Current Business Requirement:\n{current_requirement}\n\n"
+        "Retrieved Business Context:\n{retrieved_context}\n\n"
+        "Task: Enhance this business requirement with sharp business context, stakeholder value, and comprehensive acceptance criteria.\n\n"
+        "Output JSON."
+    ),
+)
+
+# ============================================================================
+# Functional Requirement Enhancement Prompt
+# ============================================================================
+
+FUNCTIONAL_REQUIREMENT_ENHANCER = PromptSpec(
+    name="functional_requirement_enhancer",
+    system=(
+        f"{_REQ_ENHANCEMENT_ROLE}\n"
+        "Objective: Enhance a single Functional Requirement with sharp functional detail, validated mermaid diagrams, and comprehensive acceptance criteria.\n\n"
+        "Enhancement Focus:\n"
+        "- Expand description with concrete functional specificity (APIs, data models, process flows)\n"
+        "- Focus on HOW the system behaves and WHAT functions it performs\n"
+        f"{_REQ_COMMON_ENHANCEMENT_FOCUS}\n\n"
+        "Functional Requirement Description Format (MANDATORY):\n"
+        "Include (where logically needed) markdown with:\n"
+        "- ## Functional Behavior: Inputs (types, formats, constraints), processing steps, outputs (types, formats), error handling\n"
+        "- ## Diagram: Mermaid relevant chart for defined requirements\n"
+        "- ## Regulatory Compliance: Cite specific standards only if applicable to this functional requirement\n"
+        "- Use **bold**, *italic*, lists, tables, code blocks as needed\n"
+        "- Diagrams are MANDATORY for processes, interactions, or data models\n\n"
+        f"{_REQ_ACCEPTANCE_CRITERIA_RULES}\n\n"
+        f"{_REQ_MERMAID_VALIDATION_RULES}\n\n"
+        f"{_REQ_QUALITY_STANDARDS}\n\n"
+        f"{_REQ_OUTPUT_CONTRACT}"
+    ),
+    human=(
+        "Current Functional Requirement:\n{current_requirement}\n\n"
+        "Retrieved Technical Context:\n{retrieved_context}\n\n"
+        "Task: Enhance this functional requirement with sharp functional detail, validated mermaid diagrams, and comprehensive acceptance criteria.\n\n"
+        "Output JSON."
+    ),
+)

@@ -20,6 +20,7 @@ from orchestrator.experts.requirements_engineer import RequirementsEngineer
 from orchestrator.experts.consistency_auditor import ConsistencyAuditor
 from orchestrator.experts.evaluator import Evaluator
 from orchestrator.experts.question_strategist import QuestionStrategist
+from orchestrator.experts.requirement_enhancer import RequirementEnhancer
 
 logger = structlog.get_logger(__name__)
 
@@ -352,6 +353,139 @@ async def create_requirements_graph(publisher: Any, *, target: float, max_iters:
     checkpointer = InMemorySaver()
     
     graph = builder.compile(checkpointer=checkpointer)
+    return graph
+
+
+async def create_enhancement_graph(publisher: Any):
+    """
+    Build a streamlined LangGraph StateGraph for single-requirement enhancement.
+    
+    This is a simplified version of the full workflow that:
+    - Analyzes the requirement to extract intents
+    - Retrieves focused GraphRAG context
+    - Enhances with detailed descriptions and acceptance criteria (using specialized prompts)
+    - Skips evaluation/iteration for speed
+    
+    The enhancement node selects the appropriate prompt:
+    - BUSINESS_REQUIREMENT_ENHANCER: For BRs (business context, stakeholder value focus)
+    - FUNCTIONAL_REQUIREMENT_ENHANCER: For FRs (functional behavior, technical detail focus)
+    
+    State keys:
+      - project_id: UUID
+      - requirement_id: str
+      - requirement_type: str (business or functional)
+      - current_content: dict
+      - analysis, context: objects from experts
+      - result: dict (enhanced requirement)
+    """
+    class EnhancementState(TypedDict, total=False):
+        project_id: Any
+        requirement_id: str
+        requirement_type: str
+        current_content: Dict[str, Any]
+        auth_header: str
+        analysis: Any
+        context: Any
+        result: Dict[str, Any]
+    
+    analyst = PromptAnalyst()
+    retriever = ContextRetriever()
+    enhancer = RequirementEnhancer()
+    
+    async def init_enhancement_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Initialize enhancement workflow."""
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=state["requirement_id"],
+            status="analyzing_item",
+            thought_summary="Analyzing requirement to extract key intents..."
+        )
+        return {}
+    
+    async def analyze_enhancement_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract intents from current requirement."""
+        current = state["current_content"]
+        requirement_text = f"{current.get('title', '')}\n{current.get('description', '')}"
+        analysis = await analyst.analyze(requirement_text)
+        
+        logger.info("enhancement_intents_extracted",
+                   requirement_id=state["requirement_id"],
+                   intents_count=len(analysis.intents))
+        
+        return {"analysis": analysis}
+    
+    async def retrieve_enhancement_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Retrieve focused context for the requirement."""
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=state["requirement_id"],
+            status="retrieving_context",
+            thought_summary="Retrieving relevant context from knowledge base..."
+        )
+        
+        auth_header = state.get("auth_header")
+        context = await retriever.retrieve(
+            state["analysis"],
+            state["project_id"],
+            auth_header=auth_header
+        )
+        
+        logger.info("enhancement_context_retrieved",
+                   requirement_id=state["requirement_id"],
+                   key_facts_count=len(context.key_facts or []),
+                   citations_count=len(context.citations or []))
+        
+        return {"context": context}
+    
+    async def enhance_node(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance the requirement with AI-generated content using RequirementEnhancer expert."""
+        requirement_type = state.get("requirement_type", "functional")
+        requirement_id = state["requirement_id"]
+        
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=requirement_id,
+            status="enhancing_item",
+            thought_summary=f"Enhancing {requirement_type} requirement with detailed descriptions and acceptance criteria..."
+        )
+        
+        # Delegate to RequirementEnhancer expert
+        result = await enhancer.enhance(
+            requirement_type=requirement_type,
+            requirement_id=requirement_id,
+            current_content=state["current_content"],
+            retrieved_context=state["context"]
+        )
+        
+        logger.info("enhancement_completed",
+                   requirement_id=requirement_id,
+                   requirement_type=requirement_type,
+                   title_length=len(result["title"]),
+                   description_length=len(result["description"]),
+                   acceptance_criteria_count=len(result["acceptance_criteria"]))
+        
+        await publisher.publish_enhancement_progress(
+            project_id=state["project_id"],
+            item_id=requirement_id,
+            status="completed",
+            thought_summary="Enhancement completed successfully"
+        )
+        
+        return {"result": result}
+    
+    builder = StateGraph(EnhancementState)
+    builder.add_node("init", init_enhancement_node)
+    builder.add_node("analyze", analyze_enhancement_node)
+    builder.add_node("retrieve", retrieve_enhancement_node)
+    builder.add_node("enhance", enhance_node)
+    
+    builder.add_edge(START, "init")
+    builder.add_edge("init", "analyze")
+    builder.add_edge("analyze", "retrieve")
+    builder.add_edge("retrieve", "enhance")
+    builder.add_edge("enhance", END)
+    
+    graph = builder.compile()
     return graph
 
 
