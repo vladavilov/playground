@@ -17,13 +17,16 @@ class BacklogStatus(str, Enum):
     """Allowed status values for backlog generation workflow."""
 
     ANALYZING_REQUIREMENTS = "analyzing_requirements"
+    ANALYZING_ITEM = "analyzing_item"  # Single-item enhancement
     RETRIEVING_CONTEXT = "retrieving_context"
     FETCHING_BACKLOG = "fetching_backlog"
     DRAFTING_BACKLOG = "drafting_backlog"
+    ENHANCING_ITEM = "enhancing_item"  # Single-item enhancement
     MAPPING_DUPLICATES = "mapping_duplicates"
     EVALUATING = "evaluating"
     NEEDS_CLARIFICATION = "needs_clarification"
     COMPLETED = "completed"
+    WARNING = "warning"
     ERROR = "error"
 
 
@@ -91,8 +94,10 @@ class BacklogProgressMessage(BaseModel):
 
 class WorkflowStatus(str, Enum):
     ANALYZING_PROMPT = "analyzing_prompt"
+    ANALYZING_ITEM = "analyzing_item"  # Single-item enhancement
     RETRIEVING_CONTEXT = "retrieving_context"
     DRAFTING_REQUIREMENTS = "drafting_requirements"
+    ENHANCING_ITEM = "enhancing_item"  # Single-item enhancement
     EVALUATING = "evaluating"
     NEEDS_CLARIFICATION = "needs_clarification"
     COMPLETED = "completed"
