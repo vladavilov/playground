@@ -8,6 +8,8 @@ from orchestrator.prompts.prompt_repository import (
     CONSISTENCY_AUDITOR,
     EVALUATOR,
     CLARIFICATION_STRATEGIST,
+    EPIC_ENHANCER,
+    TASK_ENHANCER,
 )
 
 __all__ = [
@@ -20,5 +22,7 @@ __all__ = [
     "CONSISTENCY_AUDITOR",
     "EVALUATOR",
     "CLARIFICATION_STRATEGIST",
+    "EPIC_ENHANCER",
+    "TASK_ENHANCER",
 ]
 
