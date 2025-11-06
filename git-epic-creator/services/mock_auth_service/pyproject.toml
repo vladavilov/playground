@@ -14,21 +14,21 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "fastapi",
-    "uvicorn[standard]",
-    "structlog",
-    "python-dotenv",
-    "pydantic-settings",
-    "python-jose[cryptography]", # Required for JWT creation and signing
-    "cryptography",            # Required for key generation
-    "python-multipart",        # Required for form data parsing
+    "fastapi==0.121.0",
+    "uvicorn[standard]==0.38.0",
+    "structlog==25.5.0",
+    "python-dotenv==1.2.1",
+    "pydantic-settings==2.11.0",
+    "python-jose[cryptography]==3.5.0", # Required for JWT creation and signing
+    "cryptography==46.0.3",            # Required for key generation
+    "python-multipart==0.0.20",        # Required for form data parsing
     "shared @ file:../shared"
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "httpx"
+    "httpx==0.28.1"
 ]
 
 [tool.setuptools.packages.find]

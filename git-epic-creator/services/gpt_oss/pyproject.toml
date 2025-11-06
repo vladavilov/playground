@@ -17,10 +17,10 @@ dependencies = [
   "gpt-oss",
   "openai-harmony",
   "sentence-transformers",
-  "fastapi",
-  "uvicorn",
-  "structlog",
-  "httpx",
+  "fastapi==0.121.0",
+  "uvicorn==0.38.0",
+  "structlog==25.5.0",
+  "httpx==0.28.1"
 ]
 
 [project.scripts]

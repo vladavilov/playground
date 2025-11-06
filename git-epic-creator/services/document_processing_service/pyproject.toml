@@ -34,7 +34,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-mock",
-    "httpx"
+    "httpx==0.28.1"
 ]
 
 [tool.pytest.ini_options]

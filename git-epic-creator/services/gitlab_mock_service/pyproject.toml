@@ -10,9 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.6",
-    "uvicorn[standard]>=0.32.1",
-    "pydantic>=2.10.3",
-    "pydantic-settings>=2.6.1",
+    "uvicorn[standard]==0.38.0",
+    "pydantic==2.12.3",
+    "pydantic-settings==2.11.0",
     "python-multipart>=0.0.20",
     "shared @ file:../shared"
 ]
@@ -21,7 +21,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.4",
     "pytest-asyncio>=0.24.0",
-    "httpx>=0.28.1"
+    "httpx==0.28.1"
 ]
 
 [tool.setuptools.packages.find]

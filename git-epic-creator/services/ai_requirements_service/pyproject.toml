@@ -12,19 +12,19 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "pydantic",
-    "pydantic-settings",
-    "structlog",
-    "httpx",
-    "tenacity",
-    "openai",
-    "deepeval",
-    "litellm",
-    "langgraph",
-    "langchain-core",
-    "langchain-openai",
+    "fastapi==0.121.0",
+    "uvicorn==0.38.0",
+    "pydantic==2.12.3",
+    "pydantic-settings==2.11.0",
+    "structlog==25.5.0",
+    "httpx==0.28.1",
+    "tenacity==9.1.2",
+    "openai==2.7.1",
+    "deepeval==3.7.0",
+    "litellm==1.79.1",
+    "langgraph==1.0.2",
+    "langchain-core==1.0.3",
+    "langchain-openai==1.0.2",
     "shared @ file:../shared"
 ]
 

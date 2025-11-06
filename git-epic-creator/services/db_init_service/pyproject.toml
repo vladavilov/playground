@@ -14,15 +14,15 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "fastapi",
-    "uvicorn[standard]",
-    "sqlalchemy",
-    "psycopg2-binary",
-    "asyncpg",
-    "sqlalchemy-utils",
-    "structlog",
-    "python-dotenv",
-    "pydantic-settings",
+    "fastapi==0.121.0",
+    "uvicorn[standard]==0.38.0",
+    "sqlalchemy==2.0.44",
+    "psycopg2-binary==2.9.11",
+    "asyncpg==0.30.0",
+    "sqlalchemy-utils==0.42.0",
+    "structlog==25.5.0",
+    "python-dotenv==1.2.1",
+    "pydantic-settings==2.11.0",
     "shared @ file:../shared"
 ]
 
