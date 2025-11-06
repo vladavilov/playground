@@ -766,7 +766,7 @@ class TasksController extends ChatBaseController {
       
       // Call enhancement endpoint
       const response = await this.apiClient.request(
-        '/ai-tasks/tasks/enhance',
+        '/tasks/enhance',
         {
           method: 'POST',
           body: JSON.stringify(enhanceRequest)

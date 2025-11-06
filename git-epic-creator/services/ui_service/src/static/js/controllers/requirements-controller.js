@@ -462,7 +462,7 @@ class RequirementsController extends ChatBaseController {
       
       // Call enhancement endpoint
       const response = await this.apiClient.request(
-        '/ai-requirements/workflow/enhance',
+        '/workflow/enhance',
         {
           method: 'POST',
           body: JSON.stringify(enhanceRequest)
