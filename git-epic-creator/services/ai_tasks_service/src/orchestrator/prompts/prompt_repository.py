@@ -296,13 +296,13 @@ EVALUATOR = PromptSpec(
         "  \"gaps\": [\n"
         "    \"Specific gap with task/epic ID and technical detail\"\n"
         "  ],\n"
-        "  \"scores\": {\n"
+        "  \"scores\": {{\n"
         "    \"coverage\": 0.0,\n"
         "    \"specificity\": 0.0,\n"
         "    \"feasibility\": 0.0,\n"
         "    \"consistency\": 0.0,\n"
         "    \"overall\": 0.0\n"
-        "  }\n"
+        "  }}\n"
         "}}"
     ),
     human="### Requirements\n{requirements}\n\n### Backlog & Findings\n{backlog_summary}",
