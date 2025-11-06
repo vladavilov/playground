@@ -808,7 +808,9 @@ class TasksController extends ChatBaseController {
     
     // Find the epic/task in the bundle
     const bundle = this.state.backlogBundle;
-    if (!bundle) return;
+    if (!bundle || !this.enhancedEditor) {
+      return;
+    }
     
     let epicIdx = -1;
     let taskIdx = null;
@@ -836,13 +838,24 @@ class TasksController extends ChatBaseController {
       return; // Not found, ignore
     }
     
-    // Find the card element
+    // Find the card element based on current editor mode
     const cardSelector = itemType === 'epic'
       ? `.epic-card:nth-child(${epicIdx + 1})`
       : `.task-item[data-epic-idx="${epicIdx}"][data-task-idx="${taskIdx}"]`;
-    const card = document.querySelector(cardSelector);
     
-    if (!card || !this.enhancedEditor) {
+    let card = null;
+    if (this.enhancedEditor.currentMode === 'inline') {
+      // Inline mode: query main content area
+      card = this.backlogContent?.querySelector(cardSelector);
+    } else {
+      // Focus/Fullscreen mode: query within modal
+      const modal = document.getElementById('focusModeModal');
+      if (modal) {
+        card = modal.querySelector(cardSelector);
+      }
+    }
+    
+    if (!card) {
       return;
     }
     
