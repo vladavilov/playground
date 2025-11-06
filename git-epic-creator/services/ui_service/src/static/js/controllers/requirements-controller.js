@@ -440,14 +440,14 @@ class RequirementsController extends ChatBaseController {
       throw new Error('API client not initialized');
     }
     
-    if (!this.state.currentProject?.project_id) {
+    if (!this.state.projectId) {
       throw new Error('No project selected');
     }
     
     try {
       // Prepare enhancement request
       const enhanceRequest = {
-        project_id: this.state.currentProject.project_id,
+        project_id: this.state.projectId,
         requirement_id: req.id,
         requirement_type: reqType,
         current_content: {
@@ -497,7 +497,9 @@ class RequirementsController extends ChatBaseController {
     
     // Find the requirement index
     const bundle = this.state.currentBundle;
-    if (!bundle) return;
+    if (!bundle || !this.enhancedEditor) {
+      return;
+    }
     
     let reqIndex = -1;
     let reqType = null;
@@ -518,9 +520,20 @@ class RequirementsController extends ChatBaseController {
       return; // Not found, ignore
     }
     
-    // Find the card element
-    const card = document.querySelector(`.req-card:nth-child(${reqIndex + 1})`);
-    if (!card || !this.enhancedEditor) {
+    // Find the card element based on current editor mode
+    let card = null;
+    if (this.enhancedEditor.currentMode === 'inline') {
+      // Inline mode: query main content area
+      card = this.requirementsContent?.querySelector(`.req-card:nth-child(${reqIndex + 1})`);
+    } else {
+      // Focus/Fullscreen mode: query within modal
+      const modal = document.getElementById('focusModeModal');
+      if (modal) {
+        card = modal.querySelector(`.req-card:nth-child(${reqIndex + 1})`);
+      }
+    }
+    
+    if (!card) {
       return;
     }
     
