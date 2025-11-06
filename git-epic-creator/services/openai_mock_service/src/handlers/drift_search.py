@@ -125,7 +125,7 @@ class DriftLocalExecutorHandler(BaseHandler):
             "answer": "ERROR FETCHING LOCAL EXECUTOR",
             "citations": [{"span": "deck overview"}, {"span": "arch mechanics"}],
             "new_followups": [],
-            "confidence": 0.9,
+            "confidence": 0.01,
             "should_continue": False,
         }
         logger.warning("drift_mock_local_fallback", followup_text=followup_text[:200] if followup_text else "empty")

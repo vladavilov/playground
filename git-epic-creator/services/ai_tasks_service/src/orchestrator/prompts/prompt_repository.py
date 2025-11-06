@@ -67,7 +67,7 @@ BACKLOG_ENGINEER = PromptSpec(
         "    Use: flowchart LR/TB, sequenceDiagram, or C4Context as appropriate\n"
         "    ```\n"
         "  * ## Components: Services/systems from context\n"
-        "  * ## Success Criteria: Measurable outcomes\n"
+        "  * ## Success Criteria: Measurable outcomes (include NFRs only if specified in context; otherwise omit and add 'NFR gaps' note)\n"
         "  * ## Complexity: Small (1-2 sprints) | Medium (3-5) | Large (6+)\n\n"
         "Task Structure (INVEST-compliant, 1-3 days):\n"
         "- **Title**: 'As a [role], I want [capability using context tech], so that [benefit]' OR 'Implement [component] in [framework]'\n"
@@ -130,9 +130,10 @@ BACKLOG_ENGINEER_EPICS_ONLY = PromptSpec(
         "  * Key technical components from context\n"
         "  * Primary integration points\n"
         "  * Rough complexity estimate\n\n"
+        "Mermaid Diagram (REQUIRED for every epic):\n"
+        "- Include a minimal architecture diagram (flowchart or C4Context) showing components and key integrations with correct syntax.\n\n"
         "DO NOT include:\n"
         "- Task-level details (individual stories, acceptance criteria)\n"
-        "- Mermaid diagrams (saved for task generation phase)\n"
         "- Detailed implementation steps\n\n"
         "Output Contract (JSON only):\n"
         "{{\n"
@@ -360,6 +361,7 @@ _QUALITY_STANDARDS = (
     "- Precise: quantifiable outcomes, no vague terms ('fast', 'reliable')\n"
     "- Testable: measurable criteria with specific values\n"
     "- Complete: comprehensive coverage of item scope\n"
+    "- Non-Functional Requirements (NFRs): Include only if explicitly provided in the context or requirements; do not invent values. When NFRs are absent but relevant, add an 'NFR gaps' note rather than fabricating metrics.\n"
     "- INVEST-compliant: Independent, Negotiable, Valuable, Estimable, Small, Testable"
 )
 
