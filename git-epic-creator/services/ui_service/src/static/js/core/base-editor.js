@@ -68,6 +68,23 @@ export class BaseEditor {
   }
   
   /**
+   * Clears action buttons from a container to prevent duplication.
+   * Only removes button elements, preserving other content like badges and dropdowns.
+   * @param {HTMLElement} container - The button container element
+   * @protected
+   */
+  clearActionButtons(container) {
+    if (!container) return;
+    // Only clear if not already cleared in this cycle
+    if (!container.dataset.buttonsCleared) {
+      // Remove only button elements, preserve other content (badges, etc.)
+      const buttons = container.querySelectorAll('button');
+      buttons.forEach(btn => btn.remove());
+      container.dataset.buttonsCleared = 'true';
+    }
+  }
+  
+  /**
    * Gets display label for an item (e.g., "Epic 1", "BR1").
    * Must be implemented by subclasses.
    * @param {Object} item - Item object
@@ -192,6 +209,9 @@ export class BaseEditor {
     const container = card.querySelector('.card-actions-container');
     if (!container) return;
     
+    // Clear existing buttons to prevent duplication
+    this.clearActionButtons(container);
+    
     const btn = document.createElement('button');
     btn.className = 'p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors';
     btn.title = 'Open in focus mode (F)';
@@ -235,6 +255,8 @@ export class BaseEditor {
     });
     
     container.appendChild(btn);
+    // Reset flag after all buttons are added
+    delete container.dataset.buttonsCleared;
   }
   
   /**
