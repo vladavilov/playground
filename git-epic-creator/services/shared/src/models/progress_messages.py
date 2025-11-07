@@ -38,9 +38,9 @@ class BacklogProgressMessage(BaseModel):
         description="Fixed message type identifier",
     )
     project_id: UUID = Field(..., description="Project ID", json_schema_extra={"format": "uuid"})
-    prompt_id: UUID = Field(
+    prompt_id: Optional[UUID] = Field(
         default_factory=uuid4,
-        description="Prompt identifier",
+        description="Prompt identifier (optional for single-item enhancement)",
         json_schema_extra={"format": "uuid"},
     )
     iteration: Optional[int] = Field(
@@ -84,8 +84,8 @@ class BacklogProgressMessage(BaseModel):
         return v
 
     @field_serializer("project_id", "prompt_id", "message_id", when_used="always")
-    def _serialize_uuid(self, v: UUID) -> str:  # noqa: D401
-        return str(v)
+    def _serialize_uuid(self, v: Optional[UUID]) -> str | None:  # noqa: D401
+        return str(v) if v is not None else None
 
     @field_serializer("timestamp", when_used="always")
     def _serialize_timestamp(self, v: datetime) -> str:  # noqa: D401
@@ -158,8 +158,8 @@ class WorkflowProgressMessage(BaseModel):
         return v
 
     @field_serializer("project_id", "prompt_id", "message_id", when_used="always")
-    def _serialize_uuid(self, v: UUID) -> str:  # noqa: D401
-        return str(v)
+    def _serialize_uuid(self, v: Optional[UUID]) -> str | None:  # noqa: D401
+        return str(v) if v is not None else None
 
     @field_serializer("timestamp", when_used="always")
     def _serialize_timestamp(self, v: datetime) -> str:  # noqa: D401
