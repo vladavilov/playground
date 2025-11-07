@@ -899,20 +899,42 @@ export class BaseEditor {
    * Shows inline progress indicator on a card.
    * @param {HTMLElement} card - The card element
    * @param {string} message - Progress message to display
+   * @param {string} detailsMd - Optional markdown details to display below status
    */
-  showCardProgress(card, message) {
+  showCardProgress(card, message, detailsMd = null) {
     if (!card) return;
     
     // Remove any existing progress indicator
     this.hideCardProgress(card);
     
+    // Import markdown renderer dynamically
+    const renderMarkdown = window.markdownit ? 
+      (text) => window.markdownit({ html: false, breaks: true }).render(text) : 
+      (text) => `<p>${esc(text)}</p>`;
+    
+    // Render details if provided
+    let detailsHtml = '';
+    if (detailsMd) {
+      const renderedDetails = renderMarkdown(detailsMd);
+      detailsHtml = `
+        <div class="mt-3 pt-3 border-t border-indigo-200 max-h-48 overflow-y-auto">
+          <div class="prose prose-sm prose-indigo text-left max-w-none">
+            ${renderedDetails}
+          </div>
+        </div>
+      `;
+    }
+    
     // Create progress overlay
     const overlay = document.createElement('div');
-    overlay.className = 'ai-enhance-progress absolute inset-0 bg-white/90 backdrop-blur-sm flex items-center justify-center z-10';
+    overlay.className = 'ai-enhance-progress absolute inset-0 bg-white/90 backdrop-blur-sm flex items-center justify-center z-10 p-4';
     overlay.innerHTML = `
-      <div class="flex items-center gap-3 px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm">
-        <div class="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"></div>
-        <span class="text-sm text-indigo-700 font-medium">${esc(message)}</span>
+      <div class="flex flex-col gap-2 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-lg shadow-sm max-w-lg">
+        <div class="flex items-center gap-3">
+          <div class="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent flex-shrink-0"></div>
+          <span class="text-sm text-indigo-700 font-medium">${esc(message)}</span>
+        </div>
+        ${detailsHtml}
       </div>
     `;
     

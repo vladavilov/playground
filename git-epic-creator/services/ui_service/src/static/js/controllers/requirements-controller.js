@@ -545,15 +545,17 @@ class RequirementsController extends ChatBaseController {
     }
     
     // Update progress on the card based on status
+    const detailsMd = data.details_md || null;
+    
     switch (data.status) {
       case 'analyzing_item':
-        this.enhancedEditor.showCardProgress(card, 'Analyzing requirement...');
+        this.enhancedEditor.showCardProgress(card, 'Analyzing requirement...', detailsMd);
         break;
       case 'retrieving_context':
-        this.enhancedEditor.showCardProgress(card, 'Retrieving context...');
+        this.enhancedEditor.showCardProgress(card, 'Retrieving context...', detailsMd);
         break;
       case 'enhancing_item':
-        this.enhancedEditor.showCardProgress(card, 'Enhancing with AI...');
+        this.enhancedEditor.showCardProgress(card, 'Enhancing with AI...', detailsMd);
         break;
       case 'completed':
         this.enhancedEditor.hideCardProgress(card);

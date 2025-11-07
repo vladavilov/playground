@@ -568,6 +568,16 @@ class TasksController extends ChatBaseController {
       return;
     }
     
+    // Show loading state on submit button
+    const originalButtonHTML = this.submitBacklogBtn.innerHTML;
+    this.submitBacklogBtn.disabled = true;
+    this.submitBacklogBtn.innerHTML = `
+      <div class="flex items-center gap-2">
+        <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+        <span>Submitting...</span>
+      </div>
+    `;
+    
     try {
       // Use first project as default fallback
       const defaultProjectId = this.state.gitlabProjectIds[0];
@@ -716,6 +726,10 @@ class TasksController extends ChatBaseController {
         `<div class="text-sm text-rose-700">Failed to submit to GitLab: ${esc(errorMsg)}</div>`,
         'System Error'
       );
+    } finally {
+      // Restore button state
+      this.submitBacklogBtn.disabled = false;
+      this.submitBacklogBtn.innerHTML = originalButtonHTML;
     }
   }
   
@@ -867,15 +881,17 @@ class TasksController extends ChatBaseController {
     }
     
     // Update progress on the card based on status
+    const detailsMd = data.details_md || null;
+    
     switch (data.status) {
       case 'analyzing_item':
-        this.enhancedEditor.showCardProgress(card, `Analyzing ${itemType}...`);
+        this.enhancedEditor.showCardProgress(card, `Analyzing ${itemType}...`, detailsMd);
         break;
       case 'retrieving_context':
-        this.enhancedEditor.showCardProgress(card, 'Retrieving context...');
+        this.enhancedEditor.showCardProgress(card, 'Retrieving context...', detailsMd);
         break;
       case 'enhancing_item':
-        this.enhancedEditor.showCardProgress(card, 'Enhancing with AI...');
+        this.enhancedEditor.showCardProgress(card, 'Enhancing with AI...', detailsMd);
         break;
       case 'completed':
         this.enhancedEditor.hideCardProgress(card);
