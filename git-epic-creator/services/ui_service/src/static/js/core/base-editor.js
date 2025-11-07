@@ -17,7 +17,7 @@
 'use strict';
 
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
-import { initializeMermaid } from '../utils/markdown-renderer.js';
+import { initializeMermaid, renderMarkdown } from '../utils/markdown-renderer.js';
 
 /**
  * Abstract base class for editors.
@@ -906,11 +906,6 @@ export class BaseEditor {
     
     // Remove any existing progress indicator
     this.hideCardProgress(card);
-    
-    // Import markdown renderer dynamically
-    const renderMarkdown = window.markdownit ? 
-      (text) => window.markdownit({ html: false, breaks: true }).render(text) : 
-      (text) => `<p>${esc(text)}</p>`;
     
     // Render details if provided
     let detailsHtml = '';
