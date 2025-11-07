@@ -13,6 +13,7 @@ import { ChatBaseController } from '../core/base-controller.js';
 import { RequirementsRenderer } from '../renderers/requirements-renderer.js';
 import { RequirementsEditor } from '../editors/requirements-editor.js';
 import { ApiClient } from '../services/api-client.js';
+import { initBreadcrumbs, createNavigationUrl } from '../utils/breadcrumb-navigation.js';
 
 /**
  * Requirements screen controller.
@@ -177,6 +178,12 @@ class RequirementsController extends ChatBaseController {
    * @override
    */
   setupPageSpecificHandlers() {
+    // Initialize breadcrumb navigation
+    const breadcrumbContainer = document.getElementById('breadcrumbNav');
+    if (breadcrumbContainer) {
+      initBreadcrumbs('requirements', breadcrumbContainer);
+    }
+    
     // Edit requirements button - scrolls to requirements and shows hint
     if (this.editRequirementsBtn) {
       this.editRequirementsBtn.addEventListener('click', () => {
@@ -196,11 +203,11 @@ class RequirementsController extends ChatBaseController {
           const requirementsText = this.formatRequirementsForTasks(this.state.currentBundle);
           sessionStorage.setItem('pendingRequirements', requirementsText);
           
-          const params = new URLSearchParams({
-            project_id: this.state.projectId,
-            from_requirements: 'true'
+          // Use breadcrumb navigation utility for consistent URL building
+          const tasksUrl = createNavigationUrl('tasks', this.state.projectId, { 
+            from_requirements: 'true' 
           });
-          window.location.href = `/pages/tasks.html?${params.toString()}`;
+          window.location.href = tasksUrl;
         } catch (error) {
           console.error('Failed to prepare requirements for tasks:', error);
           this.chatUI.appendSystemMessage('Error: Failed to prepare requirements for task generation');

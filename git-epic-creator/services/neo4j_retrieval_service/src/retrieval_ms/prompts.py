@@ -62,9 +62,10 @@ def aggregator_prompt() -> ChatPromptTemplate:
             "User question: {question}\n"
             "Q/A tree (primer + follow-ups): {tree}\n"
             "Tasks:\n"
-            "1. Produce final concise answer.\n"
-            "2. List key facts with citations using ONLY chunk_id values.\n"
-            "3. Note any residual uncertainty.\n"
+            "1. Produce final comprehensive answer synthesizing all followup findings.\n"
+            "2. List ALL distinct key facts from the followup answers, preserving important details. Each followup answer should typically produce at least one key fact.\n"
+            "3. Organize key facts logically by topic or relevance.\n"
+            "4. Note any residual uncertainty.\n"
             "Return JSON:\n"
             '{{ "final_answer": "<string>", "key_facts": [{{"fact": "<string>", "citations": ["<chunk_id>", "<chunk_id>", ...]}}], "residual_uncertainty": "<string>" }}\n\n'
             "CITATION REQUIREMENTS (CRITICAL):\n"

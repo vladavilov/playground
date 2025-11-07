@@ -14,6 +14,7 @@ import { BacklogRenderer } from '../renderers/backlog-renderer.js';
 import { TasksEditor } from '../editors/tasks-editor.js';
 import { ApiClient } from '../services/api-client.js';
 import { escapeHtml as esc } from '../utils/dom-helpers.js';
+import { initBreadcrumbs } from '../utils/breadcrumb-navigation.js';
 
 /**
  * Tasks screen controller.
@@ -220,6 +221,12 @@ class TasksController extends ChatBaseController {
    * @override
    */
   setupPageSpecificHandlers() {
+    // Initialize breadcrumb navigation
+    const breadcrumbContainer = document.getElementById('breadcrumbNav');
+    if (breadcrumbContainer) {
+      initBreadcrumbs('tasks', breadcrumbContainer);
+    }
+    
     // Edit backlog button - scrolls to backlog and shows hint
     if (this.editBacklogBtn) {
       this.editBacklogBtn.addEventListener('click', () => {
