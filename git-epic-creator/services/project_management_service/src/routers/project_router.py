@@ -78,15 +78,26 @@ async def create_project(
 
 @router.get("", response_model=List[ProjectResponse])
 async def list_projects(
+    search: str | None = None,
     current_user: LocalUser = Depends(get_local_user_verified),
     project_service: ProjectService = Depends(get_project_service)
 ) -> List[ProjectResponse]:
-    """List projects available to current user (RBAC)."""
-    logger.info("Listing projects via API", user_id=current_user.oid)
-
-    projects = project_service.get_projects_by_user_and_roles(
-        current_user.oid, current_user.roles
-    )
+    """
+    List projects available to current user (RBAC).
+    
+    Args:
+        search: Optional search term for project name resolution.
+                When provided, searches by name (case-insensitive partial match).
+                Used by MCP server for resolve_project tool.
+    """
+    if search:
+        logger.info("Searching projects by name via API", search_term=search, user_id=current_user.oid)
+        projects = project_service.search_projects_by_name(search)
+    else:
+        logger.info("Listing projects via API", user_id=current_user.oid)
+        projects = project_service.get_projects_by_user_and_roles(
+            current_user.oid, current_user.roles
+        )
     return [ProjectResponse.model_validate(project) for project in projects]
 
 

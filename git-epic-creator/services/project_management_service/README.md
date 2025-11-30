@@ -14,6 +14,7 @@ A FastAPI microservice for managing projects in the Agentic AI Requirements Engi
 ## API Endpoints
 
 - `GET /projects` - List projects (filtered by user access)
+- `GET /projects?search={name}` - Search projects by name (case-insensitive partial match)
 - `POST /projects` - Create new project (Admin only)
 - `GET /projects/{project_id}` - Get project details
 - `PUT /projects/{project_id}` - Update project
@@ -21,6 +22,26 @@ A FastAPI microservice for managing projects in the Agentic AI Requirements Engi
 - `GET /projects/{project_id}/members` - List project members
 - `POST /projects/{project_id}/members` - Add project member
 - `DELETE /projects/{project_id}/members/{user_id}` - Remove project member
+
+### Project Search
+
+The `GET /projects?search={name}` endpoint supports project name resolution for the MCP server integration:
+
+```bash
+# Search for projects matching "billing"
+GET /projects?search=billing
+
+# Returns array of matching projects:
+[
+  {"id": "uuid-1", "name": "Billing Core", ...},
+  {"id": "uuid-2", "name": "Billing Analytics", ...}
+]
+```
+
+**Behavior:**
+- Case-insensitive partial matching (ILIKE)
+- Returns 0, 1, or multiple matches
+- Used by `neo4j_retrieval_mcp_server` for `resolve_project` tool
 
 ## Authentication
 

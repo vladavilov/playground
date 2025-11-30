@@ -339,6 +339,40 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  neo4j-retrieval-mcp-server:
+    <<: *service_defaults
+    build:
+      context: ./services
+      dockerfile: ./neo4j_retrieval_mcp_server/Dockerfile
+    image: neo4j_retrieval_mcp_server:latest
+    container_name: neo4j_retrieval_mcp_server
+    depends_on:
+      python-base:
+        condition: service_completed_successfully
+      project-management-service:
+        condition: service_healthy
+      neo4j-retrieval-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8014:8082"
+    environment:
+      # MCP-specific settings (everything else from shared config via env_file)
+      - PORT=8082
+      - MCP_TRANSPORT=http
+    env_file:
+      - docker-compose.env
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   ai-requirements-service:
     <<: *service_defaults
     build:

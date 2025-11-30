@@ -142,6 +142,34 @@ class ProjectService:
 
             return projects
 
+    def search_projects_by_name(self, search_term: str) -> List[Project]:
+        """
+        Search projects by name using case-insensitive partial matching.
+        
+        Used by MCP server for project name resolution.
+        No RBAC filtering - MCP server handles authentication separately.
+        
+        Args:
+            search_term: Partial or full project name to search for
+            
+        Returns:
+            List of matching projects (may be 0, 1, or multiple)
+        """
+        logger.info("Searching projects by name", search_term=search_term)
+
+        with self.postgres_client.get_sync_session() as session:
+            # Case-insensitive partial match using ILIKE
+            projects = session.query(Project).filter(
+                Project.name.ilike(f"%{search_term}%")
+            ).all()
+
+            logger.info(
+                "Project search completed",
+                search_term=search_term,
+                match_count=len(projects)
+            )
+            return projects
+
     async def update_project(
         self,
         project_id: UUID,

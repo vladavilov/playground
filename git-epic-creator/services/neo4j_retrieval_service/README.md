@@ -7,7 +7,14 @@ A microservice providing **GraphRAG** capabilities using the **DRIFT Search** (M
 This service adapts Microsoft's DRIFT method to a hierarchical Neo4j graph (Leiden algorithm communities). It powers:
 - **AI Requirements Service:** For getting requirements context for building new BRs FRs.
 - **AI Tasks Service:** For grounding tasks in the actual technical requirements.
-- **MCP Server:** For enriching developer context based on developer prompt directly in the IDE.
+- **Neo4j Retrieval MCP Server:** For enriching developer context via GitHub Copilot integration (see `neo4j_retrieval_mcp_server`).
+
+### MCP Server Integration
+
+The `neo4j_retrieval_mcp_server` acts as a stateless facade that:
+1. Proxies `retrieve_context` tool calls to `POST /retrieve`
+2. Subscribes to Redis `ui:retrieval_progress` channel for progress updates
+3. Enables GitHub Copilot to query the Knowledge Graph directly from the IDE
 
 ## 📡 API Interface
 
@@ -64,27 +71,7 @@ The primary endpoint for all consumers (MCP, internal services).
 
 Callers should check this flag before using `final_answer`.
 
-### 2. POST /projects/resolve
-Used primarily by the MCP Server (and Chat UI) to resolve natural language project names to UUIDs.
-
-**Request Schema:**
-```json
-{
-  "project_name": "string"
-}
-```
-
-**Response Schema:**
-```json
-{
-  "project_id": "uuid_string",
-  "matched_name": "string",      // Official project name
-  "confidence": "float",         // 0.0 - 1.0
-  "method": "string",            // 'exact' or 'llm_match'
-  "no_data_found": "boolean",
-  "alternatives": ["string"]     // Optional suggestions
-}
-```
+**Note:** Project name → UUID resolution is handled by `project_management_service`, not this service. The MCP Server calls Project Management Service first, then uses the resolved `project_id` to call this endpoint.
 
 ---
 
@@ -227,7 +214,6 @@ OAI_MODEL=gpt-4o                        # For complex aggregation
 OAI_EMBED_MODEL_NAME=text-embedding-3-small
 
 # Search Parameters
-PROJECT_MATCH_THRESHOLD=0.7             # Confidence for project name resolution
 VECTOR_INDEX_DIMENSIONS=3072            # Must match embedding model
 DRIFT_MAX_ITERATIONS=2                  # Max follow-up loops
 ```
