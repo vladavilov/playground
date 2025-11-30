@@ -794,22 +794,115 @@ docker compose up openai-mock-service -d
 
 ## Deployment
 
+### Architecture (Simplified)
+
+The system uses a simplified architecture optimized for cost and maintainability:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Azure Cloud                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Provisioned by Bicep:           │  Runs in AKS (containers):               │
+│  • AKS (OIDC + Workload ID)      │  • PostgreSQL (StatefulSet)              │
+│  • Azure Cache for Redis         │  • Neo4j (StatefulSet)                   │
+│  • Azure OpenAI                  │  • 11 microservices                      │
+│  • Storage Account               │  • NGINX Ingress Controller              │
+│  • Key Vault + App Config        │                                          │
+│  • Log Analytics + Insights      │                                          │
+├──────────────────────────────────┴──────────────────────────────────────────┤
+│  External (Corporate):                                                       │
+│  • Container Registry (provided by your organization)                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Cost Savings vs Traditional Setup: ~$260/month
+• No ACR (use corporate registry)
+• No PostgreSQL Flexible Server (containerized)
+• No Application Gateway (NGINX Ingress)
+• No API Management (ui-service handles proxying)
+```
+
 ### Infrastructure Deployment (Azure)
 
-**Bicep-Based Infrastructure as Code**
+See [infra/README.md](infra/README.md) for detailed instructions.
 
-TBD
+**Quick Start**:
+
+```powershell
+# Step 1: Deploy tenant-level resources (one-time)
+cd infra
+./deploy-tenant.ps1
+
+# Step 2: Deploy environment infrastructure
+./deploy.ps1 `
+    -SubscriptionId "your-subscription-id" `
+    -Environment "dev" `
+    -AadClientId "client-id-from-step-1" `
+    -TenantId "your-tenant-id" `
+    -AdminGroupObjectId "admin-group-id" `
+    -ContainerRegistryLoginServer "your-registry.azurecr.io"
+```
+
+### Kubernetes Deployment
+
+See [k8s/README.md](k8s/README.md) for details.
+
+**Key Design Decision**: ui-service acts as the API Gateway
+- Already handles Azure AD authentication (MSAL)
+- Already implements S2S JWT token minting
+- Already proxies all API requests
+- Eliminates need for App Gateway + APIM
+
+**Structure**:
+```
+k8s/
+├── base/                  # Base manifests
+│   ├── services/          # 11 service deployments
+│   ├── statefulsets/      # PostgreSQL + Neo4j
+│   ├── jobs/              # Schema initialization
+│   └── ingress.yaml       # NGINX → ui-service
+└── overlays/
+    ├── dev/               # 1 replica
+    └── prod/              # 3 replicas
+```
 
 ### CI/CD Pipeline
 
-**GitLab CI Pipeline** (`.gitlab-ci.yml`):
-- **Stages**: validate → build → test → infrastructure-tenant → infrastructure-environment → deploy → post-deploy
-- **Validation**: Bicep templates, Python code quality (flake8, black, isort)
-- **Build**: Docker images for all services
-- **Test**: Unit tests per service, E2E tests after deployment
-- **Infrastructure**: Tenant-level auth (manual), environment-specific (automated)
-- **Deploy**: Application to AKS cluster
-- **Post-Deploy**: Health checks, E2E validation
+**GitLab CI Pipeline** (`.gitlab-ci.yml`) automates deployment:
+
+| Stage | Description |
+|-------|-------------|
+| `validate` | Validate Bicep + Kustomize |
+| `build` | Build 12 Docker images → Corporate registry |
+| `test` | Unit tests per service |
+| `infrastructure` | Deploy Azure infra (manual) |
+| `deploy` | Install NGINX Ingress + Apply K8s manifests |
+| `verify` | Health checks + E2E tests |
+
+**Required CI/CD Variables**:
+
+| Variable | Description |
+|----------|-------------|
+| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
+| `AZURE_TENANT_ID` | Azure AD tenant ID |
+| `AZURE_CLIENT_ID` | Service principal client ID |
+| `AZURE_CLIENT_SECRET` | Service principal secret |
+| `AAD_CLIENT_ID` | Application registration client ID |
+| `ADMIN_GROUP_OBJECT_ID` | AKS admin group object ID |
+| `CONTAINER_REGISTRY_LOGIN_SERVER` | Corporate registry URL |
+| `CONTAINER_REGISTRY_USER` | Registry username |
+| `CONTAINER_REGISTRY_PASSWORD` | Registry password |
+| `SESSION_SECRET_KEY` | UI session key (auto-generated) |
+| `LOCAL_JWT_SECRET` | S2S JWT secret (auto-generated) |
+| `NEO4J_PASSWORD` | Neo4j password (auto-generated) |
+| `POSTGRES_PASSWORD` | PostgreSQL password (auto-generated) |
+| `ENVIRONMENT` | Target environment (dev/qa/prod) |
+
+**Deployment Flow**:
+```
+validate → build → test → infrastructure (manual) → deploy → verify
+                              │
+                              └── Only first time or infra changes
+```
 
 ---
 

@@ -4,5 +4,6 @@ metadata:
   name: agentic-ai
   labels:
     name: agentic-ai
-    environment: "${ENVIRONMENT}"
-    project: agentic-ai 
+    project: agentic-ai
+
+

@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-auth-service
+  namespace: agentic-ai
+  labels:
+    app: mock-auth-service
+    component: auth
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-auth-service
+  template:
+    metadata:
+      labels:
+        app: mock-auth-service
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: agentic-ai-workload-identity
+      containers:
+        - name: mock-auth-service
+          image: mock-auth-service:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: agentic-ai-config
+          env:
+            - name: API_PORT
+              value: "8000"
+            - name: ENABLE_HTTPS
+              value: "false"
+            - name: LOCAL_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-ai-secrets
+                  key: LOCAL_JWT_SECRET
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: agentic-ai-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-auth-service
+  namespace: agentic-ai
+spec:
+  selector:
+    app: mock-auth-service
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+  type: ClusterIP
+
+

@@ -21,22 +21,32 @@ param tenantId string
 @secure()
 param deploymentPrincipalId string
 
-@description('The secret URI for the Application Gateway SSL certificate stored in Key Vault.')
-@secure()
-param appGwSslCertSecretId string
-
 @description('The object ID of the Azure AD group to be assigned as AKS cluster administrators.')
 @secure()
 param adminGroupObjectId string
 
-@description('The administrator login name for the PostgreSQL server.')
-param postgresAdminUser string = 'psqladmin'
+@description('Session secret key for UI service.')
+@secure()
+param sessionSecretKey string
 
-@description('The email address of the API publisher.')
-param publisherEmail string
+@description('Local JWT secret for inter-service auth.')
+@secure()
+param localJwtSecret string
 
-@description('An array of backend IP addresses for the Application Gateway.')
-param appGatewayBackendAddresses array = []
+@description('Neo4j password.')
+@secure()
+param neo4jPassword string
+
+@description('PostgreSQL password (for containerized PostgreSQL in AKS).')
+@secure()
+param postgresPassword string
+
+@description('GitLab OAuth client secret (optional).')
+@secure()
+param gitlabOAuthClientSecret string = ''
+
+@description('Corporate container registry login server (e.g., myregistry.azurecr.io).')
+param containerRegistryLoginServer string
 
 // --- Global Naming and Tagging ---
 var rgName = '${projectName}-${environment}-rg'
@@ -45,7 +55,7 @@ var tags = {
   Environment: environment
 }
 
-// --- Network Configuration ---
+// --- Network Configuration (Simplified) ---
 var vnetName = '${projectName}-${environment}-vnet'
 var nsgName = '${projectName}-${environment}-nsg'
 var routeTableName = '${projectName}-${environment}-rt'
@@ -55,19 +65,16 @@ var vnetAddressPrefix = '10.0.0.0/16'
 var logAnalyticsWorkspaceName = '${projectName}-${environment}-logs'
 var keyVaultName = '${projectName}-${environment}-kv'
 var appConfigStoreName = '${projectName}-${environment}-appconfig'
-var postgresServerName = '${projectName}-${environment}-psql'
 var openAiAccountName = '${projectName}-${environment}-oai'
-var storageAccountName = '${projectName}-${environment}-storage'
+var storageAccountName = replace('${projectName}${environment}storage', '-', '')
 var appInsightsName = '${projectName}-${environment}-ai'
 var dashboardName = '${projectName}-${environment}-dashboard'
 var actionGroupName = '${projectName}-${environment}-ag'
-var appGwIdentityName = '${projectName}-${environment}-appgw-id'
-var apiManagementName = '${projectName}-${environment}-apim'
+var redisName = '${projectName}-${environment}-redis'
 var kvPrivateEndpointName = '${keyVaultName}-pe'
 var appConfigPrivateEndpointName = '${appConfigStoreName}-pe'
 var kvPrivateDnsZoneName = 'privatelink.vaultcore.azure.net'
 var appConfigPrivateDnsZoneName = 'privatelink.azconfig.io'
-
 
 // --- Module: Resource Group ---
 module rg 'modules/resourceGroup.bicep' = {
@@ -78,7 +85,7 @@ module rg 'modules/resourceGroup.bicep' = {
   }
 }
 
-// --- Module: Core Network ---
+// --- Module: Core Network (Simplified - removed gateway subnets) ---
 module network 'modules/network.bicep' = {
   name: 'network-deployment'
   scope: resourceGroup(rgName)
@@ -88,42 +95,11 @@ module network 'modules/network.bicep' = {
     vnetAddressPrefix: vnetAddressPrefix
     subnets: [
       { name: 'ApplicationSubnet', addressPrefix: '10.0.1.0/24' }
-      { name: 'GatewaySubnet', addressPrefix: '10.0.2.0/24' }
-      { name: 'AppGatewaySubnet', addressPrefix: '10.0.3.0/24' }
-      { name: 'DatabaseSubnet', addressPrefix: '10.0.4.0/24' }
       { name: 'PrivateEndpointsSubnet', addressPrefix: '10.0.5.0/24' }
     ]
     nsgName: nsgName
     routeTableName: routeTableName
   }
-}
-
-// --- Module: User Assigned Identity for App Gateway ---
-module appGwIdentity 'modules/user-assigned-identity.bicep' = {
-  name: 'appgw-identity-deployment'
-  scope: resourceGroup(rgName)
-  params: {
-    name: appGwIdentityName
-    location: location
-    tags: tags
-  }
-}
-
-// --- Module: Gateways ---
-module gateways 'modules/gateways.bicep' = {
-  name: 'gateways-deployment'
-  scope: resourceGroup(rgName)
-  params: {
-    location: location
-    projectName: projectName
-    vnetName: network.outputs.vnetName
-    appGwSubnetId: network.outputs.appGwSubnetId
-    gwSubnetId: network.outputs.gwSubnetId
-    backendAddresses: appGatewayBackendAddresses
-    appGwIdentityId: appGwIdentity.outputs.id
-    appGwSslCertSecretId: appGwSslCertSecretId
-  }
-  dependsOn: [appGwIdentity]
 }
 
 // --- Module: Log Analytics ---
@@ -182,7 +158,7 @@ module dashboard 'modules/dashboard.bicep' = {
   dependsOn: [appInsights]
 }
 
-// --- Module: Key Vault (Centralized) ---
+// --- Module: Key Vault ---
 module keyvault 'modules/keyvault.bicep' = {
   name: 'keyvault-deployment'
   scope: resourceGroup(rgName)
@@ -190,31 +166,9 @@ module keyvault 'modules/keyvault.bicep' = {
     location: location
     keyVaultName: keyVaultName
     deploymentPrincipalId: deploymentPrincipalId
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: 'Enabled' // Enabled for AKS access; private endpoint optional
     tags: tags
   }
-}
-
-// --- Module: PostgreSQL ---
-module postgres 'modules/postgres.bicep' = {
-  name: 'postgres-deployment'
-  scope: resourceGroup(rgName)
-  params: {
-    location: location
-    postgresServerName: postgresServerName
-    administratorLogin: postgresAdminUser
-    delegatedSubnetId: network.outputs.dbSubnetId
-    virtualNetworkId: network.outputs.vnetId
-    keyVaultName: keyvault.outputs.name
-    highAvailabilityMode: (environment == 'prod') ? 'ZoneRedundant' : 'Disabled'
-    backupGeoRedundant: (environment == 'prod') ? 'Enabled' : 'Disabled'
-    sku: {
-      name: (environment == 'prod') ? 'Standard_D4ds_v4' : 'Standard_B2s'
-      tier: 'GeneralPurpose'
-    }
-    tags: tags
-  }
-  dependsOn: [network, keyvault]
 }
 
 // --- Module: Azure OpenAI ---
@@ -230,32 +184,74 @@ module openAi 'modules/openai.bicep' = {
   dependsOn: [logAnalytics, keyvault]
 }
 
+// --- Module: Storage Account ---
+module storage 'modules/storage.bicep' = {
+  name: 'storage-deployment'
+  scope: resourceGroup(rgName)
+  params: {
+    location: location
+    storageAccountName: storageAccountName
+    tags: tags
+  }
+}
+
+// --- Module: Azure Cache for Redis ---
+module redis 'modules/redis.bicep' = {
+  name: 'redis-deployment'
+  scope: resourceGroup(rgName)
+  params: {
+    redisName: redisName
+    location: location
+    skuName: (environment == 'prod') ? 'Standard' : 'Basic'
+    skuFamily: 'C'
+    skuCapacity: (environment == 'prod') ? 1 : 0
+    keyVaultName: keyvault.outputs.name
+    tags: tags
+  }
+  dependsOn: [keyvault]
+}
+
+// --- Module: Application Secrets (includes PostgreSQL password for containerized instance) ---
+module secrets 'modules/secrets.bicep' = {
+  name: 'secrets-deployment'
+  scope: resourceGroup(rgName)
+  params: {
+    keyVaultName: keyvault.outputs.name
+    sessionSecretKey: sessionSecretKey
+    localJwtSecret: localJwtSecret
+    neo4jPassword: neo4jPassword
+    postgresPassword: postgresPassword
+    gitlabOAuthClientSecret: gitlabOAuthClientSecret
+  }
+  dependsOn: [keyvault]
+}
+
 // --- Centralized App Configuration Values ---
-// These are defined after their dependent resources are created to ensure outputs are available.
+// Note: PostgreSQL runs as container in AKS, host is K8s service name
 var appConfigKeyValues = [
-  {
-    name: 'ApiManagement:Jwt:IssuerUrl'
-    value: 'https://sts.windows.net/${tenantId}/'
-  }
-  {
-    name: 'ApiManagement:Jwt:Audience'
-    value: aadClientId
-  }
-  {
-    name: 'ApplicationInsights:ConnectionString'
-    value: appInsights.outputs.connectionString
-  }
+  { name: 'ApplicationInsights:ConnectionString', value: appInsights.outputs.connectionString }
+  { name: 'Postgres:Host', value: 'postgresql-service' } // K8s service name
+  { name: 'Postgres:Port', value: '5432' }
+  { name: 'Postgres:User', value: 'postgres' }
+  { name: 'Postgres:Database', value: 'requirementsdb' }
+  { name: 'Redis:Host', value: redis.outputs.redisHostName }
+  { name: 'Redis:Port', value: string(redis.outputs.redisSslPort) }
+  { name: 'Redis:Ssl', value: 'true' }
+  { name: 'OpenAI:Endpoint', value: openAi.outputs.openAiEndpoint }
+  { name: 'Storage:BlobEndpoint', value: storage.outputs.primaryEndpoints.blob }
+  { name: 'Storage:ContainerName', value: 'documents' }
+  { name: 'ContainerRegistry:LoginServer', value: containerRegistryLoginServer }
+  { name: 'Azure:TenantId', value: tenantId }
+  { name: 'Azure:ClientId', value: aadClientId }
 ]
 
 var appConfigKeyVaultReferences = [
-  {
-    name: 'Postgres:Password'
-    secretUri: postgres.outputs.adminPasswordSecretUri
-  }
-  {
-    name: 'OpenAI:ApiKey'
-    secretUri: openAi.outputs.openAiKeySecretUri
-  }
+  { name: 'Postgres:Password', secretUri: secrets.outputs.postgresPasswordSecretUri }
+  { name: 'OpenAI:ApiKey', secretUri: openAi.outputs.openAiKeySecretUri }
+  { name: 'Redis:Password', secretUri: redis.outputs.redisPasswordSecretUri }
+  { name: 'Session:SecretKey', secretUri: secrets.outputs.sessionSecretKeyUri }
+  { name: 'Jwt:LocalSecret', secretUri: secrets.outputs.localJwtSecretUri }
+  { name: 'Neo4j:Password', secretUri: secrets.outputs.neo4jPasswordSecretUri }
 ]
 
 // --- Module: App Configuration ---
@@ -269,19 +265,12 @@ module appconfig 'modules/appconfiguration.bicep' = {
     sku: (environment == 'prod') ? 'Standard' : 'Free'
     keyValues: appConfigKeyValues
     keyVaultReferences: appConfigKeyVaultReferences
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: 'Enabled' // Enabled for AKS access
   }
-  dependsOn: [
-    // Ensure secrets and dependent resources are created before references are made
-    postgres,
-    openAi,
-    appInsights
-  ]
+  dependsOn: [openAi, appInsights, redis, secrets]
 }
 
-// --- Private Endpoints and DNS ---
-
-// Key Vault Private DNS Zone
+// --- Private Endpoints (Optional - Key Vault) ---
 resource kvPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
   name: kvPrivateDnsZoneName
   location: 'global'
@@ -300,7 +289,6 @@ resource kvDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@20
   }
 }
 
-// Key Vault Private Endpoint
 resource kvPrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = {
   name: kvPrivateEndpointName
   location: location
@@ -314,7 +302,7 @@ resource kvPrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = {
         name: kvPrivateEndpointName
         properties: {
           privateLinkServiceId: keyvault.outputs.id
-          groupIds: [ 'vault' ]
+          groupIds: ['vault']
         }
       }
     ]
@@ -337,7 +325,7 @@ resource kvPrivateDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZon
   }
 }
 
-// App Configuration Private DNS Zone
+// --- Private Endpoints (Optional - App Configuration) ---
 resource appConfigPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
   name: appConfigPrivateDnsZoneName
   location: 'global'
@@ -356,7 +344,6 @@ resource appConfigDnsVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkL
   }
 }
 
-// App Configuration Private Endpoint
 resource appConfigPrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = {
   name: appConfigPrivateEndpointName
   location: location
@@ -370,7 +357,7 @@ resource appConfigPrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01
         name: appConfigPrivateEndpointName
         properties: {
           privateLinkServiceId: appconfig.outputs.id
-          groupIds: [ 'configurationStore' ]
+          groupIds: ['configurationStore']
         }
       }
     ]
@@ -393,33 +380,17 @@ resource appConfigPrivateDnsZoneGroup 'Microsoft.Network/privateEndpoints/privat
   }
 }
 
-
 // --- Data Plane Role Assignments ---
-
-// Grant App Configuration's Managed Identity access to Key Vault
 module appConfigToKvRoleAssignment 'modules/role-assignment.bicep' = {
   name: 'appconfig-to-kv-rbac'
   scope: keyvault
   params: {
     principalId: appconfig.outputs.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
     roleAssignmentName: guid(keyvault.outputs.name, appconfig.outputs.id, 'KeyVaultSecretsUser')
   }
-  dependsOn: [appconfig] // Depends on appconfig to get the principalId
-}
-
-// Grant App Gateway Identity access to Key Vault for SSL Cert
-module appGwToKvRoleAssignment 'modules/role-assignment.bicep' = {
-  name: 'appgw-to-kv-rbac'
-  scope: keyvault
-  params: {
-    principalId: appGwIdentity.outputs.principalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
-    roleAssignmentName: guid(keyvault.outputs.name, appGwIdentity.outputs.id, 'KeyVaultSecretsUser')
-  }
-  dependsOn: [appGwIdentity]
+  dependsOn: [appconfig]
 }
 
 // --- Module: AKS Cluster ---
@@ -439,39 +410,6 @@ module aks 'modules/aks.bicep' = {
   dependsOn: [network, logAnalytics]
 }
 
-// --- Module: Storage Account ---
-module storage 'modules/storage.bicep' = {
-  name: 'storage-deployment'
-  scope: resourceGroup(rgName)
-  params: {
-    location: location
-    storageAccountName: storageAccountName
-    tags: tags
-  }
-}
-
-// --- Module: API Management ---
-module apiManagement 'modules/api_management.bicep' = {
-  name: 'apim-deployment'
-  scope: resourceGroup(rgName)
-  params: {
-    apiManagementName: apiManagementName
-    location: location
-    publisherEmail: publisherEmail
-    allowedOrigins: 'https://portal.azure.com' // Example: Lock down to the Azure portal, should be frontend URL
-    sku: {
-      name: (environment == 'prod') ? 'Standard_v2' : 'Developer'
-      capacity: (environment == 'prod') ? 2 : 1
-    }
-    appInsightsInstrumentationKey: appInsights.outputs.instrumentationKey
-    jwtIssuerUrl: 'https://sts.windows.net/${tenantId}/'
-    jwtAudience: aadClientId
-  }
-  dependsOn: [
-    appInsights
-  ]
-}
-
 // --- Granting Data Plane Access for AKS ---
 module aksDataPlaneAccess 'modules/aks-datastore-access.bicep' = {
   name: 'aks-datastore-access-deployment'
@@ -485,19 +423,23 @@ module aksDataPlaneAccess 'modules/aks-datastore-access.bicep' = {
   dependsOn: [keyvault, appconfig, aks]
 }
 
+// --- Workload Identity for AKS Services ---
+module workloadIdentity 'modules/workload-identity.bicep' = {
+  name: 'workload-identity-deployment'
+  scope: resourceGroup(rgName)
+  params: {
+    aksClusterName: aks.outputs.clusterName
+    resourceGroupName: rgName
+    appConfigStoreName: appConfigStoreName
+    keyVaultName: keyVaultName
+    aadClientId: aadClientId
+  }
+  dependsOn: [aks, keyvault, appconfig]
+}
 
 // --- Outputs ---
 @description('The name of the created resource group.')
 output resourceGroupName string = rg.outputs.name
-
-@description('The FQDN of the PostgreSQL server.')
-output postgresFqdn string = postgres.outputs.serverFqdn
-
-@description('The Gateway URL of the API Management service.')
-output apimGatewayUrl string = apiManagement.outputs.gatewayUrl
-
-@description('The secret URI for the PostgreSQL admin password.')
-output postgresPasswordSecretUri string = postgres.outputs.adminPasswordSecretUri
 
 @description('The primary endpoints for the storage account.')
 output storageEndpoints object = storage.outputs.primaryEndpoints
@@ -505,14 +447,26 @@ output storageEndpoints object = storage.outputs.primaryEndpoints
 @description('The endpoint for the Azure OpenAI service.')
 output openAiEndpoint string = openAi.outputs.openAiEndpoint
 
-@description('The secret URI for the Azure OpenAI API key.')
-output openAiKeySecretUri string = openAi.outputs.openAiKeySecretUri
-
 @description('The endpoint for the App Configuration store.')
 output appConfigEndpoint string = appconfig.outputs.endpoint
 
 @description('The connection string for Application Insights.')
-output appInsightsConnectionString string = appInsights.outputs.connectionString 
+output appInsightsConnectionString string = appInsights.outputs.connectionString
 
 @description('The ID of the Key Vault resource.')
-output keyVaultId string = keyvault.outputs.id 
+output keyVaultId string = keyvault.outputs.id
+
+@description('The Key Vault name.')
+output keyVaultName string = keyvault.outputs.name
+
+@description('The Redis hostname.')
+output redisHostName string = redis.outputs.redisHostName
+
+@description('The AKS cluster name.')
+output aksClusterName string = aks.outputs.clusterName
+
+@description('The AKS OIDC issuer URL.')
+output aksOidcIssuerUrl string = aks.outputs.oidcIssuerUrl
+
+@description('The workload identity client ID.')
+output workloadIdentityClientId string = workloadIdentity.outputs.workloadIdentityClientId

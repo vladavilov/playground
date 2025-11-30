@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-requirements-service
+  namespace: agentic-ai
+  labels:
+    app: ai-requirements-service
+    component: ai
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-requirements-service
+  template:
+    metadata:
+      labels:
+        app: ai-requirements-service
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: agentic-ai-workload-identity
+      containers:
+        - name: ai-requirements-service
+          image: ai-requirements-service:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: agentic-ai-config
+          env:
+            - name: API_PORT
+              value: "8000"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-ai-secrets
+                  key: REDIS_PASSWORD
+            - name: OAI_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-ai-secrets
+                  key: OAI_KEY
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: agentic-ai-secrets
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-requirements-service
+  namespace: agentic-ai
+spec:
+  selector:
+    app: ai-requirements-service
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+  type: ClusterIP
+
+

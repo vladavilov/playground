@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neo4j-retrieval-service
+  namespace: agentic-ai
+  labels:
+    app: neo4j-retrieval-service
+    component: retrieval
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: neo4j-retrieval-service
+  template:
+    metadata:
+      labels:
+        app: neo4j-retrieval-service
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: agentic-ai-workload-identity
+      containers:
+        - name: neo4j-retrieval-service
+          image: neo4j-retrieval-service:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: agentic-ai-config
+          env:
+            - name: API_PORT
+              value: "8000"
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-ai-secrets
+                  key: NEO4J_PASSWORD
+            - name: NEO4J_USERNAME
+              value: "neo4j"
+            - name: OAI_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agentic-ai-secrets
+                  key: OAI_KEY
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: agentic-ai-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-retrieval-service
+  namespace: agentic-ai
+spec:
+  selector:
+    app: neo4j-retrieval-service
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+  type: ClusterIP
+
+

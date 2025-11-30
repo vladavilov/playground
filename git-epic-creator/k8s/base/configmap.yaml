@@ -1,0 +1,140 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentic-ai-config
+  namespace: agentic-ai
+data:
+  # Environment
+  ENVIRONMENT: "${ENVIRONMENT}"
+  PROJECT_NAME: "agentic-ai"
+  LOG_LEVEL: "INFO"
+  API_VERSION: "v1"
+  
+  # App Configuration (secrets loaded via Workload Identity)
+  APP_CONFIG_ENDPOINT: "https://${APP_CONFIG_NAME}.azconfig.io"
+  
+  # PostgreSQL (containerized in AKS)
+  POSTGRES_HOST: "postgresql-service"
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: "postgres"
+  POSTGRES_DB: "requirementsdb"
+  POSTGRES_SCHEMA: "public"
+  POSTGRES_POOL_SIZE: "5"
+  POSTGRES_MAX_OVERFLOW: "10"
+  POSTGRES_POOL_TIMEOUT: "30"
+  POSTGRES_POOL_RECYCLE: "1800"
+  
+  # Neo4j (running as StatefulSet in AKS)
+  NEO4J_URI: "bolt://neo4j-service:7687"
+  NEO4J_DATABASE: "neo4j"
+  NEO4J_CONNECTION_TIMEOUT: "30.0"
+  NEO4J_MAX_CONNECTION_POOL_SIZE: "50"
+  NEO4J_MAX_TRANSACTION_RETRY_TIME: "30.0"
+  
+  # Redis
+  REDIS_HOST: "${REDIS_HOST}"
+  REDIS_PORT: "6380"
+  REDIS_DB: "0"
+  REDIS_SSL: "true"
+  REDIS_MAX_CONNECTIONS: "10"
+  REDIS_RETRY_ON_TIMEOUT: "true"
+  REDIS_SOCKET_CONNECT_TIMEOUT: "5.0"
+  REDIS_SOCKET_TIMEOUT: "5.0"
+  
+  # Redis Pub/Sub
+  REDIS_PUBSUB_CHANNEL_PREFIX: "project_progress"
+  REDIS_PUBSUB_MAX_CONNECTIONS: "5"
+  REDIS_PUBSUB_CONNECTION_TIMEOUT: "10.0"
+  
+  # Celery
+  CELERY_BROKER_URL: "rediss://${REDIS_HOST}:6380/0?ssl_cert_reqs=required"
+  CELERY_RESULT_BACKEND: "rediss://${REDIS_HOST}:6380/0?ssl_cert_reqs=required"
+  
+  # HTTP Client
+  PROJECT_MANAGEMENT_SERVICE_URL: "http://project-management-service:80"
+  AI_REQUIREMENTS_SERVICE_URL: "http://ai-requirements-service:80"
+  AI_TASKS_SERVICE_URL: "http://ai-tasks-service:80"
+  GITLAB_CLIENT_SERVICE_URL: "http://gitlab-client-service:80"
+  NEO4J_RETRIEVAL_URL: "http://neo4j-retrieval-service:80"
+  GRAPH_RAG_SERVICE_URL: "http://neo4j-retrieval-service:80"
+  HTTP_CONNECTION_TIMEOUT: "30.0"
+  HTTP_READ_TIMEOUT: "180.0"
+  
+  # Workflow
+  WORKFLOW_TIMEOUT_SEC: "150"
+  
+  # OpenAI/Azure OpenAI
+  OAI_MODEL: "gpt-4.1"
+  OAI_MODEL_FAST: "gpt-4o-mini"
+  OAI_EMBED_MODEL_NAME: "text-embedding-3-small"
+  OAI_EMBED_DEPLOYMENT_NAME: "text-embedding-3-small"
+  OAI_BASE_URL: "${OAI_ENDPOINT}"
+  OAI_API_VERSION: "2024-02-15-preview"
+  OAI_EMBED_BATCH: "16"
+  OAI_EMBED_CONCURRENCY: "2"
+  
+  # GraphRAG
+  GRAPHRAG_ASYNC_MODE: "threaded"
+  GRAPHRAG_LLM_THREAD_COUNT: "16"
+  GRAPHRAG_LLM_THREAD_STAGGER: "0.2"
+  GRAPHRAG_LLM_CONCURRENT_REQUESTS: "12"
+  GRAPHRAG_LLM_TOKENS_PER_MINUTE: "100000"
+  GRAPHRAG_LLM_REQUESTS_PER_MINUTE: "60"
+  GRAPHRAG_EMBEDDING_THREAD_COUNT: "16"
+  GRAPHRAG_EMBEDDING_THREAD_STAGGER: "0.2"
+  GRAPHRAG_EMBEDDING_CONCURRENT_REQUESTS: "12"
+  GRAPHRAG_EMBEDDING_TOKENS_PER_MINUTE: "60000"
+  GRAPHRAG_EMBEDDING_REQUESTS_PER_MINUTE: "2000"
+  GRAPHRAG_EXTRACT_MAX_GLEANINGS: "3"
+  GRAPHRAG_LLM_TEMPERATURE: "0.0"
+  GRAPHRAG_LLM_TOP_P: "1.0"
+  GRAPHRAG_LLM_N: "1"
+  
+  # Neo4j Vector Indexes
+  CHUNK_VECTOR_INDEX_NAME: "graphrag_chunk_index"
+  CHUNK_VECTOR_INDEX_LABEL: "__Chunk__"
+  COMMUNITY_VECTOR_INDEX_NAME: "graphrag_comm_index"
+  COMMUNITY_VECTOR_INDEX_LABEL: "__Community__"
+  ENTITY_VECTOR_INDEX_NAME: "graphrag_entity_index"
+  ENTITY_VECTOR_INDEX_LABEL: "__Entity__"
+  VECTOR_INDEX_PROPERTY: "embedding"
+  VECTOR_INDEX_DIMENSIONS: "3072"
+  VECTOR_INDEX_SIMILARITY: "cosine"
+  
+  # Retrieval
+  RETRIEVAL_BACKOFF_BASE_SEC: "0.2"
+  RETRIEVAL_TOP_K: "5"
+  MAX_CHUNKS_FOR_PROMPT: "20"
+  MAX_COMMUNITIES_FOR_PROMPT: "10"
+  
+  # AI Tasks
+  CLARIFICATION_SCORE_TARGET: "0.75"
+  MAX_AGENT_ITERS: "3"
+  SIMILARITY_THRESHOLD: "0.7"
+  LLM_TIMEOUT_SEC: "20.0"
+  LLM_TEMPERATURE: "0.2"
+  
+  # Azure AD
+  AZURE_AD_AUTHORITY: "https://login.microsoftonline.com/${AZURE_TENANT_ID}"
+  AZURE_TENANT_ID: "${AZURE_TENANT_ID}"
+  AZURE_CLIENT_ID: "${AZURE_CLIENT_ID}"
+  AZURE_AD_VERIFY_SSL: "true"
+  
+  # Session
+  SESSION_COOKIE_NAME: "ui_session"
+  SESSION_MAX_AGE: "1209600"
+  SESSION_SAME_SITE: "lax"
+  ALLOW_INSECURE_SESSION: "false"
+  
+  # Azure Storage
+  AZURE_STORAGE_CONTAINER_NAME: "documents"
+  AZURE_STORAGE_BLOB_ENDPOINT: "${STORAGE_BLOB_ENDPOINT}"
+  
+  # GitLab (optional, configure if using)
+  GITLAB_BASE_URL: "${GITLAB_BASE_URL}"
+  GITLAB_VERIFY_SSL: "true"
+  DEFAULT_PAGE_SIZE: "100"
+  EMBEDDINGS_PUBSUB_PREFIX: "embeddings:projects:"
+  IDEMPOTENCY_TTL_SECONDS: "86400"
+
+

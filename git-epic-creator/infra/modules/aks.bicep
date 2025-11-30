@@ -66,9 +66,8 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-05-01' = {
     ]
     networkProfile: {
       networkPlugin: 'azure'
-      networkPolicy: 'azure' // enables network policies
+      networkPolicy: 'azure'
     }
-    // Enable Azure AD integration with RBAC
     aadProfile: {
       managed: true
       enableAzureRBAC: true
@@ -76,7 +75,14 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-05-01' = {
         adminGroupObjectId
       ]
     }
-    // Enable Monitoring with Azure Monitor for containers
+    oidcIssuerProfile: {
+      enabled: true
+    }
+    securityProfile: {
+      workloadIdentity: {
+        enabled: true
+      }
+    }
     addonProfiles: {
       omsagent: {
         enabled: true
@@ -84,10 +90,14 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-05-01' = {
           logAnalyticsWorkspaceResourceID: logAnalyticsWorkspaceId
         }
       }
+      azureKeyvaultSecretsProvider: {
+        enabled: true
+        config: {
+          enableSecretRotation: 'true'
+          rotationPollInterval: '2m'
+        }
+      }
     }
-    // As per task: "Network policies for VPN-only access"
-    // Making the cluster private makes the API server not publicly accessible.
-    // It can be accessed from within the VNet, peered networks, or via the VPN.
     apiServerAccessProfile: {
       enablePrivateCluster: true
     }
@@ -113,4 +123,6 @@ module subnetRoleAssignment 'role-assignment.bicep' = {
 }
 
 output clusterName string = aksCluster.name
-output clusterPrincipalId string = aksCluster.identity.principalId 
+output clusterPrincipalId string = aksCluster.identity.principalId
+output oidcIssuerUrl string = aksCluster.properties.oidcIssuerProfile.issuerURL
+output kubeletIdentityObjectId string = aksCluster.properties.identityProfile.kubeletidentity.objectId 

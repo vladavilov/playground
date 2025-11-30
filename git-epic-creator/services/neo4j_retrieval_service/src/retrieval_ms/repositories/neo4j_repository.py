@@ -33,7 +33,8 @@ class Neo4jRepository:
             k: Number of results to return
             qvec: Query vector (dimensions set by VECTOR_INDEX_DIMENSIONS config)
             project_id: Project ID for scoping
-            level: Community hierarchy level (0=leaf, higher=aggregate). 
+            level: Community hierarchy level (0=root/aggregate, higher=leaf/granular).
+                   DRIFT queries highest level first for broad context.
                    None = search all levels (fallback to vector_query_nodes).
         
         Returns:

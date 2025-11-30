@@ -1,0 +1,77 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: agentic-ai-base
+
+namespace: agentic-ai
+
+resources:
+  - namespace.yaml
+  - service-account.yaml
+  - configmap.yaml
+  - secret-provider.yaml
+  - network-policy.yaml
+  - ingress.yaml
+  # Services
+  - services/db-init-service.yaml
+  - services/project-management-service.yaml
+  - services/neo4j-maintanance-service.yaml
+  - services/neo4j-ingestion-service.yaml
+  - services/neo4j-retrieval-service.yaml
+  - services/ui-service.yaml
+  - services/document-processing-service.yaml
+  - services/ai-requirements-service.yaml
+  - services/ai-tasks-service.yaml
+  - services/gitlab-client-service.yaml
+  - services/mock-auth-service.yaml
+  # StatefulSets
+  - statefulsets/neo4j.yaml
+  - statefulsets/postgresql.yaml
+  # Jobs
+  - jobs/postgresdb-schema-init.yaml
+  - jobs/neo4j-schema-init.yaml
+
+commonLabels:
+  project: agentic-ai
+  managed-by: kustomize
+
+images:
+  - name: db-init-service
+    newName: PLACEHOLDER_ACR/db-init-service
+    newTag: latest
+  - name: project-management-service
+    newName: PLACEHOLDER_ACR/project-management-service
+    newTag: latest
+  - name: neo4j-maintanance-service
+    newName: PLACEHOLDER_ACR/neo4j-maintanance-service
+    newTag: latest
+  - name: neo4j-ingestion-service
+    newName: PLACEHOLDER_ACR/neo4j-ingestion-service
+    newTag: latest
+  - name: neo4j-retrieval-service
+    newName: PLACEHOLDER_ACR/neo4j-retrieval-service
+    newTag: latest
+  - name: ui-service
+    newName: PLACEHOLDER_ACR/ui-service
+    newTag: latest
+  - name: document-processing-service
+    newName: PLACEHOLDER_ACR/document-processing-service
+    newTag: latest
+  - name: ai-requirements-service
+    newName: PLACEHOLDER_ACR/ai-requirements-service
+    newTag: latest
+  - name: ai-tasks-service
+    newName: PLACEHOLDER_ACR/ai-tasks-service
+    newTag: latest
+  - name: gitlab-client-service
+    newName: PLACEHOLDER_ACR/gitlab-client-service
+    newTag: latest
+  - name: mock-auth-service
+    newName: PLACEHOLDER_ACR/mock-auth-service
+    newTag: latest
+  - name: neo4j-baked
+    newName: PLACEHOLDER_ACR/neo4j-baked
+    newTag: latest
+
+
