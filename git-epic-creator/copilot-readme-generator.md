@@ -5,112 +5,114 @@ Generate `README.md` from `journal.tmp`.
 ## Execution
 
 1. Read `journal.tmp`
-2. Parse all entries by type: `[FR]`, `DEPS`, `CONFIG`, `API`, `MODEL`, `INFRA`
+2. Parse entries: `[FR]`, `DEPS`, `CONFIG`, `API`, `MODEL`, `INFRA`
 3. Deduplicate identical items
-4. Group functional requirements by domain
+4. Derive domain categories from actual requirements (do not use predefined categories)
 5. Renumber: `[FR-001]` through `[FR-N]`
 6. Aggregate technical specifications
 7. Generate `README.md`
 8. Delete `journal.tmp`
 
-## Domain Categories
+## Category Derivation
 
-| Category | Assignment Keywords |
-|----------|---------------------|
-| Document Processing | PDF, text, extract, parse, ingest, file |
-| Knowledge Graph | Neo4j, graph, node, cypher, relationship |
-| Authentication | auth, token, JWT, OAuth, permission |
-| API Gateway | endpoint, route, HTTP, REST |
-| Data Storage | database, postgres, redis, cache |
-| Integration | GitLab, webhook, external service |
+Analyze `[FR]` entries and group by semantic similarity:
+- Extract primary noun/verb from each requirement
+- Cluster related requirements under derived category name
+- Use 3-7 categories based on actual content
+- Category names must reflect actual system functionality
 
-## README Template
+## README Structure
 
 ```markdown
 # [Project Name]
 
+## Overview
+[2-3 sentences derived from aggregated functional requirements]
+
 ## Functional Requirements
 
-### Document Processing
+### [Derived Category 1]
 [FR-001]: [description]
-
-### Knowledge Graph
 [FR-002]: [description]
 
-### Authentication
+### [Derived Category 2]
 [FR-003]: [description]
+
+### [Derived Category N]
+[FR-00N]: [description]
 
 ---
 
 ## Technical Specifications
 
-### Runtime Dependencies
+### Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| fastapi | >=0.100.0 | REST API framework |
-| neo4j | >=5.0.0 | Graph database driver |
 
 ### Environment Configuration
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| NEO4J_URI | Graph database connection | Yes | - |
-| CACHE_TTL | Redis cache duration | No | 300 |
 
 ### API Contracts
 
-#### Service: [service_name]
+#### [Service Name]
 
 | Method | Path | Request | Response | Description |
 |--------|------|---------|----------|-------------|
-| POST | /documents | `{file: binary}` | `{id: string}` | Upload document |
-| GET | /documents/{id} | - | `{content: string}` | Retrieve content |
 
 ### Data Models
 
-#### [ModelName]
+#### [Model Name]
 
 | Field | Type | Constraints |
 |-------|------|-------------|
-| id | UUID | PK |
-| name | string | NOT NULL |
-| created_at | datetime | DEFAULT NOW |
 
-**Relationships:**
-- `ModelName` → `OtherModel` (FK: other_id)
+**Relationships:** [if any]
 
-### Infrastructure Requirements
+### Infrastructure
 
 #### Compute
-| Resource | SKU/Size | Replicas |
-|----------|----------|----------|
-| AKS Node Pool | Standard_D4s_v3 | 3 |
+| Resource | Specification | Scale |
+|----------|---------------|-------|
 
 #### Storage
-| Resource | Type | Size |
-|----------|------|------|
-| PostgreSQL | Flexible Server | 128GB |
-| Blob Storage | Hot | 500GB |
+| Resource | Type | Capacity |
+|----------|------|----------|
 
 #### Networking
-| Resource | Configuration |
-|----------|---------------|
-| VNet | 10.0.0.0/16 |
-| Ingress | NGINX, TLS termination |
+| Component | Configuration |
+|-----------|---------------|
+
+### Security
+| Aspect | Implementation |
+|--------|----------------|
+
+### Observability
+| Component | Purpose |
+|-----------|---------|
 ```
 
 ## Aggregation Rules
 
-- **DEPS:** Merge across files, keep highest version constraint
-- **CONFIG:** Dedupe by variable name, merge descriptions
-- **API:** Group by service (derive from file path)
-- **MODEL:** Merge field definitions from multiple sources
-- **INFRA:** Consolidate into compute/storage/networking sections
+- **DEPS:** Merge across files, keep highest version
+- **CONFIG:** Dedupe by name, merge descriptions, infer defaults from code
+- **API:** Group by service (derive from source path)
+- **MODEL:** Merge fields from multiple sources
+- **INFRA:** Consolidate by resource type
+
+## Section Inclusion
+
+Include section only if journal contains relevant entries:
+- Skip empty sections entirely
+- Skip Infrastructure if no INFRA entries
+- Skip Security if no auth/encryption requirements found
+- Skip Observability if no logging/monitoring requirements found
 
 ## Output
 
 ```
-[GEN] README.md | N requirements | M dependencies | K endpoints
+[GEN] README.md | N requirements | M specs
 [DEL] journal.tmp
 ```
