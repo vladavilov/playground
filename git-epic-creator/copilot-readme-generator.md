@@ -1,118 +1,99 @@
 # README Generator
 
-Generate `README.md` from `journal.tmp`.
+## Role
+Technical writer with read access to `journal.tmp`, write access to `README.md`.
+
+## Objective
+Generate `README.md` from `journal.tmp`. Success: all journal entries categorized, zero duplicates, valid markdown output.
+
+## Inputs
+- `journal.tmp`: structured extraction from Phase 1
+- `project_name`: derived from root directory name
+- Any other readme files or descriptions found in the project
 
 ## Execution
+1. Read `journal.tmp` → parse by tag type
+2. Deduplicate by content hash
+3. Cluster `[FR]` entries → derive category names
+4. Aggregate technical specs by tag
+5. Write `README.md`
+6. Delete `journal.tmp`
 
-1. Read `journal.tmp`
-2. Parse entries: `[FR]`, `DEPS`, `CONFIG`, `API`, `MODEL`, `INFRA`
-3. Deduplicate identical items
-4. Derive domain categories from actual requirements (do not use predefined categories)
-5. Renumber: `[FR-001]` through `[FR-N]`
-6. Aggregate technical specifications
-7. Generate `README.md`
-8. Delete `journal.tmp`
+## Output Contract
 
-## Category Derivation
+**File:** `README.md`
 
-Analyze `[FR]` entries and group by semantic similarity:
-- Extract primary noun/verb from each requirement
-- Cluster related requirements under derived category name
-- Use 3-7 categories based on actual content
-- Category names must reflect actual system functionality
-
-## README Structure
-
-```markdown
-# [Project Name]
+**Required sections (in order):**
+```
+# {Project Name}
 
 ## Overview
-[2-3 sentences derived from aggregated functional requirements]
+{1-3 sentences synthesized from [FR] entries}
 
 ## Functional Requirements
 
-### [Derived Category 1]
-[FR-001]: [description]
-[FR-002]: [description]
-
-### [Derived Category 2]
-[FR-003]: [description]
-
-### [Derived Category N]
-[FR-00N]: [description]
-
----
+### {Derived Category}
+[FR-001]: {description}
 
 ## Technical Specifications
 
 ### Dependencies
-
 | Package | Version | Purpose |
 |---------|---------|---------|
 
-### Environment Configuration
-
+### Configuration
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 
 ### API Contracts
-
-#### [Service Name]
-
+#### {Service Name}
 | Method | Path | Request | Response | Description |
 |--------|------|---------|----------|-------------|
 
 ### Data Models
-
-#### [Model Name]
-
+#### {Model Name}
 | Field | Type | Constraints |
 |-------|------|-------------|
-
-**Relationships:** [if any]
+Relationships: {if any}
 
 ### Infrastructure
-
-#### Compute
-| Resource | Specification | Scale |
-|----------|---------------|-------|
-
-#### Storage
-| Resource | Type | Capacity |
-|----------|------|----------|
-
-#### Networking
-| Component | Configuration |
-|-----------|---------------|
-
-### Security
-| Aspect | Implementation |
-|--------|----------------|
-
-### Observability
-| Component | Purpose |
-|-----------|---------|
+| Resource | Type | Specification |
+|----------|------|---------------|
 ```
 
-## Aggregation Rules
+**Conditional sections (include only if entries exist):**
+- Security: auth mechanisms, encryption, access control
+- Observability: logging, metrics, tracing
 
-- **DEPS:** Merge across files, keep highest version
-- **CONFIG:** Dedupe by name, merge descriptions, infer defaults from code
-- **API:** Group by service (derive from source path)
-- **MODEL:** Merge fields from multiple sources
-- **INFRA:** Consolidate by resource type
+## Category Derivation Rules
+1. Extract primary noun from each `[FR]`
+2. Group by semantic similarity (3-7 categories)
+3. Name category after dominant concept
+4. Do not use predefined category names
 
-## Section Inclusion
+## Deduplication Rules
+| Tag | Merge Strategy |
+|-----|----------------|
+| [FR] | Identical meaning → keep first |
+| DEPS | Same package → keep highest version |
+| CONFIG | Same variable → merge descriptions |
+| API | Same method+path → merge into one |
+| MODEL | Same name → union fields |
+| INFRA | Same resource → keep most specific |
 
-Include section only if journal contains relevant entries:
-- Skip empty sections entirely
-- Skip Infrastructure if no INFRA entries
-- Skip Security if no auth/encryption requirements found
-- Skip Observability if no logging/monitoring requirements found
+## Constraints
+- Omit sections with zero entries
+- No placeholder text in output
+- Table rows only for actual data
+- `[FR-NNN]` numbering: sequential, zero-padded to 3 digits
+
+## Fallbacks
+- `journal.tmp` missing → `[ERROR] journal.tmp not found. Run extraction first.`
+- Empty journal → `[ERROR] journal.tmp empty. No requirements extracted.`
+- Unparseable entry → `[WARN] Skipped malformed entry: {line}`
 
 ## Output
-
 ```
-[GEN] README.md | N requirements | M specs
+[GEN] README.md | {N} requirements | {M} specs | {K} categories
 [DEL] journal.tmp
 ```
