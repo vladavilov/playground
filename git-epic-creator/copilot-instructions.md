@@ -1,115 +1,55 @@
 # Functional Requirements Extractor
 
-You are a requirements analyst. Extract functional requirements from source code.
+Extract functional requirements from source code into `journal.tmp`. Stop after journal creation.
 
-## Execution Flow
+## Execution
 
-**Phase 1: Discovery**
-1. List directories recursively, identify source files (`.py`, `.ts`, `.js`, `.bicep`, `.yaml`, `.cypher`)
-2. Skip: `venv/`, `node_modules/`, `__pycache__/`, `*.egg-info/`, `build/`, `dist/`
-3. Create empty `journal.tmp`
+1. Create empty `journal.tmp`
+2. List directories recursively, identify source files (`.py`, `.ts`, `.js`, `.bicep`, `.yaml`, `.cypher`)
+3. Skip: `venv/`, `node_modules/`, `__pycache__/`, `*.egg-info/`, `build/`, `dist/`
+4. For each file:
+   - Read content
+   - Extract functional requirements — WHAT the code does
+   - Append to `journal.tmp`
+5. Output `[DONE]` and stop
 
-**Phase 2: Analysis (per file)**
-For each source file:
-1. Read file content
-2. Extract functional requirements — what the code DOES, not HOW:
-   - User-facing capabilities
-   - Business logic operations
-   - Data transformations
-   - Workflow steps
-   - Integration behaviors
-   - Validation rules
-   - Error handling behaviors
-3. Append to `journal.tmp` in format:
+## journal.tmp Format
+
 ```
 === FILE: path/to/file.py ===
-[FR-001]: User can authenticate via OAuth2 token
-[FR-002]: System validates document format before processing
-[FR-003]: Service retries failed Neo4j connections up to 3 times
----
-DEPS: package1, package2
-CONFIG: VAR_NAME (required|optional)
-API: POST /endpoint - description
-MODEL: ClassName - field1, field2
+[FR]: User can authenticate via OAuth2 token
+[FR]: System validates document format before processing
+DEPS: package1==1.0.0, package2>=2.0
+CONFIG: VAR_NAME | description | required
+CONFIG: OPTIONAL_VAR | description | optional
+API: POST /endpoint | request body | response | description
+MODEL: ClassName | field1:type, field2:type | relationships
+INFRA: resource_type | specification
+
+=== FILE: path/to/another.py ===
+[FR]: System ingests PDF documents and extracts text
+DEPS: pdfplumber>=0.7.0
+CONFIG: MAX_FILE_SIZE | max upload bytes | required
 ```
 
-**Phase 3: Consolidation**
-After all files processed:
-1. Read `journal.tmp`
-2. Deduplicate and merge similar functional requirements
-3. Renumber sequentially: [FR-001] through [FR-N]
-4. Generate `README.md`
-5. Delete `journal.tmp`
+## What to Extract
 
-## Functional Requirements Examples
+**[FR] Functional Requirements:**
+- User-facing capabilities, business logic, workflows, validations, error behaviors
 
-```
-[FR-001]: System ingests PDF documents and extracts text content
-[FR-002]: User can search knowledge graph using natural language queries
-[FR-003]: Service authenticates requests using JWT tokens from auth provider
-[FR-004]: System creates GitLab epics from extracted requirements
-[FR-005]: Document processor detects and handles multi-language content
-[FR-006]: Service caches Neo4j query results for 5 minutes
-[FR-007]: User receives real-time progress updates during document processing
-[FR-008]: System validates file size does not exceed 50MB before upload
-```
+**DEPS:** package==version or package>=version
 
-## README Output Template
+**CONFIG:** variable | purpose | required/optional
 
-```markdown
-# Project Name
+**API:** method path | request schema | response schema | description
 
-## Functional Requirements
+**MODEL:** name | fields with types | foreign keys or relationships
 
-### Document Processing
-[FR-001]: [description]
-[FR-002]: [description]
-
-### User Authentication
-[FR-003]: [description]
-
-### Knowledge Graph
-[FR-004]: [description]
-[FR-005]: [description]
-
-### Integration
-[FR-006]: [description]
-
-## Technical Specifications
-
-### Dependencies
-- Runtime: [versions]
-- External Services: [list]
-
-### Environment Configuration
-| Variable | Purpose | Required |
-|----------|---------|----------|
-
-### API Contracts
-| Service | Endpoint | Method | Description |
-|---------|----------|--------|-------------|
-
-### Data Models
-| Model | Fields | Relationships |
-|-------|--------|---------------|
-```
-
-## Rules
-
-- Focus on WHAT, not HOW — extract business capabilities
-- One file per iteration, append to `journal.tmp`
-- Group related requirements under domain categories
-- Mark assumptions with `[VERIFY]`
-- Final output goes to `README.md` only after journal consolidation
+**INFRA:** Azure/K8s resources, compute specs, storage requirements
 
 ## Progress Output
 
-Per file:
 ```
-[SCAN] path/to/file.py → +N functional requirements
-```
-
-Completion:
-```
-[DONE] Scanned X files | Extracted Y requirements | Consolidated to Z unique
+[SCAN] path/to/file.py → +N requirements
+[DONE] journal.tmp created | X files | Y requirements
 ```
