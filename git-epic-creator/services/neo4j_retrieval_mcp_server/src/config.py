@@ -9,7 +9,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Import shared configurations
-from configuration.common_config import get_app_settings, AppSettings
+from configuration.common_config import get_app_settings
 from configuration.http_client_config import HTTPClientSettings
 from configuration.redis_config import RedisSettings
 

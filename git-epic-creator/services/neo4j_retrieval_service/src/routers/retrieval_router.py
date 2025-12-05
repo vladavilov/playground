@@ -18,7 +18,7 @@ retrieval_router = APIRouter()
 
 class RetrievalRequest(BaseModel):
     query: str
-    top_k: int = 1
+    top_k: int = 5
     project_id: str
     prompt_id: str | None = None  # Optional parent workflow prompt_id for UI tracking
 

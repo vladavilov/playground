@@ -1,7 +1,7 @@
 """Tests for MCP server tools."""
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture(autouse=True)

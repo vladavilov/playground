@@ -9,7 +9,7 @@ Tools:
 
 Redis Integration:
     - Listens to retrieval progress updates using shared Redis client
-    - Republishes as MCP progress notifications to Copilot
+    - Republishes as MCP progress notifications to Copilot via Context
 """
 
 import asyncio
@@ -17,17 +17,18 @@ import json
 import os
 import sys
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 import structlog
 
-from fastmcp import FastMCP
+from fastmcp import FastMCP, Context
 
 # Import shared library components
 from configuration.logging_config import configure_logging
-from configuration.common_config import get_app_settings
 from constants.streams import UI_RETRIEVAL_PROGRESS_CHANNEL
 from utils.redis_client import create_redis_client
 
@@ -38,6 +39,21 @@ from adapter import ProjectManagementAdapter, RetrievalServiceAdapter
 # Configure logging using shared configuration
 configure_logging()
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class ProgressUpdate:
+    """Represents a progress update from the retrieval service."""
+    phase: str
+    progress_pct: float
+    message: str = ""
+    timestamp: float = field(default_factory=lambda: 0.0)
+
+
+# Shared progress state: maps prompt_id -> latest ProgressUpdate
+# Used to correlate Redis progress messages with in-flight tool calls
+_progress_state: dict[str, ProgressUpdate] = {}
+_progress_lock = asyncio.Lock()
 
 # Global state for adapters and Redis
 _project_adapter: ProjectManagementAdapter | None = None
@@ -80,7 +96,158 @@ async def get_redis_pubsub_client():
     return _redis_client
 
 
-# Create FastMCP server
+# Progress state management functions
+async def update_progress_state(prompt_id: str, update: ProgressUpdate) -> None:
+    """Store a progress update for a given prompt_id."""
+    async with _progress_lock:
+        _progress_state[prompt_id] = update
+
+
+async def get_progress_state(prompt_id: str) -> ProgressUpdate | None:
+    """Get the latest progress update for a given prompt_id."""
+    async with _progress_lock:
+        return _progress_state.get(prompt_id)
+
+
+async def clear_progress_state(prompt_id: str) -> None:
+    """Remove progress state for a completed prompt_id."""
+    async with _progress_lock:
+        _progress_state.pop(prompt_id, None)
+
+
+# Redis listener for progress updates
+async def redis_progress_listener() -> None:
+    """
+    Listen to Redis pub/sub for retrieval progress updates.
+    
+    Uses shared constants for channel name (UI_RETRIEVAL_PROGRESS_CHANNEL).
+    Stores progress in shared state for correlation with in-flight tool calls.
+    The retrieve_context tool polls this state and reports progress to MCP clients.
+    """
+    redis_client = await get_redis_pubsub_client()
+    
+    if redis_client is None:
+        logger.warning("Redis not available - progress listener disabled")
+        return
+    
+    try:
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(UI_RETRIEVAL_PROGRESS_CHANNEL)
+        
+        logger.info(
+            "Redis progress listener started",
+            channel=UI_RETRIEVAL_PROGRESS_CHANNEL
+        )
+        
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                try:
+                    # Decode bytes if necessary (pub/sub client uses binary)
+                    data_raw = message["data"]
+                    if isinstance(data_raw, bytes):
+                        data_raw = data_raw.decode("utf-8")
+                    data = json.loads(data_raw)
+                    
+                    # Extract prompt_id for correlation with tool calls
+                    prompt_id = data.get("prompt_id")
+                    if prompt_id:
+                        # Store progress update for the in-flight tool call
+                        phase = data.get("phase", "processing")
+                        progress_pct = data.get("progress_pct", 0)
+                        message_text = data.get("message", f"Phase: {phase}")
+                        
+                        update = ProgressUpdate(
+                            phase=phase,
+                            progress_pct=progress_pct,
+                            message=message_text
+                        )
+                        await update_progress_state(prompt_id, update)
+                        
+                        logger.debug(
+                            "Progress update stored",
+                            prompt_id=prompt_id,
+                            phase=phase,
+                            progress_pct=progress_pct
+                        )
+                    else:
+                        # Log progress without prompt_id for debugging
+                        logger.debug(
+                            "Progress update received (no prompt_id)",
+                            phase=data.get("phase"),
+                            progress_pct=data.get("progress_pct"),
+                            project_id=data.get("project_id")
+                        )
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        "Failed to parse progress message",
+                        error=str(e)
+                    )
+                    
+    except asyncio.CancelledError:
+        logger.info("Redis progress listener cancelled")
+        raise
+    except Exception as e:
+        logger.error(
+            "Redis progress listener error",
+            error=str(e),
+            error_type=type(e).__name__
+        )
+
+
+@asynccontextmanager
+async def app_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+    """
+    Lifespan context manager for FastMCP server resource management.
+    
+    Handles startup and shutdown of:
+    - Redis pub/sub listener for progress updates
+    - HTTP adapters for upstream services
+    
+    Args:
+        server: The FastMCP server instance
+        
+    Yields:
+        Empty dict (no lifespan context needed by tools)
+    """
+    global _redis_listener_task
+    
+    logger.info("MCP Server starting up")
+    
+    # Start Redis listener in background
+    _redis_listener_task = asyncio.create_task(redis_progress_listener())
+    
+    try:
+        yield {}
+    finally:
+        # Cleanup
+        logger.info("MCP Server shutting down")
+        
+        # Cancel Redis listener
+        if _redis_listener_task:
+            _redis_listener_task.cancel()
+            try:
+                await _redis_listener_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Close adapters
+        if _project_adapter:
+            await _project_adapter.close()
+        if _retrieval_adapter:
+            await _retrieval_adapter.close()
+        
+        # Close Redis
+        if _redis_client:
+            try:
+                await _redis_client.aclose()
+            except Exception:
+                pass
+        
+        logger.info("MCP Server shutdown complete")
+
+
+# Create FastMCP server with lifespan
 mcp = FastMCP(
     name="Neo4j Retrieval MCP Server",
     instructions="""
@@ -93,6 +260,7 @@ Workflow:
 The retrieve_context tool uses DRIFT search (Microsoft Research, 2024) to find
 relevant technical context, requirements, and citations from ingested documentation.
 """,
+    lifespan=app_lifespan,
 )
 
 
@@ -133,10 +301,60 @@ async def resolve_project(project_name: str) -> dict[str, Any]:
     return result
 
 
+async def _progress_reporter(
+    prompt_id: str,
+    ctx: Context,
+    stop_event: asyncio.Event
+) -> None:
+    """
+    Background task that polls progress state and reports to MCP client.
+    
+    Runs until stop_event is set, polling every 500ms for progress updates.
+    Reports progress to the client via ctx.report_progress().
+    """
+    last_progress = -1.0
+    
+    try:
+        while not stop_event.is_set():
+            update = await get_progress_state(prompt_id)
+            
+            if update and update.progress_pct != last_progress:
+                # Report progress to the MCP client
+                await ctx.report_progress(
+                    progress=update.progress_pct,
+                    total=100.0,
+                    message=update.message or f"Phase: {update.phase}"
+                )
+                last_progress = update.progress_pct
+                
+                logger.debug(
+                    "Progress reported to client",
+                    prompt_id=prompt_id,
+                    progress=update.progress_pct,
+                    phase=update.phase
+                )
+            
+            # Poll every 500ms
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass  # Continue polling
+                
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Progress reporter error",
+            prompt_id=prompt_id,
+            error=str(e)
+        )
+
+
 @mcp.tool
 async def retrieve_context(
     query: str,
     project_id: str,
+    ctx: Context,
     top_k: int = 5
 ) -> dict[str, Any]:
     """
@@ -144,6 +362,7 @@ async def retrieve_context(
     
     This tool searches the ingested documentation and code for a project,
     returning synthesized answers with citations to source documents.
+    Progress updates are streamed to the client during retrieval.
     
     IMPORTANT: You must first call resolve_project to get the project_id.
     
@@ -178,19 +397,44 @@ async def retrieve_context(
         top_k=top_k
     )
     
+    # Report initial progress
+    await ctx.info(f"Starting knowledge graph retrieval for project {project_id}")
+    await ctx.report_progress(progress=0, total=100, message="Initializing DRIFT search...")
+    
     adapter = await get_retrieval_adapter()
     
     # Generate a prompt_id for progress tracking
     prompt_id = str(uuid.uuid4())
     
-    # TODO: Extract auth token from MCP context when available
-    result = await adapter.retrieve(
-        query=query,
-        project_id=project_id,
-        top_k=top_k,
-        prompt_id=prompt_id,
-        auth_token=None
+    # Start background progress reporter
+    stop_event = asyncio.Event()
+    progress_task = asyncio.create_task(
+        _progress_reporter(prompt_id, ctx, stop_event)
     )
+    
+    try:
+        # TODO: Extract auth token from MCP context when available
+        result = await adapter.retrieve(
+            query=query,
+            project_id=project_id,
+            top_k=top_k,
+            prompt_id=prompt_id,
+            auth_token=None
+        )
+    finally:
+        # Stop progress reporter and cleanup
+        stop_event.set()
+        progress_task.cancel()
+        try:
+            await progress_task
+        except asyncio.CancelledError:
+            pass
+        
+        # Clean up progress state
+        await clear_progress_state(prompt_id)
+    
+    # Report completion
+    await ctx.report_progress(progress=100, total=100, message="Retrieval complete")
     
     logger.info(
         "retrieve_context completed",
@@ -199,112 +443,16 @@ async def retrieve_context(
         no_data_found=result.get("no_data_found", False)
     )
     
+    if result.get("no_data_found"):
+        await ctx.warning(
+            f"No data found for project {project_id}. "
+            "The project may not have ingested data yet."
+        )
+    else:
+        fact_count = len(result.get("key_facts", []))
+        await ctx.info(f"Found {fact_count} relevant facts with citations")
+    
     return result
-
-
-# Redis listener for progress updates
-async def redis_progress_listener() -> None:
-    """
-    Listen to Redis pub/sub for retrieval progress updates.
-    
-    Uses shared constants for channel name (UI_RETRIEVAL_PROGRESS_CHANNEL).
-    Republishes progress to MCP clients (Copilot) as notifications.
-    """
-    redis_client = await get_redis_pubsub_client()
-    
-    if redis_client is None:
-        logger.warning("Redis not available - progress listener disabled")
-        return
-    
-    try:
-        pubsub = redis_client.pubsub()
-        await pubsub.subscribe(UI_RETRIEVAL_PROGRESS_CHANNEL)
-        
-        logger.info(
-            "Redis progress listener started",
-            channel=UI_RETRIEVAL_PROGRESS_CHANNEL
-        )
-        
-        async for message in pubsub.listen():
-            if message["type"] == "message":
-                try:
-                    # Decode bytes if necessary (pub/sub client uses binary)
-                    data_raw = message["data"]
-                    if isinstance(data_raw, bytes):
-                        data_raw = data_raw.decode("utf-8")
-                    data = json.loads(data_raw)
-                    
-                    # Log progress for debugging
-                    logger.debug(
-                        "Progress update received",
-                        phase=data.get("phase"),
-                        progress_pct=data.get("progress_pct"),
-                        project_id=data.get("project_id")
-                    )
-                    
-                    # TODO: When FastMCP supports progress notifications,
-                    # republish this to the MCP client
-                    # For now, we just log it
-                    
-                except json.JSONDecodeError as e:
-                    logger.warning(
-                        "Failed to parse progress message",
-                        error=str(e)
-                    )
-                    
-    except asyncio.CancelledError:
-        logger.info("Redis progress listener cancelled")
-        raise
-    except Exception as e:
-        logger.error(
-            "Redis progress listener error",
-            error=str(e),
-            error_type=type(e).__name__
-        )
-
-
-@asynccontextmanager
-async def lifespan(app):
-    """Lifespan context manager for resource management."""
-    global _redis_listener_task
-    
-    logger.info("MCP Server starting up")
-    
-    # Start Redis listener in background
-    _redis_listener_task = asyncio.create_task(redis_progress_listener())
-    
-    try:
-        yield {}
-    finally:
-        # Cleanup
-        logger.info("MCP Server shutting down")
-        
-        # Cancel Redis listener
-        if _redis_listener_task:
-            _redis_listener_task.cancel()
-            try:
-                await _redis_listener_task
-            except asyncio.CancelledError:
-                pass
-        
-        # Close adapters
-        if _project_adapter:
-            await _project_adapter.close()
-        if _retrieval_adapter:
-            await _retrieval_adapter.close()
-        
-        # Close Redis
-        if _redis_client:
-            try:
-                await _redis_client.aclose()
-            except Exception:
-                pass
-        
-        logger.info("MCP Server shutdown complete")
-
-
-# Apply lifespan to MCP server
-mcp.settings.lifespan = lifespan
 
 
 # Health check endpoint (for HTTP transport)
