@@ -67,14 +67,6 @@ class RetrievalSettings(BaseConfig):
         le=3600,
         description="TTL for cached retrieval results (0=disabled)"
     )
-    
-    # DRIFT algorithm configuration
-    DRIFT_MAX_ITERATIONS: int = Field(
-        default=2,
-        ge=1,
-        le=10,
-        description="Maximum number of follow-up iterations in DRIFT search"
-    )
 
 
 @lru_cache()
