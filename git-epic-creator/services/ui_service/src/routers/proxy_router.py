@@ -1,8 +1,8 @@
 """
-API Proxy Router with Enhanced S2S Authentication
+API Proxy Router - Forwards requests to backend services with LOCAL JWT.
 
-This module proxies API requests to downstream services with enhanced S2S JWT tokens
-that include comprehensive claims for proper authorization and audit logging.
+Uses the LOCAL JWT from session (obtained via authentication-service after Azure AD login).
+This is the SAME LOCAL JWT format used by MCP Server (VS Code Copilot).
 """
 
 from __future__ import annotations
@@ -16,16 +16,12 @@ from configuration.common_config import get_app_settings
 from constants.streams import UI_PROJECT_PROGRESS_CHANNEL
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
-from utils.jwt_utils import sign_jwt
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
-# Target path segments for service routing
-GITLAB_ROUTE_SEGMENT = "/gitlab/"
-
-# S2S token cache (in-memory, simple implementation)
-_s2s_token_cache: Dict[str, tuple[str, int]] = {}
+# LOCAL JWT refresh buffer (refresh 60 seconds before expiry)
+LOCAL_JWT_REFRESH_BUFFER = 60
 
 
 def _preserve_headers(resp: httpx.Response) -> Dict[str, str]:
@@ -34,123 +30,78 @@ def _preserve_headers(resp: httpx.Response) -> Dict[str, str]:
     return {k: v for k, v in resp.headers.items() if k.lower() in preserve}
 
 
-def _identify_target_service(path: str) -> str:
+async def _get_valid_local_jwt(request: Request) -> str | None:
     """
-    Identify target service from request path for audience claim.
+    Get valid LOCAL JWT from session, refreshing if needed.
     
-    Args:
-        path: Request path
+    The LOCAL JWT was obtained via authentication-service after Azure AD login.
+    If it's expired, we refresh via MSAL + authentication-service.
+    """
+    local_jwt = request.session.get("local_jwt")
+    local_jwt_exp = request.session.get("local_jwt_exp", 0)
+    
+    # Check if LOCAL JWT is still valid
+    if local_jwt and local_jwt_exp > time.time() + LOCAL_JWT_REFRESH_BUFFER:
+        return local_jwt
+    
+    # LOCAL JWT expired or about to expire - need to refresh
+    session_id = request.session.get("sid")
+    if not session_id:
+        return None
+    
+    # Import here to avoid circular imports
+    from routers.auth_router import _get_msal_app, _exchange_for_local_jwt
+    from configuration.azure_auth_config import get_azure_auth_settings
+    
+    try:
+        msal_app = await _get_msal_app(request, session_id=session_id, load_cache=True)
+        if not msal_app:
+            logger.warning("Failed to get MSAL app for token refresh")
+            return None
         
-    Returns:
-        Service identifier for audience claim
-    """
-    if "/neo4j" in path:
-        return "neo4j-retrieval-service"
-    elif "/project" in path:
-        return "project-service"
-    elif "/workflow" in path:
-        return "workflow-service"
-    elif "/tasks" in path:
-        return "tasks-service"
-    elif GITLAB_ROUTE_SEGMENT in path:
-        return "gitlab-service"
-    else:
-        return "unknown-service"
-
-
-def _mint_s2s_token(session: dict, target_service: str) -> str:
-    """
-    Mint enhanced S2S JWT token with comprehensive claims.
-    
-    This token includes all necessary claims for downstream services
-    to perform proper authorization and audit logging.
-    
-    Args:
-        session: Session dictionary with user claims
-        target_service: Target service identifier for audience claim
+        accounts = msal_app.get_accounts()
+        if not accounts:
+            logger.warning("No MSAL accounts found for token refresh")
+            return None
         
-    Returns:
-        Signed JWT token
+        azure_settings = getattr(request.app.state, "azure_auth_settings", None) or get_azure_auth_settings()
+        scopes = [azure_settings.SCOPE_NAME]
         
-    Raises:
-        RuntimeError: If JWT secret is not configured
-    """
-    now = int(time.time())
-
-    # Build comprehensive claims
-    claims = {
-        # Identity claims
-        "oid": str(session.get("oid") or ""),  # Azure AD user object ID for GitLab token lookup
-        "tid": str(session.get("tid") or ""),
-        "preferred_username": session.get("username"),
-        "roles": session.get("roles") or [],
-
-        # Token metadata
-        "iss": "ui-service",
-        "aud": target_service,
-        "iat": now,
-        "nbf": now,
-        "exp": now + 600,  # 10 minutes
-
-        # Original Azure token metadata (for correlation)
-        "azure_exp": session.get("exp"),
-        "azure_iat": session.get("iat"),
-    }
-
-    # Sign token (uses LOCAL_JWT_SECRET from environment)
-    return sign_jwt(claims, expires_in_seconds=0)  # exp already set
-
-
-async def _get_or_mint_s2s_token(
-    session: dict,
-    target_service: str,
-    cache_ttl: int = 60
-) -> str:
-    """
-    Get cached S2S token or mint new one.
-    
-    Caches minted tokens per session for short TTL to reduce signing overhead.
-    
-    Args:
-        session: Session dictionary
-        target_service: Target service identifier
-        cache_ttl: Cache TTL in seconds
+        # Get fresh Azure AD token
+        result = msal_app.acquire_token_silent(scopes=scopes, account=accounts[0])
         
-    Returns:
-        S2S JWT token
-    """
-    session_id = session.get("sid", "")
-    cache_key = f"{session_id}:{target_service}"
+        if not result or "access_token" not in result:
+            logger.warning("MSAL silent token acquisition failed")
+            return None
+        
+        # Exchange Azure AD token for LOCAL JWT via authentication-service
+        http_client = getattr(request.app.state, "upstream_http_client", None)
+        exchange_result = await _exchange_for_local_jwt(result["access_token"], http_client)
+        
+        if exchange_result:
+            # Update session with new LOCAL JWT
+            request.session["local_jwt"] = exchange_result["access_token"]
+            request.session["local_jwt_exp"] = int(time.time()) + exchange_result["expires_in"]
+            
+            logger.debug("LOCAL JWT refreshed successfully")
+            return exchange_result["access_token"]
+        
+        logger.warning("Token exchange failed during refresh")
+        return None
+        
+    except Exception as e:
+        logger.error("Failed to refresh LOCAL JWT", error=str(e))
+        return None
 
-    # Check cache
-    if cache_key in _s2s_token_cache:
-        cached_token, cached_at = _s2s_token_cache[cache_key]
-        if (time.time() - cached_at) < cache_ttl:
-            logger.debug("Using cached S2S token", target_service=target_service)
-            return cached_token
-
-    # Mint new token
-    token = _mint_s2s_token(session, target_service)
-
-    # Cache it
-    _s2s_token_cache[cache_key] = (token, time.time())
-
-    logger.debug("Minted new S2S token", target_service=target_service)
-    return token
 
 async def _forward(
     request: Request,
     target_url: str,
 ) -> Response:
     """
-    Forward request to upstream service with enhanced S2S authentication.
+    Forward request to upstream service with LOCAL JWT authentication.
     
-    Args:
-        request: Incoming request
-        target_url: Upstream service URL
-        
-    Returns:
-        Response from upstream service
+    Uses the same LOCAL JWT format as MCP Server (VS Code Copilot).
     """
     # Check authentication
     session_id = request.session.get("sid")
@@ -160,26 +111,19 @@ async def _forward(
 
     oid = request.session.get("oid")
     if not oid:
-        logger.warning("Proxy auth check failed: no oid in session", session_id=session_id, session_keys=list(request.session.keys()))
+        logger.warning("Proxy auth check failed: no oid in session")
         return JSONResponse({"detail": "Invalid session"}, status_code=401)
 
-    # Identify target service
-    target_service = _identify_target_service(target_url)
+    # Get valid LOCAL JWT (refresh if needed)
+    local_jwt = await _get_valid_local_jwt(request)
+    
+    if not local_jwt:
+        logger.warning("Proxy auth check failed: no valid LOCAL JWT")
+        return JSONResponse({"detail": "Session expired, please re-authenticate"}, status_code=401)
 
-    # Mint S2S token with enhanced claims
-    try:
-        s2s_token = await _get_or_mint_s2s_token(
-            session=request.session,
-            target_service=target_service
-        )
-        logger.debug("S2S token minted for request", target_service=target_service, oid=oid, username=request.session.get("username"))
-    except Exception as e:
-        logger.error("Failed to mint S2S token", error=str(e), error_type=type(e).__name__)
-        return JSONResponse({"detail": "Server auth not configured"}, status_code=500)
-
-    # Build forward headers with S2S JWT
+    # Build forward headers with LOCAL JWT
     forward_headers: Dict[str, str] = {
-        "Authorization": f"Bearer {s2s_token}"
+        "Authorization": f"Bearer {local_jwt}"
     }
 
     # Preserve content headers
@@ -222,25 +166,17 @@ async def _forward(
                 await client.aclose()
 
     except httpx.TimeoutException as exc:
-        # Timeout errors should return 504 Gateway Timeout (not 502)
         logger.error(
             "Upstream request timeout",
             error=str(exc),
-            target_url=target_url,
-            message="Request timed out waiting for upstream service"
+            target_url=target_url
         )
-        return JSONResponse(
-            {"detail": "Upstream service timeout"},
-            status_code=504
-        )
+        return JSONResponse({"detail": "Upstream service timeout"}, status_code=504)
     except httpx.RequestError as exc:
-        # Connection/network errors return 502 Bad Gateway
         logger.error(
             "Upstream connection failed",
             error=str(exc),
-            error_type=type(exc).__name__,
-            target_url=target_url,
-            message="Connection or network error communicating with upstream"
+            target_url=target_url
         )
         return JSONResponse(
             {"detail": f"Upstream connection failed: {type(exc).__name__}"},
@@ -254,11 +190,7 @@ async def _forward(
 
 @router.get("/config")
 async def get_ui_config():
-    """
-    Get UI configuration for client.
-    
-    Returns API endpoints and channel names for the browser client.
-    """
+    """Get UI configuration for client."""
     return JSONResponse({
         "projectManagementApiBase": "/project",
         "aiWorkflowApiBase": "/workflow",
@@ -312,16 +244,10 @@ async def proxy_to_gitlab_client(path: str, request: Request):
 
 @router.api_route("/auth/gitlab/{path:path}", methods=["GET", "POST"])
 async def proxy_gitlab_auth(request: Request, path: str):
-    """
-    Proxy GitLab OAuth endpoints to gitlab-client-service.
-    
-    For /authorize endpoint, adds user_id (oid) as query parameter for OAuth state correlation.
-    All other endpoints are forwarded as-is with S2S JWT authentication.
-    """
+    """Proxy GitLab OAuth endpoints to gitlab-client-service."""
     gitlab_client_url = get_app_settings().http_client.GITLAB_CLIENT_SERVICE_URL.rstrip("/")
     target_url = f"{gitlab_client_url}/auth/gitlab/{path}"
     
-    # Add user_id (oid) to authorize endpoint for OAuth state correlation
     if path == "authorize":
         from urllib.parse import urlencode
         query_params = dict(request.query_params)

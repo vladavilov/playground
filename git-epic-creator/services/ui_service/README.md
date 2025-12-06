@@ -12,6 +12,7 @@ graph TB
     UI[UI Service]
     Azure[Azure AD]
     GitLab[GitLab OAuth]
+    Auth[Authentication<br/>Service]
     Redis[Redis Pubsub<br/>Real-time Events]
     Project[Project Service]
     Workflow[Workflow Service]
@@ -21,6 +22,9 @@ graph TB
     UI -->|OAuth| Azure
     Azure -->|Tokens| UI
     UI -->|SSE/Real-time| Browser
+    
+    UI -->|Mint S2S| Auth
+    Auth -->|S2S JWT| UI
     
     UI -->|S2S JWT| Project
     UI -->|S2S JWT| Workflow
@@ -33,6 +37,7 @@ graph TB
     style Browser fill:#f5f5f5,stroke:#757575,stroke-width:2px
     style Azure fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     style GitLab fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style Auth fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     style Redis fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     style Project fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
     style Workflow fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
@@ -42,7 +47,7 @@ graph TB
 ### Core Components
 
 1. **Azure SSO** - MSAL Python-based Microsoft identity platform integration
-2. **Internal S2S Authentication** - Enhanced JWT tokens with comprehensive claims
+2. **Centralized S2S Authentication** - Delegates S2S JWT minting to `authentication-service`
 3. **GitLab Integration** - Proxies OAuth and API calls to gitlab-client-service
 4. **Task Generation UI** - AI-powered backlog creation with real-time agent thought streaming
 5. **SSE Bridge** - Real-time event streaming from Redis pubsub to browser
@@ -52,7 +57,8 @@ graph TB
 ### Authentication & Authorization
 - **MSAL Python Integration**: Official Microsoft library for Azure AD authentication
 - **Redis-backed Token Cache**: Distributed, scalable session management (key: `msal_cache:{session_id}`)
-- **Enhanced S2S Tokens**: Comprehensive claims including oid, tid, aud, iss, roles
+- **Centralized S2S Authentication**: Delegates token minting to `authentication-service` for consistency
+- **Enhanced S2S Tokens**: Comprehensive claims including oid, tid, aud, iss, roles (minted by auth-service)
 - **Automatic Token Refresh**: Proactive refresh for Azure tokens via MSAL
 - **Conditional Access Support**: Proper handling of MFA and CA challenges
 - **GitLab Integration (Proxied)**: All GitLab OAuth and API interactions proxied to gitlab-client-service
@@ -101,6 +107,7 @@ graph TB
 - `MSAL_LOG_LEVEL` - MSAL log level: DEBUG, INFO, WARNING, ERROR (default: `INFO`)
 
 ### Downstream Services
+- `AUTH_SERVICE_URL` - Centralized authentication service URL (required, default: `http://authentication-service:8020`)
 - `PROJECT_MANAGEMENT_SERVICE_URL` - Project management service URL
 - `AI_WORKFLOW_SERVICE_URL` - AI workflow service URL
 - `AI_TASKS_SERVICE_URL` - AI tasks/backlog generation service URL (default: `http://localhost:8003`)
@@ -197,44 +204,49 @@ sequenceDiagram
 4. **Conditional Access**: Detects `interaction_required` errors, stores claims challenge for re-authentication, prompts user for MFA when required
 5. **Security**: Redirect URI validation prevents open redirect attacks (rejects external URLs, javascript: URIs, etc.), state parameter provides both CSRF protection and return URL preservation
 
-### 2. S2S Authentication Flow
+### 2. Unified Token Exchange Flow
+
+UI Service uses the **same authentication mechanism** as MCP Server (VS Code Copilot). After Azure AD OAuth, both exchange Azure AD tokens for LOCAL JWTs via the same `/auth/exchange` endpoint:
 
 ```mermaid
 sequenceDiagram
     participant Browser
     participant UI as UI Service
-    participant Cache as Token Cache<br/>(60s TTL)
-    participant Session as Session Store
-    participant DS as Downstream Service<br/>(Project/Workflow/Tasks)
+    participant Auth as Authentication<br/>Service
+    participant Azure as Azure AD
+    participant DS as Downstream Service
 
+    Note over Browser,Azure: Same flow as MCP Server (VS Code)
+    Browser->>UI: Access /auth/login
+    UI->>Azure: OAuth redirect
+    Azure->>Browser: Login prompt
+    Browser->>Azure: Credentials
+    Azure->>UI: Authorization code
+    UI->>Azure: Exchange code (MSAL)
+    Azure-->>UI: Azure AD access token
+    
+    UI->>Auth: POST /auth/exchange<br/>{access_token: azure_token}
+    Auth->>Azure: Validate token (JWKS)
+    Auth->>Auth: Mint LOCAL JWT
+    Auth-->>UI: {access_token: LOCAL_JWT, user_id, roles}
+    
+    UI->>UI: Store LOCAL JWT in session
+    
+    Note over Browser,DS: Subsequent API calls
     Browser->>UI: API Request + Session Cookie
-    UI->>Session: Validate session
-    Session-->>UI: User claims (oid, tid, roles)
-    
-    UI->>Cache: Check cached S2S token
-    alt Token in cache
-        Cache-->>UI: Return cached JWT
-    else Token not cached
-        UI->>UI: Mint new JWT<br/>(10 min TTL)<br/>Claims: oid, tid, aud, iss, roles
-        UI->>UI: Sign with LOCAL_JWT_SECRET
-        UI->>Cache: Store token (60s)
-        Cache-->>UI: JWT ready
-    end
-    
-    UI->>DS: Forward request<br/>Authorization: Bearer {JWT}
-    DS->>DS: Validate JWT signature<br/>(LOCAL_JWT_SECRET)
-    DS->>DS: Extract claims<br/>(oid, tid, roles, aud)
-    DS->>DS: Authorize based on roles
+    UI->>UI: Get LOCAL JWT from session<br/>(refresh via MSAL if expired)
+    UI->>DS: Request + Bearer {LOCAL_JWT}
+    DS->>DS: Validate LOCAL JWT
     DS-->>UI: Response
     UI-->>Browser: Response
 ```
 
-**Key Steps**:
+**Key Points**:
 
-1. **Request Received**: Browser sends authenticated request with session cookie, session validated against MSAL token cache
-2. **S2S Token Minting**: UI service mints short-lived JWT (10 minutes) with comprehensive claims: `oid`, `tid`, `aud`, `iss`, `roles`, `preferred_username`
-3. **Token Forwarding**: S2S JWT sent in `Authorization: Bearer <token>` header, downstream services validate using shared secret and extract user identity/roles
-4. **Token Caching**: Minted S2S tokens cached for 60 seconds to reduce signing overhead
+1. **Unified Mechanism**: UI Service and MCP Server use the **same `/auth/exchange` endpoint**
+2. **Same Token Format**: Both get the same LOCAL JWT format (oid, tid, roles, iss, aud)
+3. **Secure Validation**: ALL tokens validated against Azure AD JWKS before exchange
+4. **Token Caching**: LOCAL JWT stored in session, refreshed via MSAL silent acquisition when needed
 
 ### 3. GitLab Integration Flow
 
@@ -659,21 +671,24 @@ async def proxy_to_gitlab_client(path: str, request: Request):
 graph LR
     subgraph "Token Types"
         AzureToken[Azure AD Token<br/>From MSAL]
-        LocalJWT[LOCAL JWT Token<br/>From UI Service]
+        LocalJWT[LOCAL JWT Token<br/>From Auth Service]
     end
     
-    subgraph "Usage"
+    subgraph "Services"
         UISession[UI Service<br/>Session Management]
-        Backend[Backend Services<br/>Authentication]
+        AuthSvc[Authentication<br/>Service]
+        Backend[Backend Services]
     end
     
     AzureToken -->|Used for| UISession
     AzureToken -.->|NOT used| Backend
-    LocalJWT -->|Minted by UI| UISession
+    UISession -->|Request token| AuthSvc
+    AuthSvc -->|Mint JWT| LocalJWT
     LocalJWT -->|Forwarded to| Backend
     
     style AzureToken fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     style LocalJWT fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style AuthSvc fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     style Backend fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
 ```
 
@@ -689,18 +704,33 @@ graph LR
    - Never forwarded to backend services
    - Validated by Azure AD
 
-2. **LOCAL JWT Tokens** (minted by UI service):
+2. **LOCAL JWT Tokens** (from authentication-service):
+   - Centralized minting by `authentication-service` at `/auth/mint`
    - Used for service-to-service (S2S) authentication
    - Signed with `LOCAL_JWT_SECRET` (shared secret)
    - Forwarded to all backend services (project, workflow, tasks)
    - Validated by backend services using shared secret
    - Short-lived (10 minutes)
    - Enhanced claims: `oid`, `tid`, `aud`, `iss`, `roles`, `preferred_username`
-   - In-memory caching (60s TTL) for performance
+   - In-memory caching (60s TTL) in UI service for performance
 
 **For Testing/Direct Backend Access**:
 
-When calling backend services directly (e.g., in E2E tests), you must create LOCAL JWT tokens:
+When calling backend services directly (e.g., in E2E tests), you can use the `authentication-service` to mint tokens:
+
+```bash
+# Using authentication-service mint endpoint
+curl -X POST http://localhost:8020/auth/mint \
+  -H "Content-Type: application/json" \
+  -d '{
+    "oid": "test-user-id",
+    "preferred_username": "test.user@example.com",
+    "roles": ["Admin", "User"],
+    "target_service": "backend-services"
+  }'
+```
+
+Or create LOCAL JWT tokens directly for testing:
 
 ```python
 import jwt
@@ -715,7 +745,7 @@ def create_local_jwt_token(oid: str = None, roles: list = None, username: str = 
         "oid": oid or str(uuid.uuid4()),
         "preferred_username": username or "test.user@example.com",
         "roles": roles or ["Admin", "User"],
-        "iss": "test-client",
+        "iss": "authentication-service",  # Match auth-service issuer
         "aud": "backend-services",
         "iat": now,
         "nbf": now,
@@ -749,7 +779,7 @@ flowchart TD
     Browser[Browser Request]
     Proxy[Proxy Router]
     Session[Session Validation]
-    TokenMint[S2S Token Minting]
+    AuthSvc[Authentication<br/>Service]
     Cache[Token Cache<br/>60s TTL]
     
     Project[Project Service<br/>:8001]
@@ -761,15 +791,16 @@ flowchart TD
     Proxy --> Session
     Session -->|Valid| Proxy
     
-    Proxy -->|/project/*| TokenMint
-    Proxy -->|/workflow/*| TokenMint
-    Proxy -->|/tasks/*| TokenMint
+    Proxy -->|/project/*| Cache
+    Proxy -->|/workflow/*| Cache
+    Proxy -->|/tasks/*| Cache
     Proxy -->|/gitlab/*| GitLabToken[Get GitLab Token]
     
-    TokenMint --> Cache
     Cache -->|Hit| Forward1[Forward Request]
-    Cache -->|Miss| Mint[Mint JWT<br/>aud, oid, tid, roles]
-    Mint --> Forward1
+    Cache -->|Miss| AuthSvc
+    AuthSvc -->|POST /auth/mint| Mint[S2S JWT<br/>aud, oid, tid, roles]
+    Mint --> Cache
+    Cache --> Forward1
     
     GitLabToken --> Forward2[Forward Request]
     
@@ -786,20 +817,21 @@ flowchart TD
     Proxy --> Browser
     
     style Proxy fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style TokenMint fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style AuthSvc fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     style Cache fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     style Project fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
     style Workflow fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
     style Tasks fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style GitLab fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style GitLab fill:#fff3e0,stroke:#f57c00,stroke-width:2px
 ```
 
 **Features**:
 - Transparent proxying to downstream services
-- Automatic S2S token minting and forwarding
+- Centralized S2S token minting via `authentication-service`
+- Token caching (60s TTL) to reduce authentication-service calls
 - Header preservation and error handling
 - Service-specific routing (project, workflow, tasks, gitlab)
-- Token caching for performance optimization
+- Graceful handling of authentication-service unavailability (503 response)
 
 ## Integration with AI Tasks Service
 
@@ -951,11 +983,13 @@ ui-service:
     - "8000:8000"
   environment:
     - REDIS_URL=redis://redis:6379
+    - AUTH_SERVICE_URL=http://authentication-service:8020
     - PROJECT_MANAGEMENT_SERVICE_URL=http://project-service:8000
     - AI_WORKFLOW_SERVICE_URL=http://workflow-service:8000
     - AI_TASKS_SERVICE_URL=http://ai-tasks-service:8000
   depends_on:
     - redis
+    - authentication-service
     - project-service
     - workflow-service
     - ai-tasks-service

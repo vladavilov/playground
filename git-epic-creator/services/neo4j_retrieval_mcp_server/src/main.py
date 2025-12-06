@@ -3,6 +3,10 @@
 A lightweight MCP facade that enables GitHub Copilot to access the knowledge graph.
 Translates MCP protocol requests into HTTP calls to upstream microservices.
 
+OAuth Discovery:
+    - VS Code discovers OAuth settings via /.well-known/oauth-protected-resource
+    - Authentication via Azure AD (same as UI Service)
+    
 Tools:
     - resolve_project: Resolves project name to UUID
     - retrieve_context: DRIFT search on Knowledge Graph
@@ -14,7 +18,6 @@ Redis Integration:
 
 import asyncio
 import json
-import os
 import sys
 import uuid
 from collections.abc import AsyncIterator
@@ -24,17 +27,50 @@ from typing import Any
 
 import httpx
 import structlog
+import uvicorn
 
+from fastapi import HTTPException
 from fastmcp import FastMCP, Context
 
 # Import shared library components
 from configuration.logging_config import configure_logging
 from constants.streams import UI_RETRIEVAL_PROGRESS_CHANNEL
 from utils.redis_client import create_redis_client
+from utils.app_factory import FastAPIFactory
 
 # Import local modules
-from config import get_mcp_settings, get_project_management_url, get_retrieval_service_url
+from config import (
+    get_mcp_settings, 
+    get_project_management_url, 
+    get_retrieval_service_url,
+    get_oauth_discovery_metadata
+)
 from adapter import ProjectManagementAdapter, RetrievalServiceAdapter
+from auth import MCPAuthHandler
+
+
+def raise_authentication_required() -> None:
+    """
+    Raise HTTP 401 Unauthorized with WWW-Authenticate header.
+    
+    This triggers VS Code's OAuth discovery flow:
+    1. VS Code receives 401
+    2. Reads WWW-Authenticate header for resource metadata URL
+    3. Queries /.well-known/oauth-protected-resource
+    4. Starts OAuth flow with discovered authorization server
+    
+    Per MCP specification: Servers MUST return 401 for "authorization required or token invalid"
+    """
+    mcp_settings = get_mcp_settings()
+    resource_metadata_url = f"{mcp_settings.MCP_SERVER_URL}/.well-known/oauth-protected-resource"
+    
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required",
+        headers={
+            "WWW-Authenticate": f'Bearer resource="{resource_metadata_url}"'
+        }
+    )
 
 # Configure logging using shared configuration
 configure_logging()
@@ -55,11 +91,20 @@ class ProgressUpdate:
 _progress_state: dict[str, ProgressUpdate] = {}
 _progress_lock = asyncio.Lock()
 
-# Global state for adapters and Redis
+# Global state for adapters, Redis, and auth
 _project_adapter: ProjectManagementAdapter | None = None
 _retrieval_adapter: RetrievalServiceAdapter | None = None
 _redis_client = None
 _redis_listener_task: asyncio.Task | None = None
+_auth_handler: MCPAuthHandler | None = None
+
+
+async def get_auth_handler() -> MCPAuthHandler:
+    """Get or create MCP auth handler."""
+    global _auth_handler
+    if _auth_handler is None:
+        _auth_handler = MCPAuthHandler()
+    return _auth_handler
 
 
 async def get_project_adapter() -> ProjectManagementAdapter:
@@ -201,6 +246,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
     Lifespan context manager for FastMCP server resource management.
     
     Handles startup and shutdown of:
+    - MCP auth handler for authentication
     - Redis pub/sub listener for progress updates
     - HTTP adapters for upstream services
     
@@ -210,9 +256,13 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
     Yields:
         Empty dict (no lifespan context needed by tools)
     """
-    global _redis_listener_task
+    global _redis_listener_task, _auth_handler
     
     logger.info("MCP Server starting up")
+    
+    # Initialize auth handler
+    _auth_handler = MCPAuthHandler()
+    logger.info("MCP auth handler initialized")
     
     # Start Redis listener in background
     _redis_listener_task = asyncio.create_task(redis_progress_listener())
@@ -230,6 +280,10 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
                 await _redis_listener_task
             except asyncio.CancelledError:
                 pass
+        
+        # Close auth handler
+        if _auth_handler:
+            await _auth_handler.close()
         
         # Close adapters
         if _project_adapter:
@@ -259,13 +313,18 @@ Workflow:
 
 The retrieve_context tool uses DRIFT search (Microsoft Research, 2024) to find
 relevant technical context, requirements, and citations from ingested documentation.
+
+Authentication:
+- This server requires OAuth authentication via Azure AD
+- VS Code will automatically handle the OAuth flow
+- Your Azure AD token will be exchanged for a backend service token
 """,
     lifespan=app_lifespan,
 )
 
 
 @mcp.tool
-async def resolve_project(project_name: str) -> dict[str, Any]:
+async def resolve_project(project_name: str, ctx: Context) -> dict[str, Any]:
     """
     Resolve a project name to a specific Project UUID.
     
@@ -274,6 +333,7 @@ async def resolve_project(project_name: str) -> dict[str, Any]:
     
     Args:
         project_name: Name of the project (e.g., "billing", "risk analytics")
+        ctx: MCP context for authentication
         
     Returns:
         On success (exactly one match):
@@ -284,13 +344,22 @@ async def resolve_project(project_name: str) -> dict[str, Any]:
             
         On not found (zero matches):
             {"success": false, "error": "not_found", "message": "..."}
+            
+    Raises:
+        HTTPException 401: When authentication is required (triggers OAuth flow)
     """
     logger.info("resolve_project called", project_name=project_name)
     
-    adapter = await get_project_adapter()
+    # Get authentication token from MCP context
+    auth_handler = await get_auth_handler()
+    auth_token = await auth_handler.get_auth_token(ctx)
     
-    # TODO: Extract auth token from MCP context when available
-    result = await adapter.search_projects(project_name, auth_token=None)
+    if not auth_token:
+        logger.warning("resolve_project: authentication required, returning 401")
+        raise_authentication_required()
+    
+    adapter = await get_project_adapter()
+    result = await adapter.search_projects(project_name, auth_token=auth_token)
     
     logger.info(
         "resolve_project completed",
@@ -389,6 +458,9 @@ async def retrieve_context(
     Note:
         If no_data_found is true, the project may not have ingested data yet,
         or the query didn't match any relevant content.
+        
+    Raises:
+        HTTPException 401: When authentication is required (triggers OAuth flow)
     """
     logger.info(
         "retrieve_context called",
@@ -396,6 +468,14 @@ async def retrieve_context(
         project_id=project_id,
         top_k=top_k
     )
+    
+    # Get authentication token from MCP context
+    auth_handler = await get_auth_handler()
+    auth_token = await auth_handler.get_auth_token(ctx)
+    
+    if not auth_token:
+        logger.warning("retrieve_context: authentication required, returning 401")
+        raise_authentication_required()
     
     # Report initial progress
     await ctx.info(f"Starting knowledge graph retrieval for project {project_id}")
@@ -413,13 +493,12 @@ async def retrieve_context(
     )
     
     try:
-        # TODO: Extract auth token from MCP context when available
         result = await adapter.retrieve(
             query=query,
             project_id=project_id,
             top_k=top_k,
             prompt_id=prompt_id,
-            auth_token=None
+            auth_token=auth_token
         )
     finally:
         # Stop progress reporter and cleanup
@@ -506,6 +585,52 @@ async def health_check() -> dict[str, Any]:
     }
 
 
+def create_http_app():
+    """
+    Create a FastAPI app with OAuth discovery endpoints + MCP server.
+    
+    Uses FastAPIFactory from shared library for consistent configuration,
+    then adds MCP-specific routes:
+    - OAuth discovery endpoint (/.well-known/oauth-protected-resource)
+    - MCP server mounted at /mcp
+    
+    Returns:
+        FastAPI application ready for uvicorn
+    """
+    # Use FastAPIFactory for consistent setup (CORS, error handlers, health check)
+    # Note: MCP manages its own Redis pub/sub client, so enable_redis=False
+    app = FastAPIFactory.create_app(
+        title="Neo4j Retrieval MCP Server",
+        description="MCP server with OAuth discovery for VS Code Copilot integration",
+        version="1.0.0",
+        enable_cors=True,
+        enable_redis=False,  # MCP uses its own pub/sub Redis client
+        docs_url=None,  # Disable Swagger UI (not needed for MCP)
+        redoc_url=None,  # Disable ReDoc
+    )
+    
+    # Add OAuth discovery endpoint (RFC 9728)
+    @app.get("/.well-known/oauth-protected-resource", tags=["OAuth"])
+    async def oauth_protected_resource_metadata():
+        """
+        OAuth 2.0 Protected Resource Metadata endpoint (RFC 9728).
+        
+        VS Code queries this endpoint to discover:
+        - authorization_servers: Where to authenticate
+        - scopes_supported: What scopes are needed
+        - bearer_methods_supported: How to send the token
+        """
+        metadata = get_oauth_discovery_metadata()
+        logger.info("OAuth discovery metadata requested")
+        return metadata
+    
+    # Mount the FastMCP server's ASGI app
+    mcp_app = mcp.http_app(path="/mcp")
+    app.mount("/", mcp_app)
+    
+    return app
+
+
 if __name__ == "__main__":
     # Get MCP-specific settings
     mcp_settings = get_mcp_settings()
@@ -521,7 +646,10 @@ if __name__ == "__main__":
     
     if transport == "http":
         logger.info("Starting MCP server with HTTP transport", port=mcp_settings.PORT)
-        mcp.run(transport="http", host="0.0.0.0", port=mcp_settings.PORT)
+        
+        # Create FastAPI app with OAuth discovery + MCP
+        http_app = create_http_app()
+        uvicorn.run(http_app, host="0.0.0.0", port=mcp_settings.PORT)
     else:
         logger.info("Starting MCP server with stdio transport")
         mcp.run(transport="stdio")

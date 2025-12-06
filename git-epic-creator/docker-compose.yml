@@ -278,6 +278,8 @@ services:
         condition: service_healthy
       mock-auth-service:
         condition: service_healthy
+      authentication-service:
+        condition: service_healthy
     networks:
       - microservices_network
     healthcheck:
@@ -354,6 +356,8 @@ services:
       neo4j-retrieval-service:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      authentication-service:
         condition: service_healthy
     ports:
       - "8014:8082"
@@ -478,6 +482,37 @@ services:
       - microservices_network
     healthcheck:
       test: ["CMD", "curl", "-f", "-k", "https://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Centralized authentication service
+  authentication-service:
+    <<: *service_defaults
+    build:
+      context: ./services
+      dockerfile: ./authentication_service/Dockerfile
+    image: authentication_service:latest
+    container_name: authentication_service
+    ports:
+      - "8020:8020"
+    environment:
+      - API_PORT=8020
+    env_file:
+      - docker-compose.env
+    depends_on:
+      python-base:
+        condition: service_completed_successfully
+      mock-auth-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
       interval: 30s
       timeout: 10s
       retries: 3

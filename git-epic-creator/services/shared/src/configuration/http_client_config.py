@@ -37,6 +37,11 @@ class HTTPClientSettings(BaseSettings):
         description="URL for the GraphRAG retrieval service",
     )
 
+    AUTH_SERVICE_URL: str = Field(
+        default="http://authentication-service:8020",
+        description="URL for the centralized authentication service",
+    )
+
     # Connection settings
     CONNECTION_TIMEOUT: float = Field(
         default=30.0,
@@ -82,6 +87,7 @@ class HTTPClientSettings(BaseSettings):
         'AI_TASKS_SERVICE_URL',
         'GITLAB_CLIENT_SERVICE_URL',
         'GRAPH_RAG_SERVICE_URL',
+        'AUTH_SERVICE_URL',
     )
     @classmethod
     def validate_url(cls, v: str) -> str:

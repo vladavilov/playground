@@ -1,6 +1,6 @@
 # Neo4j Retrieval MCP Server
 
-A lightweight MCP (Model Context Protocol) facade that enables GitHub Copilot to access the knowledge graph via `neo4j_retrieval_service`.
+A lightweight MCP (Model Context Protocol) server that enables GitHub Copilot to access the knowledge graph via `neo4j_retrieval_service`.
 
 It translates MCP protocol requests into HTTP calls to upstream microservices, providing no business logic of its own.
 
@@ -8,18 +8,226 @@ It translates MCP protocol requests into HTTP calls to upstream microservices, p
 
 ```mermaid
 flowchart LR
-    Copilot[GitHub Copilot] <-->|Stdio/SSE| MCPServer[MCP Server Facade]
-    MCPServer <-->|HTTP| PMS[Project Management Service]
-    MCPServer <-->|HTTP| Retrieval[Neo4j Retrieval Service]
+    Copilot[GitHub Copilot] <-->|MCP Protocol| MCPServer[MCP Server]
+    MCPServer <-->|HTTP + S2S JWT| AuthService[Authentication Service]
+    MCPServer <-->|HTTP + S2S JWT| PMS[Project Management Service]
+    MCPServer <-->|HTTP + S2S JWT| Retrieval[Neo4j Retrieval Service]
     MCPServer <-.->|Pub/Sub| Redis[Redis]
     Retrieval <-->|Bolt| Neo4j[Neo4j Graph]
 ```
 
-- **Role:** Stateless Proxy
+- **Role:** Stateless Protocol Translator with OAuth Authentication
+- **Authentication:** OAuth 2.0 via VS Code built-in client + token exchange via authentication-service
 - **Upstream Services:**
+  - `authentication-service` - OAuth token exchange, S2S JWT minting
   - `project_management_service` - Project resolution
   - `neo4j_retrieval_service` - DRIFT search
 - **Tools Provided:** 2 (+ health_check utility)
+
+## VS Code Copilot Integration
+
+This MCP server is designed to work with GitHub Copilot in VS Code using VS Code's **built-in OAuth MCP client**. No custom extension is required.
+
+### How It Works: OAuth Discovery Flow
+
+VS Code's MCP client handles the entire OAuth flow automatically using OAuth 2.0 Protected Resource Metadata (RFC 9728):
+
+```mermaid
+sequenceDiagram
+    participant VSCode as VS Code
+    participant MCP as MCP Server
+    participant Auth as Auth Service
+    participant Azure as Azure AD
+
+    VSCode->>MCP: Initial MCP request (no token)
+    MCP-->>VSCode: 401 Unauthorized
+    Note over VSCode: Checks WWW-Authenticate header
+    
+    VSCode->>MCP: GET /.well-known/oauth-protected-resource
+    MCP-->>VSCode: OAuth metadata (authorization_servers, scopes)
+    
+    Note over VSCode: Opens browser for Azure AD login
+    VSCode->>Azure: OAuth authorization (browser)
+    Azure-->>VSCode: Authorization code
+    VSCode->>Azure: Exchange code for tokens
+    Azure-->>VSCode: Access token
+    
+    VSCode->>MCP: MCP request + Authorization: Bearer {token}
+    MCP->>Auth: Exchange Azure token for LOCAL JWT
+    Auth-->>MCP: S2S JWT token
+    MCP->>PMS: Request + S2S JWT
+    PMS-->>MCP: Response
+    MCP-->>VSCode: MCP response
+```
+
+### Step 1: Configure VS Code MCP Settings
+
+Create or edit `.vscode/mcp.json` in your workspace (or add to user settings):
+
+#### Option A: OAuth Discovery (Recommended)
+
+VS Code queries the MCP server's discovery endpoint to get OAuth configuration automatically:
+
+```json
+{
+  "servers": {
+    "neo4j-retrieval": {
+      "type": "http",
+      "url": "http://localhost:8082/mcp"
+    }
+  }
+}
+```
+
+The MCP server exposes `/.well-known/oauth-protected-resource` which returns:
+- `authorization_servers`: Azure AD authorization URL
+- `scopes_supported`: Required OAuth scopes
+- `bearer_methods_supported`: How to send the token (header)
+
+#### Option B: Explicit OAuth Configuration
+
+For more control, you can specify OAuth settings explicitly:
+
+**Production (Azure AD):**
+```json
+{
+  "servers": {
+    "neo4j-retrieval": {
+      "type": "http",
+      "url": "http://localhost:8082/mcp",
+      "authorization": {
+        "type": "oauth2",
+        "configuration": {
+          "clientId": "your-azure-ad-client-id",
+          "authorizationUrl": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize",
+          "tokenUrl": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
+          "scopes": ["api://your-azure-ad-client-id/user_impersonation"]
+        }
+      }
+    }
+  }
+}
+```
+
+**Local Development (Mock Auth Service):**
+```json
+{
+  "servers": {
+    "neo4j-retrieval": {
+      "type": "http",
+      "url": "http://localhost:8082/mcp",
+      "authorization": {
+        "type": "oauth2",
+        "configuration": {
+          "clientId": "00000000-0000-0000-0000-000000000001",
+          "authorizationUrl": "https://localhost:8005/00000000-0000-0000-0000-000000000000/oauth2/v2.0/authorize",
+          "tokenUrl": "https://localhost:8005/00000000-0000-0000-0000-000000000000/oauth2/v2.0/token",
+          "scopes": ["api://00000000-0000-0000-0000-000000000001/user_impersonation"]
+        }
+      }
+    }
+  }
+}
+```
+
+### Step 2: Reload VS Code
+
+1. Open Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
+2. Run "Developer: Reload Window"
+3. Open Copilot Chat (`Ctrl+Shift+I` / `Cmd+Shift+I`)
+
+### Step 4: Authenticate (First Time)
+
+When you first use an MCP tool that requires authentication:
+
+1. VS Code detects 401 response and checks `WWW-Authenticate` header
+2. VS Code queries `/.well-known/oauth-protected-resource` for OAuth details
+3. VS Code automatically opens your browser to Azure AD (or mock auth service)
+4. Sign in with your credentials and consent to permissions
+5. Browser redirects back to VS Code (`vscode://...` URI)
+6. VS Code captures the token and uses it for subsequent requests
+
+### Step 5: Use the MCP Tools
+
+Once authenticated, you can use the MCP tools in Copilot Chat:
+
+```
+@neo4j-retrieval Find the billing project
+
+@neo4j-retrieval How does authentication work in the billing system?
+
+@neo4j-retrieval What are the main API endpoints in the risk analytics project?
+```
+
+Copilot will automatically:
+1. Call `resolve_project` to get the project UUID
+2. Call `retrieve_context` with your question
+3. Synthesize the response with citations from the knowledge graph
+
+## Authentication Flow
+
+### Unified Token Exchange
+
+MCP Server uses the **same authentication mechanism** as UI Service. Both exchange Azure AD tokens for LOCAL JWTs via the same `/auth/exchange` endpoint:
+
+```mermaid
+sequenceDiagram
+    participant VSCode as VS Code
+    participant MCP as MCP Server
+    participant Auth as Authentication Service
+    participant Azure as Azure AD
+    participant Backend as Backend Services
+
+    Note over VSCode,MCP: Same flow as browser (UI Service)
+    VSCode->>Azure: OAuth login (browser)
+    Azure-->>VSCode: Azure AD access token
+    VSCode->>MCP: MCP request + Authorization: Bearer {azure_token}
+    
+    Note over MCP: Extract token from Authorization header
+    MCP->>Auth: POST /auth/exchange<br/>{access_token: azure_token}
+    Auth->>Azure: Validate token (JWKS)
+    Auth->>Auth: Mint LOCAL JWT
+    Auth-->>MCP: {access_token: LOCAL_JWT, user_id, roles}
+    
+    MCP->>Backend: Request + Bearer {LOCAL_JWT}
+    Backend-->>MCP: Response
+    MCP-->>VSCode: MCP response
+```
+
+This is the **SAME endpoint** used by UI Service. The same user authenticating via browser or VS Code gets the same LOCAL JWT format.
+
+### Token Extraction Priority
+
+The MCP server extracts Azure AD tokens in this order:
+
+1. **HTTP Authorization Header** (preferred) - `Authorization: Bearer {token}`
+2. **MCP Context client_params** (fallback for stdio transport)
+
+If no token is found, HTTP 401 is returned to trigger the OAuth discovery flow.
+
+## OAuth Discovery Endpoint
+
+### GET /.well-known/oauth-protected-resource
+
+Returns OAuth 2.0 Protected Resource Metadata (RFC 9728) for VS Code's OAuth discovery:
+
+**Response:**
+```json
+{
+  "resource": "http://localhost:8082/mcp",
+  "authorization_servers": [
+    "https://login.microsoftonline.com/{tenant-id}/v2.0"
+  ],
+  "bearer_methods_supported": ["header"],
+  "scopes_supported": [
+    "api://{client-id}/user_impersonation",
+    "openid",
+    "profile",
+    "email"
+  ],
+  "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server"
+}
+```
 
 ## MCP Tools
 
@@ -29,6 +237,8 @@ Resolves a natural language project name to a system UUID via Project Management
 
 **Use Case:** Copilot calls this tool with `"billing system"` to get the technical ID required for retrieval.
 
+**Authentication:** Required (returns HTTP 401 with WWW-Authenticate header to trigger OAuth flow)
+
 **Signature:**
 ```python
 @mcp.tool()
@@ -36,54 +246,48 @@ async def resolve_project(project_name: str) -> dict:
     """
     Resolve a project name to a specific Project UUID.
     
+    AUTHENTICATION REQUIRED: Returns HTTP 401 to trigger VS Code OAuth flow.
+    
     Args:
         project_name: Name of the project (e.g., "billing", "risk analytics")
         
     Returns:
         # Success (exactly one match):
         {
-            "success": "boolean",        // true
+            "success": true,
             "project_id": "uuid_string",
-            "project_name": "string"     // Official name
+            "project_name": "string"
         }
         
         # Ambiguous (multiple matches):
         {
-            "success": "boolean",        // false
+            "success": false,
             "error": "ambiguous_results",
-            "message": "string",         // User-friendly message
-            "matches": [
-                {
-                    "project_id": "uuid_string",
-                    "project_name": "string"
-                }
-            ]
+            "message": "string",
+            "matches": [{"project_id": "uuid", "project_name": "string"}]
         }
         
-        # Not found (zero matches):
+        # Not found:
         {
-            "success": "boolean",        // false
+            "success": false,
             "error": "not_found",
-            "message": "string"          // User-friendly message
+            "message": "string"
         }
+        
+    Raises:
+        HTTPException 401: When authentication is required.
+            Includes WWW-Authenticate header pointing to OAuth discovery endpoint.
+            This triggers VS Code's built-in OAuth flow.
     """
 ```
-
-**Implementation Mapping:**
-Proxies to `GET http://project_management_service:8000/projects?search={project_name}`
-
-**Behavior:**
-- **1 match:** Returns `success=true` with `project_id`
-- **Multiple matches:** Returns `success=false` with `error=ambiguous_results` and list of matches
-- **0 matches:** Returns `success=false` with `error=not_found`
-
-**Important:** Copilot must check `success` field before proceeding to `retrieve_context`. On failure, display `message` to user for clarification.
 
 ### 2. retrieve_context
 
 Retrieves technical context, requirements, and citations using DRIFT search.
 
 **Use Case:** Copilot calls this tool with a technical question and `project_id` (obtained from `resolve_project`).
+
+**Authentication:** Required (returns HTTP 401 with WWW-Authenticate header to trigger OAuth flow)
 
 **Signature:**
 ```python
@@ -95,6 +299,8 @@ async def retrieve_context(
 ) -> dict:
     """
     Retrieve context from the Knowledge Graph using DRIFT search.
+    
+    AUTHENTICATION REQUIRED: Returns HTTP 401 to trigger VS Code OAuth flow.
     
     Args:
         query: The technical question to answer
@@ -119,51 +325,48 @@ async def retrieve_context(
             "residual_uncertainty": "string",
             "no_data_found": "boolean"
         }
+        
+    Raises:
+        HTTPException 401: When authentication is required.
+            Includes WWW-Authenticate header pointing to OAuth discovery endpoint.
     """
 ```
-
-**Implementation Mapping:**
-Proxies to `POST http://neo4j_retrieval_service:8000/retrieve`
-
-## Redis Progress Listening
-
-The MCP server subscribes to Redis pub/sub channel `ui:retrieval_progress` to receive real-time progress updates from the retrieval service during DRIFT search operations.
-
-**Progress Message Schema:**
-```json
-{
-  "message_type": "retrieval_progress",
-  "project_id": "uuid_string",
-  "retrieval_id": "uuid_string",
-  "phase": "string",       // 'initializing' | 'expanding_query' | 'retrieving_communities' | ...
-  "progress_pct": "integer", // 0-100
-  "thought_summary": "string",
-  "details_md": "string",    // Optional markdown
-  "timestamp": "iso8601_string"
-}
-```
-
-This enables the server to republish progress updates to MCP clients (Copilot) for enhanced user experience during slow searches.
 
 ## Copilot Workflow
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant C as Copilot
+    participant C as Copilot/VSCode
     participant M as MCP Server
+    participant Azure as Azure AD
+    participant A as Auth Service
     participant P as Project Mgmt Service
     participant R as Retrieval Service
 
     U->>C: "How does auth work in billing?"
     C->>M: resolve_project("billing")
-    M->>P: GET /projects?search=billing
+    
+    alt Not authenticated
+        M-->>C: HTTP 401 + WWW-Authenticate header
+        C->>M: GET /.well-known/oauth-protected-resource
+        M-->>C: OAuth metadata (auth servers, scopes)
+        C->>Azure: OAuth login (browser)
+        Azure-->>C: Access token
+        C->>M: resolve_project("billing") + Bearer token
+    end
+    
+    Note over M,A: Token exchange
+    M->>A: Exchange Azure token for LOCAL JWT
+    A-->>M: S2S JWT
+    
+    M->>P: GET /projects?search=billing + JWT
     
     alt Exactly 1 match
         P-->>M: [{id, name}]
         M-->>C: {success: true, project_id: "uuid"}
         C->>M: retrieve_context("How does auth work?", "uuid")
-        M->>R: POST /retrieve
+        M->>R: POST /retrieve + JWT
         R-->>M: {final_answer, key_facts}
         M-->>C: {final_answer, key_facts}
         C-->>U: "Auth uses JWT tokens..."
@@ -180,323 +383,122 @@ sequenceDiagram
 
 ## Configuration
 
-### Shared Library Integration
-
-This service reuses configurations from the `shared` library:
-- **HTTP Client Settings** (`HTTPClientSettings`): Service URLs, timeouts, retry configuration
-- **Redis Settings** (`RedisSettings`): Connection URL, pool size, pub/sub configuration  
-- **Logging** (`configure_logging`): Structured JSON logging with sensitive data filtering
-- **Constants** (`streams.py`): Redis channel names like `UI_RETRIEVAL_PROGRESS_CHANNEL`
-
 ### Environment Variables
 
-Most configuration comes from `docker-compose.env` via the shared library. MCP-specific settings:
-
 ```bash
-# MCP-specific (not in shared config)
-PORT=8082                  # HTTP server port
-MCP_TRANSPORT=stdio        # Transport mode: 'stdio' or 'http'
+# MCP Server Configuration
+PORT=8082                      # HTTP server port
+MCP_TRANSPORT=stdio            # Transport mode: 'stdio' or 'http'
+MCP_SERVER_URL=http://localhost:8082  # Base URL for OAuth discovery
 
-# From shared HTTPClientSettings (in docker-compose.env)
+# Authentication Service
+AUTH_SERVICE_URL=http://authentication-service:8020
+
+# Upstream Services (from shared HTTPClientSettings)
 PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
 GRAPH_RAG_SERVICE_URL=http://neo4j-retrieval-service:8000
+
+# HTTP Client Settings
 HTTP_CONNECTION_TIMEOUT=30.0
 HTTP_READ_TIMEOUT=180.0
 HTTP_MAX_RETRIES=3
 
-# From shared RedisSettings (in docker-compose.env)
+# Redis (for progress streaming)
 REDIS_URL=redis://redis:6379
 REDIS_DB=0
-REDIS_MAX_CONNECTIONS=10
+
+# Azure AD Configuration (for OAuth discovery metadata)
+AZURE_AD_AUTHORITY=https://login.microsoftonline.com
+AZURE_TENANT_ID=your-tenant-id
+AZURE_CLIENT_ID=your-client-id
 ```
 
-## GitHub Copilot Integration
+## Redis Progress Listening
 
-This section provides step-by-step instructions for integrating the MCP server with GitHub Copilot in VS Code.
+The MCP server subscribes to Redis pub/sub channel `ui:retrieval_progress` to receive real-time progress updates from the retrieval service during DRIFT search operations.
 
-### Prerequisites
+**Progress Message Schema:**
+```json
+{
+  "message_type": "retrieval_progress",
+  "project_id": "uuid_string",
+  "retrieval_id": "uuid_string",
+  "phase": "string",
+  "progress_pct": 0-100,
+  "thought_summary": "string",
+  "details_md": "string",
+  "timestamp": "iso8601_string"
+}
+```
 
-1. **VS Code** with GitHub Copilot extension installed
-2. **Docker** installed and running
-3. **Backend services running** (via docker-compose or locally):
-   - `project-management-service` (port 8003)
-   - `neo4j-retrieval-service` (port 8008)
-   - `redis` (port 6379)
+## Troubleshooting
 
-### Step 1: Build the MCP Server Docker Image
+### MCP Server Not Appearing in Copilot
 
-From the `playground/git-epic-creator` directory:
+1. **Check VS Code version**: Ensure you have the latest VS Code with MCP support
+2. **Verify configuration**: Check `.vscode/mcp.json` syntax
+3. **Reload VS Code**: Run "Developer: Reload Window"
+4. **Check Output panel**: Look for MCP-related errors in "GitHub Copilot Chat"
+
+### OAuth Discovery Not Working
 
 ```bash
-# Build all services including the MCP server
-docker-compose build neo4j-retrieval-mcp-server
+# Test OAuth discovery endpoint
+curl -v http://localhost:8082/.well-known/oauth-protected-resource
 
-# Or build standalone (from services directory)
-cd services
-docker build -t neo4j_retrieval_mcp_server -f ./neo4j_retrieval_mcp_server/Dockerfile .
+# Expected response:
+{
+  "resource": "http://localhost:8082/mcp",
+  "authorization_servers": ["https://login.microsoftonline.com/.../v2.0"],
+  "bearer_methods_supported": ["header"],
+  "scopes_supported": [...]
+}
 ```
 
-### Step 2: Verify Backend Services Are Running
-
-Ensure the docker-compose stack is running:
+### Authentication Errors
 
 ```bash
-# Start all services
-docker-compose up -d
+# Check authentication-service is running
+curl http://localhost:8020/health
 
-# Verify services are healthy
-docker-compose ps
-
-# Check specific service health
-curl http://localhost:8003/health  # project-management-service
-curl http://localhost:8008/health  # neo4j-retrieval-service
+# Test token exchange (with a valid Azure token)
+curl -X POST http://localhost:8020/auth/exchange \
+  -H "Content-Type: application/json" \
+  -d '{"access_token": "your-azure-token"}'
 ```
 
-### Step 3: Configure VS Code MCP Settings
+### Connection Refused Errors
 
-Open VS Code settings and add the MCP server configuration.
+```bash
+# Verify Docker network
+docker network ls
+docker network inspect git_epic_creator_network
 
-#### Option A: Using settings.json (Recommended)
-
-1. Open VS Code Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
-2. Type "Preferences: Open User Settings (JSON)"
-3. Add the MCP configuration:
-
-**For Windows:**
-```json
-{
-  "github.copilot.chat.mcpServers": {
-    "neo4j-retrieval": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--network", "git_epic_creator_network",
-        "-e", "PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000",
-        "-e", "GRAPH_RAG_SERVICE_URL=http://neo4j-retrieval-service:8000",
-        "-e", "REDIS_URL=redis://redis:6379",
-        "neo4j_retrieval_mcp_server"
-      ]
-    }
-  }
-}
+# Test service connectivity from within Docker
+docker run --rm --network git_epic_creator_network curlimages/curl \
+  curl -f http://authentication-service:8020/health
 ```
 
-**For macOS/Linux with host network:**
-```json
-{
-  "github.copilot.chat.mcpServers": {
-    "neo4j-retrieval": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--network", "host",
-        "-e", "PROJECT_MANAGEMENT_SERVICE_URL=http://localhost:8003",
-        "-e", "GRAPH_RAG_SERVICE_URL=http://localhost:8008",
-        "-e", "REDIS_URL=redis://localhost:6379",
-        "neo4j_retrieval_mcp_server"
-      ]
-    }
-  }
-}
-```
+### OAuth Flow Not Working
 
-**For Windows/macOS using host.docker.internal:**
-```json
-{
-  "github.copilot.chat.mcpServers": {
-    "neo4j-retrieval": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "-e", "PROJECT_MANAGEMENT_SERVICE_URL=http://host.docker.internal:8003",
-        "-e", "GRAPH_RAG_SERVICE_URL=http://host.docker.internal:8008",
-        "-e", "REDIS_URL=redis://host.docker.internal:6379",
-        "neo4j_retrieval_mcp_server"
-      ]
-    }
-  }
-}
-```
-
-#### Option B: Using Workspace Settings
-
-Create `.vscode/settings.json` in your workspace:
-
-```json
-{
-  "github.copilot.chat.mcpServers": {
-    "neo4j-retrieval": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--network", "git_epic_creator_network",
-        "-e", "PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000",
-        "-e", "GRAPH_RAG_SERVICE_URL=http://neo4j-retrieval-service:8000",
-        "-e", "REDIS_URL=redis://redis:6379",
-        "neo4j_retrieval_mcp_server"
-      ]
-    }
-  }
-}
-```
-
-### Step 4: Restart VS Code
-
-After adding the configuration:
-1. Close VS Code completely
-2. Reopen VS Code
-3. Open Copilot Chat (`Ctrl+Shift+I` / `Cmd+Shift+I`)
-
-### Step 5: Verify MCP Server is Connected
-
-In Copilot Chat, you should see the MCP tools available. Test by asking:
-
-```
-@neo4j-retrieval What projects are available?
-```
-
-Or directly use the tools:
-```
-Use the resolve_project tool to find "billing"
-```
-
-### Troubleshooting
-
-#### MCP Server Not Appearing in Copilot
-
-1. **Check Docker is running:**
-   ```bash
-   docker ps
-   ```
-
-2. **Test the MCP server manually:**
-   ```bash
-   # Run interactively to see any errors
-   docker run -it --rm \
-     --network git_epic_creator_network \
-     -e PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000 \
-     -e GRAPH_RAG_SERVICE_URL=http://neo4j-retrieval-service:8000 \
-     neo4j_retrieval_mcp_server
-   ```
-
-3. **Check VS Code Output:**
-   - Open Output panel (`Ctrl+Shift+U`)
-   - Select "GitHub Copilot Chat" from dropdown
-   - Look for MCP-related errors
-
-#### Connection Refused Errors
-
-1. **Verify network connectivity:**
-   ```bash
-   # List Docker networks
-   docker network ls
-   
-   # Inspect the network
-   docker network inspect git_epic_creator_network
-   ```
-
-2. **Check service health:**
-   ```bash
-   # From within the Docker network
-   docker run --rm --network git_epic_creator_network curlimages/curl \
-     curl -f http://project-management-service:8000/health
-   ```
-
-#### Authentication Errors
-
-The MCP server currently doesn't pass authentication tokens. Ensure your services allow unauthenticated access for development, or configure appropriate service accounts.
-
-### Local Development (Without Docker)
-
-For development without Docker:
-
-```json
-{
-  "github.copilot.chat.mcpServers": {
-    "neo4j-retrieval": {
-      "command": "python",
-      "args": ["-m", "main"],
-      "cwd": "${workspaceFolder}/services/neo4j_retrieval_mcp_server/src",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/services/neo4j_retrieval_mcp_server/src:${workspaceFolder}/services/shared/src",
-        "PROJECT_MANAGEMENT_SERVICE_URL": "http://localhost:8003",
-        "GRAPH_RAG_SERVICE_URL": "http://localhost:8008",
-        "REDIS_URL": "redis://localhost:6379"
-      }
-    }
-  }
-}
-```
-
-### Example Copilot Conversations
-
-Once connected, you can ask Copilot questions like:
-
-```
-# Find a project
-@neo4j-retrieval Find the billing project
-
-# Query the knowledge graph
-@neo4j-retrieval How does authentication work in the billing system?
-
-# Technical questions
-@neo4j-retrieval What are the main API endpoints in the risk analytics project?
-
-# Architecture questions  
-@neo4j-retrieval Explain the data flow for payment processing
-```
-
-Copilot will automatically:
-1. Call `resolve_project` to get the project UUID
-2. Call `retrieve_context` with your question
-3. Synthesize the response with citations from the knowledge graph
-
-## Health Check
-
-### health_check Tool
-
-Returns service health and upstream dependency status.
-
-**Response Schema:**
-```json
-{
-  "status": "string",                      // 'healthy' | 'degraded'
-  "upstream": {
-    "project_management_service": "string", // 'connected' | 'disconnected'
-    "retrieval_service": "string"           // 'connected' | 'disconnected'
-  }
-}
-```
+1. **Check Azure AD configuration**: Verify client ID and tenant ID
+2. **Check redirect URI**: Ensure `vscode://...` is registered in Azure AD app
+3. **Check scopes**: Ensure API permissions are granted in Azure AD
+4. **For mock auth**: Use `https://localhost:8005` and accept self-signed certificate
 
 ## Development
 
 ### Directory Structure
 ```
 src/
-├── main.py               # FastMCP entrypoint with tools
-├── adapter.py            # HTTP Clients (reuses shared patterns)
-└── config.py             # Settings (extends shared configurations)
+├── main.py               # FastMCP entrypoint with tools + OAuth discovery
+├── adapter.py            # HTTP Clients for upstream services
+├── config.py             # Settings (extends shared configurations)
+└── auth.py               # MCP authentication handler
 tests/
 ├── __init__.py
 └── test_mcp_tools.py     # Tool tests
 ```
-
-### Dependencies
-
-This service depends on the `shared` library (same as all other services):
-- `shared @ file:../shared` in pyproject.toml
-- Dockerfile copies and installs shared before service dependencies
-
-### Prerequisites
-Both `project_management_service` and `neo4j_retrieval_service` must be running. This server contains **no** database drivers or LLM clients; it is strictly a protocol translator.
 
 ### Running Locally
 
@@ -507,22 +509,17 @@ cd ../shared && pip install -e . && cd ../neo4j_retrieval_mcp_server
 # Install service dependencies
 pip install -e .
 
-# Run with stdio transport (default)
+# Run with stdio transport (default, no OAuth)
 python -m main
 
-# Run with HTTP transport
-python -m main --http
-# or
+# Run with HTTP transport (with OAuth discovery)
 MCP_TRANSPORT=http python -m main
 ```
 
 ### Running Tests
 
 ```bash
-# Install dev dependencies
 pip install -e ".[dev]"
-
-# Run tests
 pytest tests/
 ```
 
@@ -534,21 +531,70 @@ pytest tests/
 docker build -t neo4j_retrieval_mcp_server -f ./neo4j_retrieval_mcp_server/Dockerfile ./services
 ```
 
-### Run with HTTP Transport
+### Run with HTTP Transport (OAuth enabled)
 
 ```bash
 docker run -p 8082:8082 \
   -e MCP_TRANSPORT=http \
+  -e MCP_SERVER_URL=http://localhost:8082 \
+  -e AUTH_SERVICE_URL=http://host.docker.internal:8020 \
   -e PROJECT_MANAGEMENT_SERVICE_URL=http://host.docker.internal:8003 \
-  -e RETRIEVAL_SERVICE_URL=http://host.docker.internal:8008 \
+  -e GRAPH_RAG_SERVICE_URL=http://host.docker.internal:8008 \
+  -e AZURE_TENANT_ID=your-tenant-id \
+  -e AZURE_CLIENT_ID=your-client-id \
   neo4j_retrieval_mcp_server
 ```
 
-### Run with Stdio Transport (for Copilot)
+### Run with Stdio Transport
 
 ```bash
 docker run -i --rm \
+  -e AUTH_SERVICE_URL=http://host.docker.internal:8020 \
   -e PROJECT_MANAGEMENT_SERVICE_URL=http://host.docker.internal:8003 \
-  -e RETRIEVAL_SERVICE_URL=http://host.docker.internal:8008 \
+  -e GRAPH_RAG_SERVICE_URL=http://host.docker.internal:8008 \
   neo4j_retrieval_mcp_server
 ```
+
+Note: Azure AD authentication is required. For stdio transport, tokens can be passed via MCP context params.
+
+## Health Check
+
+### health_check Tool
+
+Returns service health and upstream dependency status.
+
+**Response Schema:**
+```json
+{
+  "status": "healthy|degraded",
+  "upstream": {
+    "authentication_service": "connected|disconnected",
+    "project_management_service": "connected|disconnected",
+    "retrieval_service": "connected|disconnected"
+  }
+}
+```
+
+### HTTP Endpoint
+
+```bash
+curl http://localhost:8082/health
+```
+
+## Security Considerations
+
+### Token Handling
+
+- OAuth tokens from VS Code are **never stored** by the MCP server
+- Tokens are exchanged immediately for LOCAL JWTs (1 hour TTL, same as other services)
+- LOCAL JWTs are cached in-memory for performance (with 60s buffer before expiry)
+- Azure AD authentication is REQUIRED - there is no service account fallback
+
+### Production Checklist
+
+- [ ] Use real Azure AD (not mock auth service)
+- [ ] Configure proper OAuth redirect URIs in Azure AD
+- [ ] Set `MCP_SERVER_URL` to the actual production URL
+- [ ] Use HTTPS for MCP server (HTTP transport)
+- [ ] Restrict network access to authentication-service
+- [ ] Monitor token exchange logs for anomalies
