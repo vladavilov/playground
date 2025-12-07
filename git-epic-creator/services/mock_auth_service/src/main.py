@@ -45,16 +45,12 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/{tenant_id}/v2.0/.well-known/openid-configuration")
-async def openid_configuration(tenant_id: str):
+def _get_authorization_server_metadata() -> dict:
     """
-    OpenID Connect Discovery endpoint (RFC 8414).
+    Build Authorization Server Metadata (RFC 8414 / OpenID Connect Discovery).
     
-    Returns authorization server metadata for OAuth clients like VS Code MCP.
+    This is the source of truth for OAuth endpoints that MCP clients discover.
     """
-    if tenant_id != MOCK_TENANT_ID:
-        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
-
     return {
         "issuer": ISSUER,
         "authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/authorize",
@@ -63,7 +59,7 @@ async def openid_configuration(tenant_id: str):
         "jwks_uri": f"{BASE_URL}/{MOCK_TENANT_ID}/discovery/v2.0/keys",
         "device_authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/devicecode",
         "end_session_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/logout",
-        # Supported OAuth features (aligned with MCP server config)
+        # Supported OAuth features
         "response_types_supported": ["code", "id_token", "code id_token", "id_token token"],
         "response_modes_supported": ["query", "fragment", "form_post"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
@@ -78,6 +74,51 @@ async def openid_configuration(tenant_id: str):
             "name", "tid", "ver", "oid", "email", "roles"
         ],
     }
+
+
+# RFC 8414 path-insertion format: /.well-known/oauth-authorization-server/{issuer-path}
+# Per MCP spec, clients try this FIRST for authorization server discovery
+@app.get("/.well-known/oauth-authorization-server/{tenant_id}/v2.0")
+async def oauth_authorization_server_metadata_path_insertion(tenant_id: str):
+    """
+    OAuth 2.0 Authorization Server Metadata (RFC 8414) - path insertion format.
+    
+    MCP clients try this endpoint FIRST per the MCP Authorization spec.
+    URL format: /.well-known/oauth-authorization-server/{tenant_id}/v2.0
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    return _get_authorization_server_metadata()
+
+
+# OIDC path-insertion format: /.well-known/openid-configuration/{issuer-path}
+# Per MCP spec, clients try this SECOND for authorization server discovery
+@app.get("/.well-known/openid-configuration/{tenant_id}/v2.0")
+async def openid_configuration_path_insertion(tenant_id: str):
+    """
+    OpenID Connect Discovery (path insertion format).
+    
+    MCP clients try this endpoint SECOND per the MCP Authorization spec.
+    URL format: /.well-known/openid-configuration/{tenant_id}/v2.0
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    return _get_authorization_server_metadata()
+
+
+# OIDC path-appending format: /{issuer-path}/.well-known/openid-configuration
+# Per MCP spec, clients try this THIRD for authorization server discovery
+@app.get("/{tenant_id}/v2.0/.well-known/openid-configuration")
+async def openid_configuration(tenant_id: str):
+    """
+    OpenID Connect Discovery (path appending format).
+    
+    MCP clients try this endpoint THIRD per the MCP Authorization spec.
+    URL format: /{tenant_id}/v2.0/.well-known/openid-configuration
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    return _get_authorization_server_metadata()
 
 
 @app.get("/{tenant_id}/discovery/v2.0/keys")

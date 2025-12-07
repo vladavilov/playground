@@ -119,48 +119,40 @@ def _get_oauth_endpoints() -> OAuthEndpoints:
     )
 
 
+def get_required_scope() -> str:
+    """
+    Get required scope string for WWW-Authenticate header (RFC 6750 Section 3).
+    
+    Per MCP spec, servers SHOULD include scope in WWW-Authenticate to provide
+    immediate guidance on appropriate scopes to request during authorization.
+    """
+    endpoints = _get_oauth_endpoints()
+    return " ".join(endpoints.base_scopes)
+
+
 def get_oauth_discovery_metadata() -> dict:
     """
     Get OAuth Protected Resource Metadata (RFC 9728).
     
     Returned at /.well-known/oauth-protected-resource for VS Code discovery.
+    
+    Per MCP spec, MCP clients will:
+    1. Fetch this metadata to get authorization_servers list
+    2. Query authorization server metadata at those URLs to discover endpoints
+    
+    Note: authorization_endpoint/token_endpoint are NOT part of RFC 9728.
+    They must be discovered from Authorization Server Metadata (RFC 8414).
     """
     endpoints = _get_oauth_endpoints()
     mcp = get_mcp_settings()
     
     return {
+        # RFC 9728 required fields
         "resource": f"{mcp.MCP_SERVER_URL}/mcp",
         "authorization_servers": [endpoints.issuer],
         "bearer_methods_supported": ["header"],
         "scopes_supported": endpoints.base_scopes,
         "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server",
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "authorization_endpoint": endpoints.authorization_endpoint,
-        "token_endpoint": endpoints.token_endpoint,
-        "userinfo_endpoint": endpoints.userinfo_endpoint,
-        "client_id": endpoints.client_id,
     }
 
 
-def get_authorization_server_metadata() -> dict:
-    """
-    Get OAuth Authorization Server Metadata (RFC 8414).
-    
-    Returned at /.well-known/oauth-authorization-server for full OAuth discovery.
-    """
-    endpoints = _get_oauth_endpoints()
-    
-    return {
-        "issuer": endpoints.issuer,
-        "authorization_endpoint": endpoints.authorization_endpoint,
-        "token_endpoint": endpoints.token_endpoint,
-        "jwks_uri": endpoints.jwks_uri,
-        "response_types_supported": ["code", "id_token", "code id_token"],
-        "response_modes_supported": ["query", "fragment", "form_post"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "scopes_supported": endpoints.extended_scopes,
-        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
-        "code_challenge_methods_supported": ["S256"],
-        "userinfo_endpoint": endpoints.userinfo_endpoint,
-        "client_id": endpoints.client_id,
-    }

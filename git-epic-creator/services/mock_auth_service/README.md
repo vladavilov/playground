@@ -4,9 +4,11 @@ A FastAPI-based mock authentication service that emulates Azure AD OIDC endpoint
 
 ## Features
 
+- **MCP Authorization Spec Compliance**: Supports all three RFC 8414 discovery URL formats required by MCP clients
 - **OIDC Discovery Endpoint**: Provides standard OpenID Connect configuration
 - **JWT Token Generation**: Issues signed JWT tokens with configurable claims
 - **JWKS Endpoint**: Serves public keys for token verification
+- **PKCE Support**: Supports S256 and plain code challenge methods
 - **Persistent Key Management**: Maintains RSA keys across service restarts
 - **Flexible Key Configuration**: Supports environment variables and file-based key storage
 - **Docker Support**: Ready for containerized deployment
@@ -159,10 +161,23 @@ services:
 
 ### API Endpoints
 
+#### Authorization Server Metadata Discovery (RFC 8414)
+
+MCP clients per the [MCP Authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) try these endpoints in order:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/.well-known/oauth-authorization-server/{tenant_id}/v2.0` | GET | RFC 8414 path insertion (tried FIRST) |
+| `/.well-known/openid-configuration/{tenant_id}/v2.0` | GET | OIDC path insertion (tried SECOND) |
+| `/{tenant_id}/v2.0/.well-known/openid-configuration` | GET | OIDC path appending (tried THIRD) |
+
+All three endpoints return the same Authorization Server Metadata including `authorization_endpoint`, `token_endpoint`, etc.
+
+#### OAuth Flow Endpoints
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check endpoint |
-| `/{tenant_id}/v2.0/.well-known/openid-configuration` | GET | OIDC discovery document (RFC 8414) |
 | `/{tenant_id}/discovery/v2.0/keys` | GET | JWKS endpoint (public keys for token verification) |
 | `/{tenant_id}/oauth2/v2.0/token` | POST | Token endpoint: `authorization_code`, `refresh_token` grants |
 | `/{tenant_id}/oauth2/v2.0/authorize` | GET | Authorization endpoint (issues code; supports PKCE S256/plain) |

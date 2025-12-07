@@ -30,46 +30,45 @@ This MCP server is designed to work with GitHub Copilot in VS Code using VS Code
 
 ### How It Works: OAuth Discovery Flow
 
-VS Code's MCP client handles the entire OAuth flow automatically using OAuth 2.0 Protected Resource Metadata (RFC 9728):
+VS Code's MCP client handles the entire OAuth flow automatically per the [MCP Authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization):
 
 ```mermaid
 sequenceDiagram
     participant VSCode as VS Code
     participant MCP as MCP Server
-    participant Auth as Auth Service
-    participant Azure as Azure AD
+    participant AuthSvc as Auth Server (Azure AD/Mock)
+    participant Backend as Backend Services
 
     VSCode->>MCP: Initial MCP request (no token)
-    MCP-->>VSCode: 401 Unauthorized
-    Note over VSCode: Checks WWW-Authenticate header
+    MCP-->>VSCode: 401 + WWW-Authenticate: Bearer resource_metadata="..."
     
+    Note over VSCode: Step 1: Discover Protected Resource
     VSCode->>MCP: GET /.well-known/oauth-protected-resource
-    MCP-->>VSCode: OAuth metadata (endpoints, scopes, client_id)
-    Note over MCP: Includes explicit Azure AD endpoints
+    MCP-->>VSCode: {authorization_servers: ["...issuer..."]}
     
-    Note over VSCode: Opens browser for Azure AD login
-    VSCode->>Azure: OAuth authorization (browser)
-    Azure-->>VSCode: Authorization code
-    VSCode->>Azure: Exchange code for tokens
-    Azure-->>VSCode: Access token
+    Note over VSCode: Step 2: Discover Authorization Server
+    VSCode->>AuthSvc: GET /.well-known/oauth-authorization-server/{issuer-path}
+    AuthSvc-->>VSCode: {authorization_endpoint, token_endpoint, ...}
     
-    VSCode->>MCP: GET /userinfo + Bearer {azure_token}
-    MCP->>Auth: Exchange Azure token for LOCAL JWT
-    Auth-->>MCP: {access_token, user_id, roles}
-    MCP-->>VSCode: User info (sub, email, roles)
+    Note over VSCode: Step 3: OAuth Authorization Flow
+    VSCode->>AuthSvc: GET /authorize (browser)
+    AuthSvc-->>VSCode: Authorization code
+    VSCode->>AuthSvc: POST /token (exchange code)
+    AuthSvc-->>VSCode: Access token
     
+    Note over VSCode: Step 4: Authenticated MCP Request
     VSCode->>MCP: MCP request + Authorization: Bearer {token}
-    MCP->>Auth: Exchange Azure token for LOCAL JWT
-    Auth-->>MCP: S2S JWT token
-    MCP->>PMS: Request + S2S JWT
-    PMS-->>MCP: Response
+    MCP->>Backend: Forward with exchanged token
+    Backend-->>MCP: Response
     MCP-->>VSCode: MCP response
 ```
 
-**Key OAuth Discovery Fields:**
-- `authorization_endpoint` and `token_endpoint`: Explicit Azure AD URLs prevent VS Code from hitting `http://localhost:8082/authorize`
-- `userinfo_endpoint`: Points to MCP server for user identity discovery
-- `client_id`: Required for OAuth flow initialization
+**Key Discovery Steps per MCP Spec:**
+1. MCP client gets 401 with `WWW-Authenticate: Bearer resource_metadata="...", scope="..."` header
+2. Client fetches Protected Resource Metadata (RFC 9728) from the resource_metadata URL
+3. Client discovers `authorization_servers` and fetches Authorization Server Metadata (RFC 8414)
+4. Client uses discovered `authorization_endpoint` and `token_endpoint` for OAuth flow
+5. Client uses `scope` from WWW-Authenticate header (or `scopes_supported` from metadata) to request appropriate permissions
 
 ### Step 1: Configure VS Code settings and MCP server configuration
 
@@ -105,43 +104,21 @@ sequenceDiagram
 
 ### Step 2: Configure MCP Authentication integration with VS Code
 
-#### 2.1 Automatic configuration (preferred) 
+The MCP server implements the [MCP Authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization):
 
-The MCP server exposes `/.well-known/oauth-protected-resource` which returns:
-- `authorization_servers`: Azure AD authorization server URL
-- `authorization_endpoint`: Explicit Azure AD authorization URL (prevents VS Code from hitting MCP server)
-- `token_endpoint`: Explicit Azure AD token URL
-- `userinfo_endpoint`: MCP server's user discovery endpoint
-- `client_id`: Azure AD application client ID
-- `scopes_supported`: Required OAuth scopes
-- `bearer_methods_supported`: How to send the token (header)
-- `grant_types_supported`: Supported OAuth flows
-
-#### 2.2 Local Development (Mock Auth Service)
-
-For local development, you can use a mock auth service.
-
-Add the following to the MCP server configuration file:
-
-```json
-{
-  "servers": {
-    "neo4j-retrieval": {
-      "type": "http",
-      "url": "http://localhost:8082/mcp",
-      "authorization": {
-        "type": "oauth2",
-        "configuration": {
-          "clientId": "00000000-0000-0000-0000-000000000001",
-          "authorizationUrl": "https://localhost:8005/00000000-0000-0000-0000-000000000000/oauth2/v2.0/authorize",
-          "tokenUrl": "https://localhost:8005/00000000-0000-0000-0000-000000000000/oauth2/v2.0/token",
-          "scopes": ["api://00000000-0000-0000-0000-000000000001/user_impersonation"]
-        }
-      }
-    }
-  }
-}
-```
+1. Returns `401 Unauthorized` with `WWW-Authenticate: Bearer resource_metadata="...", scope="..."` header
+   - `resource_metadata`: URL to Protected Resource Metadata (RFC 9728)
+   - `scope`: Required scopes for client guidance (RFC 6750 Section 3)
+   
+2. Exposes `/.well-known/oauth-protected-resource` (RFC 9728) with:
+   - `authorization_servers`: List of authorization server issuer URLs
+   - `bearer_methods_supported`: How to send the token (header)
+   - `scopes_supported`: Required OAuth scopes
+   
+3. VS Code then fetches Authorization Server Metadata (RFC 8414) from the issuer URL to discover:
+   - `authorization_endpoint`: Where to authenticate
+   - `token_endpoint`: Where to exchange codes for tokens
+   - Other OAuth configuration
 
 ### Step 3: Use the MCP Tools
 
@@ -203,11 +180,11 @@ If no token is found, HTTP 401 is returned to trigger the OAuth discovery flow.
 
 ## OAuth Discovery Endpoints
 
-The MCP server exposes two OAuth discovery endpoints following RFC specifications:
+The MCP server implements OAuth discovery per the [MCP Authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization).
 
 ### GET /.well-known/oauth-protected-resource
 
-Returns OAuth 2.0 Protected Resource Metadata (RFC 9728) for VS Code's OAuth discovery. Includes explicit Azure AD endpoints to ensure VS Code correctly routes to Azure AD instead of the MCP server's own endpoints.
+Returns OAuth 2.0 Protected Resource Metadata (RFC 9728). Per the MCP spec, this tells clients where to find the authorization server.
 
 **Response:**
 ```json
@@ -223,26 +200,26 @@ Returns OAuth 2.0 Protected Resource Metadata (RFC 9728) for VS Code's OAuth dis
     "profile",
     "email"
   ],
-  "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server",
-  "grant_types_supported": ["authorization_code", "refresh_token"],
-  "authorization_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize",
-  "token_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
-  "userinfo_endpoint": "http://localhost:8082/userinfo",
-  "client_id": "{client-id}"
+  "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server"
 }
 ```
 
 **Key Fields:**
-- `authorization_endpoint` / `token_endpoint`: Explicit Azure AD endpoints to prevent VS Code from hitting `http://localhost:8082/authorize`
-- `userinfo_endpoint`: Points to MCP server's user discovery endpoint
-- `grant_types_supported`: Declares support for authorization_code and refresh_token flows
-- `client_id`: Azure AD application client ID for OAuth flow
+- `authorization_servers`: List of issuer URLs. VS Code will query these for Authorization Server Metadata
+- `bearer_methods_supported`: How to send the token (header)
+- `scopes_supported`: OAuth scopes the resource requires
 
-### GET /.well-known/oauth-authorization-server
+**Note:** Per RFC 9728 and MCP spec, `authorization_endpoint` and `token_endpoint` are NOT included here. MCP clients discover those by fetching Authorization Server Metadata from the URLs in `authorization_servers`.
 
-Returns OAuth 2.0 Authorization Server Metadata (RFC 8414). Some MCP clients may query this endpoint for full authorization server discovery.
+### Authorization Server Metadata Discovery
 
-**Response:**
+After getting the `authorization_servers` list, MCP clients query the authorization server for OAuth endpoints. Per the MCP spec, clients try these endpoints in order:
+
+1. `/.well-known/oauth-authorization-server/{tenant-id}/v2.0` (RFC 8414 path insertion)
+2. `/.well-known/openid-configuration/{tenant-id}/v2.0` (OIDC path insertion)
+3. `/{tenant-id}/v2.0/.well-known/openid-configuration` (OIDC path appending)
+
+The authorization server (Azure AD or mock_auth_service) responds with:
 ```json
 {
   "issuer": "https://login.microsoftonline.com/{tenant-id}/v2.0",
@@ -250,26 +227,13 @@ Returns OAuth 2.0 Authorization Server Metadata (RFC 8414). Some MCP clients may
   "token_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
   "jwks_uri": "https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys",
   "response_types_supported": ["code", "id_token", "code id_token"],
-  "response_modes_supported": ["query", "fragment", "form_post"],
   "grant_types_supported": ["authorization_code", "refresh_token"],
-  "scopes_supported": [
-    "api://{client-id}/user_impersonation",
-    "openid",
-    "profile",
-    "email",
-    "offline_access"
-  ],
-  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
-  "code_challenge_methods_supported": ["S256"],
-  "userinfo_endpoint": "http://localhost:8082/userinfo",
-  "client_id": "{client-id}"
+  "code_challenge_methods_supported": ["S256", "plain"],
+  ...
 }
 ```
 
-**Key Fields:**
-- `issuer`: Azure AD v2.0 issuer URL
-- `jwks_uri`: Azure AD JWKS endpoint for token verification
-- `code_challenge_methods_supported`: PKCE support (S256)
+This tells VS Code exactly where to send the user for authentication.
 
 ### GET /userinfo
 
@@ -519,37 +483,37 @@ The MCP server subscribes to Redis pub/sub channel `ui:retrieval_progress` to re
 ### OAuth Discovery Not Working
 
 ```bash
-# Test Protected Resource Metadata (RFC 9728)
+# Step 1: Test Protected Resource Metadata (RFC 9728) from MCP server
 curl -v http://localhost:8082/.well-known/oauth-protected-resource
 
-# Expected response (verify these fields are present):
+# Expected response (note: NO authorization_endpoint here per RFC 9728):
 {
   "resource": "http://localhost:8082/mcp",
-  "authorization_servers": ["https://login.microsoftonline.com/.../v2.0"],
-  "authorization_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/authorize",
-  "token_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/token",
-  "userinfo_endpoint": "http://localhost:8082/userinfo",
-  "client_id": "your-client-id",
+  "authorization_servers": ["https://login.microsoftonline.com/{tenant}/v2.0"],
   "bearer_methods_supported": ["header"],
   "scopes_supported": [...]
 }
 
-# Test Authorization Server Metadata (RFC 8414)
-curl -v http://localhost:8082/.well-known/oauth-authorization-server
+# Step 2: Test Authorization Server Metadata (RFC 8414) from auth server
+# MCP clients try these endpoints in order:
+curl -v http://mock-auth-service:8005/.well-known/oauth-authorization-server/{tenant}/v2.0
+curl -v http://mock-auth-service:8005/.well-known/openid-configuration/{tenant}/v2.0
+curl -v http://mock-auth-service:8005/{tenant}/v2.0/.well-known/openid-configuration
 
-# Expected response:
+# Expected response (authorization_endpoint comes from HERE):
 {
-  "issuer": "https://login.microsoftonline.com/.../v2.0",
-  "authorization_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/authorize",
-  "token_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/token",
-  "jwks_uri": "https://login.microsoftonline.com/.../discovery/v2.0/keys",
+  "issuer": "http://mock-auth-service:8005/{tenant}/v2.0",
+  "authorization_endpoint": "http://mock-auth-service:8005/{tenant}/oauth2/v2.0/authorize",
+  "token_endpoint": "http://mock-auth-service:8005/{tenant}/oauth2/v2.0/token",
+  "jwks_uri": "http://mock-auth-service:8005/{tenant}/discovery/v2.0/keys",
+  "code_challenge_methods_supported": ["S256", "plain"],
   ...
 }
 
 # If VS Code is hitting http://localhost:8082/authorize instead of Azure AD:
-# - Verify authorization_endpoint points to Azure AD in both responses
-# - Check that client_id is present in both responses
-# - Ensure issuer in oauth-authorization-server matches Azure AD
+# 1. Verify MCP server returns authorization_servers pointing to auth server
+# 2. Verify auth server serves metadata at /.well-known/oauth-authorization-server/{issuer-path}
+# 3. Verify the authorization_endpoint in auth server metadata is correct
 ```
 
 ### Userinfo Endpoint Not Working

@@ -49,7 +49,7 @@ from config import (
     get_project_management_url, 
     get_retrieval_service_url,
     get_oauth_discovery_metadata,
-    get_authorization_server_metadata
+    get_required_scope
 )
 from adapter import ProjectManagementAdapter, RetrievalServiceAdapter
 from auth import MCPAuthHandler
@@ -69,7 +69,6 @@ class OAuthAuthenticationMiddleware(BaseHTTPMiddleware):
     # Endpoints that don't require authentication (or handle it internally)
     PUBLIC_PATHS = {
         "/.well-known/oauth-protected-resource",
-        "/.well-known/oauth-authorization-server",
         "/health",
         "/userinfo",  # Handles own authentication for VS Code user discovery
     }
@@ -86,14 +85,16 @@ class OAuthAuthenticationMiddleware(BaseHTTPMiddleware):
         if not auth_header.startswith("Bearer "):
             mcp_settings = get_mcp_settings()
             resource_metadata_url = f"{mcp_settings.MCP_SERVER_URL}/.well-known/oauth-protected-resource"
+            scope = get_required_scope()
             
             logger.debug("No Bearer token provided, returning 401", path=path)
+            # RFC 9728 Section 5.1 + RFC 6750 Section 3: Include scope for client guidance
             return Response(
                 content='{"error": "unauthorized", "message": "Authentication required"}',
                 status_code=401,
                 media_type="application/json",
                 headers={
-                    "WWW-Authenticate": f'Bearer resource="{resource_metadata_url}"'
+                    "WWW-Authenticate": f'Bearer resource_metadata="{resource_metadata_url}", scope="{scope}"'
                 }
             )
         
@@ -502,31 +503,6 @@ async def oauth_protected_resource_metadata(request: Request) -> JSONResponse:
     """
     metadata = get_oauth_discovery_metadata()
     logger.info("OAuth protected resource metadata requested")
-    return JSONResponse(metadata)
-
-
-@mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
-async def oauth_authorization_server_metadata(request: Request) -> JSONResponse:
-    """
-    OAuth 2.0 Authorization Server Metadata endpoint (RFC 8414).
-    
-    VS Code MCP client may query this endpoint to discover full OAuth
-    authorization server configuration. Returns Azure AD metadata with
-    MCP-specific extensions.
-    
-    Returns:
-    - issuer: Azure AD v2.0 issuer URL
-    - authorization_endpoint: Azure AD authorization URL
-    - token_endpoint: Azure AD token URL
-    - jwks_uri: Azure AD JWKS URL for token verification
-    - response_types_supported: Supported OAuth response types
-    - grant_types_supported: Supported OAuth grant types
-    - scopes_supported: Available OAuth scopes
-    - userinfo_endpoint: MCP server's userinfo endpoint
-    - client_id: Azure AD application client ID
-    """
-    metadata = get_authorization_server_metadata()
-    logger.info("OAuth authorization server metadata requested")
     return JSONResponse(metadata)
 
 
