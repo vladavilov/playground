@@ -171,7 +171,15 @@ MCP clients per the [MCP Authorization spec](https://modelcontextprotocol.io/spe
 | `/.well-known/openid-configuration/{tenant_id}/v2.0` | GET | OIDC path insertion (tried SECOND) |
 | `/{tenant_id}/v2.0/.well-known/openid-configuration` | GET | OIDC path appending (tried THIRD) |
 
-All three endpoints return the same Authorization Server Metadata including `authorization_endpoint`, `token_endpoint`, etc.
+All three endpoints return the same Authorization Server Metadata including `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, etc.
+
+#### Dynamic Client Registration (RFC 7591)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/{tenant_id}/oauth2/v2.0/register` | POST | Register a new OAuth client dynamically |
+
+This endpoint enables VS Code's MCP client to automatically register itself without manual configuration. See [Dynamic Client Registration](#dynamic-client-registration) section below.
 
 #### OAuth Flow Endpoints
 
@@ -184,6 +192,43 @@ All three endpoints return the same Authorization Server Metadata including `aut
 | `/{tenant_id}/v2.0/userinfo` | GET | UserInfo endpoint (returns mock user profile) |
 | `/{tenant_id}/oauth2/v2.0/devicecode` | POST | Device code endpoint (mock) |
 | `/{tenant_id}/oauth2/v2.0/logout` | POST | Logout endpoint (mock) |
+
+### Dynamic Client Registration
+
+The mock auth service supports OAuth 2.0 Dynamic Client Registration (RFC 7591), which allows MCP clients like VS Code to automatically register themselves.
+
+**Request:**
+```bash
+curl -X POST "https://localhost:8005/{tenant_id}/oauth2/v2.0/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "redirect_uris": ["http://127.0.0.1:33418", "https://vscode.dev/redirect"],
+    "client_name": "VS Code MCP Client",
+    "grant_types": ["authorization_code"],
+    "response_types": ["code"],
+    "token_endpoint_auth_method": "none"
+  }'
+```
+
+**Response (201 Created):**
+```json
+{
+  "client_id": "generated-uuid",
+  "client_name": "VS Code MCP Client",
+  "redirect_uris": ["http://127.0.0.1:33418", "https://vscode.dev/redirect"],
+  "grant_types": ["authorization_code"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "client_id_issued_at": 1733601234
+}
+```
+
+**Supported Parameters:**
+- `redirect_uris` (required): Array of allowed redirect URIs
+- `client_name` (optional): Human-readable client name
+- `grant_types` (optional): Default `["authorization_code"]`
+- `response_types` (optional): Default `["code"]`
+- `token_endpoint_auth_method` (optional): `none` for public clients (default), `client_secret_basic` or `client_secret_post` for confidential clients
 
 ### Token Endpoint Authentication
 

@@ -39,6 +39,21 @@ ISSUER = f"{BASE_URL}/{MOCK_TENANT_ID}/v2.0"
 auth_codes: Dict[str, Dict[str, Any]] = {}
 refresh_sessions: Dict[str, Dict[str, Any]] = {}
 
+# Dynamic Client Registration store (RFC 7591)
+# Maps client_id -> client registration data
+registered_clients: Dict[str, Dict[str, Any]] = {
+    # Pre-register the default mock client
+    MOCK_CLIENT_ID: {
+        "client_id": MOCK_CLIENT_ID,
+        "client_secret": MOCK_CLIENT_SECRET,
+        "client_name": "Default Mock Client",
+        "redirect_uris": [],  # Accept any redirect URI for the default client
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "client_secret_post" if MOCK_CLIENT_SECRET else "none",
+    }
+}
+
 
 @app.get("/health")
 async def health():
@@ -50,6 +65,7 @@ def _get_authorization_server_metadata() -> dict:
     Build Authorization Server Metadata (RFC 8414 / OpenID Connect Discovery).
     
     This is the source of truth for OAuth endpoints that MCP clients discover.
+    Includes registration_endpoint for Dynamic Client Registration (RFC 7591).
     """
     return {
         "issuer": ISSUER,
@@ -59,12 +75,14 @@ def _get_authorization_server_metadata() -> dict:
         "jwks_uri": f"{BASE_URL}/{MOCK_TENANT_ID}/discovery/v2.0/keys",
         "device_authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/devicecode",
         "end_session_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/logout",
+        # Dynamic Client Registration (RFC 7591) - required for VS Code MCP client
+        "registration_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/register",
         # Supported OAuth features
         "response_types_supported": ["code", "id_token", "code id_token", "id_token token"],
         "response_modes_supported": ["query", "fragment", "form_post"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "scopes_supported": ["openid", "profile", "email", "offline_access"],
-        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "none"],
         "code_challenge_methods_supported": ["S256", "plain"],
         # OpenID Connect features
         "subject_types_supported": ["pairwise"],
@@ -128,6 +146,89 @@ async def get_jwks(tenant_id: str):
     return {"keys": [key_manager.get_jwk()]}
 
 
+@app.post("/{tenant_id}/oauth2/v2.0/register")
+async def dynamic_client_registration(tenant_id: str, request: Request):
+    """
+    OAuth 2.0 Dynamic Client Registration endpoint (RFC 7591).
+    
+    Allows MCP clients (like VS Code) to automatically register themselves
+    with the authorization server without manual configuration.
+    
+    Accepts:
+        - redirect_uris: List of allowed redirect URIs (required)
+        - client_name: Human-readable client name (optional)
+        - grant_types: Requested grant types (optional, defaults to authorization_code)
+        - response_types: Requested response types (optional, defaults to code)
+        - token_endpoint_auth_method: Client auth method (optional, defaults to none for public clients)
+    
+    Returns:
+        Client registration response with client_id and optional client_secret
+    """
+    if tenant_id != MOCK_TENANT_ID:
+        return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
+    
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": "invalid_request", "error_description": "Invalid JSON body"},
+            status_code=400
+        )
+    
+    # Extract registration parameters
+    redirect_uris = body.get("redirect_uris", [])
+    if not redirect_uris or not isinstance(redirect_uris, list):
+        return JSONResponse(
+            {"error": "invalid_redirect_uri", "error_description": "redirect_uris is required and must be a list"},
+            status_code=400
+        )
+    
+    client_name = body.get("client_name", "Dynamic Client")
+    grant_types = body.get("grant_types", ["authorization_code"])
+    response_types = body.get("response_types", ["code"])
+    token_endpoint_auth_method = body.get("token_endpoint_auth_method", "none")
+    
+    # Generate client credentials
+    client_id = str(uuid.uuid4())
+    
+    # For public clients (token_endpoint_auth_method=none), no secret is issued
+    # For confidential clients, generate a secret
+    client_secret = None
+    if token_endpoint_auth_method in ["client_secret_basic", "client_secret_post"]:
+        client_secret = secrets.token_urlsafe(32)
+    
+    # Store the registration
+    registration = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "client_name": client_name,
+        "redirect_uris": redirect_uris,
+        "grant_types": grant_types,
+        "response_types": response_types,
+        "token_endpoint_auth_method": token_endpoint_auth_method,
+        "registered_at": int(time.time()),
+    }
+    registered_clients[client_id] = registration
+    
+    # Build response per RFC 7591
+    response = {
+        "client_id": client_id,
+        "client_name": client_name,
+        "redirect_uris": redirect_uris,
+        "grant_types": grant_types,
+        "response_types": response_types,
+        "token_endpoint_auth_method": token_endpoint_auth_method,
+        "client_id_issued_at": registration["registered_at"],
+    }
+    
+    # Only include client_secret for confidential clients
+    if client_secret:
+        response["client_secret"] = client_secret
+        response["client_secret_expires_at"] = 0  # Never expires
+    
+    return JSONResponse(response, status_code=201)
+
+
 def _base_user_profile() -> Dict[str, Any]:
     user_object_id = str(uuid.uuid4())
     return {
@@ -140,10 +241,10 @@ def _base_user_profile() -> Dict[str, Any]:
     }
 
 
-def _sign_access_token(profile: Dict[str, Any], expires_in: int = 3600) -> str:
+def _sign_access_token(profile: Dict[str, Any], client_id: str, expires_in: int = 3600) -> str:
     now = int(time.time())
     claims = {
-        "aud": MOCK_CLIENT_ID,
+        "aud": client_id,
         "iss": ISSUER,
         "iat": now,
         "nbf": now,
@@ -160,10 +261,10 @@ def _sign_access_token(profile: Dict[str, Any], expires_in: int = 3600) -> str:
     )
 
 
-def _sign_id_token(profile: Dict[str, Any], nonce: Optional[str]) -> str:
+def _sign_id_token(profile: Dict[str, Any], client_id: str, nonce: Optional[str]) -> str:
     now = int(time.time())
     claims = {
-        "aud": MOCK_CLIENT_ID,
+        "aud": client_id,
         "iss": ISSUER,
         "iat": now,
         "exp": now + 3600,
@@ -186,12 +287,24 @@ def _sign_id_token(profile: Dict[str, Any], nonce: Optional[str]) -> str:
 
 
 def _validate_client(client_id: str, client_secret: Optional[str]) -> bool:
-    if client_id != MOCK_CLIENT_ID:
+    """
+    Validate client credentials against registered clients.
+    
+    Supports both pre-configured mock client and dynamically registered clients.
+    """
+    registration = registered_clients.get(client_id)
+    if not registration:
         return False
-    # If a secret is configured, require it; otherwise allow public client
-    if MOCK_CLIENT_SECRET:
-        return (client_secret or "") == MOCK_CLIENT_SECRET
-    return True
+    
+    expected_secret = registration.get("client_secret")
+    auth_method = registration.get("token_endpoint_auth_method", "none")
+    
+    # For public clients (none), no secret required
+    if auth_method == "none":
+        return True
+    
+    # For confidential clients, verify secret
+    return (client_secret or "") == (expected_secret or "")
 
 
 def _verify_pkce(code_verifier: Optional[str], code_challenge: Optional[str], method: Optional[str]) -> bool:
@@ -205,6 +318,30 @@ def _verify_pkce(code_verifier: Optional[str], code_challenge: Optional[str], me
         return calc == code_challenge
     # plain
     return code_verifier == code_challenge
+
+
+def _is_registered_client(client_id: str) -> bool:
+    """Check if client_id is registered (pre-configured or dynamically)."""
+    return client_id in registered_clients
+
+
+def _validate_redirect_uri(client_id: str, redirect_uri: str) -> bool:
+    """
+    Validate redirect_uri against registered client's allowed URIs.
+    
+    For the default mock client, any redirect_uri is allowed.
+    For dynamically registered clients, must match registered redirect_uris.
+    """
+    registration = registered_clients.get(client_id)
+    if not registration:
+        return False
+    
+    allowed_uris = registration.get("redirect_uris", [])
+    # Empty list means any URI is allowed (for default mock client)
+    if not allowed_uris:
+        return True
+    
+    return redirect_uri in allowed_uris
 
 
 @app.get("/{tenant_id}/oauth2/v2.0/authorize")
@@ -223,8 +360,14 @@ async def authorize_endpoint(tenant_id: str, request: Request):
 
     if response_type != "code" or not client_id or not redirect_uri:
         return JSONResponse({"error": "invalid_request"}, status_code=400)
-    if client_id != MOCK_CLIENT_ID:
-        return JSONResponse({"error": "unauthorized_client"}, status_code=401)
+    
+    # Validate client is registered (supports both pre-configured and dynamic clients)
+    if not _is_registered_client(client_id):
+        return JSONResponse({"error": "unauthorized_client", "error_description": "Client not registered"}, status_code=401)
+    
+    # Validate redirect_uri is allowed for this client
+    if not _validate_redirect_uri(client_id, redirect_uri):
+        return JSONResponse({"error": "invalid_redirect_uri", "error_description": "Redirect URI not registered"}, status_code=400)
 
     # Create authorization code representing an authenticated session
     profile = _base_user_profile()
@@ -307,8 +450,8 @@ async def token_endpoint(tenant_id: str, request: Request):
         nonce = data.get("nonce")
         profile = data.get("profile") or _base_user_profile()
 
-        access_token = _sign_access_token(profile, expires_in=3600)
-        id_token = _sign_id_token(profile, nonce)
+        access_token = _sign_access_token(profile, client_id, expires_in=3600)
+        id_token = _sign_id_token(profile, client_id, nonce)
         refresh_token = secrets.token_urlsafe(48)
         # Store refresh session
         refresh_sessions[refresh_token] = {
@@ -334,7 +477,7 @@ async def token_endpoint(tenant_id: str, request: Request):
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
         profile = session.get("profile") or _base_user_profile()
         scope = session.get("scope") or "openid profile email offline_access"
-        access_token = _sign_access_token(profile, expires_in=3600)
+        access_token = _sign_access_token(profile, client_id, expires_in=3600)
         # Optionally rotate refresh token
         new_refresh = secrets.token_urlsafe(48)
         refresh_sessions[new_refresh] = session
