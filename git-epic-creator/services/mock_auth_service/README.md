@@ -171,15 +171,22 @@ MCP clients per the [MCP Authorization spec](https://modelcontextprotocol.io/spe
 | `/.well-known/openid-configuration/{tenant_id}/v2.0` | GET | OIDC path insertion (tried SECOND) |
 | `/{tenant_id}/v2.0/.well-known/openid-configuration` | GET | OIDC path appending (tried THIRD) |
 
-All three endpoints return the same Authorization Server Metadata including `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, etc.
+All three endpoints return the same Authorization Server Metadata including:
+- `authorization_endpoint`, `token_endpoint`, `registration_endpoint`
+- `client_id_metadata_document_supported: true` - Indicates support for Client ID Metadata Documents
 
-#### Dynamic Client Registration (RFC 7591)
+#### Client Registration
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/{tenant_id}/oauth2/v2.0/register` | POST | Register a new OAuth client dynamically |
+Per the [MCP Authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization#client-registration-approaches), this mock service supports **all three** client registration approaches:
 
-This endpoint enables VS Code's MCP client to automatically register itself without manual configuration. See [Dynamic Client Registration](#dynamic-client-registration) section below.
+| Approach | Support | Description |
+|----------|---------|-------------|
+| **Client ID Metadata Documents** | ✅ Auto | Clients can use any client_id (including URLs). Service auto-registers unknown clients. |
+| **Dynamic Client Registration** | ✅ Explicit | `POST /{tenant_id}/oauth2/v2.0/register` per RFC 7591 |
+| **Pre-registration** | ✅ Config | Default client configured via `AZURE_AD_CLIENT_ID` env var |
+
+**Auto-registration for Development:**
+For maximum compatibility with MCP clients like VS Code, the authorize endpoint **automatically registers unknown clients** on first use. This eliminates the need for explicit DCR calls during development.
 
 #### OAuth Flow Endpoints
 
@@ -188,7 +195,8 @@ This endpoint enables VS Code's MCP client to automatically register itself with
 | `/health` | GET | Health check endpoint |
 | `/{tenant_id}/discovery/v2.0/keys` | GET | JWKS endpoint (public keys for token verification) |
 | `/{tenant_id}/oauth2/v2.0/token` | POST | Token endpoint: `authorization_code`, `refresh_token` grants |
-| `/{tenant_id}/oauth2/v2.0/authorize` | GET | Authorization endpoint (issues code; supports PKCE S256/plain) |
+| `/{tenant_id}/oauth2/v2.0/authorize` | GET | Authorization endpoint (auto-registers unknown clients) |
+| `/{tenant_id}/oauth2/v2.0/register` | POST | Dynamic Client Registration endpoint (RFC 7591) |
 | `/{tenant_id}/v2.0/userinfo` | GET | UserInfo endpoint (returns mock user profile) |
 | `/{tenant_id}/oauth2/v2.0/devicecode` | POST | Device code endpoint (mock) |
 | `/{tenant_id}/oauth2/v2.0/logout` | POST | Logout endpoint (mock) |

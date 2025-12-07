@@ -67,6 +67,12 @@ def _get_authorization_server_metadata() -> dict:
     
     This is the source of truth for OAuth endpoints that MCP clients discover.
     Includes registration_endpoint for Dynamic Client Registration (RFC 7591).
+    
+    Per MCP spec, clients follow this priority order:
+    1. Pre-registered client info (if client has it)
+    2. Client ID Metadata Documents (if client_id_metadata_document_supported)
+    3. Dynamic Client Registration (if registration_endpoint)
+    4. Prompt user
     """
     return {
         "issuer": ISSUER,
@@ -76,8 +82,11 @@ def _get_authorization_server_metadata() -> dict:
         "jwks_uri": f"{BASE_URL}/{MOCK_TENANT_ID}/discovery/v2.0/keys",
         "device_authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/devicecode",
         "end_session_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/logout",
-        # Dynamic Client Registration (RFC 7591) - required for VS Code MCP client
+        # Dynamic Client Registration (RFC 7591)
         "registration_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/register",
+        # Client ID Metadata Documents support (draft-ietf-oauth-client-id-metadata-document-00)
+        # Per MCP spec, this is the PREFERRED client registration approach
+        "client_id_metadata_document_supported": True,
         # Supported OAuth features
         "response_types_supported": ["code", "id_token", "code id_token", "id_token token"],
         "response_modes_supported": ["query", "fragment", "form_post"],
@@ -326,6 +335,29 @@ def _is_registered_client(client_id: str) -> bool:
     return client_id in registered_clients
 
 
+def _auto_register_client(client_id: str, redirect_uri: str) -> None:
+    """
+    Auto-register an unknown client for development convenience.
+    
+    Per MCP spec, clients may use Client ID Metadata Documents where the client_id
+    is a URL pointing to a metadata document. For mock purposes, we accept any
+    client_id and auto-register it with the provided redirect_uri.
+    
+    This enables VS Code and other MCP clients to work without explicit registration.
+    """
+    registered_clients[client_id] = {
+        "client_id": client_id,
+        "client_secret": None,
+        "client_name": f"Auto-registered client ({client_id[:8]}...)",
+        "redirect_uris": [redirect_uri],  # Allow this redirect_uri
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",  # Public client
+        "auto_registered": True,
+        "registered_at": int(time.time()),
+    }
+
+
 def _validate_redirect_uri(client_id: str, redirect_uri: str) -> bool:
     """
     Validate redirect_uri against registered client's allowed URIs.
@@ -342,11 +374,31 @@ def _validate_redirect_uri(client_id: str, redirect_uri: str) -> bool:
     if not allowed_uris:
         return True
     
+    # For auto-registered clients, also allow adding new redirect_uris
+    if registration.get("auto_registered") and redirect_uri not in allowed_uris:
+        allowed_uris.append(redirect_uri)
+        return True
+    
     return redirect_uri in allowed_uris
 
 
 @app.get("/{tenant_id}/oauth2/v2.0/authorize")
 async def authorize_endpoint(tenant_id: str, request: Request):
+    """
+    OAuth 2.0 Authorization endpoint.
+    
+    For development convenience, this endpoint AUTO-REGISTERS unknown clients.
+    This supports MCP clients like VS Code that may use their own client_ids
+    without explicitly calling the Dynamic Client Registration endpoint.
+    
+    Per the MCP spec, clients may use:
+    - Pre-registered client info
+    - Client ID Metadata Documents (URL-based client_ids)
+    - Dynamic Client Registration
+    - Their own generated client_ids
+    
+    This mock service accepts all approaches for maximum compatibility.
+    """
     if tenant_id != MOCK_TENANT_ID:
         return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
     q = request.query_params
@@ -362,9 +414,10 @@ async def authorize_endpoint(tenant_id: str, request: Request):
     if response_type != "code" or not client_id or not redirect_uri:
         return JSONResponse({"error": "invalid_request"}, status_code=400)
     
-    # Validate client is registered (supports both pre-configured and dynamic clients)
+    # Auto-register unknown clients for development convenience
+    # This supports MCP clients that use their own client_ids without explicit DCR
     if not _is_registered_client(client_id):
-        return JSONResponse({"error": "unauthorized_client", "error_description": "Client not registered"}, status_code=401)
+        _auto_register_client(client_id, redirect_uri)
     
     # Validate redirect_uri is allowed for this client
     if not _validate_redirect_uri(client_id, redirect_uri):
