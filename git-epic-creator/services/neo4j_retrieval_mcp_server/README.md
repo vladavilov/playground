@@ -22,7 +22,7 @@ flowchart LR
   - `authentication-service` - OAuth token exchange, S2S JWT minting
   - `project_management_service` - Project resolution
   - `neo4j_retrieval_service` - DRIFT search
-- **Tools Provided:** 2 (+ health_check utility)
+- **Tools Provided:** 2 (resolve_project, retrieve_context)
 
 ## VS Code Copilot Integration
 
@@ -539,26 +539,23 @@ Note: Azure AD authentication is required. For stdio transport, tokens can be pa
 
 ## Health Check
 
-### health_check Tool
+### HTTP Endpoint
 
 Returns service health and upstream dependency status.
+
+```bash
+curl http://localhost:8082/health
+```
 
 **Response Schema:**
 ```json
 {
   "status": "healthy|degraded",
   "upstream": {
-    "authentication_service": "connected|disconnected",
     "project_management_service": "connected|disconnected",
     "retrieval_service": "connected|disconnected"
   }
 }
-```
-
-### HTTP Endpoint
-
-```bash
-curl http://localhost:8082/health
 ```
 
 ## Security Considerations
