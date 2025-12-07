@@ -60,56 +60,53 @@ sequenceDiagram
     MCP-->>VSCode: MCP response
 ```
 
-### Step 1: Configure VS Code MCP Settings
+### Step 1: Configure VS Code settings and MCP server configuration
 
-Create or edit `.vscode/mcp.json` in your workspace (or add to user settings):
+#### 1.1 Enable MCP Gallery in VS Code
 
-#### Option A: OAuth Discovery (Recommended)
+- Open VS Code
+- Preferences: Open User Settings (JSON)
+- Add the following setting:
 
-VS Code queries the MCP server's discovery endpoint to get OAuth configuration automatically:
+```json
+{
+  //other settings...
+  "chat.mcp.gallery.enabled": true,
+  //other settings...
+}
+```
+
+#### 1.2 Create MCP server configuration file
+
+- In your project root, create .vscode/mcp.json with:
 
 ```json
 {
   "servers": {
-    "neo4j-retrieval": {
+    "neo4j-retrieval-mcp-server": {
       "type": "http",
       "url": "http://localhost:8082/mcp"
     }
   }
 }
 ```
+- Reload VS Code so MCP settings are applied.
+
+### Step 2: Configure MCP Authetication integration with VS Code
+
+#### 2.1 Automatic configuration (preferred) 
 
 The MCP server exposes `/.well-known/oauth-protected-resource` which returns:
 - `authorization_servers`: Azure AD authorization URL
 - `scopes_supported`: Required OAuth scopes
 - `bearer_methods_supported`: How to send the token (header)
 
-#### Option B: Explicit OAuth Configuration
+#### 2.2 Local Development (Mock Auth Service)
 
-For more control, you can specify OAuth settings explicitly:
+For local development, you can use a mock auth service.
 
-**Production (Azure AD):**
-```json
-{
-  "servers": {
-    "neo4j-retrieval": {
-      "type": "http",
-      "url": "http://localhost:8082/mcp",
-      "authorization": {
-        "type": "oauth2",
-        "configuration": {
-          "clientId": "your-azure-ad-client-id",
-          "authorizationUrl": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize",
-          "tokenUrl": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
-          "scopes": ["api://your-azure-ad-client-id/user_impersonation"]
-        }
-      }
-    }
-  }
-}
-```
+Add the following to the MCP server configuration file:
 
-**Local Development (Mock Auth Service):**
 ```json
 {
   "servers": {
@@ -130,33 +127,16 @@ For more control, you can specify OAuth settings explicitly:
 }
 ```
 
-### Step 2: Reload VS Code
+### Step 3: Use the MCP Tools
 
-1. Open Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
-2. Run "Developer: Reload Window"
-3. Open Copilot Chat (`Ctrl+Shift+I` / `Cmd+Shift+I`)
-
-### Step 4: Authenticate (First Time)
-
-When you first use an MCP tool that requires authentication:
-
-1. VS Code detects 401 response and checks `WWW-Authenticate` header
-2. VS Code queries `/.well-known/oauth-protected-resource` for OAuth details
-3. VS Code automatically opens your browser to Azure AD (or mock auth service)
-4. Sign in with your credentials and consent to permissions
-5. Browser redirects back to VS Code (`vscode://...` URI)
-6. VS Code captures the token and uses it for subsequent requests
-
-### Step 5: Use the MCP Tools
-
-Once authenticated, you can use the MCP tools in Copilot Chat:
+Once authenticated, you can use the MCP tools in Copilot Chat. For example:
 
 ```
-@neo4j-retrieval Find the billing project
+@neo4j-retrieval-mcp-server Find the billing project
 
-@neo4j-retrieval How does authentication work in the billing system?
+@neo4j-retrieval-mcp-server How does authentication work in the billing system?
 
-@neo4j-retrieval What are the main API endpoints in the risk analytics project?
+@neo4j-retrieval-mcp-server What are the main API endpoints in the risk analytics project?
 ```
 
 Copilot will automatically:
