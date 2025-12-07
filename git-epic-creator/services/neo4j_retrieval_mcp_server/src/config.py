@@ -125,9 +125,13 @@ def get_required_scope() -> str:
     
     Per MCP spec, servers SHOULD include scope in WWW-Authenticate to provide
     immediate guidance on appropriate scopes to request during authorization.
+    
+    Note: Uses only simple scope names (openid, profile, email) in the header
+    to avoid parsing issues. The API scope is included in scopes_supported
+    in the Protected Resource Metadata.
     """
-    endpoints = _get_oauth_endpoints()
-    return " ".join(endpoints.base_scopes)
+    # Use simple OIDC scopes in header to avoid parsing issues with special chars
+    return "openid profile email"
 
 
 def get_oauth_discovery_metadata() -> dict:
@@ -140,8 +144,10 @@ def get_oauth_discovery_metadata() -> dict:
     1. Fetch this metadata to get authorization_servers list
     2. Query authorization server metadata at those URLs to discover endpoints
     
-    Note: authorization_endpoint/token_endpoint are NOT part of RFC 9728.
-    They must be discovered from Authorization Server Metadata (RFC 8414).
+    This implementation includes BOTH:
+    - RFC 9728 required fields (authorization_servers for proper discovery)
+    - Convenience fields (authorization_endpoint, token_endpoint, client_id)
+      for clients that may not fully implement the AS metadata discovery
     """
     endpoints = _get_oauth_endpoints()
     mcp = get_mcp_settings()
@@ -153,6 +159,13 @@ def get_oauth_discovery_metadata() -> dict:
         "bearer_methods_supported": ["header"],
         "scopes_supported": endpoints.base_scopes,
         "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server",
+        
+        # Convenience fields for clients that don't fully implement AS metadata discovery
+        # These duplicate what's in Authorization Server Metadata but help ensure
+        # the client uses the correct authorization server endpoints
+        "authorization_endpoint": endpoints.authorization_endpoint,
+        "token_endpoint": endpoints.token_endpoint,
+        "client_id": endpoints.client_id,
     }
 
 

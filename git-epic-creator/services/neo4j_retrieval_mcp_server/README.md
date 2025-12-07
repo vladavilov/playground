@@ -182,9 +182,16 @@ If no token is found, HTTP 401 is returned to trigger the OAuth discovery flow.
 
 The MCP server implements OAuth discovery per the [MCP Authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization).
 
-### GET /.well-known/oauth-protected-resource
+### Protected Resource Metadata (RFC 9728)
 
-Returns OAuth 2.0 Protected Resource Metadata (RFC 9728). Per the MCP spec, this tells clients where to find the authorization server.
+Per the MCP spec, clients try these endpoints in order:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/.well-known/oauth-protected-resource/mcp` | Path-specific (tried FIRST) |
+| `/.well-known/oauth-protected-resource` | Root fallback (tried SECOND) |
+
+Both endpoints return identical OAuth 2.0 Protected Resource Metadata.
 
 **Response:**
 ```json
@@ -200,16 +207,18 @@ Returns OAuth 2.0 Protected Resource Metadata (RFC 9728). Per the MCP spec, this
     "profile",
     "email"
   ],
-  "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server"
+  "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server",
+  "authorization_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize",
+  "token_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
+  "client_id": "{client-id}"
 }
 ```
 
 **Key Fields:**
-- `authorization_servers`: List of issuer URLs. VS Code will query these for Authorization Server Metadata
+- `authorization_servers`: List of issuer URLs. Compliant MCP clients query these for Authorization Server Metadata
 - `bearer_methods_supported`: How to send the token (header)
 - `scopes_supported`: OAuth scopes the resource requires
-
-**Note:** Per RFC 9728 and MCP spec, `authorization_endpoint` and `token_endpoint` are NOT included here. MCP clients discover those by fetching Authorization Server Metadata from the URLs in `authorization_servers`.
+- `authorization_endpoint`, `token_endpoint`, `client_id`: Convenience fields for clients that may not fully implement AS metadata discovery
 
 ### Authorization Server Metadata Discovery
 

@@ -69,6 +69,7 @@ class OAuthAuthenticationMiddleware(BaseHTTPMiddleware):
     # Endpoints that don't require authentication (or handle it internally)
     PUBLIC_PATHS = {
         "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",  # Path-specific (tried first per MCP spec)
         "/health",
         "/userinfo",  # Handles own authentication for VS Code user discovery
     }
@@ -490,19 +491,28 @@ async def retrieve_context(
 @mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
 async def oauth_protected_resource_metadata(request: Request) -> JSONResponse:
     """
-    OAuth 2.0 Protected Resource Metadata endpoint (RFC 9728).
+    OAuth 2.0 Protected Resource Metadata endpoint (RFC 9728) - root location.
     
-    VS Code queries this endpoint to discover:
-    - authorization_servers: Where to authenticate
-    - authorization_endpoint: Explicit Azure AD authorization URL
-    - token_endpoint: Explicit Azure AD token URL
-    - scopes_supported: What scopes are needed
-    - bearer_methods_supported: How to send the token
-    - userinfo_endpoint: Where to get user info
-    - client_id: Azure AD application client ID
+    Per MCP spec, clients try this as fallback after path-specific endpoint.
     """
     metadata = get_oauth_discovery_metadata()
-    logger.info("OAuth protected resource metadata requested")
+    logger.info("OAuth protected resource metadata requested (root)")
+    return JSONResponse(metadata)
+
+
+@mcp.custom_route("/.well-known/oauth-protected-resource/mcp", methods=["GET"])
+async def oauth_protected_resource_metadata_path(request: Request) -> JSONResponse:
+    """
+    OAuth 2.0 Protected Resource Metadata endpoint (RFC 9728) - path-specific.
+    
+    Per MCP spec Section "Protected Resource Metadata Discovery Requirements":
+    Clients MUST try the path-specific endpoint FIRST before falling back to root.
+    
+    URL format: /.well-known/oauth-protected-resource/{mcp-endpoint-path}
+    For our MCP endpoint at /mcp, this is /.well-known/oauth-protected-resource/mcp
+    """
+    metadata = get_oauth_discovery_metadata()
+    logger.info("OAuth protected resource metadata requested (path-specific /mcp)")
     return JSONResponse(metadata)
 
 
