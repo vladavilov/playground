@@ -8,6 +8,7 @@ import secrets
 import hashlib
 import base64
 from typing import Dict, Any, Optional
+from urllib.parse import urlencode
 from fastapi import FastAPI, Response, Request, status
 from fastapi.responses import RedirectResponse, JSONResponse
 from jose import jwt
@@ -384,10 +385,13 @@ async def authorize_endpoint(tenant_id: str, request: Request):
     }
 
     # Redirect back with code and preserved state
-    sep = "&" if ("?" in redirect_uri) else "?"
-    location = f"{redirect_uri}{sep}code={code}"
+    # Use urlencode to properly encode special characters in state parameter
+    params = {"code": code}
     if state:
-        location += f"&state={state}"
+        params["state"] = state
+    
+    sep = "&" if ("?" in redirect_uri) else "?"
+    location = f"{redirect_uri}{sep}{urlencode(params)}"
     return RedirectResponse(location)
 
 
