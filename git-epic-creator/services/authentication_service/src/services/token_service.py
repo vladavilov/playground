@@ -181,13 +181,16 @@ class TokenService:
                 raise ValueError(f"Unable to find matching key for kid: {kid}")
             
             # Verify token
+            # Note: Audience verification is DISABLED to support MCP clients like VS Code
+            # that use dynamically registered client_ids different from AZURE_CLIENT_ID.
+            # The mock auth service auto-registers these clients, resulting in tokens
+            # with varying audience claims.
             claims = jwt.decode(
                 token,
                 rsa_key,
                 algorithms=["RS256"],
-                audience=self._azure_settings.AZURE_CLIENT_ID or None,
                 options={
-                    "verify_aud": bool(self._azure_settings.AZURE_CLIENT_ID),
+                    "verify_aud": False,  # Disabled for MCP client compatibility
                     "verify_exp": True
                 }
             )
