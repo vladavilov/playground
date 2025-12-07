@@ -48,7 +48,8 @@ from config import (
     get_mcp_settings, 
     get_project_management_url, 
     get_retrieval_service_url,
-    get_oauth_discovery_metadata
+    get_oauth_discovery_metadata,
+    get_authorization_server_metadata
 )
 from adapter import ProjectManagementAdapter, RetrievalServiceAdapter
 from auth import MCPAuthHandler
@@ -65,10 +66,12 @@ class OAuthAuthenticationMiddleware(BaseHTTPMiddleware):
     4. Starts OAuth flow with discovered authorization server
     """
     
-    # Endpoints that don't require authentication
+    # Endpoints that don't require authentication (or handle it internally)
     PUBLIC_PATHS = {
         "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-authorization-server",
         "/health",
+        "/userinfo",  # Handles own authentication for VS Code user discovery
     }
     
     async def dispatch(self, request: Request, call_next) -> Response:
@@ -490,11 +493,40 @@ async def oauth_protected_resource_metadata(request: Request) -> JSONResponse:
     
     VS Code queries this endpoint to discover:
     - authorization_servers: Where to authenticate
+    - authorization_endpoint: Explicit Azure AD authorization URL
+    - token_endpoint: Explicit Azure AD token URL
     - scopes_supported: What scopes are needed
     - bearer_methods_supported: How to send the token
+    - userinfo_endpoint: Where to get user info
+    - client_id: Azure AD application client ID
     """
     metadata = get_oauth_discovery_metadata()
-    logger.info("OAuth discovery metadata requested")
+    logger.info("OAuth protected resource metadata requested")
+    return JSONResponse(metadata)
+
+
+@mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+async def oauth_authorization_server_metadata(request: Request) -> JSONResponse:
+    """
+    OAuth 2.0 Authorization Server Metadata endpoint (RFC 8414).
+    
+    VS Code MCP client may query this endpoint to discover full OAuth
+    authorization server configuration. Returns Azure AD metadata with
+    MCP-specific extensions.
+    
+    Returns:
+    - issuer: Azure AD v2.0 issuer URL
+    - authorization_endpoint: Azure AD authorization URL
+    - token_endpoint: Azure AD token URL
+    - jwks_uri: Azure AD JWKS URL for token verification
+    - response_types_supported: Supported OAuth response types
+    - grant_types_supported: Supported OAuth grant types
+    - scopes_supported: Available OAuth scopes
+    - userinfo_endpoint: MCP server's userinfo endpoint
+    - client_id: Azure AD application client ID
+    """
+    metadata = get_authorization_server_metadata()
+    logger.info("OAuth authorization server metadata requested")
     return JSONResponse(metadata)
 
 
@@ -539,6 +571,63 @@ async def health_check(request: Request) -> JSONResponse:
             "retrieval_service": retrieval_status
         }
     })
+
+
+@mcp.custom_route("/userinfo", methods=["GET"])
+async def userinfo_endpoint(request: Request) -> Response:
+    """
+    OpenID Connect UserInfo endpoint for VS Code user discovery.
+    
+    VS Code's MCP client queries this endpoint to retrieve authenticated user
+    details after OAuth flow completion.
+    
+    Flow:
+    1. Extracts Bearer token from Authorization header (Azure AD token)
+    2. Exchanges Azure AD token for LOCAL JWT via authentication service
+    3. Returns user identity in OpenID Connect format
+    
+    Returns:
+        200: User info in OIDC format
+        401: Authentication required (no or invalid token)
+    """
+    # Extract Bearer token from Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        logger.debug("No Bearer token in userinfo request")
+        return Response(
+            content='{"error": "unauthorized", "message": "Bearer token required"}',
+            status_code=401,
+            media_type="application/json",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    azure_token = auth_header[7:]  # Strip "Bearer " prefix
+    
+    # Get auth handler and exchange token
+    auth_handler = await get_auth_handler()
+    
+    # Exchange Azure AD token for LOCAL JWT and get user context
+    _, auth_ctx = await auth_handler._exchange_token(None, azure_token)
+    
+    if not auth_ctx:
+        logger.warning("Token exchange failed in userinfo endpoint")
+        return Response(
+            content='{"error": "invalid_token", "message": "Token exchange failed"}',
+            status_code=401,
+            media_type="application/json",
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token"'}
+        )
+    
+    # Return user info in OpenID Connect format
+    userinfo = {
+        "sub": auth_ctx.user_id,
+        "preferred_username": auth_ctx.username,
+        "email": auth_ctx.username,  # Username is typically email
+        "roles": auth_ctx.roles,
+    }
+    
+    logger.info("Userinfo returned", user_id=auth_ctx.user_id)
+    return JSONResponse(userinfo)
 
 
 @asynccontextmanager

@@ -47,27 +47,36 @@ async def health():
 
 @app.get("/{tenant_id}/v2.0/.well-known/openid-configuration")
 async def openid_configuration(tenant_id: str):
+    """
+    OpenID Connect Discovery endpoint (RFC 8414).
+    
+    Returns authorization server metadata for OAuth clients like VS Code MCP.
+    """
     if tenant_id != MOCK_TENANT_ID:
         return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
 
     return {
+        "issuer": ISSUER,
         "authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/authorize",
         "token_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/token",
+        "userinfo_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/v2.0/userinfo",
+        "jwks_uri": f"{BASE_URL}/{MOCK_TENANT_ID}/discovery/v2.0/keys",
         "device_authorization_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/devicecode",
         "end_session_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/oauth2/v2.0/logout",
-        "jwks_uri": f"{BASE_URL}/{MOCK_TENANT_ID}/discovery/v2.0/keys",
-        "issuer": ISSUER,
-        "response_modes_supported": ["query", "fragment", "form_post"],
-        "subject_types_supported": ["pairwise"],
-        "id_token_signing_alg_values_supported": ["RS256"],
+        # Supported OAuth features (aligned with MCP server config)
         "response_types_supported": ["code", "id_token", "code id_token", "id_token token"],
+        "response_modes_supported": ["query", "fragment", "form_post"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "scopes_supported": ["openid", "profile", "email", "offline_access"],
-        "claims_supported": [
-            "sub", "iss", "aud", "exp", "iat", "nonce", "preferred_username", "name", "tid", "ver", "oid", "email", "roles"
-        ],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
         "code_challenge_methods_supported": ["S256", "plain"],
-        "userinfo_endpoint": f"{BASE_URL}/{MOCK_TENANT_ID}/v2.0/userinfo",
+        # OpenID Connect features
+        "subject_types_supported": ["pairwise"],
+        "id_token_signing_alg_values_supported": ["RS256"],
+        "claims_supported": [
+            "sub", "iss", "aud", "exp", "iat", "nonce", "preferred_username",
+            "name", "tid", "ver", "oid", "email", "roles"
+        ],
     }
 
 
@@ -198,15 +207,47 @@ async def authorize_endpoint(tenant_id: str, request: Request):
     return RedirectResponse(location)
 
 
+def _extract_client_credentials(request: Request, form: dict) -> tuple[str, str]:
+    """
+    Extract client credentials from request.
+    
+    Supports both authentication methods:
+    - client_secret_basic: Authorization header (Basic base64(client_id:client_secret))
+    - client_secret_post: Form body (client_id, client_secret fields)
+    """
+    # Try client_secret_basic (Authorization header)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("basic "):
+        try:
+            encoded = auth_header[6:]
+            decoded = base64.b64decode(encoded).decode("utf-8")
+            if ":" in decoded:
+                return decoded.split(":", 1)
+        except Exception:
+            pass
+    
+    # Fall back to client_secret_post (form body)
+    client_id = (form.get("client_id") or "").strip()
+    client_secret = (form.get("client_secret") or "").strip()
+    return client_id, client_secret
+
+
 @app.post("/{tenant_id}/oauth2/v2.0/token")
 async def token_endpoint(tenant_id: str, request: Request):
+    """
+    OAuth 2.0 Token endpoint.
+    
+    Supports:
+    - grant_type=authorization_code (with PKCE)
+    - grant_type=refresh_token
+    - client_secret_basic and client_secret_post authentication
+    """
     if tenant_id != MOCK_TENANT_ID:
         return Response(status_code=status.HTTP_404_NOT_FOUND, content="Tenant not found")
 
     form = await request.form()
     grant_type = (form.get("grant_type") or "").strip()
-    client_id = (form.get("client_id") or "").strip()
-    client_secret = (form.get("client_secret") or "").strip()
+    client_id, client_secret = _extract_client_credentials(request, form)
 
     if not _validate_client(client_id, client_secret):
         return JSONResponse({"error": "invalid_client"}, status_code=401)

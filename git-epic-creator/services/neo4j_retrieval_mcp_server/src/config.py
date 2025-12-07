@@ -4,6 +4,7 @@ Reuses shared library configurations for Redis, HTTP client, and common settings
 Adds MCP-specific configuration for transport mode and OAuth discovery.
 """
 
+from dataclasses import dataclass
 from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,7 +29,6 @@ class MCPServerSettings(BaseSettings):
         extra="ignore"
     )
 
-    # MCP Transport configuration
     PORT: int = Field(
         default=8082,
         description="HTTP server port (when using HTTP transport)"
@@ -37,8 +37,6 @@ class MCPServerSettings(BaseSettings):
         default="stdio",
         description="MCP transport mode: 'stdio' or 'http'"
     )
-    
-    # MCP Server base URL (for OAuth discovery metadata)
     MCP_SERVER_URL: str = Field(
         default="http://localhost:8082",
         description="Base URL of this MCP server (for OAuth discovery)"
@@ -76,31 +74,93 @@ def get_auth_service_url() -> str:
     return get_app_settings().http_client.AUTH_SERVICE_URL
 
 
+# OAuth metadata building
+
+
+@dataclass(frozen=True)
+class OAuthEndpoints:
+    """Azure AD OAuth endpoint URLs and common metadata."""
+    
+    issuer: str
+    authorization_endpoint: str
+    token_endpoint: str
+    jwks_uri: str
+    userinfo_endpoint: str
+    client_id: str
+    api_scope: str
+    
+    @property
+    def base_scopes(self) -> list[str]:
+        """Standard OIDC scopes."""
+        return [self.api_scope, "openid", "profile", "email"]
+    
+    @property
+    def extended_scopes(self) -> list[str]:
+        """Extended scopes including offline_access."""
+        return [*self.base_scopes, "offline_access"]
+
+
+@lru_cache()
+def _get_oauth_endpoints() -> OAuthEndpoints:
+    """Build OAuth endpoints from Azure AD and MCP settings (cached)."""
+    azure = get_azure_auth_settings()
+    mcp = get_mcp_settings()
+    
+    base = f"{azure.AZURE_AD_AUTHORITY}/{azure.AZURE_TENANT_ID}"
+    
+    return OAuthEndpoints(
+        issuer=f"{base}/v2.0",
+        authorization_endpoint=f"{base}/oauth2/v2.0/authorize",
+        token_endpoint=f"{base}/oauth2/v2.0/token",
+        jwks_uri=f"{base}/discovery/v2.0/keys",
+        userinfo_endpoint=f"{mcp.MCP_SERVER_URL}/userinfo",
+        client_id=azure.AZURE_CLIENT_ID,
+        api_scope=f"api://{azure.AZURE_CLIENT_ID}/user_impersonation",
+    )
+
+
 def get_oauth_discovery_metadata() -> dict:
     """
-    Get OAuth Protected Resource Metadata for VS Code discovery.
+    Get OAuth Protected Resource Metadata (RFC 9728).
     
-    This metadata is returned at /.well-known/oauth-protected-resource
-    to help VS Code discover the authorization server.
-    
-    Returns:
-        OAuth Protected Resource Metadata (RFC 9728)
+    Returned at /.well-known/oauth-protected-resource for VS Code discovery.
     """
-    azure_settings = get_azure_auth_settings()
-    mcp_settings = get_mcp_settings()
-    
-    # Build authorization server URL (Azure AD or mock)
-    auth_server_url = (
-        f"{azure_settings.AZURE_AD_AUTHORITY}/{azure_settings.AZURE_TENANT_ID}/v2.0"
-    )
-    
-    # Build scope
-    scope = f"api://{azure_settings.AZURE_CLIENT_ID}/user_impersonation"
+    endpoints = _get_oauth_endpoints()
+    mcp = get_mcp_settings()
     
     return {
-        "resource": f"{mcp_settings.MCP_SERVER_URL}/mcp",
-        "authorization_servers": [auth_server_url],
+        "resource": f"{mcp.MCP_SERVER_URL}/mcp",
+        "authorization_servers": [endpoints.issuer],
         "bearer_methods_supported": ["header"],
-        "scopes_supported": [scope, "openid", "profile", "email"],
-        "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server"
+        "scopes_supported": endpoints.base_scopes,
+        "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server",
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "authorization_endpoint": endpoints.authorization_endpoint,
+        "token_endpoint": endpoints.token_endpoint,
+        "userinfo_endpoint": endpoints.userinfo_endpoint,
+        "client_id": endpoints.client_id,
+    }
+
+
+def get_authorization_server_metadata() -> dict:
+    """
+    Get OAuth Authorization Server Metadata (RFC 8414).
+    
+    Returned at /.well-known/oauth-authorization-server for full OAuth discovery.
+    """
+    endpoints = _get_oauth_endpoints()
+    
+    return {
+        "issuer": endpoints.issuer,
+        "authorization_endpoint": endpoints.authorization_endpoint,
+        "token_endpoint": endpoints.token_endpoint,
+        "jwks_uri": endpoints.jwks_uri,
+        "response_types_supported": ["code", "id_token", "code id_token"],
+        "response_modes_supported": ["query", "fragment", "form_post"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "scopes_supported": endpoints.extended_scopes,
+        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+        "code_challenge_methods_supported": ["S256"],
+        "userinfo_endpoint": endpoints.userinfo_endpoint,
+        "client_id": endpoints.client_id,
     }

@@ -95,13 +95,16 @@ class MCPAuthHandler:
         
         if azure_token:
             logger.info("Found Azure AD token in HTTP Authorization header")
-            return await self._exchange_token(session_id, azure_token)
+
+            jwt, _ = await self._exchange_token(session_id, azure_token)
+            return jwt
         
         # Fallback: Try MCP context client_params (for stdio transport)
         client_params = self._extract_client_params(ctx)
         if azure_token := client_params.get("access_token"):
             logger.info("Found Azure AD token in MCP context params")
-            return await self._exchange_token(session_id, azure_token)
+            jwt, _ = await self._exchange_token(session_id, azure_token)
+            return jwt
         
         # No token found - return None to trigger HTTP 401
         logger.info("No Azure AD token found, authentication required")
@@ -211,7 +214,11 @@ class MCPAuthHandler:
         async with self._lock:
             self._cache[session_id] = auth_ctx
     
-    async def _exchange_token(self, session_id: str | None, azure_token: str) -> str | None:
+    async def _exchange_token(
+        self,
+        session_id: str | None,
+        azure_token: str
+    ) -> tuple[str | None, MCPAuthContext | None]:
         """
         Exchange Azure AD token for LOCAL JWT via authentication-service.
         
@@ -222,7 +229,7 @@ class MCPAuthHandler:
             azure_token: Azure AD access token
             
         Returns:
-            LOCAL JWT or None if exchange fails
+            Tuple of (LOCAL JWT, MCPAuthContext) or (None, None) if exchange fails
         """
         try:
             client = await self._get_http_client()
@@ -250,33 +257,49 @@ class MCPAuthHandler:
                     "Token exchanged successfully",
                     user_id=auth_ctx.user_id
                 )
-                return auth_ctx.local_jwt
+                return auth_ctx.local_jwt, auth_ctx
             else:
                 logger.error(
                     "Token exchange failed",
                     status=response.status_code,
                     response=response.text[:200]
                 )
-                return None
+                return None, None
                 
         except Exception as e:
             logger.error("Token exchange error", error=str(e), error_type=type(e).__name__)
-            return None
+            return None, None
     
     async def get_auth_context(self, ctx: Any) -> MCPAuthContext | None:
-        """Get full authentication context from MCP context."""
+        """
+        Get full authentication context from MCP context.
+        
+        Extracts Azure AD token and exchanges it for LOCAL JWT,
+        returning the full user context including user_id and roles.
+        """
         session_id = self._get_session_id(ctx)
         
+        # Check cache first
         if session_id:
             cached = await self._get_cached_token(session_id)
             if cached:
                 return cached
         
-        token = await self.get_auth_token(ctx)
-        if not token:
-            return None
+        # Try to extract Azure AD token from HTTP Authorization header
+        azure_token = self._extract_bearer_token_from_headers(ctx)
         
-        if session_id:
-            return await self._get_cached_token(session_id)
+        if azure_token:
+            logger.info("Found Azure AD token in HTTP Authorization header")
+            _, auth_ctx = await self._exchange_token(session_id, azure_token)
+            return auth_ctx
         
+        # Fallback: Try MCP context client_params (for stdio transport)
+        client_params = self._extract_client_params(ctx)
+        if azure_token := client_params.get("access_token"):
+            logger.info("Found Azure AD token in MCP context params")
+            _, auth_ctx = await self._exchange_token(session_id, azure_token)
+            return auth_ctx
+        
+        # No token found
+        logger.info("No Azure AD token found, authentication required")
         return None

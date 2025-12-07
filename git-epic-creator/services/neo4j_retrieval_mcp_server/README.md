@@ -44,13 +44,19 @@ sequenceDiagram
     Note over VSCode: Checks WWW-Authenticate header
     
     VSCode->>MCP: GET /.well-known/oauth-protected-resource
-    MCP-->>VSCode: OAuth metadata (authorization_servers, scopes)
+    MCP-->>VSCode: OAuth metadata (endpoints, scopes, client_id)
+    Note over MCP: Includes explicit Azure AD endpoints
     
     Note over VSCode: Opens browser for Azure AD login
     VSCode->>Azure: OAuth authorization (browser)
     Azure-->>VSCode: Authorization code
     VSCode->>Azure: Exchange code for tokens
     Azure-->>VSCode: Access token
+    
+    VSCode->>MCP: GET /userinfo + Bearer {azure_token}
+    MCP->>Auth: Exchange Azure token for LOCAL JWT
+    Auth-->>MCP: {access_token, user_id, roles}
+    MCP-->>VSCode: User info (sub, email, roles)
     
     VSCode->>MCP: MCP request + Authorization: Bearer {token}
     MCP->>Auth: Exchange Azure token for LOCAL JWT
@@ -59,6 +65,11 @@ sequenceDiagram
     PMS-->>MCP: Response
     MCP-->>VSCode: MCP response
 ```
+
+**Key OAuth Discovery Fields:**
+- `authorization_endpoint` and `token_endpoint`: Explicit Azure AD URLs prevent VS Code from hitting `http://localhost:8082/authorize`
+- `userinfo_endpoint`: Points to MCP server for user identity discovery
+- `client_id`: Required for OAuth flow initialization
 
 ### Step 1: Configure VS Code settings and MCP server configuration
 
@@ -92,14 +103,19 @@ sequenceDiagram
 ```
 - Reload VS Code so MCP settings are applied.
 
-### Step 2: Configure MCP Authetication integration with VS Code
+### Step 2: Configure MCP Authentication integration with VS Code
 
 #### 2.1 Automatic configuration (preferred) 
 
 The MCP server exposes `/.well-known/oauth-protected-resource` which returns:
-- `authorization_servers`: Azure AD authorization URL
+- `authorization_servers`: Azure AD authorization server URL
+- `authorization_endpoint`: Explicit Azure AD authorization URL (prevents VS Code from hitting MCP server)
+- `token_endpoint`: Explicit Azure AD token URL
+- `userinfo_endpoint`: MCP server's user discovery endpoint
+- `client_id`: Azure AD application client ID
 - `scopes_supported`: Required OAuth scopes
 - `bearer_methods_supported`: How to send the token (header)
+- `grant_types_supported`: Supported OAuth flows
 
 #### 2.2 Local Development (Mock Auth Service)
 
@@ -185,11 +201,13 @@ The MCP server extracts Azure AD tokens in this order:
 
 If no token is found, HTTP 401 is returned to trigger the OAuth discovery flow.
 
-## OAuth Discovery Endpoint
+## OAuth Discovery Endpoints
+
+The MCP server exposes two OAuth discovery endpoints following RFC specifications:
 
 ### GET /.well-known/oauth-protected-resource
 
-Returns OAuth 2.0 Protected Resource Metadata (RFC 9728) for VS Code's OAuth discovery:
+Returns OAuth 2.0 Protected Resource Metadata (RFC 9728) for VS Code's OAuth discovery. Includes explicit Azure AD endpoints to ensure VS Code correctly routes to Azure AD instead of the MCP server's own endpoints.
 
 **Response:**
 ```json
@@ -205,7 +223,85 @@ Returns OAuth 2.0 Protected Resource Metadata (RFC 9728) for VS Code's OAuth dis
     "profile",
     "email"
   ],
-  "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server"
+  "resource_documentation": "https://github.com/your-org/neo4j-retrieval-mcp-server",
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "authorization_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize",
+  "token_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
+  "userinfo_endpoint": "http://localhost:8082/userinfo",
+  "client_id": "{client-id}"
+}
+```
+
+**Key Fields:**
+- `authorization_endpoint` / `token_endpoint`: Explicit Azure AD endpoints to prevent VS Code from hitting `http://localhost:8082/authorize`
+- `userinfo_endpoint`: Points to MCP server's user discovery endpoint
+- `grant_types_supported`: Declares support for authorization_code and refresh_token flows
+- `client_id`: Azure AD application client ID for OAuth flow
+
+### GET /.well-known/oauth-authorization-server
+
+Returns OAuth 2.0 Authorization Server Metadata (RFC 8414). Some MCP clients may query this endpoint for full authorization server discovery.
+
+**Response:**
+```json
+{
+  "issuer": "https://login.microsoftonline.com/{tenant-id}/v2.0",
+  "authorization_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize",
+  "token_endpoint": "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token",
+  "jwks_uri": "https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys",
+  "response_types_supported": ["code", "id_token", "code id_token"],
+  "response_modes_supported": ["query", "fragment", "form_post"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "scopes_supported": [
+    "api://{client-id}/user_impersonation",
+    "openid",
+    "profile",
+    "email",
+    "offline_access"
+  ],
+  "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+  "code_challenge_methods_supported": ["S256"],
+  "userinfo_endpoint": "http://localhost:8082/userinfo",
+  "client_id": "{client-id}"
+}
+```
+
+**Key Fields:**
+- `issuer`: Azure AD v2.0 issuer URL
+- `jwks_uri`: Azure AD JWKS endpoint for token verification
+- `code_challenge_methods_supported`: PKCE support (S256)
+
+### GET /userinfo
+
+OpenID Connect UserInfo endpoint for VS Code user discovery. VS Code queries this endpoint after OAuth completion to retrieve authenticated user details.
+
+**Request:**
+```http
+GET /userinfo HTTP/1.1
+Host: localhost:8082
+Authorization: Bearer {azure-ad-token}
+```
+
+**Response (200 OK):**
+```json
+{
+  "sub": "user-uuid",
+  "preferred_username": "user@example.com",
+  "email": "user@example.com",
+  "roles": ["user", "admin"]
+}
+```
+
+**Flow:**
+1. Extracts Bearer token from Authorization header (Azure AD token)
+2. Exchanges Azure AD token for LOCAL JWT via authentication service
+3. Returns user identity in OpenID Connect format
+
+**Error Response (401 Unauthorized):**
+```json
+{
+  "error": "invalid_token",
+  "message": "Token exchange failed"
 }
 ```
 
@@ -423,16 +519,57 @@ The MCP server subscribes to Redis pub/sub channel `ui:retrieval_progress` to re
 ### OAuth Discovery Not Working
 
 ```bash
-# Test OAuth discovery endpoint
+# Test Protected Resource Metadata (RFC 9728)
 curl -v http://localhost:8082/.well-known/oauth-protected-resource
 
-# Expected response:
+# Expected response (verify these fields are present):
 {
   "resource": "http://localhost:8082/mcp",
   "authorization_servers": ["https://login.microsoftonline.com/.../v2.0"],
+  "authorization_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/authorize",
+  "token_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/token",
+  "userinfo_endpoint": "http://localhost:8082/userinfo",
+  "client_id": "your-client-id",
   "bearer_methods_supported": ["header"],
   "scopes_supported": [...]
 }
+
+# Test Authorization Server Metadata (RFC 8414)
+curl -v http://localhost:8082/.well-known/oauth-authorization-server
+
+# Expected response:
+{
+  "issuer": "https://login.microsoftonline.com/.../v2.0",
+  "authorization_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/authorize",
+  "token_endpoint": "https://login.microsoftonline.com/.../oauth2/v2.0/token",
+  "jwks_uri": "https://login.microsoftonline.com/.../discovery/v2.0/keys",
+  ...
+}
+
+# If VS Code is hitting http://localhost:8082/authorize instead of Azure AD:
+# - Verify authorization_endpoint points to Azure AD in both responses
+# - Check that client_id is present in both responses
+# - Ensure issuer in oauth-authorization-server matches Azure AD
+```
+
+### Userinfo Endpoint Not Working
+
+```bash
+# Test userinfo endpoint with Azure AD token
+curl -v http://localhost:8082/userinfo \
+  -H "Authorization: Bearer {your-azure-ad-token}"
+
+# Expected response:
+{
+  "sub": "user-uuid",
+  "preferred_username": "user@example.com",
+  "email": "user@example.com",
+  "roles": ["user"]
+}
+
+# If you get 401, check:
+# - Token is a valid Azure AD token (not expired)
+# - Authentication service is running and reachable
 ```
 
 ### Authentication Errors
@@ -471,10 +608,10 @@ docker run --rm --network git_epic_creator_network curlimages/curl \
 ### Directory Structure
 ```
 src/
-├── main.py               # FastMCP entrypoint with tools + OAuth discovery
+├── main.py               # FastMCP entrypoint with tools, OAuth discovery + userinfo endpoint
 ├── adapter.py            # HTTP Clients for upstream services
-├── config.py             # Settings (extends shared configurations)
-└── auth.py               # MCP authentication handler
+├── config.py             # Settings (extends shared configurations) + OAuth metadata builder
+└── auth.py               # MCP authentication handler (token extraction, exchange, context)
 tests/
 ├── __init__.py
 └── test_mcp_tools.py     # Tool tests
@@ -552,6 +689,7 @@ curl http://localhost:8082/health
 {
   "status": "healthy|degraded",
   "upstream": {
+    "authentication_service": "connected|disconnected",
     "project_management_service": "connected|disconnected",
     "retrieval_service": "connected|disconnected"
   }

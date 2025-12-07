@@ -162,10 +162,20 @@ services:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check endpoint |
-| `/{tenant_id}/v2.0/.well-known/openid-configuration` | GET | OIDC discovery document |
-| `/{tenant_id}/discovery/v2.0/keys` | GET | JWKS endpoint (public keys) |
-| `/{tenant_id}/oauth2/v2.0/token` | POST | Token endpoint: supports `authorization_code` and `refresh_token` |
+| `/{tenant_id}/v2.0/.well-known/openid-configuration` | GET | OIDC discovery document (RFC 8414) |
+| `/{tenant_id}/discovery/v2.0/keys` | GET | JWKS endpoint (public keys for token verification) |
+| `/{tenant_id}/oauth2/v2.0/token` | POST | Token endpoint: `authorization_code`, `refresh_token` grants |
 | `/{tenant_id}/oauth2/v2.0/authorize` | GET | Authorization endpoint (issues code; supports PKCE S256/plain) |
+| `/{tenant_id}/v2.0/userinfo` | GET | UserInfo endpoint (returns mock user profile) |
+| `/{tenant_id}/oauth2/v2.0/devicecode` | POST | Device code endpoint (mock) |
+| `/{tenant_id}/oauth2/v2.0/logout` | POST | Logout endpoint (mock) |
+
+### Token Endpoint Authentication
+
+The token endpoint supports both OAuth client authentication methods:
+
+- **client_secret_basic**: Credentials in `Authorization: Basic base64(client_id:client_secret)` header
+- **client_secret_post**: Credentials in form body (`client_id`, `client_secret` fields)
 
 ### Example Token Request
 Authorization code exchange:
@@ -180,165 +190,6 @@ Refresh grant:
 curl -X POST "http://localhost:8005/e7963c3a-3b3a-43b6-9426-89e433d07e69/oauth2/v2.0/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=refresh_token&client_id=$AZURE_CLIENT_ID&client_secret=$AZURE_CLIENT_SECRET&refresh_token=$RTOKEN"
-```
-
-## Troubleshooting
-
-### Common Key Issues
-
-#### Issue: "Invalid private key in environment variable"
-**Symptoms**: Service fails to start with key parsing error
-**Causes**:
-- Malformed PEM format in `MOCK_AUTH_PRIVATE_KEY`
-- Missing BEGIN/END markers
-- Incorrect line endings or encoding
-
-**Solutions**:
-```bash
-# Verify key format
-openssl rsa -in your_key.pem -check
-
-# Regenerate key if corrupted
-openssl genrsa -out new_private_key.pem 2048
-
-# Ensure proper PEM format with correct headers
-cat your_key.pem | head -1  # Should show "-----BEGIN PRIVATE KEY-----"
-cat your_key.pem | tail -1  # Should show "-----END PRIVATE KEY-----"
-```
-
-#### Issue: "Failed to initialize keys"
-**Symptoms**: Service startup failure with key initialization error
-**Causes**:
-- Permission issues with `keys/` directory
-- Corrupted key files
-- Invalid key format in files
-
-**Solutions**:
-```bash
-# Check directory permissions
-ls -la keys/
-chmod 755 keys/
-chmod 644 keys/*.pem keys/*.txt
-
-# Remove corrupted keys (service will regenerate)
-rm -rf keys/
-mkdir keys
-
-# Verify file contents
-file keys/private_key.pem  # Should show "PEM RSA private key"
-```
-
-#### Issue: "Key is not an RSA private key"
-**Symptoms**: Key loading fails with type validation error
-**Causes**:
-- Using EC (Elliptic Curve) keys instead of RSA
-- Using public key instead of private key
-- Using encrypted private key
-
-**Solutions**:
-```bash
-# Check key type
-openssl rsa -in keys/private_key.pem -text -noout | head -1
-
-# Generate correct RSA private key
-openssl genrsa -out keys/private_key.pem 2048
-
-# Convert encrypted key to unencrypted (if needed)
-openssl rsa -in encrypted_key.pem -out keys/private_key.pem
-```
-
-### JWT Token Issues
-
-#### Issue: Token verification fails in client applications
-**Symptoms**: "Invalid signature" or "Key not found" errors
-**Causes**:
-- Key ID mismatch between token header and JWKS
-- Client using wrong JWKS endpoint
-- Key rotation without client refresh
-
-**Solutions**:
-```bash
-# Verify JWKS endpoint returns correct key
-curl http://localhost:8005/{tenant-id}/discovery/v2.0/keys
-
-# Check token header for key ID
-echo "your.jwt.token" | cut -d. -f1 | base64 -d | jq .kid
-
-# Ensure client is using correct JWKS URL
-# Should be: http://your-service/{tenant-id}/discovery/v2.0/keys
-```
-
-#### Issue: "Tenant not found" errors
-**Symptoms**: 404 responses from endpoints
-**Causes**:
-- Mismatched tenant ID in URL vs configuration
-- Client using wrong tenant ID
-
-**Solutions**:
-```bash
-# Verify configured tenant ID
-echo $AZURE_AD_TENANT_ID
-
-# Check endpoint URL format
-# Correct: http://localhost:8005/{AZURE_AD_TENANT_ID}/oauth2/v2.0/token
-# Wrong: http://localhost:8005/oauth2/v2.0/token
-```
-
-### Service Connectivity Issues
-
-#### Issue: "Connection refused" or service unreachable
-**Symptoms**: Client cannot connect to mock service
-**Causes**:
-- Service not running
-- Port conflicts
-- Network configuration issues
-- Docker networking problems
-
-**Solutions**:
-```bash
-# Check if service is running
-curl http://localhost:8005/health
-
-# Verify port binding
-netstat -tlnp | grep 8005
-
-# Check Docker container status
-docker ps | grep mock-auth-service
-
-# Test Docker networking
-docker exec -it your-container curl http://localhost:8000/health
-```
-
-#### Issue: CORS errors in browser applications
-**Symptoms**: Browser blocks requests to mock service
-**Causes**:
-- Missing CORS configuration
-- Different origins between client and service
-
-**Solutions**:
-- Configure CORS middleware in FastAPI application
-- Use same origin for client and service in development
-- Set up proper reverse proxy configuration
-
-### Configuration Validation
-
-#### Issue: Invalid configuration values
-**Symptoms**: Service starts but behaves unexpectedly
-**Causes**:
-- Invalid URL formats in `AZURE_AD_AUTHORITY`
-- Empty or malformed tenant/client IDs
-
-**Solutions**:
-```bash
-# Validate URL format
-echo $AZURE_AD_AUTHORITY | grep -E '^https?://'
-
-# Check ID formats (should be UUIDs)
-echo $AZURE_AD_TENANT_ID | grep -E '^[0-9a-f-]{36}$'
-echo $AZURE_AD_CLIENT_ID | grep -E '^[0-9a-f-]{36}$'
-
-# Test configuration with health endpoint
-curl http://localhost:8005/health
 ```
 
 ## Development
