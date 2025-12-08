@@ -58,6 +58,9 @@ def create_llm(use_fast_model: bool = False) -> AzureChatOpenAI:
         api_key=cfg.OAI_KEY,
         api_version=cfg.OAI_API_VERSION or "2024-02-15-preview",
         temperature=cfg.LLM_TEMPERATURE,
+        timeout=cfg.LLM_TIMEOUT_SEC,
+        max_retries=cfg.LLM_MAX_RETRIES,
+        rate_limiter=None,
     )
     
     logger.debug(

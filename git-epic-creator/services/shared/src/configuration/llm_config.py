@@ -40,6 +40,7 @@ class LlmConfig(BaseConfig):
 	OAI_API_VERSION: str | None = Field(default=None, description="Azure OpenAI API version")
 	
 	LLM_TIMEOUT_SEC: float = Field(default=20.0, description="HTTP/LLM client timeout in seconds")
+	LLM_MAX_RETRIES: int = Field(default=1, ge=0, description="Max retries for LLM requests")
 	LLM_TEMPERATURE: float = Field(default=0.2, ge=0.0, le=2.0, description="Temperature for LLM requests")
 	
 	@property
