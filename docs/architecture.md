@@ -19,11 +19,13 @@ This document specifies the technology stack, development standards, SDLC, and C
 #### 2.1 Primary rationale
 For a Windows-dominant bank, the optimal balance of **longevity, vendor trust, endpoint management fit, and security posture** is:
 
-- **.NET (LTS) + WinUI 3 (Windows App SDK)** for the shell
+- **.NET (LTS) + WPF** for the shell
 - **Microsoft Edge WebView2 (Evergreen Runtime)** for rendering the web UI
 - **MSIX** for packaging + deployment + clean updates
 
 This keeps the runtime under Microsoft’s support and patching model, aligns to Windows enterprise management, and avoids the “we ship our own Chromium” burden.
+
+**Why WPF (longevity-focused)**: for this product shape (tray host + WebView shell), WPF minimizes framework churn and removes any dependency on separately-deployed UI framework runtimes (beyond the .NET runtime you already govern).
 
 #### 2.2 Version-pinned baseline (as of 2025-12-18)
 These versions are the **reference baseline** for the initial implementation and CI images. Updates are governed by the upgrade process in section 10.
@@ -31,12 +33,12 @@ These versions are the **reference baseline** for the initial implementation and
 | Category | Technology | Version | Notes |
 |---|---:|---:|---|
 | Language/runtime | .NET SDK | **10.0.101** | LTS baseline; pinned via `global.json` |
-| IDE (dev + CI agents) | Visual Studio 2022 | **17.14.22** | Recommended for WinUI/MSIX tooling |
+| IDE (dev + CI agents) | Visual Studio 2022 | **17.14.22** | Recommended for WPF/MSIX tooling |
 | Windows SDK | Windows 11 SDK | **10.0.26100.7175** | For building/packaging |
-| UI framework | Windows App SDK (WinUI 3) | **1.8.251106002** | `Microsoft.WindowsAppSDK` |
+| UI framework | WPF | (in-box) | Ships with .NET; no separate UI framework runtime |
 | Embedded browser SDK | WebView2 SDK | **1.0.3650.58** | `Microsoft.Web.WebView2` |
 | Embedded browser runtime | WebView2 Runtime (Evergreen, x64) | **143.0.3650.80** | Enterprise-managed distribution |
-| Tray icon | H.NotifyIcon.WinUI | **2.3.1** | Tray icon + context menu |
+| Tray icon | H.NotifyIcon.Wpf | **2.4.1** | Tray icon + context menu (WPF) |
 | MVVM utilities | CommunityToolkit.Mvvm | **8.4.0** | Commands, observable objects |
 | Resilience | Polly | **8.6.5** | Retries/timeouts (shell networking) |
 | Logging | Serilog | **4.3.0** | Structured logging (optional) |
@@ -55,21 +57,21 @@ These versions are the **reference baseline** for the initial implementation and
 #### 2.3 Visual Studio workloads (developer machines + CI runners)
 Install Visual Studio 2022 / Build Tools with (minimum):
 - **.NET desktop development**
-- **Windows App SDK / WinUI** tooling (templates)
 - **MSIX Packaging Tools**
+- **UWP build tools (for Windows Application Packaging Project / `.wapproj`)**
 - **Windows 11 SDK** (10.0.26100.7175)
 
 ---
 
 ### 3) High-level architecture
 #### 3.1 Process model
-- **Single process** WinUI 3 app running in the background.
+- **Single process** WPF app running in the background.
 - Starts on user logon (optional, controlled by policy + installer).
 - Owns tray icon/menu and a main window containing WebView2.
 
 #### 3.2 Components
 - **Tray Host**: creates tray icon, context menu, and handles commands.
-- **Shell Window**: WinUI 3 window hosting the WebView2 control.
+- **Shell Window**: WPF window hosting the WebView2 control.
 - **Navigation & Policy**: allowlist/denylist of URLs, window.open handling, download blocking rules, external link routing.
 - **Configuration**: environment selection (DEV/UAT/PROD), feature flags, proxy settings (usually OS), logging level.
 - **Telemetry & Logging**: local log files + optional Windows Event Log forwarding.
@@ -113,7 +115,8 @@ When the embedded app uses corporate SSO:
 ### 5) Project layout (recommended)
 A minimal structure that stays maintainable:
 
-- `src/ThickClient.Shell/` — WinUI 3 app + tray + WebView2 host
+- `src/ThickClient.Shell/` — WPF app + tray + WebView2 host
+- `src/ThickClient.Shell.Packaging/` — MSIX packaging project (`.wapproj`) + app manifest
 - `src/ThickClient.Shell.Core/` — policies, config, domain logic (testable)
 - `tests/ThickClient.Shell.Core.Tests/` — unit tests
 - `tests/ThickClient.Shell.IntegrationTests/` — integration (policy/config/logging)
@@ -144,7 +147,7 @@ Recommended: **trunk-based development**.
 #### 6.4 One-command developer setup (recommended)
 Provide `eng/bootstrap.ps1` (committed) that:
 - Installs prerequisites via `winget` where permitted (VS Build Tools, .NET SDK, Git).
-- Verifies Windows SDK + MSIX tooling presence.
+- Verifies Windows SDK + MSIX tooling presence (including the ability to build the packaging project, if used).
 - Restores NuGet packages and `dotnet tool restore`.
 - Prints a “ready” summary (SDKs detected, WebView2 runtime detected, environment URLs configured).
 
@@ -160,7 +163,7 @@ Provide `eng/bootstrap.ps1` (committed) that:
 
 #### 7.2 Desktop UI automation (optional / nightly)
 If required by audit or risk:
-- Use **Windows Application Driver** (Appium Windows Driver / WinAppDriver replacement) on a dedicated Windows runner.
+- Use **Windows Application Driver** (Appium Windows Driver / WinAppDriver replacement) on a dedicated Windows runner, or a WPF-friendly UI automation library (e.g., FlaUI) for lightweight smoke tests.
 - Run nightly or per-release due to higher flakiness and environment sensitivity.
 
 #### 7.3 Coverage and quality gates
@@ -172,6 +175,7 @@ If required by audit or risk:
 ### 8) Build, packaging, and release (MSIX)
 #### 8.1 Packaging
 - Package as **MSIX**.
+- For a WPF app, package deterministically via a **Windows Application Packaging Project** (`.wapproj`) that references the shell project and owns the AppX manifest + identity.
 - Sign MSIX with corporate code signing certificate.
 - Support:
   - **per-user install** (default), and
@@ -204,13 +208,14 @@ If using App Installer updates:
 
 ### 9) GitLab CI/CD (Windows runners)
 #### 9.1 Non-negotiable requirement
-WinUI 3/MSIX builds require a **Windows GitLab Runner** (Shell executor or Docker Windows containers, depending on your setup). Linux runners will not build MSIX WinUI 3 reliably.
+WPF/MSIX builds require a **Windows GitLab Runner**. Prefer a **Shell executor on a Windows VM** for lowest friction (MSIX + signing + SDK toolchains). Linux runners will not build/sign MSIX reliably.
 
 #### 9.2 Build agent baseline
 On the Windows runner image/VM:
 - Visual Studio 2022 **17.14.22** (or Build Tools + required workloads)
 - Windows 11 SDK **10.0.26100.7175**
 - .NET SDK **10.0.101**
+- MSBuild + packaging targets for **`.wapproj`** (Windows Application Packaging Project)
 - Signing toolchain (certificate access via secure store)
 
 #### 9.3 Pipeline stages (recommended)
@@ -270,13 +275,13 @@ test:
 package:
   stage: package
   script:
-    # Typically: msbuild packaging project /p:Configuration=Release
-    # or dotnet publish with MSIX tooling depending on project template.
-    - msbuild src/ThickClient.Shell/ThickClient.Shell.csproj /t:Publish /p:Configuration=Release
+    # For WPF, keep MSIX packaging explicit:
+    # build/publish the app, then package via a packaging project (.wapproj).
+    - msbuild src/ThickClient.Shell.Packaging/ThickClient.Shell.Packaging.wapproj /t:Publish /p:Configuration=Release
   artifacts:
     expire_in: 30 days
     paths:
-      - src/ThickClient.Shell/AppPackages/
+      - src/ThickClient.Shell.Packaging/AppPackages/
 
 sign:
   stage: sign
@@ -284,18 +289,18 @@ sign:
     - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     # SignTool usage depends on cert storage model (PFX in secret, or HSM/KeyVault-backed).
-    - powershell -File eng/sign-msix.ps1 -InputPath "src/ThickClient.Shell/AppPackages" 
+    - powershell -File eng/sign.ps1 -InputPath "src/ThickClient.Shell.Packaging/AppPackages"
   artifacts:
     expire_in: 180 days
     paths:
-      - src/ThickClient.Shell/AppPackages/
+      - src/ThickClient.Shell.Packaging/AppPackages/
 
 publish:
   stage: publish
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
   script:
-    - powershell -File eng/publish-artifacts.ps1
+    - powershell -File eng/publish.ps1
 ```
 
 **Notes**:
@@ -329,8 +334,8 @@ To keep builds reproducible:
 
 #### 10.2 Upgrade cadence (bank-friendly)
 - **Monthly**: patch upgrades (.NET servicing, WebView2 runtime servicing), security fixes.
-- **Quarterly**: Windows App SDK upgrades (validate UI/regressions).
 - **Annually or per-LTS**: .NET LTS upgrade planning.
+  - WPF framework updates ride along with the .NET upgrade/servicing strategy (no separate UI framework train to chase).
 
 #### 10.3 Automated dependency updates
 - Use Renovate (preferred) or GitLab Dependency Update tooling to open merge requests for:
@@ -342,7 +347,6 @@ To keep builds reproducible:
 Maintain a small matrix (in the repo) for each release:
 - App version
 - Minimum Windows build
-- Windows App SDK version
 - WebView2 SDK version
 - Minimum WebView2 Runtime version
 
@@ -377,14 +381,14 @@ For each dependency update (monthly batch or CVE hotfix):
   - Reload
   - Switch environment (optional)
   - View logs
-  - About (versions: app + WindowsAppSDK + WebView2 SDK + detected runtime)
+  - About (versions: app + commit SHA + .NET runtime + WebView2 SDK + detected WebView2 Runtime)
   - Exit
 - Enforce URL policy at the host level; never rely on the web app alone.
 
 ---
 
 ### 13) Reference links (vendor-trusted)
-- Windows App SDK: `https://github.com/microsoft/WindowsAppSDK`
+- WPF: `https://learn.microsoft.com/dotnet/desktop/wpf/`
 - WebView2 docs: `https://learn.microsoft.com/microsoft-edge/webview2/`
 - WebView2 release notes: `https://learn.microsoft.com/microsoft-edge/webview2/release-notes/`
 - MSIX packaging: `https://learn.microsoft.com/windows/msix/`
@@ -392,71 +396,12 @@ For each dependency update (monthly batch or CVE hotfix):
 
 ---
 
-### 14) Context7 validation notes (usage correctness) + “latest version” verification procedure
-You asked to validate both **(a) usage correctness** and **(b) “latest stable” dependency versions** using Context7.
-
-#### 14.1 What Context7 validated here
-Context7 is strongest for **authoritative usage patterns** (official docs + upstream READMEs). We used it to validate the recommended approach and usage patterns for:
-
-- **Windows App SDK / MSIX versioning constraints**: Windows App SDK versioning and how it maps to MSIX package versioning and release channels (stable vs non-stable tags). Source: `WindowsAppSDK/specs/Deployment/MSIXPackageVersioning.md` (Context7 library: `/microsoft/windowsappsdk`).
-- **Tray icon control for WinUI**: WinUI usage of `H.NotifyIcon`’s `TaskbarIcon`, menu activation, and recommended XAML patterns. Source: `H.NotifyIcon` README (Context7 library: `/havendv/h.notifyicon`).
-
-Concrete tray icon example (WinUI) from upstream docs (use as reference when implementing):
-
-```xml
-<Window
-    xmlns:tb="using:H.NotifyIcon"
-    >
-    <tb:TaskbarIcon
-        ToolTipText="ToolTip"
-        IconSource="/Images/TrayIcons/Logo.ico"
-        ContextMenu="{StaticResource TrayMenu}"
-        MenuActivation="LeftOrRightClick"
-        />
-</Window>
-```
-
-#### 14.2 “Latest version” verification: why Context7 alone is not sufficient
-Context7 documentation is not a live package registry and will not reliably answer: “what is the latest stable version on NuGet today?” for every dependency.
-
-For **exact latest stable versions**, the bank-grade sources of truth are:
-- NuGet gallery metadata (for packages)
-- Microsoft release notes (for WebView2 Runtime / Visual Studio / Windows SDK / .NET servicing)
-
-That’s why this document pins versions **as-of 2025-12-18** and also defines a repeatable verification process below.
-
-#### 14.3 Repeatable verification commands (dev + CI)
-Use these commands to re-validate “latest” at any time:
-
-- **Check outdated NuGet packages (per solution)**:
-
-```powershell
-dotnet list package --outdated
-```
-
-- **Check SDK version pinned vs installed**:
-
-```powershell
-dotnet --info
-```
-
-- **Validate WebView2 Runtime presence and version on endpoints** (example approach; exact method may vary by enterprise tooling):
-  - Prefer inventory via Intune/ConfigMgr (recommended).
-  - Locally, confirm runtime presence in “Apps & features” (Evergreen runtime).
-
-#### 14.4 “Latest” governance (what we enforce)
-- **CI is pinned** (reproducible builds), upgrades land via controlled MRs.
-- **WebView2 Runtime is serviced** (Evergreen via enterprise update tooling).
-- **Monthly servicing rhythm** with fast CVE hotfix path (see section 10.6).
-
----
-
-### 15) CTO review (industry-aligned) + decisions to implement (automation-first)
+### 15) Architectural decisions grounding (automation-first)
 This section converts the approach into **explicit decisions** that engineering must implement to meet typical bank expectations: **secure SDLC**, **auditability**, **repeatability**, and **automated controls**.
 
 #### 15.1 CTO review of the approach (what is strong / what needs tightening)
 - **Strong**:
-  - **WinUI 3 + WebView2 Evergreen** is the correct vendor-aligned choice for a Windows-dominant bank. It aligns with endpoint patching and avoids bundling a browser (unlike Electron).
+  - **WPF + WebView2 Evergreen** is the correct vendor-aligned choice for a Windows-dominant bank when the UI is primarily web-hosted. It aligns with endpoint patching, avoids bundling a browser (unlike Electron), and reduces framework-churn risk versus newer Windows UI stacks.
   - **MSIX** is the right packaging format for clean install/uninstall, enterprise deployment, and controlled updates.
   - Pinning versions **as-of-date** + ringed rollout is consistent with regulated change control.
 - **Needs tightening for industry expectations**:
@@ -501,7 +446,7 @@ These are “musts” for a bank-grade thick client. Treat them as requirements,
 - **Observability & supportability**:
   - **MUST** implement structured logging with PII-safe defaults (no tokens, no payloads).
   - **MUST** provide a “Collect diagnostics” action that generates a support bundle (logs + versions + policy snapshot).
-  - **MUST** stamp the About dialog with versions: app, commit SHA, Windows App SDK, WebView2 SDK, detected WebView2 Runtime.
+  - **MUST** stamp the About dialog with versions: app, commit SHA, .NET runtime, WebView2 SDK, detected WebView2 Runtime.
 
 #### 15.3 Decisions to implement (SHOULD)
 - **SHOULD** run a minimal nightly desktop smoke automation on a dedicated Windows runner/VM.
@@ -510,40 +455,10 @@ These are “musts” for a bank-grade thick client. Treat them as requirements,
 
 ---
 
-### 16) Secure SDLC & governance model (bank-grade)
-This section maps engineering practice to typical bank controls (independent of any specific framework like ISO/NIST).
-
-#### 16.1 Standards alignment (practical)
-Implement controls that map well to:
-- **Microsoft SDL** principles (threat modeling, secure coding, security reviews).
-- **NIST SSDF** outcomes (secure development environment, secure build pipeline, artifact integrity).
-- **OWASP SAMM** maturity themes (governance, design, implementation, verification, operations).
-
-#### 16.2 Architecture Decision Records (ADR) – mandatory for key changes
-Create `docs/adr/` and require an ADR for changes that impact:
-- WebView2 security policy (allowlists, host-object bridging, downloads, debugging/devtools)
-- update model (MSIX feed, Intune rings, startup behavior)
-- authentication/SSO integration decisions
-- signing and key custody
-
-ADR template (minimum fields):
-- Context, decision, alternatives considered, security implications, rollout plan, rollback plan, evidence required.
-
-#### 16.3 Change management and release governance
-- All releases are created from **protected tags** (e.g., `thickclient/vX.Y.Z`).
-- Releases require:
-  - successful pipeline on the tag
-  - signed MSIX
-  - SBOM attached
-  - test reports attached (unit/integration, and smoke if enabled)
-  - security scan results attached (or referenced by pipeline ID)
-
----
-
-### 17) Automation blueprint (repo assets to implement)
+### 16) Automation blueprint (repo assets to implement)
 This document recommends adding the following automation assets to the repository to minimize manual work and reduce “it works on my machine” risk:
 
-#### 17.1 Deterministic builds and centralized dependency management
+#### 16.1 Deterministic builds and centralized dependency management
 - `global.json` pins **.NET SDK**.
 - `Directory.Packages.props` pins all **NuGet** packages centrally.
 - `Directory.Build.props` enforces:
@@ -553,13 +468,13 @@ This document recommends adding the following automation assets to the repositor
   - deterministic build where possible
 - `.config/dotnet-tools.json` pins tool versions (SBOM, report generation, etc.).
 
-#### 17.2 Dependency automation
+#### 16.2 Dependency automation
 - Use Renovate (preferred) to open MRs for:
   - patch/minor updates (auto-merge optional after green pipeline, per policy)
   - major updates (manual review + ADR if impactful)
   - CVE-related updates (priority)
 
-#### 17.3 “One command” scripts
+#### 16.3 “One command” scripts
 Commit PowerShell scripts under `eng/`:
 - `eng/bootstrap.ps1` – install/verify prerequisites + restore tools/packages
 - `eng/build.ps1` – restore + build
@@ -573,14 +488,14 @@ Each script prints machine-readable summaries (JSON) to support CI parsing and t
 
 ---
 
-### 18) GitLab CI/CD – hardened, automation-heavy blueprint
+### 17) GitLab CI/CD – hardened, automation-heavy blueprint
 The current section 9 is a good start; below is what we enforce in regulated environments.
 
-#### 18.1 Split workloads across runners (recommended)
-- **Windows runners**: build, package, sign (WinUI/MSIX).
+#### 17.1 Split workloads across runners (recommended)
+- **Windows runners**: build, package, sign (WPF/MSIX).
 - **Linux runners**: GitLab security templates (SAST, dependency scanning), secret detection, license checks (where supported).
 
-#### 18.2 Pipeline “must have” artifacts (evidence)
+#### 17.2 Pipeline “must have” artifacts (evidence)
 Every pipeline on `main` and every release tag must publish:
 - compiled binaries
 - test results (JUnit/TRX) + coverage reports
@@ -588,7 +503,7 @@ Every pipeline on `main` and every release tag must publish:
 - signed MSIX package(s)
 - a manifest JSON describing: version, commit SHA, build timestamp, toolchain versions
 
-#### 18.3 Enforced quality gates (automated)
+#### 17.3 Enforced quality gates (automated)
 Minimum gates to wire into GitLab as required jobs:
 - **Format/analyzers**: `dotnet format` (verify mode) + analyzers as errors
 - **Unit/integration tests**: must pass
@@ -596,7 +511,7 @@ Minimum gates to wire into GitLab as required jobs:
 - **Dependency + license compliance**: must pass
 - **SBOM generation**: must succeed and be attached
 
-#### 18.4 Signing automation design (enterprise-safe)
+#### 17.4 Signing automation design (enterprise-safe)
 Signing must be non-interactive and auditable:
 - Preferred: signing key is in enterprise **HSM/PKI**, runner can request signing operation with audited identity.
 - Acceptable: runner has access to a certificate in Windows certificate store with strict ACLs + audited usage.
@@ -604,10 +519,10 @@ Signing must be non-interactive and auditable:
 
 ---
 
-### 19) WebView2 security policy (make it concrete and testable)
+### 18) WebView2 security policy (make it concrete and testable)
 Convert section 4 from a checklist into explicit policy that can be unit-tested.
 
-#### 19.1 Navigation allowlist (required)
+#### 18.1 Navigation allowlist (required)
 Define:
 - Allowed origins (exact hostnames; wildcard only if explicitly approved)
 - Allowed URL schemes (`https:`; optionally `http:` only for DEV)
@@ -618,14 +533,14 @@ Unit tests must validate:
 - non-allowlisted URL is blocked and logged
 - `window.open` is handled per policy
 
-#### 19.2 Download policy (default deny)
+#### 18.2 Download policy (default deny)
 Enforce cancellation of downloads unless a business-approved allowlist exists.
 If downloads are enabled:
 - require file type allowlist
 - require destination restrictions (no arbitrary paths)
 - define malware scanning and DLP handling (usually via enterprise tooling)
 
-#### 19.3 IPC message contract (explicit)
+#### 18.3 IPC message contract (explicit)
 Define a JSON schema for messages:
 - message name
 - version
@@ -639,7 +554,7 @@ Unit tests must validate:
 
 ---
 
-### 20) Endpoint deployment automation (rings)
+### 19) Endpoint deployment automation (rings)
 Treat deployment as code and automate ring promotion:
 
 - **Ring 0**: automatic publish on `main` (internal only) – optional
