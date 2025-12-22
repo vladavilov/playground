@@ -1,0 +1,6 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GNUDEMO.
+       PROCEDURE DIVISION.
+           DISPLAY "OK".
+           STOP RUN.
+

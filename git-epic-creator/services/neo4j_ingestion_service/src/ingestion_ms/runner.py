@@ -2,8 +2,6 @@ import structlog
 from pathlib import Path
 from typing import Any, Dict
 import shutil
-
-from utils.neo4j_client import get_neo4j_client
 import graphrag.api as graphrag_api
 
 from config import get_graphrag_settings
@@ -13,6 +11,7 @@ from .parquet_reader import ParquetReader
 from .lancedb_reader import LanceDBReader
 from .neo4j_ingestor import Neo4jIngestor
 from .callbacks import IngestionWorkflowCallbacks
+from .neo4j_repository_service_client import get_client
  
 
 logger = structlog.get_logger(__name__)
@@ -143,11 +142,10 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
             output_dir=str(output_dir)
         )
     
-    client = get_neo4j_client()
-    driver = client.driver
-    # Initialize readers and ingestor
+    repo_client = get_client()
+    # Initialize readers and ingestor (HTTP -> neo4j-repository-service)
     pq = ParquetReader()
-    ingestor = Neo4jIngestor(driver=driver, project_id=project_id)
+    ingestor = Neo4jIngestor(client=repo_client, project_id=project_id)
 
     # Read parquet records and ingest
     records = {

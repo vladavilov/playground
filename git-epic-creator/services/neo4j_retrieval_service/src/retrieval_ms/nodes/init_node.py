@@ -34,10 +34,11 @@ class InitNode(BaseNode):
         retrieval_id = state.get("retrieval_id") or uuid4()
         
         # Publish initialization status
-        if self._publisher:
+        publisher = self._publisher_from_state(state)
+        if publisher:
             try:
                 prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
-                await self._publisher.publish_retrieval_update(
+                await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=retrieval_id,
                     phase=RetrievalStatus.INITIALIZING,

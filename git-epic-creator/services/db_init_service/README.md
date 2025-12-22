@@ -47,6 +47,16 @@ The service creates the following tables:
   - `created_at` (DateTime)
   - `updated_at` (DateTime)
 
+- **`project_repo_indexes`** - Deterministic repo index (manifest) table with fields:
+  - `id` (UUID, primary key)
+  - `project_id` (UUID, required)
+  - `repo_fingerprint` (Text, required)
+  - `repo_index_json` (JSONB, required) - Deterministic repo manifest used for canonical naming/dedup support
+  - `content_sha256` (Text, required) - sha256 over canonical JSON bytes (determinism gate)
+  - `created_by` (String 255, required)
+  - `created_at` (DateTime)
+  - `updated_at` (DateTime)
+
 ## Authentication
 
 All endpoints require local authentication via `get_local_user_verified` dependency.

@@ -432,13 +432,10 @@ def ensure_clean_session_setup(neo4j_driver, target_db_name, wa, service_urls):
     wa.reset_neo4j_database(neo4j_driver, target_db_name)
     
     # Recreate constraints and indexes dropped by reset
-    # Create fresh token for each test to avoid expiration issues
-    token = _create_local_jwt_token(roles=["Admin"])
-    auth_headers = {"Authorization": f"Bearer {token}"}
-    
     resp = requests.post(
-        f"{service_urls['neo4j_maintenance']}/init-neo4j",
-        headers=auth_headers,
+        f"{service_urls['neo4j_repository']}/v1/maintenance/init-schema",
+        headers={"Content-Type": "application/json"},
+        json={},
         timeout=TestConstants.DEFAULT_TIMEOUT,
         verify=False
     )

@@ -1,0 +1,9 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. JXI.
+       PROCEDURE DIVISION.
+           INVOKE MYOBJ.
+           JSON PARSE WS-TEXT WS-DEST.
+           JSON GENERATE WS-OUT WS-SRC.
+           XML PARSE WS-XML.
+           XML GENERATE WS-XML-OUT.
+           GOBACK.

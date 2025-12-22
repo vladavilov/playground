@@ -453,7 +453,7 @@ CREATE TABLE projects (
 **Port**: 8000  
 **Key Features**:
 - **Idempotent Schema Creation**: Uses `IF NOT EXISTS` for constraints
-- **Node Constraints**: Unique constraints on `Entity.id`, `Requirement.id`, `Document.id`, `JiraTicket.id`
+- **Node Constraints**: Unique constraints on `Entity.id`, `Requirement.id`, `Document.id`
 - **Relationship Schema**: REFERENCED_BY, EVIDENCED_BY, MERGED_FROM
 - **Vector Index Configuration**: 3072 dims, cosine similarity (handled separately)
 
@@ -465,15 +465,13 @@ CREATE TABLE projects (
 
 ---
 
-### 13. Neo4j Maintenance Service
+### 13. Neo4j Repository Service
 
-**Purpose**: Maintenance operations for Neo4j database including backups, cleanup, and index management.
+**Purpose**: Golden-source Rust service for all Neo4j interaction (reads/writes/schema init), replacing the old Python maintenance service.
 
-**Technology**: Python (FastAPI) + Neo4j driver  
-**Port**: 8000  
-**Key Features**: Schema validation, index management, data cleanup
-
-**Documentation**: [services/neo4j_maintanance_service/README.md](services/neo4j_maintanance_service/README.md)
+**Technology**: Rust (Axum) + neo4rs  
+**Port**: 8080  
+**Key Features**: Feature endpoints for retrieval, schema init, and Neo4j health (including index health summary).
 
 ---
 
@@ -1074,7 +1072,7 @@ curl -N http://localhost:8000/events
 │   ├── document_processing_service/  # Tika extraction
 │   ├── neo4j_ingestion_service/      # GraphRAG pipeline
 │   ├── neo4j_retrieval_service/      # Context retrieval
-│   ├── neo4j_maintanance_service/    # Maintenance
+│   ├── neo4j_repository_service/     # Golden-source Neo4j service (Rust)
 │   ├── gitlab_client_service/        # GitLab integration
 │   ├── db_init_service/              # Schema init
 │   ├── mock_auth_service/            # Azure AD mock

@@ -33,7 +33,8 @@ class TestConfig:
             "neo4j_ingestion": os.getenv("NEO4J_INGESTION_URL", "http://localhost:8006"),
             "mock_auth": os.getenv("AZURE_AD_AUTHORITY", "https://localhost:8005"),
             "init_db_service": os.getenv("INIT_DB_SERVICE_URL", "http://localhost:8001"),
-            "neo4j_maintenance": os.getenv("NEO4J_MAINTENANCE_URL", "http://localhost:8002"),
+            # Neo4j schema/init is handled by neo4j_repository_service (Rust).
+            "neo4j_repository": os.getenv("NEO4J_REPOSITORY_SERVICE_URL", "http://localhost:8080"),
             "ui_service": os.getenv("UI_SERVICE_URL", "http://localhost:8007"),
             "ai_requirements": os.getenv("AI_REQUIREMENTS_SERVICE_URL", "http://localhost:8009"),
             "ai_tasks": os.getenv("AI_TASKS_SERVICE_URL", "http://localhost:8012"),

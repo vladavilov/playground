@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 import json
 import types
 from typing import Any, Dict, List
@@ -7,6 +9,10 @@ import importlib
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
+
+# Ensure `src/` is importable without external pytest plugins.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 class FakeNeo4jSession:
@@ -118,28 +124,86 @@ def mount_app(router_module):
 
 def test_retrieve_returns_aggregated_json(monkeypatch):
     # Import module fresh to ensure monkeypatch applies cleanly
-    mod = importlib.import_module("services.neo4j_retrieval_service.src.routers.retrieval_router".replace("/", "."))
+    mod = importlib.import_module("routers.retrieval_router")
 
-    # Create fake Neo4jClient that returns fake session
-    class FakeNeo4jClient:
-        def get_session(self, database=None):
-            return FakeNeo4jSession()
-        def close(self):
-            pass
-    
-    # Patch dependency injection to return fake Neo4jClient
-    from utils.app_factory import get_neo4j_client_from_state
-    original_get_neo4j_client = get_neo4j_client_from_state
-    
-    def mock_get_neo4j_client(request):
-        fake_client = FakeNeo4jClient()
-        return fake_client
-    
-    monkeypatch.setattr(mod, "get_neo4j_client_from_state", mock_get_neo4j_client)
+    # Minimal env required by config factories.
+    monkeypatch.setenv("NEO4J_REPOSITORY_SERVICE_URL", "http://mock-repo")
+    monkeypatch.setenv("VECTOR_INDEX_DIMENSIONS", "8")
+    monkeypatch.setenv("CHUNK_VECTOR_INDEX_NAME", "chunk_idx")
+    monkeypatch.setenv("COMMUNITY_VECTOR_INDEX_NAME", "comm_idx")
+    # Settings are cached; clear to pick up env overrides.
+    from config import get_retrieval_settings
+    get_retrieval_settings.cache_clear()
+
+    class _Msg:
+        def __init__(self, content: str):
+            self.content = content
+
+    class FakeLLM:
+        async def ainvoke(self, messages):
+            text = "\n".join([str(getattr(m, "content", m)) for m in messages])
+            t = text.lower()
+            if "hypothetical answer paragraph" in t:
+                return _Msg("hypothetical paragraph")
+            if "you are drift-search primer" in t:
+                return _Msg(json.dumps({
+                    "initial_answer": "init",
+                    "followups": [{"question": "q1", "target_communities": [1]}],
+                    "rationale": "r",
+                }))
+            if "you are drift-search local executor" in t:
+                return _Msg(json.dumps({
+                    "answer": "a1",
+                    "citations": [{"chunk_id": "c10", "span": "deck overview"}],
+                    "new_followups": [],
+                    "confidence": 0.9,
+                    "should_continue": False,
+                }))
+            if "you are drift-search aggregator" in t:
+                return _Msg(json.dumps({
+                    "final_answer": "final",
+                    "key_facts": [{"fact": "f", "citations": ["c10"]}],
+                    "residual_uncertainty": "u",
+                }))
+            return _Msg("{}")
+
+    class FakeEmbedder:
+        async def aembed_documents(self, texts):
+            return [[0.1] * 8 for _ in texts]
+
+    # Patch LLM + embedder factories
+    monkeypatch.setattr(mod, "create_llm", lambda: FakeLLM())
+    monkeypatch.setattr(mod, "create_embedder", lambda: FakeEmbedder())
+
+    # Patch repo client + backend post_json calls
+    from retrieval_ms.nodes import primer_node as primer_mod
+    from retrieval_ms.nodes import followups_node as followups_mod
+
+    async def fake_post_json(_client, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if path == "/v1/retrieval/primer-context":
+            return {
+                "communities": [1, 2],
+                "community_brief": [{"id": 1, "summary": "s1"}, {"id": 2, "summary": "s2"}],
+            }
+        if path == "/v1/retrieval/followup-context":
+            # Must include c10 for local executor citation validation.
+            return {
+                "chunk_ids": ["c10", "c11"],
+                "neighborhoods": [
+                    {"chunk_id": "c10", "text": "deck overview", "document_name": "doc1", "neighbours": []},
+                    {"chunk_id": "c11", "text": "other", "document_name": "doc2", "neighbours": []},
+                ],
+            }
+        raise AssertionError(f"Unexpected path: {path} payload={payload}")
+
+    # Nodes import `post_json` directly, so patch their module-level symbol.
+    monkeypatch.setattr(primer_mod, "post_json", fake_post_json, raising=True)
+    monkeypatch.setattr(followups_mod, "post_json", fake_post_json, raising=True)
+    monkeypatch.setattr(mod, "get_client", lambda: httpx.AsyncClient(base_url="http://mock-repo"))
 
     app = mount_app(mod)
-    # Add fake client to app state for dependency injection
-    app.state.neo4j_client = FakeNeo4jClient()
+    # Disable auth in test
+    app.dependency_overrides[mod.get_local_user_verified] = lambda: None
     client = TestClient(app)
 
     resp = client.post("/retrieve", json={"query": "what are the main components of the bridge?", "top_k": 2, "project_id": "test-project"})

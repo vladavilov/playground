@@ -167,6 +167,46 @@ graph TB
     style CM fill:#d1ecf1
 ```
 
+#### Coexisting Code RepoGraph schema (static code graph)
+This Neo4j database also stores a **project-scoped static code graph** used by code analysis ingestion and deterministic requirements extraction. This model **extends** the database schema and **does not replace** GraphRAG.
+
+**Project scoping contract (non-breaking):**
+- `__Project__ { id }` remains the canonical project scope anchor.
+- All code-graph nodes and relationships carry `project_id` and link to `(__Project__)` via `IN_PROJECT` (same scoping pattern as GraphRAG).
+
+**Core code-graph labels:**
+- `__Repo__` (repository snapshot; identified by `repo_fingerprint`)
+- `__File__` (repo-relative file inventory)
+- `__CodeNode__` (universal unit-of-code node across languages)
+
+**Core code-graph relationships:**
+- `(__Repo__)-[:HAS_FILE]->(__File__)`
+- `(__File__)-[:CONTAINS]->(__CodeNode__)`
+- `(__CodeNode__)-[:CALLS|PERFORMS|IMPORTS|INCLUDES|READS|WRITES|CONFIG_WIRES]->(__CodeNode__|__File__)`
+- `(__CodeNode__|__File__|__Repo__)-[:IN_PROJECT]->(__Project__)`
+
+```mermaid
+graph TB
+    P[__Project__]:::proj
+    R[__Repo__<br/>repo_fingerprint]:::repo
+    F[__File__<br/>path, language, sha256]:::file
+    N[__CodeNode__<br/>node_id, kind, symbol<br/>start_line..end_line]:::node
+
+    R -->|HAS_FILE| F
+    F -->|CONTAINS| N
+    N -->|CALLS/PERFORMS/IMPORTS| N
+    N -->|INCLUDES| F
+
+    R -->|IN_PROJECT| P
+    F -->|IN_PROJECT| P
+    N -->|IN_PROJECT| P
+
+    classDef proj fill:#b3d9ff
+    classDef repo fill:#e1f5ff
+    classDef file fill:#d4edda
+    classDef node fill:#fff3cd
+```
+
 **Key node properties:**
 
 | Node | Required Properties | Optional Properties | Notes |
@@ -352,23 +392,13 @@ The service uses a **two-phase approach** for embedding ingestion:
 - **Performance:** Efficient for initial pipeline run (1000 rows/batch)
 - **Query pattern:** `MATCH (n:Label {text_property: r.text}) SET n.embedding = r.embedding`
 
-**Phase 2: Selective Update (Recovery/Manual)**
-- **Source:** External (API calls, cached vectors, manual fixes)
-- **Method:** `update_community_embedding_by_id()` updates by composite key
-- **Use cases:**
-  - Fix missing embeddings after validation failures
-  - Re-generate embeddings for specific communities
-  - Manual updates during debugging/testing
-- **Query pattern:** `MATCH (c:__Community__ {community: $id, project_id: $pid}) SET c.embedding = $embedding`
-
 **Validation Flow:**
 1. `validate_all_embeddings()` performs comprehensive health check across all node types
    - Returns structured results with `has_critical_issues`, `has_warnings` flags
    - Provides human-readable `issues[]` and `suggestions[]` for remediation
    - Included in pipeline result under `embedding_validation` key
 2. Pipeline checks validation results and logs appropriate warnings/errors
-3. If critical issues found, use `update_community_embedding_by_id()` to fix selectively
-4. Downstream services can check `embedding_validation.has_critical_issues` before attempting DRIFT search
+3. Downstream services can check `embedding_validation.has_critical_issues` before attempting DRIFT search
 
 **Why two approaches?**
 - Bulk ingestion optimized for full pipeline runs (match by content)

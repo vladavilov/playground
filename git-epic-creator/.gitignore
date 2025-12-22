@@ -65,10 +65,14 @@ parts/
 sdist/
 var/
 wheels/
+wheelhouse/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
+
+# Rust
+target/
 
 # Virtual environments
 venv/

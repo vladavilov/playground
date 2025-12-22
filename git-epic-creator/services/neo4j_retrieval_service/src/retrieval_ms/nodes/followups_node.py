@@ -7,15 +7,15 @@ Implements parallel followup processing:
 4. Validate and filter results
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
-from contextlib import contextmanager
 import asyncio
 import structlog
 
 from retrieval_ms.nodes.base_node import BaseNode
 from retrieval_ms.prompts import local_executor_prompt
-from retrieval_ms.repositories.neo4j_repository import Neo4jRepository
+import httpx
+from retrieval_ms.neo4j_repository_service_client import post_json
 from retrieval_ms.response_models import LocalExecutorResponse
 from models.progress_messages import RetrievalStatus
 from utils.json_utils import parse_and_validate
@@ -24,7 +24,6 @@ from utils.chunk_utils import (
     calculate_overlap_ratio,
     compress_chunks_adaptive,
     truncate_for_prompt,
-    reorder_chunks_by_novelty,
 )
 from utils.citation_utils import validate_citations
 from config import get_retrieval_settings
@@ -72,23 +71,17 @@ class FollowupsNode(BaseNode):
         has_citations = bool(result.get("citations") and len(result.get("citations")) > 0)
         return has_answer or has_citations
     
-    @contextmanager
-    def _repo_ctx(self):
-        """Context manager for Neo4j repository."""
-        with self._get_session() as session:
-            yield Neo4jRepository(session)
-    
-    def _get_scoped_chunks_expanded(
+    async def _get_scoped_chunks_expanded(
         self,
-        repo: Neo4jRepository,
+        client: httpx.AsyncClient,
         communities: List[int],
         chunk_index: str,
         query_vec: List[float],
         k: int,
         project_id: str,
         state: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
-        """Get expanded chunks with request-level caching."""
+    ) -> Tuple[List[str], List[Dict[str, Any]]]:
+        """Get expanded chunks and their backend rank order."""
         settings = get_retrieval_settings()
         
         if not (chunk_index and communities):
@@ -98,50 +91,144 @@ class FollowupsNode(BaseNode):
                 chunk_index=bool(chunk_index),
                 communities_count=len(communities or [])
             )
-            return []
-        
-        # Use optimized vector query
-        rows = repo.optimized_scoped_chunks(communities, chunk_index, query_vec, k, project_id)
-        chunks = rows
-        
-        logger.info("retrieval.scoped_chunks", chunk_ids_found=len(chunks), communities_count=len(communities))
-        
-        if not chunks:
-            logger.warning("retrieval.scoped_chunks_empty", reason="no_chunks_found_for_communities", communities=communities[:5])
-            return []
-        
-        # Reorder chunks to prioritize unseen content
-        seen_chunk_ids = state.get("_seen_chunk_ids", set())
-        chunks = reorder_chunks_by_novelty(chunks, seen_chunk_ids)
-        
-        # Check cache for already-expanded chunks
-        cache = state.get("_cache_neighborhoods", {})
-        
-        # Separate cached and uncached chunks
-        cached_results = [cache[chunk_id] for chunk_id in chunks if chunk_id in cache]
-        chunks_to_expand = [chunk_id for chunk_id in chunks if chunk_id not in cache]
-        
-        if cached_results:
-            logger.debug("neighborhood_cache_hit", count=len(cached_results))
-        
-        # Expand only uncached chunks
-        if chunks_to_expand:
-            logger.debug("neighborhood_cache_miss", count=len(chunks_to_expand))
-            expanded = repo.expand_neighborhood_minimal(
-                chunks_to_expand,
-                project_id,
-                max_chunk_text_len=settings.MAX_CHUNK_TEXT_LENGTH
+            return [], []
+
+        data = await post_json(
+            client,
+            "/v1/retrieval/followup-context",
+            {
+                "project_id": project_id,
+                "chunk_index_name": chunk_index,
+                "community_ids": communities,
+                "k": int(k),
+                "qvec": query_vec,
+                "max_chunk_len": int(settings.MAX_CHUNK_TEXT_LENGTH),
+            },
+        )
+        chunk_ids = [str(x) for x in (data.get("chunk_ids") or []) if x is not None]
+        neighborhoods = list(data.get("neighborhoods") or [])
+
+        logger.info("retrieval.scoped_chunks", chunk_ids_found=len(chunk_ids), communities_count=len(communities))
+
+        if not neighborhoods:
+            logger.warning(
+                "retrieval.scoped_chunks_empty",
+                reason="no_neighborhoods_found_for_communities",
+                communities=communities[:5],
             )
-            
-            # Cache new results
-            for item in expanded:
-                if cid := item.get("chunk_id"):
-                    cache[cid] = item
-            
-            state["_cache_neighborhoods"] = cache
-            return cached_results + expanded
+            return chunk_ids, []
+
+        # Reorder neighborhoods to prioritize unseen content (best-effort).
+        seen_chunk_ids = state.get("_seen_chunk_ids", set())
+        # NOTE: We keep the backend order (vector score-desc) as the base ranking signal.
+        # We'll apply a soft novelty + lexical rerank later before prompt construction.
+        order_map = {cid: i for i, cid in enumerate(chunk_ids)}
+        neighborhoods.sort(key=lambda n: order_map.get(str(n.get("chunk_id") or ""), 10**9))
+
+        return chunk_ids, neighborhoods
+
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        """Tokenize text for lightweight lexical overlap scoring."""
+        if not text:
+            return set()
+        # Keep this deliberately simple and dependency-free.
+        cleaned = []
+        for ch in text.lower():
+            cleaned.append(ch if ch.isalnum() else " ")
+        tokens = [t for t in "".join(cleaned).split() if len(t) >= 3]
+        # Tiny stopword list to avoid over-weighting generic words.
+        stop = {
+            "the", "and", "for", "with", "from", "that", "this", "are", "was", "were",
+            "what", "when", "where", "which", "into", "your", "you", "how", "why",
+            "does", "do", "did", "done", "use", "using",
+        }
+        return {t for t in tokens if t not in stop}
+
+    def _lexical_overlap_score(self, query: str, chunk: Dict[str, Any]) -> float:
+        """Compute a lightweight lexical relevance score in [0..1]."""
+        q = self._tokenize(query)
+        if not q:
+            return 0.0
+
+        text = str(chunk.get("text") or "")
+        tokens = set(self._tokenize(text))
+
+        # Include neighbour entity names/descriptions (often more semantically dense than code text).
+        for n in chunk.get("neighbours") or []:
+            if isinstance(n, dict):
+                props = n.get("properties") or {}
+                if isinstance(props, dict):
+                    tokens |= self._tokenize(str(props.get("name") or ""))
+                    tokens |= self._tokenize(str(props.get("description") or ""))
+
+        if not tokens:
+            return 0.0
+
+        overlap = len(q.intersection(tokens))
+        return min(1.0, overlap / max(1, len(q)))
+
+    def _rank_chunks_for_prompt(
+        self,
+        qtext: str,
+        neighborhoods: List[Dict[str, Any]],
+        chunk_ids_in_order: List[str],
+        seen_chunk_ids: set[str],
+    ) -> List[Dict[str, Any]]:
+        """Rank neighborhoods using backend order + lexical overlap + soft novelty boost."""
+        if not neighborhoods:
+            return neighborhoods
+
+        order = {cid: i for i, cid in enumerate(chunk_ids_in_order)}
+        n = max(1, len(chunk_ids_in_order))
+
+        scored: List[tuple[float, int, Dict[str, Any]]] = []
+        for item in neighborhoods:
+            cid = str(item.get("chunk_id") or "")
+            pos = order.get(cid, 10**9)
+
+            # Base score from backend ranking (vector score-desc proxy).
+            base = 1.0 - (min(pos, n - 1) / max(1, n - 1)) if n > 1 else 1.0
+
+            # Lexical score helps precision when vector neighbors are broad/noisy.
+            lex = self._lexical_overlap_score(qtext, item)
+
+            # Soft novelty bonus; do not override relevance entirely.
+            novelty = 0.05 if (cid and cid not in seen_chunk_ids) else 0.0
+
+            score = (0.60 * base) + (0.35 * lex) + novelty
+            scored.append((score, pos, item))
+
+        scored.sort(key=lambda t: (-t[0], t[1]))
+        return [item for _, __, item in scored]
+
+    @staticmethod
+    def _select_target_communities(
+        followup: Dict[str, Any],
+        all_communities: List[int],
+    ) -> List[int]:
+        """Select effective community scope for a followup.
         
-        return cached_results
+        Precision improvement: if primer produced target_communities, honor them.
+        """
+        raw = followup.get("target_communities")
+        if not raw:
+            return all_communities
+
+        target: List[int] = []
+        for x in raw if isinstance(raw, list) else []:
+            try:
+                target.append(int(x))
+            except Exception:
+                continue
+
+        if not target:
+            return all_communities
+
+        # Prefer intersection with known communities, but fall back to target list if needed.
+        all_set = set(all_communities)
+        intersected = [c for c in target if c in all_set]
+        return intersected or target
     
     async def _spawn_and_execute_nested_followups(
         self,
@@ -259,15 +346,20 @@ class FollowupsNode(BaseNode):
             depth: Nesting depth (0 = initial, 1 = nested)
             state: Graph state with project_id, retrieval_id, prompt_id
         """
-        if not self._publisher:
+        publisher = self._publisher_from_state(state)
+        if not publisher:
             return
         
         try:
-            progress = 40.0 + ((idx + 1) / total_followups) * 40.0
+            # Avoid skewing UI progress for nested followups (their idx can be very large).
+            progress = None
+            if depth == 0 and total_followups > 0:
+                safe_idx = min(max(idx, 0), total_followups - 1)
+                progress = 40.0 + ((safe_idx + 1) / total_followups) * 40.0
             prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
             depth_label = f" (nested depth {depth})" if depth > 0 else ""
             
-            await self._publisher.publish_retrieval_update(
+            await publisher.publish_retrieval_update(
                 project_id=UUID(state["project_id"]),
                 retrieval_id=state["retrieval_id"],
                 phase=RetrievalStatus.EXECUTING_FOLLOWUP,
@@ -298,7 +390,7 @@ class FollowupsNode(BaseNode):
         self,
         local_validated: LocalExecutorResponse,
         qtext: str,
-        chunks: List[Dict[str, Any]],
+        chunks_for_validation: List[Dict[str, Any]],
         context_label: str,
     ) -> Dict[str, Any]:
         """Create minimal followup result with validated citations.
@@ -309,7 +401,7 @@ class FollowupsNode(BaseNode):
         # Build lookup map: chunk_id -> document_name
         chunk_to_doc = {
             str(item.get("chunk_id")): item.get("document_name", "unknown")
-            for item in chunks
+            for item in chunks_for_validation
             if item.get("chunk_id") is not None
         }
         valid_chunk_ids = set(chunk_to_doc.keys())
@@ -397,10 +489,11 @@ class FollowupsNode(BaseNode):
                 embedding_service.validate_dimension(qvec, f"Followup-{idx}")
             
             # Fetch and expand chunks
-            with self._repo_ctx() as repo:
-                chunks = self._get_scoped_chunks_expanded(
-                    repo, cids, chunk_index, qvec, k, state["project_id"], state
-                )
+            client = self._get_repo()
+            effective_cids = self._select_target_communities(followup, cids)
+            chunk_ids_in_order, chunks = await self._get_scoped_chunks_expanded(
+                client, effective_cids, chunk_index, qvec, k, state["project_id"], state
+            )
             
             if not chunks:
                 logger.info("followup_no_data_found", followup_index=idx, message=f"No chunks for followup {idx}")
@@ -430,9 +523,35 @@ class FollowupsNode(BaseNode):
             
             # Apply adaptive compression
             chunks_for_prompt = compress_chunks_adaptive(chunks, overlap_ratio)
+
+            # Rank chunks for prompt to improve precision:
+            # - Start with backend vector ranking
+            # - Boost lexical overlap with followup question
+            # - Slight novelty bonus to diversify across followups
+            chunks_for_prompt = self._rank_chunks_for_prompt(
+                qtext=qtext,
+                neighborhoods=chunks_for_prompt,
+                chunk_ids_in_order=chunk_ids_in_order,
+                seen_chunk_ids=seen_chunk_ids,
+            )
             
             # Prepare prompt data
             target_communities_brief = state.get("community_brief", [])
+            if effective_cids and target_communities_brief:
+                try:
+                    effective_set = set(int(x) for x in effective_cids if x is not None)
+                    filtered = []
+                    for c in target_communities_brief:
+                        try:
+                            cid = int(c.get("id"))
+                        except Exception:
+                            continue
+                        if cid in effective_set:
+                            filtered.append(c)
+                    target_communities_brief = filtered
+                except Exception:
+                    # If anything goes wrong, keep the unfiltered brief (best-effort).
+                    pass
         
             chunks_for_prompt_truncated = chunks_for_prompt[:adaptive_limit]
             chunks_preview_json = truncate_for_prompt(
@@ -476,7 +595,7 @@ class FollowupsNode(BaseNode):
             minimal_result = self._create_minimal_followup_result(
                 local_validated,
                 qtext,
-                chunks,
+                chunks_for_prompt_truncated,
                 context_label=f"followup_{idx}",
             )
             

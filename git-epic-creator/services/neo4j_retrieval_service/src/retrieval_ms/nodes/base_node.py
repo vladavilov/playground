@@ -22,23 +22,20 @@ class BaseNode(ABC):
     
     def __init__(
         self,
-        get_session: Callable[[], Any],
+        get_repo: Callable[[], Any],
         get_llm: Callable[[], Any],
         get_embedder: Callable[[], Any],
-        publisher: Any = None,
     ):
         """Initialize base node with dependencies.
         
         Args:
-            get_session: Factory function for Neo4j session
+            get_repo: Factory function for Neo4j repository client (HTTP -> neo4j_repository_service)
             get_llm: Factory function for LLM client
             get_embedder: Factory function for embedder client
-            publisher: Optional progress publisher for UI updates
         """
-        self._get_session = get_session
+        self._get_repo = get_repo
         self._get_llm = get_llm
         self._get_embedder = get_embedder
-        self._publisher = publisher
         self._logger = logger.bind(node=self.__class__.__name__)
     
     @abstractmethod
@@ -83,4 +80,14 @@ class BaseNode(ABC):
         except Exception:
             self._logger.warning("top_k_parse_failed", raw_value=state.get("top_k"), fallback=default)
             return default
+
+    @staticmethod
+    def _publisher_from_state(state: Dict[str, Any]) -> Any:
+        """Get per-request progress publisher from state (if present).
+        
+        The retrieval graph is cached (singleton) for performance. Storing per-request
+        objects (like Redis publishers) on node instances is unsafe and causes cross-request
+        leakage. Publisher must be passed via state instead.
+        """
+        return state.get("publisher")
 

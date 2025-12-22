@@ -5,7 +5,6 @@ from pydantic import Field
 
 from configuration.base_config import BaseConfig
 from configuration.llm_config import LlmConfig
-from configuration.neo4j_config import Neo4jSettings
 from configuration.vector_index_config import VectorIndexEnv
 
 
@@ -17,8 +16,17 @@ class RetrievalSettings(BaseConfig):
 
     # Compose shared configs
     llm: LlmConfig = Field(default_factory=LlmConfig)
-    neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     vector_index: VectorIndexEnv = Field(default_factory=VectorIndexEnv)
+
+    # Neo4j Repository Service (Rust) base URL
+    NEO4J_REPOSITORY_SERVICE_URL: str = Field(
+        default="http://neo4j-repository-service:8080",
+        description="Base URL for the Rust neo4j_repository_service"
+    )
+
+    # HTTP timeouts (fallbacks if shared HTTP client config is removed later)
+    HTTP_CONNECTION_TIMEOUT: float = Field(default=30.0)
+    HTTP_READ_TIMEOUT: float = Field(default=180.0)
 
     # Prompt size management
     MAX_CHUNKS_FOR_PROMPT: int = Field(

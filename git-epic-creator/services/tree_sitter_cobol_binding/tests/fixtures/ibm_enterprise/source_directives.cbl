@@ -1,0 +1,7 @@
+       >>SOURCE FORMAT FREE
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DIRDEMO.
+       PROCEDURE DIVISION.
+           DISPLAY "OK".
+           STOP RUN.
+

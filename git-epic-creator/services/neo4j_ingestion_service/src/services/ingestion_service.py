@@ -6,7 +6,6 @@ from pathlib import Path
 from uuid import UUID
 from typing import Any, Dict, List
 
-from utils.neo4j_client import Neo4jClient
 from utils.blob_storage import get_blob_storage_client
 from ingestion_ms.runner import run_graphrag_pipeline as run_ms_pipeline
 from config import get_graphrag_settings
@@ -109,8 +108,7 @@ def validate_json_inputs(input_dir: Path, required_fields: List[str]) -> Dict[st
 
 class Neo4jIngestionService:
     
-    def __init__(self, client: Neo4jClient):
-        self.client = client
+    def __init__(self) -> None:
         self.logger = structlog.get_logger(__name__)
 
     async def run_graphrag_pipeline(self, project_id: str) -> Dict[str, Any]:

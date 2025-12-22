@@ -8,6 +8,7 @@ import structlog
 from fastapi import FastAPI
 from utils.app_factory import FastAPIFactory
 from routers.retrieval_router import retrieval_router
+from routers.health_router import health_router
 
 from configuration.logging_config import configure_logging
 from configuration.common_config import get_app_settings
@@ -23,10 +24,11 @@ app: FastAPI = FastAPIFactory.create_app(
     version="1.0.0",
     enable_cors=True,
     enable_postgres=False,
-    enable_neo4j=True,
+    enable_neo4j=False,
     enable_redis=True,
 )
 
+app.include_router(health_router)
 app.include_router(retrieval_router, prefix="/retrieve", tags=["Retrieval"])
 
 if __name__ == "__main__":

@@ -1,0 +1,5 @@
+       CBL NOOPT
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CDIR.
+       PROCEDURE DIVISION.
+           STOP RUN.

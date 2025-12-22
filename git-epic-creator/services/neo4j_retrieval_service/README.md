@@ -30,6 +30,15 @@ Health check endpoint for service monitoring.
 }
 ```
 
+### GET /health/llm
+Checks reachability of the configured OpenAI-compatible endpoint (`OAI_BASE_URL`).
+
+### GET /health/ready
+Aggregated readiness endpoint.
+
+- Ready iff **Redis** is reachable (when enabled) and **LLM** endpoint is reachable.
+- Returns **200** when ready, **503** when not ready.
+
 ### 1. POST /retrieve
 The primary endpoint for all consumers (MCP, internal services).
 
@@ -206,6 +215,8 @@ NEO4J_URI=bolt://neo4j:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=password
 
+NEO4J_REPOSITORY_SERVICE_URL=http://neo4j-repository-service:8080
+
 # Azure OpenAI (Required for Embeddings & Chat)
 OAI_BASE_URL=https://your-resource.openai.azure.com/
 OAI_KEY=your-key
@@ -220,7 +231,7 @@ DRIFT_MAX_ITERATIONS=2                  # Max follow-up loops
 
 ### Dependencies
 - `langgraph`: Orchestrates the cyclic state machine.
-- `neo4j`: Python driver for graph operations.
+- `neo4j_repository_service`: Rust Neo4j gateway (all graph reads happen over HTTP).
 - `redis`: For real-time status publishing.
 - `shared`: Internal library for logging and auth.
 

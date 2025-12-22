@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tree-sitter-cobol"
+# NOTE: Version still encodes pinned grammar revision (see src/_meta.py).
+# Update this when the vendored grammar commit changes.
+version = "0.1.0+grammar.8ba6692"
+description = "Precompiled Tree-sitter COBOL grammar (capsule wheel)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["src/libs/tree-sitter-cobol/LICENSE"]
+authors = [{ name = "Risk Analytics" }]
+dependencies = [
+  # Runtime dependency for consumers (and for tests).
+  "tree-sitter==0.25.1",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: C",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+]
+
+[project.optional-dependencies]
+test = ["pytest==8.3.4"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = ["tree_sitter_cobol", "_meta", "_version"]
+
+[tool.cibuildwheel]
+# Spec minimum: Windows win_amd64 + manylinux x86_64.
+build = ["cp312-*"]
+skip = ["*-musllinux_*"]
+
+# Keep tests lightweight: install wheel, import, parse fixtures.
+test-requires = [
+  "pytest==8.3.4",
+  "tree-sitter==0.25.1",
+]
+# cibuildwheel runs tests from a temp directory; always point pytest at the
+# project's packaged tests to avoid accidentally collecting cibuildwheel's
+# placeholder test_fail.py.
+test-command = "pytest -q {project}/tests"

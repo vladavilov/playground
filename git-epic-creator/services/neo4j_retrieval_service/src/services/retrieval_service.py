@@ -26,27 +26,27 @@ _GRAPH_INSTANCE = None
 _GRAPH_LOCK = asyncio.Lock()
 
 
-GetSessionFn = Callable[[], Any]
+GetRepoFn = Callable[[], Any]
 GetLlmFn = Callable[[], Any]
 GetEmbedderFn = Callable[[], Any]
 
 
 async def _get_or_create_graph(
-    get_session: GetSessionFn,
+    get_repo: GetRepoFn,
     get_llm: GetLlmFn,
     get_embedder: GetEmbedderFn,
-    publisher: Optional[Any] = None,
 ):
     """Get cached graph or create if not exists (singleton pattern).
     
     Creates the StateGraph only once and reuses it for all requests,
     reducing latency by 200-500ms per request.
     
-    Note: Publisher is passed per-request but graph is cached. This is acceptable
-    because publisher logic is best-effort (failures don't break retrieval).
+    IMPORTANT: The graph is cached and must not capture per-request objects (e.g. Redis publishers).
+    Per-request publisher is passed through the graph state instead.
     
     Args:
         get_session: Factory function for Neo4j session
+        get_repo: Factory function for Neo4j repository client
         get_llm: Factory function for LLM client
         get_embedder: Factory function for embedder client
         publisher: Optional progress publisher for UI updates
@@ -60,10 +60,9 @@ async def _get_or_create_graph(
             if _GRAPH_INSTANCE is None:
                 logger.info("graph_initialization", message="Creating persistent graph instance")
                 _GRAPH_INSTANCE = create_retrieval_graph(
-                    get_session,
+                    get_repo,
                     get_llm,
                     get_embedder,
-                    publisher
                 )
     return _GRAPH_INSTANCE
 
@@ -93,23 +92,20 @@ class Neo4jRetrievalService:
     
     def __init__(
         self,
-        get_session: GetSessionFn,
+        get_repo: GetRepoFn,
         get_llm: GetLlmFn,
         get_embedder: GetEmbedderFn,
-        publisher: Optional[Any] = None,
     ) -> None:
         """Initialize retrieval service with dependency factories.
         
         Args:
-            get_session: Factory function for Neo4j session
+            get_repo: Factory function for Neo4j repository client
             get_llm: Factory function for LLM client
             get_embedder: Factory function for embedder client
-            publisher: Optional progress publisher for UI updates
         """
-        self._get_session = get_session
+        self._get_repo = get_repo
         self._get_llm = get_llm
         self._get_embedder = get_embedder
-        self._publisher = publisher
     
     async def retrieve(
         self,
@@ -117,6 +113,7 @@ class Neo4jRetrievalService:
         top_k: int,
         project_id: str,
         prompt_id: Optional[str] = None,
+        publisher: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Execute DRIFT retrieval pipeline.
         
@@ -154,10 +151,9 @@ class Neo4jRetrievalService:
         
         # Get or create graph (singleton pattern)
         graph = await _get_or_create_graph(
-            self._get_session,
+            self._get_repo,
             self._get_llm,
             self._get_embedder,
-            self._publisher,
         )
         
         # Generate retrieval session ID
@@ -175,6 +171,8 @@ class Neo4jRetrievalService:
                     "project_id": project_id,
                     "prompt_id": prompt_id,
                     "retrieval_id": retrieval_id,
+                    # Per-request publisher (must not be stored on cached node instances).
+                    "publisher": publisher,
                 },
                 {"configurable": {"thread_id": thread_id}},
             )

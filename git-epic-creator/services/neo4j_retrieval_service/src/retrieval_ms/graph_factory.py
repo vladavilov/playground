@@ -47,15 +47,14 @@ class GraphState(TypedDict, total=False):
 
 
 def create_retrieval_graph(
-    get_session: Callable[[], Any],
+    get_repo: Callable[[], Any],
     get_llm: Callable[[], Any],
     get_embedder: Callable[[], Any],
-    publisher: Optional[Any] = None,
 ):
     """Create DRIFT retrieval graph with configured nodes.
     
     Args:
-        get_session: Factory function for Neo4j session
+        get_repo: Factory function for Neo4j repository client
         get_llm: Factory function for LLM client
         get_embedder: Factory function for embedder client
         publisher: Optional progress publisher for UI updates
@@ -66,11 +65,16 @@ def create_retrieval_graph(
     logger.info("graph_creation_start", message="Creating DRIFT retrieval graph")
     
     # Initialize nodes with dependencies
-    init_node = InitNode(get_session, get_llm, get_embedder, publisher)
-    hyde_node = HydeNode(get_session, get_llm, get_embedder, publisher)
-    primer_node = PrimerNode(get_session, get_llm, get_embedder, publisher)
-    followups_node = FollowupsNode(get_session, get_llm, get_embedder, publisher)
-    aggregate_node = AggregateNode(get_session, get_llm, get_embedder, publisher)
+    #
+    # IMPORTANT: The graph instance is cached (singleton) for latency reasons.
+    # Do NOT capture per-request objects (like a Redis publisher) in node instances,
+    # otherwise the first request's publisher "sticks" for all subsequent requests.
+    # Instead, pass per-request publisher through the graph state.
+    init_node = InitNode(get_repo, get_llm, get_embedder)
+    hyde_node = HydeNode(get_repo, get_llm, get_embedder)
+    primer_node = PrimerNode(get_repo, get_llm, get_embedder)
+    followups_node = FollowupsNode(get_repo, get_llm, get_embedder)
+    aggregate_node = AggregateNode(get_repo, get_llm, get_embedder)
     
     # Build graph
     builder = StateGraph(GraphState)

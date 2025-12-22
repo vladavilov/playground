@@ -22,10 +22,10 @@ logger = structlog.get_logger(__name__)
 
 app = FastAPIFactory.create_app(
     title="Neo4j Graph Ingestion Service",
-    description="A microservice to ingest the Neo4j Graph with the data.",
+    description="A microservice to ingest the graph via neo4j-repository-service.",
     version="1.0.0",
     enable_cors=True,
-    enable_neo4j=True,
+    enable_neo4j=False,
     enable_redis=True,
 )
 

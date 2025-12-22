@@ -17,7 +17,6 @@ from worker.celery_app import celery_app
 from tasks.retry import schedule_ingestion_retry
 from services.ingestion_service import Neo4jIngestionService
 from utils.retry_policy import compute_retry_decision
-from utils.neo4j_client import get_neo4j_client
 from clients.project_management_client import ProjectManagementClient
 from utils.celery_helpers import extract_auth_header
 import asyncio
@@ -116,7 +115,7 @@ async def _run_graphrag_job_async(
             logger.error("Failed to mark project as rag_processing", project_id=project_id)
 
         # Run pipeline
-        service = Neo4jIngestionService(client=get_neo4j_client())
+        service = Neo4jIngestionService()
         service_result = await service.run_graphrag_pipeline(project_id=project_id)
 
         result: Dict[str, Any] = {

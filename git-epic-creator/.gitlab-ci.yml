@@ -118,10 +118,7 @@ build:project-management-service:
   variables:
     SERVICE_NAME: project_management_service
 
-build:neo4j-maintenance-service:
-  <<: *docker_build
-  variables:
-    SERVICE_NAME: neo4j_maintanance_service
+## neo4j_maintanance_service removed (replaced by neo4j_repository_service)
 
 build:neo4j-ingestion-service:
   <<: *docker_build
@@ -199,10 +196,7 @@ test:document-processing-service:
   variables:
     SERVICE_NAME: document_processing_service
 
-test:neo4j-maintenance-service:
-  <<: *test_service
-  variables:
-    SERVICE_NAME: neo4j_maintanance_service
+## neo4j_maintanance_service removed (replaced by neo4j_repository_service)
 
 test:ai-tasks-service:
   <<: *test_service
@@ -342,7 +336,7 @@ deploy:application:
       optional: true
     - build:db-init-service
     - build:project-management-service
-    - build:neo4j-maintenance-service
+    # neo4j_maintanance_service removed (replaced by neo4j_repository_service)
     - build:neo4j-ingestion-service
     - build:neo4j-retrieval-service
     - build:ui-service

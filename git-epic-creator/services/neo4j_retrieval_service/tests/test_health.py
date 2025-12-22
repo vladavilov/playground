@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 import types
 from typing import Any, Dict
 
@@ -5,6 +7,9 @@ import importlib
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+# Ensure `src/` is importable without external pytest plugins.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 class _FakeNeo4jDriver:
@@ -43,10 +48,8 @@ class _FakeHttpClient:
 
 
 def _mount_main_app():
-    mod = importlib.import_module(
-        "services.neo4j_retrieval_service.src.main".replace("/", ".")
-    )
-    return mod
+    # `pyproject.toml` config sets pythonpath=["src"], so `main` is importable directly.
+    return importlib.import_module("main")
 
 
 @pytest.fixture(autouse=True)
@@ -66,28 +69,18 @@ def test_health_endpoints_report_ready(monkeypatch):
     # Patch internals used by health endpoints
     # httpx AsyncClient.request
     import httpx
+    from unittest.mock import AsyncMock
+    from utils.app_factory import get_redis_client_from_state
 
     async def _fake_request(self, method: str, url: str):
         return types.SimpleNamespace(status_code=200)
 
     monkeypatch.setattr(httpx.AsyncClient, "request", _fake_request, raising=True)
 
-    # Patch Neo4jClient in app state to return fake session
-    from utils.neo4j_client import Neo4jClient
-    
-    class FakeNeo4jClient:
-        def get_session(self, database=None):
-            return _FakeNeo4jSession()
-        def close(self):
-            pass
-    
-    # Mock the Neo4j client in app state
-    if hasattr(main_mod.app, 'state'):
-        main_mod.app.state.neo4j_client = FakeNeo4jClient()
-
-    # Patch neo4j driver creation point in main module scope if any is used
-    # Health endpoint should open driver via service code; we simulate success via run("RETURN 1")
-    # If driver factory lives elsewhere, the endpoint should still evaluate healthy via our patch of client layer later.
+    # Override redis dependency to avoid real Redis in tests.
+    healthy_redis = AsyncMock()
+    healthy_redis.ping.return_value = True
+    main_mod.app.dependency_overrides[get_redis_client_from_state] = lambda: healthy_redis
 
     app = main_mod.app if isinstance(main_mod.app, FastAPI) else None
     assert app is not None
@@ -100,8 +93,9 @@ def test_health_endpoints_report_ready(monkeypatch):
 
     # readiness aggregates components; since both mocked healthy, expect 200 and ready true
     r2 = client.get("/health/ready")
-    assert r2.status_code in (200, 503)
+    assert r2.status_code == 200
     body2: Dict[str, Any] = r2.json()
     assert "components" in body2
+    assert body2.get("ready") is True
 
 

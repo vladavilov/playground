@@ -9,12 +9,12 @@ Implements DRIFT primer phase:
 from typing import Any, Dict, List
 from uuid import UUID
 import json
-from contextlib import contextmanager
 import structlog
 
 from retrieval_ms.nodes.base_node import BaseNode
 from retrieval_ms.prompts import primer_prompt
-from retrieval_ms.repositories.neo4j_repository import Neo4jRepository
+import httpx
+from retrieval_ms.neo4j_repository_service_client import post_json
 from retrieval_ms.response_models import PrimerResponse
 from models.progress_messages import RetrievalStatus
 from utils.json_utils import parse_and_validate
@@ -26,82 +26,28 @@ logger = structlog.get_logger(__name__)
 class PrimerNode(BaseNode):
     """Retrieve communities and generate primer response with followup questions."""
     
-    @contextmanager
-    def _repo_ctx(self):
-        """Context manager for Neo4j repository."""
-        with self._get_session() as session:
-            yield Neo4jRepository(session)
-    
-    def _fetch_communities(
+    async def _fetch_primer_context(
         self,
-        repo: Neo4jRepository,
+        client: httpx.AsyncClient,
         index_name: str,
         k: int,
         qvec: List[float],
         project_id: str,
-    ) -> List[int]:
-        """Fetch communities using hierarchical level filtering.
-        
-        Strategy:
-        1. Query highest-level communities first (global summaries)
-        2. Fall back to lower levels if insufficient results
-        3. Ensures DRIFT algorithm starts with aggregate context
-        """
-        # Get max hierarchy level for project
-        max_level = repo.get_max_community_level(project_id)
-        
-        if max_level > 0:
-            # Query at highest level first (aggregate communities)
-            logger.info("fetching_communities_by_level", level=max_level, k=k, project_id=project_id)
-            rows = repo.vector_query_communities_by_level(index_name, k, qvec, project_id, level=max_level)
-            
-            # If insufficient results, fall back to next level
-            if len(rows) < k // 2 and max_level > 0:
-                logger.info(
-                    "insufficient_top_level_communities",
-                    found=len(rows),
-                    needed=k,
-                    falling_back_to_level=max_level - 1
-                )
-                additional_rows = repo.vector_query_communities_by_level(
-                    index_name,
-                    k - len(rows),
-                    qvec,
-                    project_id,
-                    level=max_level - 1
-                )
-                rows.extend(additional_rows)
-        else:
-            # No hierarchy or flat structure - use all levels
-            logger.info("fetching_communities_all_levels", project_id=project_id)
-            rows = repo.vector_query_nodes(index_name, k, qvec, project_id)
-        
-        communities: List[int] = []
-        for r in rows:
-            node = r.get("node")
-            if node is not None:
-                communities.append(int(node["community"]))
-        
-        logger.info("communities_fetched", count=len(communities), max_level=max_level, project_id=project_id)
-        return communities
-    
-    def _fetch_community_brief(
-        self,
-        repo: Neo4jRepository,
-        communities: List[int],
-        project_id: str,
-    ) -> List[Dict[str, Any]]:
-        """Fetch community summaries and briefs."""
-        if not communities:
-            return []
-        
-        summaries: Dict[int, str] = repo.fetch_community_summaries(communities, project_id)
-        brief = repo.fetch_communities_brief(communities, project_id)
-        
-        if brief:
-            return brief
-        
-        return [{"id": cid, "summary": summaries.get(cid, "")} for cid in communities]
+    ) -> tuple[List[int], List[Dict[str, Any]]]:
+        """Fetch primer context (communities + brief) in one backend call."""
+        data = await post_json(
+            client,
+            "/v1/retrieval/primer-context",
+            {
+                "project_id": project_id,
+                "community_index_name": index_name,
+                "k": int(k),
+                "qvec": qvec,
+            },
+        )
+        communities = [int(x) for x in (data.get("communities") or []) if x is not None]
+        brief = list(data.get("community_brief") or [])
+        return communities, brief
     
     async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute primer phase: fetch communities and generate followups.
@@ -116,15 +62,31 @@ class PrimerNode(BaseNode):
         k = self._ensure_top_k(state)
         
         # Fetch communities and briefs
-        with self._repo_ctx() as repo:
-            communities = self._fetch_communities(
-                repo,
-                settings.vector_index.COMMUNITY_VECTOR_INDEX_NAME,
-                k,
-                state["qvec"],
-                state["project_id"],
+        client = self._get_repo()
+        communities, community_brief = await self._fetch_primer_context(
+            client,
+            settings.vector_index.COMMUNITY_VECTOR_INDEX_NAME,
+            k,
+            state["qvec"],
+            state["project_id"],
+        )
+
+        # Early exit: without communities, followup chunk retrieval cannot proceed.
+        # This avoids spending tokens on primer LLM when graph has no relevant data.
+        if not communities:
+            logger.warning(
+                "retrieval.primer.no_communities",
+                project_id=state.get("project_id"),
+                top_k=k,
+                message="No relevant communities found; short-circuiting retrieval",
             )
-            community_brief = self._fetch_community_brief(repo, communities, state["project_id"])
+            return {
+                "communities": [],
+                "community_brief": [],
+                "primer_json": {"initial_answer": "", "followups": [], "rationale": ""},
+                "followups": [],
+                "no_data_found": True,
+            }
         
         # Generate primer response with LLM
         llm = self._get_llm()
@@ -154,10 +116,11 @@ class PrimerNode(BaseNode):
         )
         
         # Publish community retrieval status
-        if self._publisher:
+        publisher = self._publisher_from_state(state)
+        if publisher:
             try:
                 prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
-                await self._publisher.publish_retrieval_update(
+                await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.RETRIEVING_COMMUNITIES,

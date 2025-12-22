@@ -706,12 +706,13 @@ Verify that services are actually publishing messages to Redis channels.
 **Solution**: Ensure Neo4j schema is initialized:
 ```bash
 # Check Neo4j logs
-docker-compose logs neo4j-maintenance-service
+docker-compose logs neo4j-repository-service
 docker-compose logs neo4j-schema-init
 
 # Manually trigger schema initialization
-curl -X POST http://localhost:8002/init-neo4j \
-  -H "Authorization: Bearer <token>"
+curl -X POST http://localhost:8080/v1/maintenance/init-schema \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 ### Authentication Errors

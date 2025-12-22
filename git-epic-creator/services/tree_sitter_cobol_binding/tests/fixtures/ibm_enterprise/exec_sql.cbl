@@ -1,0 +1,7 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SQLDEMO.
+       PROCEDURE DIVISION.
+           EXEC SQL
+           END-EXEC.
+           STOP RUN.
+

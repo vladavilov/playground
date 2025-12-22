@@ -2,14 +2,13 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from utils.local_auth import get_local_user_verified, LocalUser
-from utils.app_factory import get_neo4j_client_from_state
 from utils.llm_client_factory import create_llm, create_embedder
-from utils.neo4j_client import Neo4jClient
 from pydantic import BaseModel
 import structlog
 
 from services.retrieval_service import Neo4jRetrievalService
 from services.retrieval_status_publisher import RetrievalStatusPublisher
+from retrieval_ms.neo4j_repository_service_client import get_client
 
 logger = structlog.get_logger(__name__)
 
@@ -50,7 +49,6 @@ def _handle_infrastructure_error(exc: Exception, context: str, **log_context) ->
 async def retrieve(
     req: RetrievalRequest, 
     request: Request, 
-    neo4j_client: Neo4jClient = Depends(get_neo4j_client_from_state),
     current_user: LocalUser = Depends(get_local_user_verified)
 ) -> Dict[str, Any]:
     """Retrieve context from Neo4j graph.
@@ -66,21 +64,21 @@ async def retrieve(
         if not publisher:
             logger.warning("redis_client_not_found", message="Progress updates will not be published")
         
-        # Create session factory from Neo4jClient
-        def get_session_factory():
-            return neo4j_client.get_session()
+        # Repository factory (HTTP-backed, no direct Neo4j driver)
+        def get_repo_factory():
+            return get_client()
         
         service = Neo4jRetrievalService(
-            get_session=get_session_factory, 
+            get_repo=get_repo_factory, 
             get_llm=create_llm, 
             get_embedder=create_embedder,
-            publisher=publisher
         )
         result = await service.retrieve(
             req.query, 
             top_k=req.top_k, 
             project_id=req.project_id,
-            prompt_id=req.prompt_id
+            prompt_id=req.prompt_id,
+            publisher=publisher,
         )
         
         # Check if result is empty (no data scenario)

@@ -65,10 +65,11 @@ class HydeNode(BaseNode):
         )
         
         # Publish query expansion status
-        if self._publisher:
+        publisher = self._publisher_from_state(state)
+        if publisher:
             try:
                 prompt_id_uuid = UUID(state["prompt_id"]) if state.get("prompt_id") else None
-                await self._publisher.publish_retrieval_update(
+                await publisher.publish_retrieval_update(
                     project_id=UUID(state["project_id"]),
                     retrieval_id=state["retrieval_id"],
                     phase=RetrievalStatus.EXPANDING_QUERY,

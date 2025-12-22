@@ -1,8 +1,8 @@
 """SQLAlchemy ORM base models."""
 
 import uuid
-from sqlalchemy import Column, String, DateTime, Text, Float, func
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy import Column, String, DateTime, Text, Float, func, UniqueConstraint, Index
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -59,3 +59,31 @@ class ProjectMember(BaseModel):
 
     def __repr__(self):
         return f"<ProjectMember(project_id={self.project_id}, user_id='{self.user_id}', role='{self.role}')>"
+
+
+class ProjectRepoIndex(BaseModel):
+    """`project_repo_indexes` table.
+
+    Stores a deterministic repo manifest (`repo_index_json`) keyed by (project_id, repo_fingerprint).
+    This is NOT a portable graph export and NOT the graph golden source; Neo4j remains authoritative
+    for parsed units and relationships.
+    """
+
+    __tablename__ = "project_repo_indexes"
+
+    project_id = Column(UUID(as_uuid=True), nullable=False)
+    repo_fingerprint = Column(Text, nullable=False)
+    repo_index_json = Column(JSONB, nullable=False)
+    content_sha256 = Column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "repo_fingerprint", name="uq_project_repo_indexes_project_fingerprint"),
+        Index("ix_project_repo_indexes_project_fingerprint", "project_id", "repo_fingerprint"),
+    )
+
+    # Override timestamps to match existing patterns in this module
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<ProjectRepoIndex(project_id={self.project_id}, repo_fingerprint='{self.repo_fingerprint}')>"

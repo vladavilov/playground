@@ -1,0 +1,3 @@
+CREATE CONSTRAINT related_id IF NOT EXISTS
+FOR ()-[rel:RELATED]->()
+REQUIRE rel.id IS UNIQUE
