@@ -1,16 +1,18 @@
-## Neo4j Ingestion Service — Neo4j GraphRAG Python Pipeline Orchestrator
+## Neo4j Ingestion Service — GraphRAG indexing orchestrator (produces parquet + vectors, ingests via neo4j-repository-service)
 
-This service orchestrates project-scoped knowledge graph ingestion using the Neo4j GraphRAG Python pipeline. It consumes trigger messages from Redis Streams, downloads JSON documents from Azure Blob, runs the GraphRAG pipeline to extract entities/relationships/communities with embeddings, writes directly to Neo4j, and updates the Project Management Service with progress and status.
+This service orchestrates project-scoped knowledge graph ingestion using the **Microsoft GraphRAG library** (programmatic `graphrag.api.build_index`). It consumes trigger messages from Redis Streams, downloads JSON documents from Azure Blob, runs GraphRAG to extract entities/relationships/communities and embeddings, and then ingests the produced artifacts into Neo4j **via `neo4j-repository-service` (HTTP)**. Finally it updates the Project Management Service with progress and status.
 
 ### Scope and responsibilities
 - Accept trigger messages with `job_id`, `project_id`, `attempts` via Redis Streams
 - Download project-scoped `.json` documents from Azure Blob (`output/` prefix) into `RAG_WORKSPACE_ROOT/{project_id}/input/`
-- Run Neo4j GraphRAG Python pipeline (`SimpleKGPipeline`) to construct knowledge graph:
+- Run GraphRAG indexing to construct knowledge graph artifacts:
   - Text chunking and entity extraction (LLM-powered)
   - Relationship extraction and community detection (Leiden algorithm)
   - Vector embeddings (dimension configurable via `VECTOR_INDEX_DIMENSIONS`, default: 3072)
-- Create Neo4j graph schema with nodes (`__Document__`, `__Chunk__`, `__Entity__`, `__Community__`, `__Project__`) and relationships (`HAS_CHUNK`, `HAS_ENTITY`, `RELATED`, `IN_COMMUNITY`, `IN_PROJECT`)
-- Ensure vector indexes exist: `graphrag_chunk_index` on `(:__Chunk__).embedding`, `graphrag_comm_index` on `(:__Community__).embedding` (dimension configurable via `VECTOR_INDEX_DIMENSIONS`, cosine similarity)
+- Ingest nodes/relationships into Neo4j by calling `neo4j-repository-service` endpoints:
+  - merge parquet: documents, chunks, entities, relationships, community_reports, communities
+  - ingest embeddings from LanceDB tables (chunk/entity/community)
+  - run backfills to populate membership + hierarchy edges
 - Update Project Management Service: `rag_processing` → `rag_ready` | `rag_failed`
 
 ### Architecture
@@ -24,7 +26,8 @@ sequenceDiagram
     participant W as Ingestion Subscriber
     participant C as Celery Worker
     participant B as Azure Blob Storage
-    participant G as GraphRAG Python Pipeline
+    participant G as GraphRAG indexing (library)
+    participant R as neo4j-repository-service
     participant N as Neo4j
 
     P->>D: Publish task request to task_streams:document_processing {task_type, project_id}
@@ -32,8 +35,9 @@ sequenceDiagram
     Q-->>W: XREADGROUP stream=ingestion.trigger {job_id, project_id, attempts}
     W->>C: apply_async run_graphrag_job(job_id, project_id, attempts)
     C->>B: List prefix "output/" and download *.json into RAG_WORKSPACE_ROOT/{project_id}/input/
-    C->>G: run_documents(driver, documents) with schema + LLM/embeddings
-    G->>N: Writes nodes/relationships + embeddings and ensures vector index
+    C->>G: build_index(workspace) → output/*.parquet + output/lancedb
+    C->>R: POST merge/* (parquet) + embeddings/* (vectors)
+    R->>N: Bolt writes (Cypher registry)
     C->>P: PUT /projects/{project_id}/status: rag_processing → rag_ready | rag_failed
     W-->>Q: XACK message
 ```

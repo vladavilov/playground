@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
 };
@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{AppState, api::cypher, http::AppError};
+use crate::domain::code_graph::CodeRelType;
 
 #[derive(Debug, Deserialize)]
 pub struct MergeProjectRequest {
@@ -25,6 +26,16 @@ pub struct MergeRepoRequest {
 #[derive(Debug, Deserialize)]
 pub struct RowsRequest {
     pub rows: Vec<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MergeCodeGraphRequest {
+    #[serde(default)]
+    pub nodes: Vec<Value>,
+    /// Map of rel_type -> edge rows.
+    /// rel_type accepts the same values as `CodeRelType` (case-insensitive).
+    #[serde(default)]
+    pub edges: HashMap<String, Vec<Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,34 +89,73 @@ pub async fn merge_files(
     Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
 }
 
-pub async fn merge_code_nodes(
+pub async fn merge_code_graph(
     State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
+    Json(req): Json<MergeCodeGraphRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
-        &state,
-        "code_graph/merge_code_nodes_apoc",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "n",
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
-}
+    // Nodes and edges are persisted in a single HTTP call to avoid split-brain ingestion
+    // across concurrent writers/retries.
+    let processed_nodes = if req.nodes.is_empty() {
+        0
+    } else {
+        cypher::count(
+            &state,
+            "code_graph/merge_code_nodes_apoc",
+            HashMap::from([("rows".to_string(), Value::Array(req.nodes))]),
+            "n",
+        )
+        .await?
+    };
 
-pub async fn merge_edges(
-    State(state): State<AppState>,
-    Path(rel_type): Path<String>,
-    Json(req): Json<RowsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let key = code_graph_edges_key(&rel_type)?;
-    let processed = cypher::count(
-        &state,
-        key,
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "n",
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
+    let mut processed_edges_total: i64 = 0;
+    let mut edge_rows: Vec<Value> = Vec::new();
+    for (rel_type_raw, rows) in req.edges {
+        if rows.is_empty() {
+            continue;
+        }
+        let rel_type = rel_type_raw.parse::<CodeRelType>().map_err(|_| {
+            AppError::bad_request(format!("unsupported rel_type: {rel_type_raw}"))
+        })?;
+        for row in rows {
+            let Value::Object(mut obj) = row else {
+                return Err(AppError::bad_request(
+                    "edge rows must be JSON objects".to_string(),
+                ));
+            };
+            obj.insert("rel_type".to_string(), Value::String(rel_type.as_str().to_string()));
+            edge_rows.push(Value::Object(obj));
+        }
+    }
+
+    let mut processed_edges_by_type = serde_json::Map::new();
+    if !edge_rows.is_empty() {
+        // Returns rows of shape: { t: "<RELTYPE>", n: <count> }
+        let rows = cypher::query_rows(
+            &state,
+            "code_graph/merge_edges_apoc",
+            HashMap::from([("rows".to_string(), Value::Array(edge_rows))]),
+            &["t", "n"],
+            50,
+        )
+        .await?;
+        for r in rows {
+            let t = r.get("t").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let n = r.get("n").and_then(|v| v.as_i64()).unwrap_or(0);
+            if !t.is_empty() {
+                processed_edges_total += n;
+                processed_edges_by_type.insert(t, json!(n));
+            }
+        }
+    }
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "processed_nodes": processed_nodes,
+            "processed_edges_total": processed_edges_total,
+            "processed_edges_by_type": Value::Object(processed_edges_by_type),
+        })),
+    ))
 }
 
 pub async fn rg_merge_documents(
@@ -431,20 +481,4 @@ pub async fn rg_sync_entity_relationship_ids(
     Ok((StatusCode::OK, Json(row)))
 }
 
-fn code_graph_edges_key(rel_type: &str) -> Result<&'static str, AppError> {
-    let t = rel_type.trim().to_ascii_uppercase();
-    Ok(match t.as_str() {
-        "CALLS" => "code_graph/merge_edges_calls",
-        "PERFORMS" => "code_graph/merge_edges_performs",
-        "IMPORTS" => "code_graph/merge_edges_imports",
-        "INCLUDES" => "code_graph/merge_edges_includes",
-        "READS" => "code_graph/merge_edges_reads",
-        "WRITES" => "code_graph/merge_edges_writes",
-        "CONFIG_WIRES" => "code_graph/merge_edges_config_wires",
-        _ => {
-            return Err(AppError::bad_request(format!(
-                "unsupported rel_type: {rel_type}"
-            )));
-        }
-    })
-}
+

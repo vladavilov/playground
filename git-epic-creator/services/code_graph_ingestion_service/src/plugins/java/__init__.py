@@ -1,3 +1,0 @@
-"""Java plugin package."""
-
-

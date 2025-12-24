@@ -1,3 +1,0 @@
-"""COBOL plugin package."""
-
-

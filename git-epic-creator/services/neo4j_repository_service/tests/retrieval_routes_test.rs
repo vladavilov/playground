@@ -234,3 +234,5 @@ async fn retrieval_followup_context_orders_neighborhoods_to_match_chunk_ids() {
     assert_eq!(v["neighborhoods"][0]["chunk_id"], json!("c2"));
     assert_eq!(v["neighborhoods"][1]["chunk_id"], json!("c1"));
 }
+
+

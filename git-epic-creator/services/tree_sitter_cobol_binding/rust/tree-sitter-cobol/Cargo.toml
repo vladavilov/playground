@@ -1,0 +1,23 @@
+[package]
+name = "tree-sitter-cobol"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "COBOL grammar for the tree-sitter parsing library (vendored, deterministic build)"
+repository = "https://example.invalid/risk-analytics/tree_sitter_cobol_binding"
+links = "tree-sitter-cobol"
+
+[dependencies]
+tree-sitter = "0.24"
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1.2"
+
+[dev-dependencies]
+walkdir = "2.5"
+
+[lib]
+path = "src/lib.rs"
+
+

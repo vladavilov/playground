@@ -24,3 +24,5 @@ substring(ch.text, 0, $maxChunkLen) AS text,
 coalesce(d.title, d.id, 'unknown') AS document_name,
 neighbours, related_entities, relationships, neighbor_chunk_ids
 
+
+

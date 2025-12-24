@@ -121,3 +121,5 @@ async fn health_neo4j_includes_index_health_summary() {
     assert_eq!(v["indexes"]["unhealthy"], json!(1));
 }
 
+
+

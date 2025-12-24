@@ -64,12 +64,8 @@ pub fn router() -> Router<AppState> {
             post(crate::api::ingestion::merge_files),
         )
         .route(
-            "/v1/code-graph/merge-code-nodes",
-            post(crate::api::ingestion::merge_code_nodes),
-        )
-        .route(
-            "/v1/code-graph/merge-edges/{rel_type}",
-            post(crate::api::ingestion::merge_edges),
+            "/v1/code-graph/merge-code-graph",
+            post(crate::api::ingestion::merge_code_graph),
         )
         .route(
             "/v1/requirements-graph/merge/documents",

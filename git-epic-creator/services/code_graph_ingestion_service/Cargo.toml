@@ -1,0 +1,42 @@
+[package]
+name = "code_graph_ingestion_service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.95"
+axum = { version = "0.8.1", features = ["multipart"] }
+bytes = "1.9.0"
+git2 = "0.19.0"
+hex = "0.4.3"
+ignore = "0.4.23"
+regex = "1.11.1"
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = "1.0.133"
+sha2 = "0.10.8"
+thiserror = "2.0.9"
+tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread", "signal"] }
+tower = "0.5.2"
+tower-http = { version = "0.6.2", features = ["cors", "trace"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "json"] }
+uuid = { version = "1.11.0", features = ["serde", "v4"] }
+walkdir = "2.5.0"
+zip = "2.2.1"
+chrono = { version = "0.4.39", default-features = false, features = ["clock"] }
+postgres = "0.19.10"
+tree-sitter = "0.24"
+tree-sitter-graph = "0.12"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-language = "0.1"
+tree-sitter-cobol = { path = "../tree_sitter_cobol_binding/rust/tree-sitter-cobol" }
+tree-sitter-sequel = "0.3.11"
+
+[dev-dependencies]
+http-body-util = "0.1.2"
+mime = "0.3.17"
+tempfile = "3.14.0"
+tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread"] }

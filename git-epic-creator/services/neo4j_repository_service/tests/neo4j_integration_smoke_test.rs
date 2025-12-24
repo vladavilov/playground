@@ -39,3 +39,5 @@ async fn neo4j_healthcheck_smoke() {
     let graph = neo4j::connect(&cfg).await.unwrap();
     neo4j::healthcheck(&graph).await.unwrap();
 }
+
+

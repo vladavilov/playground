@@ -109,9 +109,13 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     # Validate critical artifacts exist before proceeding
     entities_parquet = output_dir / "entities.parquet"
     communities_parquet = output_dir / "communities.parquet"
+    community_reports_parquet = output_dir / "community_reports.parquet"
     
     entities_exist = entities_parquet.exists() and entities_parquet.stat().st_size > 0
     communities_exist = communities_parquet.exists() and communities_parquet.stat().st_size > 0
+    community_reports_exist = (
+        community_reports_parquet.exists() and community_reports_parquet.stat().st_size > 0
+    )
     
     if not entities_exist and not communities_exist:
         error_msg = (
@@ -141,6 +145,22 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
             project_id=project_id,
             output_dir=str(output_dir)
         )
+    elif not community_reports_exist:
+        # The repository service stores community *summaries/full_content/levels* from
+        # community_reports.parquet (merge_community_report.cypher).
+        # Without it, communities will exist but the Leiden hierarchy (levels + parent links)
+        # cannot be constructed reliably, breaking DRIFT expectations.
+        error_msg = (
+            "community_reports.parquet missing or empty while communities.parquet exists. "
+            "This indicates the GraphRAG pipeline did not generate community reports "
+            "(create_community_reports step). DRIFT search requires community levels and summaries."
+        )
+        logger.error(
+            "Critical artifact missing: community_reports.parquet",
+            project_id=project_id,
+            output_dir=str(output_dir),
+        )
+        raise RuntimeError(error_msg)
     
     repo_client = get_client()
     # Initialize readers and ingestor (HTTP -> neo4j-repository-service)

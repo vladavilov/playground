@@ -1,59 +1,52 @@
-# `tree_sitter_cobol_binding` — precompiled COBOL Tree-sitter wheel (golden source)
+# `tree_sitter_cobol_binding` — COBOL Tree-sitter grammar (Rust-first, deterministic)
 
-This folder is the **single source of truth** for how we build and ship a **precompiled COBOL Tree-sitter grammar** as a **Python wheel**.
+This folder is the **single source of truth** for the **vendored COBOL Tree-sitter grammar sources** and the **Rust language crate** used by Rust services.
 
 We maintain this because:
 
-- We want `pip install tree-sitter-cobol` to “just work” in services (no Node/npm, no `tree-sitter generate`, no local compiler toolchain at install time).
 - `tree-sitter-language-pack` has historically been unreliable for COBOL coverage across platforms.
 - Enterprise COBOL ingestion needs **deterministic**, **pinned**, **auditable** grammar builds.
 
 ---
 
-## What you get (public API)
+## What you get
 
-The wheel installs a Python module importable as **`tree_sitter_cobol`** (project name on PyPI: **`tree-sitter-cobol`**).
+## Rust usage (for Rust services)
 
-- **`tree_sitter_cobol.language() -> object`**
-  - Returns a capsule/handle compatible with `tree_sitter.Language(...)`.
-- **`tree_sitter_cobol.languages() -> dict[str, object]`**
-  - Returns dialect key → capsule/handle.
-  - **Current implementation**: all keys map to the same baseline grammar capsule (see “Dialect support model”).
-- **`tree_sitter_cobol.grammar_revisions() -> dict[str, str]`**
-  - Dialect key → pinned grammar commit SHA.
-- **Dialect helpers**
-  - `language_ibm()`, `language_micro_focus()`, `language_gnucobol()` (currently baseline aliases).
-- **Version metadata**
-  - `tree_sitter_cobol.__version__` (package version)
-  - `tree_sitter_cobol.__grammar_version__` (pinned grammar SHA for the default dialect)
-  - `tree_sitter_cobol.DEFAULT_DIALECT_KEY`, `DIALECT_KEYS`, `GRAMMAR_REVISIONS`
+This folder also contains a small **Rust Tree-sitter language crate** that compiles the
+committed/generated COBOL parser sources and exposes the standard `LANGUAGE.into()`
+API used by other `tree-sitter-*` crates.
 
-Baseline usage:
+- Crate path: `services/tree_sitter_cobol_binding/rust/tree-sitter-cobol`
 
-```python
-from tree_sitter import Language, Parser
-import tree_sitter_cobol
+Add it to a Rust service:
 
-COBOL = Language(tree_sitter_cobol.language())
-parser = Parser()
-parser.language = COBOL
-
-tree = parser.parse(
-    b"       IDENTIFICATION DIVISION.\n"
-    b"       PROGRAM-ID. HELLO.\n"
-    b"       PROCEDURE DIVISION.\n"
-    b"           STOP RUN.\n"
-)
-assert tree.root_node is not None
+```toml
+[dependencies]
+tree-sitter = "0.24"
+tree-sitter-cobol = { path = "../tree_sitter_cobol_binding/rust/tree-sitter-cobol" }
 ```
 
----
+And use it:
+
+```rust
+let mut parser = tree_sitter::Parser::new();
+parser.set_language(&tree_sitter_cobol::LANGUAGE.into())?;
+let tree = parser.parse(source, None).unwrap();
+```
+
+## Developer tasks (regen)
+
+Regenerating `vendor/tree-sitter-cobol/src/parser.c` / `scanner.c` is developer-only (requires Node.js `npx`):
+
+```powershell
+cargo run -p xtask -- regen
+```
 
 ## Functional requirements (non-negotiable)
 
-- **No runtime compilation in services**
-  - A runtime environment must only `pip install` the wheel.
-  - Runtime must not require Node/npm, `tree-sitter generate`, or a C compiler.
+- **No runtime compilation via Node/tree-sitter-cli in services**
+  - Runtime must not require Node/npm or `tree-sitter generate`.
 - **Deterministic builds**
   - Generated parser sources (`parser.c`, and `scanner.c` when present) are committed.
   - The vendored grammar source is **pinned by commit** and recorded in code (`src/_meta.py`) and in this README.
@@ -85,22 +78,17 @@ assert tree.root_node is not None
 
 ---
 
-## Architecture (how the wheel works)
+## Architecture
 
 ### High-level design
 
-- **Vendored grammar sources** live in `src/libs/tree-sitter-cobol/`:
+- **Vendored grammar sources** live in `vendor/tree-sitter-cobol/`:
   - `grammar.js` (source)
   - `src/parser.c`, `src/scanner.c` (generated; committed)
   - `src/tree_sitter/parser.h` (header)
-- **A CPython C extension** named `_binding` is compiled into the wheel:
-  - It links the vendored `parser.c` / `scanner.c`.
-  - It exposes `language()` which returns a **PyCapsule** holding a `TSLanguage*`.
-- **A thin Python wrapper module** `src/tree_sitter_cobol.py`:
-  - Exposes the stable public API (`language()`, `languages()`, `grammar_revisions()`, dialect helpers, version metadata).
-- **Deterministic metadata**
-  - `src/_meta.py` is the runtime “source of truth” for dialect keys and pinned commit SHAs.
-  - `src/_version.py` computes `__version__` and `__grammar_version__`.
+- **A Rust language crate** `rust/tree-sitter-cobol`:
+  - Compiles the committed C sources via `build.rs`.
+  - Exposes `tree_sitter_cobol::LANGUAGE` for Rust services.
 
 ### Key implementation details (for maintainers)
 

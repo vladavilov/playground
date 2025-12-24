@@ -1,22 +1,17 @@
 @echo off
 setlocal
 
-REM Creates/uses a local venv and starts the service.
-REM Note: src.main:app is added in Task 01.
+REM Builds and starts the Rust service locally.
 
 cd /d "%~dp0"
 
-if not exist venv (
-  python -m venv venv
-)
+set API_PORT=8015
 
-call ".\venv\Scripts\activate.bat"
+REM Optional:
+REM set WORKSPACE_ROOT=workspace
+REM set DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
+REM set NEO4J_REPOSITORY_SERVICE_URL=http://localhost:8080
 
-python -m pip install -U pip
-pip install -e ".[dev]"
-
-REM Will work once Task 01 is implemented:
-REM uvicorn src.main:app --reload --port 8015
-python -c "print('Environment ready. Implement Task 01 to run uvicorn src.main:app --reload --port 8015')"
+cargo run --release
 
 endlocal
