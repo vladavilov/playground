@@ -179,7 +179,8 @@ def test_retrieve_returns_aggregated_json(monkeypatch):
     from retrieval_ms.nodes import primer_node as primer_mod
     from retrieval_ms.nodes import followups_node as followups_mod
 
-    async def fake_post_json(_client, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def fake_post_json(_client, path: str, payload: Dict[str, Any], *, auth_header: str | None = None) -> Dict[str, Any]:
+        assert auth_header == "Bearer svc.jwt.token"
         if path == "/v1/retrieval/primer-context":
             return {
                 "communities": [1, 2],
@@ -203,7 +204,7 @@ def test_retrieve_returns_aggregated_json(monkeypatch):
 
     app = mount_app(mod)
     # Disable auth in test
-    app.dependency_overrides[mod.require_gateway_verified] = lambda: None
+    app.dependency_overrides[mod.require_gateway_verified] = lambda: types.SimpleNamespace(sub="api-gateway", token="svc.jwt.token")
     client = TestClient(app)
 
     resp = client.post("/retrieve", json={"query": "what are the main components of the bridge?", "top_k": 2, "project_id": "test-project"})

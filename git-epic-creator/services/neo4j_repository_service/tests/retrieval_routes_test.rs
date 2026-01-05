@@ -13,6 +13,7 @@ use neo4j_repository_service::queries::QueryRegistry;
 
 #[tokio::test]
 async fn retrieval_primer_context_returns_communities_and_brief() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(
         queries.clone(),
@@ -54,6 +55,7 @@ async fn retrieval_primer_context_returns_communities_and_brief() {
     let req = Request::builder()
         .method("POST")
         .uri("/v1/retrieval/primer-context")
+        .header("authorization", common::s2s_auth_header_value())
         .header("content-type", "application/json")
         .body(Body::from(
             json!({
@@ -76,6 +78,7 @@ async fn retrieval_primer_context_returns_communities_and_brief() {
 
 #[tokio::test]
 async fn retrieval_primer_context_rejects_empty_index_name() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(queries, vec![]);
     let app = common::app(state);
@@ -83,6 +86,7 @@ async fn retrieval_primer_context_rejects_empty_index_name() {
     let req = Request::builder()
         .method("POST")
         .uri("/v1/retrieval/primer-context")
+        .header("authorization", common::s2s_auth_header_value())
         .header("content-type", "application/json")
         .body(Body::from(
             json!({
@@ -101,6 +105,7 @@ async fn retrieval_primer_context_rejects_empty_index_name() {
 
 #[tokio::test]
 async fn retrieval_primer_context_falls_back_to_vector_query_nodes_when_no_levels() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(
         queries,
@@ -130,6 +135,7 @@ async fn retrieval_primer_context_falls_back_to_vector_query_nodes_when_no_level
     let req = Request::builder()
         .method("POST")
         .uri("/v1/retrieval/primer-context")
+        .header("authorization", common::s2s_auth_header_value())
         .header("content-type", "application/json")
         .body(Body::from(
             json!({
@@ -152,6 +158,7 @@ async fn retrieval_primer_context_falls_back_to_vector_query_nodes_when_no_level
 
 #[tokio::test]
 async fn retrieval_followup_context_returns_empty_when_no_community_ids() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(queries, vec![]);
     let app = common::app(state);
@@ -159,6 +166,7 @@ async fn retrieval_followup_context_returns_empty_when_no_community_ids() {
     let req = Request::builder()
         .method("POST")
         .uri("/v1/retrieval/followup-context")
+        .header("authorization", common::s2s_auth_header_value())
         .header("content-type", "application/json")
         .body(Body::from(
             json!({
@@ -182,6 +190,7 @@ async fn retrieval_followup_context_returns_empty_when_no_community_ids() {
 
 #[tokio::test]
 async fn retrieval_followup_context_orders_neighborhoods_to_match_chunk_ids() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(
         queries,
@@ -213,6 +222,7 @@ async fn retrieval_followup_context_orders_neighborhoods_to_match_chunk_ids() {
     let req = Request::builder()
         .method("POST")
         .uri("/v1/retrieval/followup-context")
+        .header("authorization", common::s2s_auth_header_value())
         .header("content-type", "application/json")
         .body(Body::from(
             json!({

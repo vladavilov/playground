@@ -10,9 +10,9 @@ fn is_safe_segment(s: &str) -> bool {
     if !first.is_ascii_alphanumeric() {
         return false;
     }
-    bytes.iter().all(|b| {
-        b.is_ascii_alphanumeric() || matches!(*b, b'_' | b'.' | b'-')
-    })
+    bytes
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(*b, b'_' | b'.' | b'-'))
 }
 
 fn stable_key(value: &str) -> String {
@@ -48,8 +48,9 @@ impl Workspace {
     pub fn git_repo_dir(&self, project_id: &str, git_url: &str, ref_name: Option<&str>) -> PathBuf {
         let key_src = format!("{}\n{}", git_url, ref_name.unwrap_or(""));
         let key = stable_key(&key_src);
-        self.project_dir(project_id).join("git").join(key).join("repo")
+        self.project_dir(project_id)
+            .join("git")
+            .join(key)
+            .join("repo")
     }
 }
-
-

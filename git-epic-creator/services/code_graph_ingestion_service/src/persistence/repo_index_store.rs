@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-pub fn canonical_json_bytes(value: &serde_json::Value) -> Vec<u8> {
+pub fn canonical_json_bytes(value: &serde_json::Value) -> anyhow::Result<Vec<u8>> {
     // Canonical JSON bytes (sorted keys, no whitespace).
     // serde_json doesn't provide canonicalization directly, so we re-serialize after
     // recursively sorting object keys.
@@ -24,7 +24,7 @@ pub fn canonical_json_bytes(value: &serde_json::Value) -> Vec<u8> {
     }
 
     let canon = canonicalize(value);
-    serde_json::to_vec(&canon).expect("json bytes")
+    Ok(serde_json::to_vec(&canon)?)
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {
@@ -42,8 +42,9 @@ pub fn upsert_repo_index_sync(
     repo_fingerprint: &str,
     repo_index_json: &serde_json::Value,
 ) -> anyhow::Result<RepoIndexUpsertResult> {
-    let canonical = canonical_json_bytes(repo_index_json);
+    let canonical = canonical_json_bytes(repo_index_json)?;
     let content_sha = sha256_hex(&canonical);
+    let canonical_str = std::str::from_utf8(&canonical)?;
 
     let mut client = postgres::Client::connect(database_url, postgres::NoTls)?;
     client.batch_execute("SET statement_timeout TO 60000")?;
@@ -61,7 +62,7 @@ pub fn upsert_repo_index_sync(
         &[
             &project_id.to_string(),
             &repo_fingerprint,
-            &String::from_utf8_lossy(&canonical).to_string(),
+            &canonical_str,
             &content_sha,
         ],
     )?;
@@ -70,5 +71,3 @@ pub fn upsert_repo_index_sync(
         content_sha256: content_sha,
     })
 }
-
-

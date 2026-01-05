@@ -1,10 +1,10 @@
+use code_graph_ingestion_service::core::types::CodeLanguage;
 use code_graph_ingestion_service::plugins::base::{IngestionContext, LanguagePlugin};
 use code_graph_ingestion_service::plugins::registry::{run_selected_plugin, select_plugin};
-use code_graph_ingestion_service::core::types::CodeLanguage;
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TestPlugin {
     name: String,
@@ -24,8 +24,11 @@ impl LanguagePlugin for TestPlugin {
         &self,
         _ctx: &IngestionContext,
         _files: &[PathBuf],
-    ) -> anyhow::Result<(Vec<code_graph_ingestion_service::core::records::CodeNodeRecord>, Vec<code_graph_ingestion_service::core::records::EdgeRecord>, serde_json::Value)>
-    {
+    ) -> anyhow::Result<(
+        Vec<code_graph_ingestion_service::core::records::CodeNodeRecord>,
+        Vec<code_graph_ingestion_service::core::records::EdgeRecord>,
+        serde_json::Value,
+    )> {
         self.ingest_calls.fetch_add(1, Ordering::SeqCst);
         Ok((vec![], vec![], json!({"ok": true})))
     }
@@ -89,5 +92,3 @@ fn run_selected_plugin_executes_exactly_one_plugin() {
     assert_eq!(cobol_calls.load(Ordering::SeqCst), 1);
     assert_eq!(java_calls.load(Ordering::SeqCst), 0);
 }
-
-

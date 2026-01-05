@@ -61,12 +61,21 @@ fn contains_edges_include_deterministic_sibling_order() {
         extra_labels: vec![],
     };
 
-    let edges = build_contains_edges(&[child2.clone(), grandchild.clone(), child1.clone(), parent.clone()]);
+    let edges = build_contains_edges(&[
+        child2.clone(),
+        grandchild.clone(),
+        child1.clone(),
+        parent.clone(),
+    ]);
     let mut got: Vec<(String, String, i64)> = edges
         .into_iter()
         .filter(|e| e.rel_type == CodeRelType::Contains)
         .map(|e| {
-            let order = e.metadata.get("order").and_then(|v| v.as_i64()).unwrap_or(-1);
+            let order = e
+                .metadata
+                .get("order")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(-1);
             (e.src_node_id, e.dst_node_id, order)
         })
         .collect();
@@ -83,8 +92,3 @@ fn contains_edges_include_deterministic_sibling_order() {
         ]
     );
 }
-
-
-
-
-

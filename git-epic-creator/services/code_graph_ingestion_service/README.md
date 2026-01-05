@@ -2,6 +2,14 @@
 
 This service ingests a **project-scoped repository snapshot** (ZIP upload or Git URL), performs **deterministic static analysis** via **language plugins**, and (optionally) persists a code RepoGraph via **`neo4j-repository-service`** plus a deterministic `repo_index.json` manifest in Postgres.
 
+## Auth (S2S)
+
+When `NEO4J_REPOSITORY_SERVICE_URL` is set, persistence to `neo4j-repository-service` requires forwarding the
+gateway S2S bearer token:
+
+- incoming request: `Authorization: Bearer <jwt>` (from Envoy)
+- outgoing call: same header forwarded to `neo4j-repository-service /v1/code-graph/merge-code-graph`
+
 This `README.md` is the **single golden source** for requirements, architecture, and implementation details.
 
 ---
@@ -336,7 +344,7 @@ cargo run --release
 
 ## Current implementation status / known gaps (vs requirements)
 
-- **Repo fingerprint for ZIP (CGI-FR-005)**: currently `repo_fingerprint = "zip:" + sha256(zip_bytes)` which means ZIP entry order changes the fingerprint; the intended behavior is a content-based hash independent of ZIP container ordering (+ optional dependency manifests).
+- **Repo fingerprint for ZIP (CGI-FR-005)**: implemented as a content-based hash independent of ZIP container ordering (canonicalized by normalized repo-relative path order + file bytes). Dependency manifest augmentation is still pending.
 - **Dependency manifest augmentation (CGI-FR-005)**: not implemented for ZIP or Git; Git fingerprints are the checked-out commit SHA only.
 - **COBOL I/O and EXEC modeling limitations (CGI-FR-014)**:
   - `READS|WRITES` targets are conservative and do **not** yet resolve record names (`WRITE|REWRITE`) to their owning `FD` file-name.

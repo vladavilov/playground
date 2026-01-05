@@ -1,5 +1,5 @@
 use code_graph_ingestion_service::core::orchestrator::OrchestratorConfig;
-use code_graph_ingestion_service::web::server::{app, AppState};
+use code_graph_ingestion_service::web::server::{AppState, app};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

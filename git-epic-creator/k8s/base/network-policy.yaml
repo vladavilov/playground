@@ -53,12 +53,12 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-gateway-control-plane-service-ingress-from-envoy
+  name: allow-sse-bridge-service-ingress-from-envoy
   namespace: agentic-ai
 spec:
   podSelector:
     matchLabels:
-      app: gateway-control-plane-service
+      app: sse-bridge-service
   policyTypes:
     - Ingress
   ingress:
@@ -74,7 +74,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-authentication-service-ingress-from-gateway-control-plane
+  name: allow-authentication-service-ingress-from-sse-bridge
   namespace: agentic-ai
 spec:
   podSelector:
@@ -86,7 +86,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: gateway-control-plane-service
+              app: sse-bridge-service
       ports:
         - protocol: TCP
           port: 8000

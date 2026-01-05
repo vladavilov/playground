@@ -3,10 +3,10 @@ use crate::core::types::{CodeLanguage, CodeRelType};
 use crate::plugins::base::{IngestionContext, LanguagePlugin};
 use crate::plugins::cobol::copybooks::expand_copybooks;
 use crate::plugins::cobol::edges::extract_cobol_edges;
-use crate::plugins::cobol::normalizer::{preprocess_cobol_bytes, PreprocessResult};
+use crate::plugins::cobol::normalizer::{PreprocessResult, preprocess_cobol_bytes};
 use crate::plugins::cobol::semantic_linker::link_cobol_semantics;
 use crate::plugins::cobol::unitizer::unitize_cobol_file;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
 #[derive(Debug, Default)]
@@ -31,12 +31,22 @@ impl LanguagePlugin for CobolPlugin {
                 continue;
             }
             let p = entry.path();
-            let rel = p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+            let rel = p
+                .strip_prefix(&ctx.repo_root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+                .to_ascii_lowercase();
             if rel.ends_with(".cbl") || rel.ends_with(".cob") || rel.ends_with(".cpy") {
                 files.push(p.to_path_buf());
             }
         }
-        files.sort_by_key(|p| p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/"));
+        files.sort_by_key(|p| {
+            p.strip_prefix(&ctx.repo_root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        });
         Ok(files)
     }
 
@@ -45,13 +55,18 @@ impl LanguagePlugin for CobolPlugin {
         ctx: &IngestionContext,
         files: &[PathBuf],
     ) -> anyhow::Result<(Vec<CodeNodeRecord>, Vec<EdgeRecord>, Value)> {
-        let mut all_nodes: std::collections::BTreeMap<String, CodeNodeRecord> = std::collections::BTreeMap::new();
+        let mut all_nodes: std::collections::BTreeMap<String, CodeNodeRecord> =
+            std::collections::BTreeMap::new();
         let mut all_edges: Vec<EdgeRecord> = Vec::new();
         let mut includes_edges: Vec<EdgeRecord> = Vec::new();
         let mut copybook_includes: Vec<String> = Vec::new();
 
         for path in files {
-            let rel_path = path.strip_prefix(&ctx.repo_root).unwrap_or(path).to_string_lossy().replace('\\', "/");
+            let rel_path = path
+                .strip_prefix(&ctx.repo_root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
             let raw = std::fs::read(path)?;
 
             let prep = preprocess_cobol_bytes(&raw);
@@ -159,7 +174,8 @@ fn resolve_literal_calls_to_programs(
     edges: &[EdgeRecord],
 ) -> Vec<EdgeRecord> {
     // program_name -> (node_id, file_path)
-    let mut program_index: std::collections::BTreeMap<String, (String, String)> = std::collections::BTreeMap::new();
+    let mut program_index: std::collections::BTreeMap<String, (String, String)> =
+        std::collections::BTreeMap::new();
     for n in all_nodes.values() {
         if n.language != CodeLanguage::Cobol || n.kind != "program" {
             continue;
@@ -193,19 +209,28 @@ fn resolve_literal_calls_to_programs(
             out.push(e.clone());
             continue;
         }
-        let callee = e.metadata.get("callee").and_then(|v| v.as_str()).unwrap_or("");
+        let callee = e
+            .metadata
+            .get("callee")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if callee.trim().is_empty() {
             out.push(e.clone());
             continue;
         }
-        let Some((resolved_node_id, _file_path)) = program_index.get(&normalize_program_name(callee)) else {
+        let Some((resolved_node_id, _file_path)) =
+            program_index.get(&normalize_program_name(callee))
+        else {
             out.push(e.clone());
             continue;
         };
 
         let mut md = e.metadata.clone();
         md.insert("resolved".to_string(), Value::Bool(true));
-        md.insert("strategy".to_string(), Value::String("program-id".to_string()));
+        md.insert(
+            "strategy".to_string(),
+            Value::String("program-id".to_string()),
+        );
         out.push(EdgeRecord {
             project_id: e.project_id.clone(),
             repo_fingerprint: e.repo_fingerprint.clone(),
@@ -222,9 +247,15 @@ fn resolve_literal_calls_to_programs(
         std::collections::BTreeMap::new();
     for e in out {
         let md_key = serde_json::to_string(&e.metadata).unwrap_or_default();
-        uniq.insert((e.rel_type, e.src_node_id.clone(), e.dst_node_id.clone(), md_key), e);
+        uniq.insert(
+            (
+                e.rel_type,
+                e.src_node_id.clone(),
+                e.dst_node_id.clone(),
+                md_key,
+            ),
+            e,
+        );
     }
     uniq.into_values().collect()
 }
-
-

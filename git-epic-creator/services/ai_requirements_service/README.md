@@ -2,12 +2,12 @@
 
 Overview
 
-The AI Requirements Service orchestrates an agentic, highâ€‘precision pipeline that converts a user prompt into structured business and functional requirements. It augments context via a GraphRAG Retrieval microservice (separate service, out of scope here) backed by Neo4j and uses an ensembleâ€‘ofâ€‘experts (EoE) strategy. The workflow performs selfâ€‘evaluation; if confidence (score) < 0.70, it generates targeted clarification questions so that user answers are expected to raise the score â‰¥ 0.70. The service publishes stepwise workflow updates to the UI via Redis Pub/Sub on the same channel convention used by project_management_service â†’ gateway_control_plane_service.
+The AI Requirements Service orchestrates an agentic, highâ€‘precision pipeline that converts a user prompt into structured business and functional requirements. It augments context via a GraphRAG Retrieval microservice (separate service, out of scope here) backed by Neo4j and uses an ensembleâ€‘ofâ€‘experts (EoE) strategy. The workflow performs selfâ€‘evaluation; if confidence (score) < 0.70, it generates targeted clarification questions so that user answers are expected to raise the score â‰¥ 0.70. The service publishes stepwise workflow updates to the UI via Redis Pub/Sub on the same channel convention used by project_management_service â†’ sse_bridge_service.
 
 Nonâ€‘Goals
 
 - GraphRAG Retrieval service implementation (assumed to exist and expose HTTP APIs)
-- UI and SSE bridge implementation (already handled by gateway_control_plane_service)
+- UI and SSE bridge implementation (already handled by sse_bridge_service)
 - Longâ€‘term memory/store beyond the project context handled by GraphRAG
 
 Key Requirements (ingestible by coding agent)
@@ -343,7 +343,7 @@ Implementation Notes
 - Keep expert classes stateless and deterministic where possible.
 - Use clear typed dataclasses/Pydantic models for all boundaries.
 - Log and publish nonâ€‘PII status only.
-- Respect existing channel naming and message schema used by gateway_control_plane_service/project_management_service.
+- Respect existing channel naming and message schema used by sse_bridge_service/project_management_service.
 
 Prompt Decomposition Details (brief)
 

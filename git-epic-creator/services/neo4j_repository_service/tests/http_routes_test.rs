@@ -28,6 +28,7 @@ async fn health_is_ok() {
 
 #[tokio::test]
 async fn unsafe_endpoints_are_disabled_by_default() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(queries, vec![]);
     let app = common::app(state);
@@ -36,6 +37,7 @@ async fn unsafe_endpoints_are_disabled_by_default() {
         .oneshot(
             Request::builder()
                 .uri("/v1/unsafe/queries")
+                .header("authorization", common::s2s_auth_header_value())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -47,6 +49,7 @@ async fn unsafe_endpoints_are_disabled_by_default() {
 
 #[tokio::test]
 async fn init_schema_executes_schema_queries() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, mock) = common::state_with_queries(queries, vec![]);
     let app = common::app(state);
@@ -56,6 +59,7 @@ async fn init_schema_executes_schema_queries() {
             Request::builder()
                 .method("POST")
                 .uri("/v1/maintenance/init-schema")
+                .header("authorization", common::s2s_auth_header_value())
                 .body(Body::empty())
                 .unwrap(),
         )

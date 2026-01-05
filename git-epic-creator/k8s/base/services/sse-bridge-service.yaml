@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gateway-control-plane-service
+  name: sse-bridge-service
   namespace: agentic-ai
   labels:
-    app: gateway-control-plane-service
-    component: frontend
+    app: sse-bridge-service
+    component: realtime
     tier: frontend
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: gateway-control-plane-service
+      app: sse-bridge-service
   template:
     metadata:
       labels:
-        app: gateway-control-plane-service
+        app: sse-bridge-service
         azure.workload.identity/use: "true"
     spec:
       serviceAccountName: agentic-ai-workload-identity
       containers:
-        - name: gateway-control-plane-service
-          image: gateway-control-plane-service:latest
+        - name: sse-bridge-service
+          image: sse-bridge-service:latest
           ports:
             - containerPort: 8000
               name: http
@@ -78,11 +78,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: gateway-control-plane-service
+  name: sse-bridge-service
   namespace: agentic-ai
 spec:
   selector:
-    app: gateway-control-plane-service
+    app: sse-bridge-service
   ports:
     - port: 80
       targetPort: 8000

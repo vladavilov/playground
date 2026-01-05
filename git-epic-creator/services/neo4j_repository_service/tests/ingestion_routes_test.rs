@@ -11,6 +11,7 @@ use neo4j_repository_service::queries::QueryRegistry;
 
 #[tokio::test]
 async fn merge_code_graph_rejects_unknown_rel_type() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(queries, vec![]);
     let app = common::app(state);
@@ -21,6 +22,7 @@ async fn merge_code_graph_rejects_unknown_rel_type() {
             Request::builder()
                 .method("POST")
                 .uri("/v1/code-graph/merge-code-graph")
+                .header("authorization", common::s2s_auth_header_value())
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -47,6 +49,7 @@ async fn merge_code_graph_rejects_unknown_rel_type() {
             Request::builder()
                 .method("POST")
                 .uri("/v1/code-graph/merge-code-graph")
+                .header("authorization", common::s2s_auth_header_value())
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -69,6 +72,7 @@ async fn merge_code_graph_rejects_unknown_rel_type() {
 
 #[tokio::test]
 async fn merge_code_graph_returns_processed_counts() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, _mock) = common::state_with_queries(
         queries,
@@ -93,6 +97,7 @@ async fn merge_code_graph_returns_processed_counts() {
             Request::builder()
                 .method("POST")
                 .uri("/v1/code-graph/merge-code-graph")
+                .header("authorization", common::s2s_auth_header_value())
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -122,6 +127,7 @@ async fn merge_code_graph_returns_processed_counts() {
 
 #[tokio::test]
 async fn backfill_entity_relationship_ids_uses_write_and_returns_success_true() {
+    common::set_local_jwt_secret();
     let queries = QueryRegistry::load_from_dir("queries").unwrap();
     let (state, mock) = common::state_with_queries(queries, vec![]);
     let app = common::app(state);
@@ -131,6 +137,7 @@ async fn backfill_entity_relationship_ids_uses_write_and_returns_success_true() 
             Request::builder()
                 .method("POST")
                 .uri("/v1/requirements-graph/backfill/entity-relationship-ids")
+                .header("authorization", common::s2s_auth_header_value())
                 .header("content-type", "application/json")
                 .body(Body::from(json!({ "project_id": "p1" }).to_string()))
                 .unwrap(),

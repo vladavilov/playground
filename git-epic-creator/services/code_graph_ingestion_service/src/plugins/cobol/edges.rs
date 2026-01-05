@@ -33,7 +33,8 @@ pub fn extract_cobol_edges(
     // CALLS
     for c in extracted.calls {
         let callee = c.callee;
-        let target_id = unresolved_node_id(project_id, repo_fingerprint, file_path, "call", &callee);
+        let target_id =
+            unresolved_node_id(project_id, repo_fingerprint, file_path, "call", &callee);
         nodes.push(unresolved_node(
             project_id,
             repo_fingerprint,
@@ -47,7 +48,10 @@ pub fn extract_cobol_edges(
 
         let mut md = serde_json::Map::new();
         md.insert("callee".to_string(), Value::String(callee));
-        md.insert("call_type".to_string(), Value::String(c.call_type.to_string()));
+        md.insert(
+            "call_type".to_string(),
+            Value::String(c.call_type.to_string()),
+        );
         edges.push(EdgeRecord {
             project_id: project_id.to_string(),
             repo_fingerprint: repo_fingerprint.to_string(),
@@ -62,7 +66,8 @@ pub fn extract_cobol_edges(
     // PERFORM targets
     for p in extracted.performs {
         let target = p.target;
-        let target_id = unresolved_node_id(project_id, repo_fingerprint, file_path, "perform", &target);
+        let target_id =
+            unresolved_node_id(project_id, repo_fingerprint, file_path, "perform", &target);
         nodes.push(unresolved_node(
             project_id,
             repo_fingerprint,
@@ -141,7 +146,9 @@ pub fn extract_cobol_edges(
         if let Some(cap) = re_exec_header().captures(&text) {
             let kind = cap.get(1).unwrap().as_str().to_ascii_uppercase();
             if kind == "SQL" {
-                for (sql_op, table, access) in semantic_linker::exec::extract_exec_sql_table_ops(&text) {
+                for (sql_op, table, access) in
+                    semantic_linker::exec::extract_exec_sql_table_ops(&text)
+                {
                     let table_up = table.trim().to_ascii_uppercase();
                     if table_up.is_empty() {
                         continue;
@@ -189,7 +196,13 @@ pub fn extract_cobol_edges(
                 if let Some(cap) = re_exec_cics_command().captures(&text) {
                     let cmd = cap.get(1).unwrap().as_str().trim().to_ascii_uppercase();
                     if !cmd.is_empty() {
-                        let unresolved_id = unresolved_node_id(project_id, repo_fingerprint, file_path, "cics_cmd", &cmd);
+                        let unresolved_id = unresolved_node_id(
+                            project_id,
+                            repo_fingerprint,
+                            file_path,
+                            "cics_cmd",
+                            &cmd,
+                        );
                         nodes.push(unresolved_node(
                             project_id,
                             repo_fingerprint,
@@ -219,15 +232,26 @@ pub fn extract_cobol_edges(
     }
 
     // Deterministic de-dup
-    let mut uniq_nodes: std::collections::BTreeMap<String, CodeNodeRecord> = std::collections::BTreeMap::new();
+    let mut uniq_nodes: std::collections::BTreeMap<String, CodeNodeRecord> =
+        std::collections::BTreeMap::new();
     for n in nodes {
         uniq_nodes.insert(n.node_id.clone(), n);
     }
-    let mut uniq_edges: std::collections::BTreeMap<(CodeRelType, String, String, String), EdgeRecord> =
-        std::collections::BTreeMap::new();
+    let mut uniq_edges: std::collections::BTreeMap<
+        (CodeRelType, String, String, String),
+        EdgeRecord,
+    > = std::collections::BTreeMap::new();
     for e in edges {
         let md_key = serde_json::to_string(&e.metadata).unwrap_or_default();
-        uniq_edges.insert((e.rel_type, e.src_node_id.clone(), e.dst_node_id.clone(), md_key), e);
+        uniq_edges.insert(
+            (
+                e.rel_type,
+                e.src_node_id.clone(),
+                e.dst_node_id.clone(),
+                md_key,
+            ),
+            e,
+        );
     }
 
     CobolEdgesResult {
@@ -236,8 +260,21 @@ pub fn extract_cobol_edges(
     }
 }
 
-fn unresolved_node_id(project_id: &str, repo_fingerprint: &str, file_path: &str, kind: &str, symbol: &str) -> String {
-    stable_node_id([project_id, repo_fingerprint, file_path, "unresolved", kind, symbol])
+fn unresolved_node_id(
+    project_id: &str,
+    repo_fingerprint: &str,
+    file_path: &str,
+    kind: &str,
+    symbol: &str,
+) -> String {
+    stable_node_id([
+        project_id,
+        repo_fingerprint,
+        file_path,
+        "unresolved",
+        kind,
+        symbol,
+    ])
 }
 
 fn unresolved_node(
@@ -306,5 +343,3 @@ fn exec_blocks_from_physical(lines: &[String]) -> Vec<(i64, i64, String)> {
     }
     out
 }
-
-

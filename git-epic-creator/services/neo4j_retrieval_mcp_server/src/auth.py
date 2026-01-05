@@ -1,12 +1,8 @@
-"""MCP Authentication handler for OAuth token exchange.
+"""MCP Authentication handler for browser-based OAuth (Azure AD).
 
-Handles authentication for MCP tool calls by:
-1. Extracting OAuth tokens from HTTP Authorization header (VS Code OAuth)
-2. Exchanging Azure AD tokens for LOCAL JWTs via authentication-service
-3. Caching tokens for performance
-
-This uses the SAME mechanism as UI Service - unified authentication flow.
-Azure AD authentication is REQUIRED - there is no service account fallback.
+This MCP server receives an Azure AD access token from the MCP client (VS Code)
+and forwards it to Envoy as a Bearer token. Envoy `ext_authz` validates the token
+via authentication-service and injects S2S headers upstream.
 """
 
 import asyncio
@@ -25,11 +21,9 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class MCPAuthContext:
-    """Authenticated user context from MCP session."""
-    local_jwt: str
-    user_id: str
-    username: str | None
-    roles: list[str]
+    """Cached authentication context for this MCP session."""
+
+    azure_access_token: str
     expires_at: float
 
 
@@ -63,7 +57,7 @@ class MCPAuthHandler:
     
     async def get_auth_token(self, ctx: Any) -> str | None:
         """
-        Get LOCAL JWT for backend authentication.
+        Get Azure AD access token for upstream calls (forwarded to Envoy).
         
         Extracts Azure AD token from:
         1. HTTP Authorization header (VS Code OAuth flow) - PREFERRED
@@ -76,7 +70,7 @@ class MCPAuthHandler:
             ctx: MCP Context object (from FastMCP)
             
         Returns:
-            LOCAL JWT for backend authentication, or None if unavailable
+            Azure AD access token (without "Bearer " prefix), or None if unavailable
         """
         # Check for cached token
         session_id = self._get_session_id(ctx)
@@ -84,27 +78,31 @@ class MCPAuthHandler:
             cached = await self._get_cached_token(session_id)
             if cached:
                 logger.debug(
-                    "Using cached LOCAL JWT",
+                    "Using cached Azure AD token",
                     session_id=session_id,
-                    user_id=cached.user_id
                 )
-                return cached.local_jwt
+                return cached.azure_access_token
         
         # Try to extract Azure AD token from HTTP Authorization header (VS Code OAuth)
         azure_token = self._extract_bearer_token_from_headers(ctx)
         
         if azure_token:
             logger.info("Found Azure AD token in HTTP Authorization header")
-
-            jwt, _ = await self._exchange_token(session_id, azure_token)
-            return jwt
+            await self._cache_token(
+                session_id,
+                MCPAuthContext(azure_access_token=azure_token, expires_at=time.time() + 300),
+            )
+            return azure_token
         
         # Fallback: Try MCP context client_params (for stdio transport)
         client_params = self._extract_client_params(ctx)
         if azure_token := client_params.get("access_token"):
             logger.info("Found Azure AD token in MCP context params")
-            jwt, _ = await self._exchange_token(session_id, azure_token)
-            return jwt
+            await self._cache_token(
+                session_id,
+                MCPAuthContext(azure_access_token=azure_token, expires_at=time.time() + 300),
+            )
+            return azure_token
         
         # No token found - return None to trigger HTTP 401
         logger.info("No Azure AD token found, authentication required")
@@ -214,92 +212,25 @@ class MCPAuthHandler:
         async with self._lock:
             self._cache[session_id] = auth_ctx
     
-    async def _exchange_token(
-        self,
-        session_id: str | None,
-        azure_token: str
-    ) -> tuple[str | None, MCPAuthContext | None]:
+    async def get_userinfo(self, azure_token: str) -> dict[str, Any] | None:
         """
-        Exchange Azure AD token for LOCAL JWT via authentication-service.
-        
-        This is the SAME endpoint used by UI Service.
-        
-        Args:
-            session_id: Session ID for caching
-            azure_token: Azure AD access token
-            
-        Returns:
-            Tuple of (LOCAL JWT, MCPAuthContext) or (None, None) if exchange fails
+        Validate the Azure AD access token and return OIDC-like userinfo.
+
+        NOTE: This call is intentionally made *via Envoy gateway* (AUTH_SERVICE_URL should point to Envoy)
+        to match the system architecture: MCP behaves like a browser client, sending Azure Bearer tokens
+        through the gateway. Envoy routes `/auth/*` to authentication-service (ext_authz disabled).
         """
         try:
             client = await self._get_http_client()
-            auth_service_url = get_auth_service_url()
-            
-            # Use the unified /auth/exchange endpoint
-            response = await client.post(
-                f"{auth_service_url}/auth/exchange",
-                json={"access_token": azure_token}
+            gateway_url = get_auth_service_url().rstrip("/")
+            resp = await client.get(
+                f"{gateway_url}/auth/azure/userinfo",
+                headers={"Authorization": f"Bearer {azure_token}"},
             )
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                auth_ctx = MCPAuthContext(
-                    local_jwt=data["access_token"],
-                    user_id=data["user_id"],
-                    username=data.get("username"),
-                    roles=data.get("roles", []),
-                    expires_at=time.time() + data.get("expires_in", 3600)
-                )
-                await self._cache_token(session_id, auth_ctx)
-                
-                logger.info(
-                    "Token exchanged successfully",
-                    user_id=auth_ctx.user_id
-                )
-                return auth_ctx.local_jwt, auth_ctx
-            else:
-                logger.error(
-                    "Token exchange failed",
-                    status=response.status_code,
-                    response=response.text[:200]
-                )
-                return None, None
-                
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            return data if isinstance(data, dict) else None
         except Exception as e:
-            logger.error("Token exchange error", error=str(e), error_type=type(e).__name__)
-            return None, None
-    
-    async def get_auth_context(self, ctx: Any) -> MCPAuthContext | None:
-        """
-        Get full authentication context from MCP context.
-        
-        Extracts Azure AD token and exchanges it for LOCAL JWT,
-        returning the full user context including user_id and roles.
-        """
-        session_id = self._get_session_id(ctx)
-        
-        # Check cache first
-        if session_id:
-            cached = await self._get_cached_token(session_id)
-            if cached:
-                return cached
-        
-        # Try to extract Azure AD token from HTTP Authorization header
-        azure_token = self._extract_bearer_token_from_headers(ctx)
-        
-        if azure_token:
-            logger.info("Found Azure AD token in HTTP Authorization header")
-            _, auth_ctx = await self._exchange_token(session_id, azure_token)
-            return auth_ctx
-        
-        # Fallback: Try MCP context client_params (for stdio transport)
-        client_params = self._extract_client_params(ctx)
-        if azure_token := client_params.get("access_token"):
-            logger.info("Found Azure AD token in MCP context params")
-            _, auth_ctx = await self._exchange_token(session_id, azure_token)
-            return auth_ctx
-        
-        # No token found
-        logger.info("No Azure AD token found, authentication required")
-        return None
+            logger.warning("Failed to fetch userinfo", error=str(e), error_type=type(e).__name__)
+            return None

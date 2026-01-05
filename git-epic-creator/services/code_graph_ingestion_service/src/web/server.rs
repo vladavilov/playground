@@ -1,15 +1,17 @@
-use axum::extract::{Multipart, State};
 use axum::extract::rejection::JsonRejection;
+use axum::extract::{Multipart, State};
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::core::orchestrator::{ingest_git, ingest_zip, OrchestratorConfig};
+use crate::core::orchestrator::{OrchestratorConfig, ingest_git, ingest_zip};
 use crate::core::types::CodeLanguage;
 
 #[derive(Clone)]
@@ -84,6 +86,7 @@ async fn health_neo4j() -> Result<Json<serde_json::Value>, ApiError> {
 
 async fn ingest_git_endpoint(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     payload: Result<Json<IngestGitRequest>, JsonRejection>,
 ) -> Result<Json<IngestResponse>, ApiError> {
     let Json(payload) = payload.map_err(|_e| ApiError::unprocessable("invalid json body"))?;
@@ -93,7 +96,20 @@ async fn ingest_git_endpoint(
     let out = tokio::task::spawn_blocking({
         let cfg = state.orchestrator.clone();
         let payload = payload;
-        move || ingest_git(&cfg, payload.project_id, payload.source_language, &payload.git_url, payload.ref_name.as_deref())
+        let repo_auth_header = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        move || {
+            ingest_git(
+                &cfg,
+                payload.project_id,
+                payload.source_language,
+                &payload.git_url,
+                payload.ref_name.as_deref(),
+                repo_auth_header,
+            )
+        }
     })
     .await
     .map_err(|e| ApiError::internal(format!("join error: {e}")))?
@@ -107,41 +123,72 @@ async fn ingest_git_endpoint(
 
 async fn ingest_zip_endpoint(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<IngestResponse>, ApiError> {
     let mut project_id: Option<Uuid> = None;
     let mut source_language: Option<CodeLanguage> = None;
-    let mut zip_bytes: Option<Vec<u8>> = None;
+    let mut zip_bytes: Option<Bytes> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| ApiError::unprocessable(e.to_string()))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::unprocessable(e.to_string()))?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "project_id" => {
-                let s = field.text().await.map_err(|e| ApiError::unprocessable(e.to_string()))?;
-                project_id = Some(s.parse::<Uuid>().map_err(|_| ApiError::unprocessable("project_id must be uuid"))?);
+                let s = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+                project_id = Some(
+                    s.parse::<Uuid>()
+                        .map_err(|_| ApiError::unprocessable("project_id must be uuid"))?,
+                );
             }
             "source_language" => {
-                let s = field.text().await.map_err(|e| ApiError::unprocessable(e.to_string()))?;
+                let s = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::unprocessable(e.to_string()))?;
                 source_language = Some(
                     s.parse::<CodeLanguage>()
                         .map_err(|_| ApiError::unprocessable("unsupported source_language"))?,
                 );
             }
             "file" => {
-                let data = field.bytes().await.map_err(|e| ApiError::unprocessable(e.to_string()))?;
-                zip_bytes = Some(data.to_vec());
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+                zip_bytes = Some(data);
             }
             _ => {}
         }
     }
 
     let project_id = project_id.ok_or_else(|| ApiError::unprocessable("project_id is required"))?;
-    let source_language = source_language.ok_or_else(|| ApiError::unprocessable("source_language is required"))?;
+    let source_language =
+        source_language.ok_or_else(|| ApiError::unprocessable("source_language is required"))?;
     let zip_bytes = zip_bytes.ok_or_else(|| ApiError::unprocessable("file is required"))?;
+    let repo_auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
     let out = tokio::task::spawn_blocking({
         let cfg = state.orchestrator.clone();
-        move || ingest_zip(&cfg, project_id, source_language, zip_bytes)
+        let repo_auth_header = repo_auth_header;
+        move || {
+            ingest_zip(
+                &cfg,
+                project_id,
+                source_language,
+                zip_bytes,
+                repo_auth_header,
+            )
+        }
     })
     .await
     .map_err(|e| ApiError::internal(format!("join error: {e}")))?
@@ -186,5 +233,3 @@ impl IntoResponse for ApiError {
         (self.status, Json(json!({ "detail": self.message }))).into_response()
     }
 }
-
-

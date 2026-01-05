@@ -150,7 +150,8 @@ pub fn unitize_cobol_file(
     }
 
     // Deterministic de-dup by node_id.
-    let mut uniq: std::collections::BTreeMap<String, CodeNodeRecord> = std::collections::BTreeMap::new();
+    let mut uniq: std::collections::BTreeMap<String, CodeNodeRecord> =
+        std::collections::BTreeMap::new();
     for n in nodes {
         uniq.insert(n.node_id.clone(), n);
     }
@@ -166,7 +167,9 @@ fn parse_cobol_tree(preprocess: &PreprocessResult) -> Option<(String, tree_sitte
     let prepared = cobol_prepare_source(&parse_stream);
 
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_cobol::LANGUAGE.into()).ok()?;
+    parser
+        .set_language(&tree_sitter_cobol::LANGUAGE.into())
+        .ok()?;
     let tree = parser.parse(&prepared, None)?;
     Some((prepared, tree))
 }
@@ -208,13 +211,51 @@ fn slice_text(lines: &[String], start_line: i64, end_line: i64) -> String {
 }
 
 fn reserved_para_names() -> &'static std::collections::HashSet<&'static str> {
-    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> =
+        std::sync::OnceLock::new();
     SET.get_or_init(|| {
         [
-            "ACCEPT", "ADD", "CALL", "CANCEL", "CLOSE", "COMPUTE", "CONTINUE", "DELETE", "DIVIDE", "DISPLAY", "ELSE",
-            "END", "END-IF", "END-READ", "END-WRITE", "EVALUATE", "EXEC", "EXIT", "GOBACK", "GO", "IF", "INITIALIZE",
-            "INSPECT", "MERGE", "MOVE", "MULTIPLY", "OPEN", "PERFORM", "READ", "RETURN", "REWRITE", "SEARCH", "SET",
-            "SORT", "START", "STOP", "STRING", "SUBTRACT", "UNSTRING", "WHEN", "WRITE",
+            "ACCEPT",
+            "ADD",
+            "CALL",
+            "CANCEL",
+            "CLOSE",
+            "COMPUTE",
+            "CONTINUE",
+            "DELETE",
+            "DIVIDE",
+            "DISPLAY",
+            "ELSE",
+            "END",
+            "END-IF",
+            "END-READ",
+            "END-WRITE",
+            "EVALUATE",
+            "EXEC",
+            "EXIT",
+            "GOBACK",
+            "GO",
+            "IF",
+            "INITIALIZE",
+            "INSPECT",
+            "MERGE",
+            "MOVE",
+            "MULTIPLY",
+            "OPEN",
+            "PERFORM",
+            "READ",
+            "RETURN",
+            "REWRITE",
+            "SEARCH",
+            "SET",
+            "SORT",
+            "START",
+            "STOP",
+            "STRING",
+            "SUBTRACT",
+            "UNSTRING",
+            "WHEN",
+            "WRITE",
         ]
         .into_iter()
         .collect()
@@ -393,10 +434,12 @@ fn extract_data_items_from_ast(
         if n.kind() == "data_description" {
             if let Some((s, e)) = physical_span_for_node(preprocess, n) {
                 let text = slice_text(&preprocess.physical_lines, s, e);
-                let symbol = text
-                    .lines()
-                    .next()
-                    .and_then(|ln| re_data_item_line().captures(ln).and_then(|c| c.get(2)).map(|m| m.as_str().to_ascii_uppercase()));
+                let symbol = text.lines().next().and_then(|ln| {
+                    re_data_item_line()
+                        .captures(ln)
+                        .and_then(|c| c.get(2))
+                        .map(|m| m.as_str().to_ascii_uppercase())
+                });
                 if let Some(symbol) = symbol {
                     let nid = stable_node_id([
                         project_id,
@@ -460,8 +503,13 @@ fn extract_data_items_fallback(
     let mut out: Vec<CodeNodeRecord> = Vec::new();
     for line_no in ds..=de {
         let line = &preprocess.physical_lines[(line_no - 1) as usize];
-        let Some(cap) = re_data_item_line().captures(line) else { continue };
-        let name = cap.get(2).map(|m| m.as_str().to_ascii_uppercase()).unwrap_or_default();
+        let Some(cap) = re_data_item_line().captures(line) else {
+            continue;
+        };
+        let name = cap
+            .get(2)
+            .map(|m| m.as_str().to_ascii_uppercase())
+            .unwrap_or_default();
         if name.is_empty() {
             continue;
         }
@@ -512,7 +560,11 @@ fn is_paragraph_header_candidate(line: &str) -> bool {
     true
 }
 
-fn physical_span_for_logical_range(preprocess: &PreprocessResult, start_idx: usize, end_idx: usize) -> Option<(i64, i64)> {
+fn physical_span_for_logical_range(
+    preprocess: &PreprocessResult,
+    start_idx: usize,
+    end_idx: usize,
+) -> Option<(i64, i64)> {
     if start_idx > end_idx || preprocess.logical_spans.is_empty() {
         return None;
     }
@@ -544,9 +596,7 @@ fn extract_sentences(
     };
     let Some((proc_s, proc_e)) = physical_span_for_node(preprocess, proc) else {
         return vec![];
-    };
-
-    // Prefer Tree-sitter’s own `*_end_statement` punctuation nodes as sentence terminators, if present.
+    };    // Prefer Tree-sitter’s own `*_end_statement` punctuation nodes as sentence terminators, if present.
     // This avoids treating arbitrary dots in non-procedure text as sentence ends.
     let mut end_lines: Vec<i64> = Vec::new();
     let mut stack: Vec<Node<'_>> = vec![proc];
@@ -623,7 +673,11 @@ fn extract_sentences(
     let mut out: Vec<CodeNodeRecord> = Vec::new();
     let mut cur_start: Option<usize> = None;
     for idx in logical_idxs {
-        let line = preprocess.logical_lines.get(idx).map(|s| s.as_str()).unwrap_or("");
+        let line = preprocess
+            .logical_lines
+            .get(idx)
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -699,9 +753,7 @@ fn extract_sentences(
                 }
             }
         }
-    }
-
-    out
+    }    out
 }
 
 fn extract_sentences_fallback(
@@ -718,12 +770,16 @@ fn extract_sentences_fallback(
             break;
         }
     }
-    let Some(start_idx) = proc_idx else { return vec![] };
-
-    let mut out: Vec<CodeNodeRecord> = Vec::new();
+    let Some(start_idx) = proc_idx else {
+        return vec![];
+    };    let mut out: Vec<CodeNodeRecord> = Vec::new();
     let mut cur_start: Option<usize> = None;
     for idx in start_idx..preprocess.logical_lines.len() {
-        let line = preprocess.logical_lines.get(idx).map(|s| s.as_str()).unwrap_or("");
+        let line = preprocess
+            .logical_lines
+            .get(idx)
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("EXEC_BLOCK.") {
             continue;
@@ -768,5 +824,3 @@ fn extract_sentences_fallback(
     }
     out
 }
-
-

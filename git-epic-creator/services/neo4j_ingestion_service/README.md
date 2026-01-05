@@ -2,6 +2,10 @@
 
 This service orchestrates project-scoped knowledge graph ingestion using the **Microsoft GraphRAG library** (programmatic `graphrag.api.build_index`). It consumes trigger messages from Redis Streams, downloads JSON documents from Azure Blob, runs GraphRAG to extract entities/relationships/communities and embeddings, and then ingests the produced artifacts into Neo4j **via `neo4j-repository-service` (HTTP)**. Finally it updates the Project Management Service with progress and status.
 
+### Auth (S2S)
+- The ingestion job is triggered asynchronously (Celery). The triggering request must include a Celery header `Authentication` whose value is the **gateway S2S bearer token** (`Bearer ...`).
+- The worker forwards that bearer token as `Authorization` on every call to `neo4j-repository-service` (which now requires S2S auth for `/v1/**`).
+
 ### Scope and responsibilities
 - Accept trigger messages with `job_id`, `project_id`, `attempts` via Redis Streams
 - Download project-scoped `.json` documents from Azure Blob (`output/` prefix) into `RAG_WORKSPACE_ROOT/{project_id}/input/`

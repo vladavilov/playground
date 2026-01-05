@@ -46,5 +46,3 @@ fn gitignore_file_is_respected() {
     assert!(paths.contains(&"kept.txt".to_string()));
     assert!(!paths.contains(&"ignored.txt".to_string()));
 }
-
-

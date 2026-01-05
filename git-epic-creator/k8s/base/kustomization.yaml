@@ -17,17 +17,18 @@ resources:
   # Services
   - services/db-init-service.yaml
   - services/project-management-service.yaml
-  - services/neo4j-maintenance-service.yaml
+  - services/neo4j-repository-service.yaml
   - services/neo4j-ingestion-service.yaml
   - services/neo4j-retrieval-service.yaml
   - services/frontend-service.yaml
-  - services/gateway-control-plane-service.yaml
+  - services/sse-bridge-service.yaml
   - services/envoy-gateway.yaml
   - services/document-processing-service.yaml
   - services/ai-requirements-service.yaml
   - services/ai-tasks-service.yaml
   - services/gitlab-client-service.yaml
   - services/authentication-service.yaml
+  - services/code-graph-ingestion-service.yaml
   - services/mock-auth-service.yaml
   # StatefulSets
   - statefulsets/neo4j.yaml
@@ -47,8 +48,8 @@ images:
   - name: project-management-service
     newName: PLACEHOLDER_ACR/project-management-service
     newTag: latest
-  - name: neo4j-maintanance-service
-    newName: PLACEHOLDER_ACR/neo4j-maintanance-service
+  - name: neo4j-repository-service
+    newName: PLACEHOLDER_ACR/neo4j-repository-service
     newTag: latest
   - name: neo4j-ingestion-service
     newName: PLACEHOLDER_ACR/neo4j-ingestion-service
@@ -59,8 +60,8 @@ images:
   - name: frontend-service
     newName: PLACEHOLDER_ACR/frontend-service
     newTag: latest
-  - name: gateway-control-plane-service
-    newName: PLACEHOLDER_ACR/gateway-control-plane-service
+  - name: sse-bridge-service
+    newName: PLACEHOLDER_ACR/sse-bridge-service
     newTag: latest
   - name: document-processing-service
     newName: PLACEHOLDER_ACR/document-processing-service
@@ -76,6 +77,9 @@ images:
     newTag: latest
   - name: authentication-service
     newName: PLACEHOLDER_ACR/authentication-service
+    newTag: latest
+  - name: code-graph-ingestion-service
+    newName: PLACEHOLDER_ACR/code-graph-ingestion-service
     newTag: latest
   - name: mock-auth-service
     newName: PLACEHOLDER_ACR/mock-auth-service

@@ -5,8 +5,6 @@
 unsafe extern "system" {}
 
 pub mod core;
-pub mod plugins;
 pub mod persistence;
+pub mod plugins;
 pub mod web;
-
-

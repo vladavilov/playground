@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@plugin "@tailwindcss/forms" {
+  strategy: "base";
+}
+@import "./tokens.css";
+
+@layer base {
+  :root {
+    color-scheme: light;
+    /* Used by fullscreen editors to offset from the sticky app header. Overridden at runtime. */
+    --app-header-h: 56px;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  html {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 25%, transparent);
+  }
+}
+
+@layer utilities {
+  .writing-vertical-rl {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+  }
+}
+
+

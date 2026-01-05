@@ -66,7 +66,13 @@ pub fn expand_copybooks(
             continue;
         }
         let m = m.unwrap();
-        let name = m.get(1).unwrap().as_str().trim().trim_end_matches('.').to_string();
+        let name = m
+            .get(1)
+            .unwrap()
+            .as_str()
+            .trim()
+            .trim_end_matches('.')
+            .to_string();
         let replacing_pairs = parse_replacing_pairs(line);
         let copy_path = resolve_copybook(repo_root, &name, search_paths);
 
@@ -76,7 +82,11 @@ pub fn expand_copybooks(
             continue;
         };
 
-        let rel = copy_path.strip_prefix(repo_root).unwrap_or(&copy_path).to_string_lossy().replace('\\', "/");
+        let rel = copy_path
+            .strip_prefix(repo_root)
+            .unwrap_or(&copy_path)
+            .to_string_lossy()
+            .replace('\\', "/");
         includes.push(rel.clone());
 
         let mut raw = std::fs::read_to_string(&copy_path)?;
@@ -181,5 +191,3 @@ fn apply_replacing(s: &str, pairs: &[(String, String)]) -> String {
     }
     out
 }
-
-

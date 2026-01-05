@@ -12,10 +12,24 @@ use tracing::error;
 
 use crate::{AppState, queries::QueryError};
 
+async fn require_s2s(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    match crate::auth::verify_s2s_jwt(req.headers()) {
+        Ok(()) => next.run(req).await,
+        Err(resp) => resp,
+    }
+}
+
 pub fn router() -> Router<AppState> {
-    let mut r = Router::new()
+    use axum::middleware;
+
+    let public = Router::new()
         .route("/health", get(health))
-        .route("/health/neo4j", get(health_neo4j))
+        .route("/health/neo4j", get(health_neo4j));
+
+    let mut protected = Router::new()
         .route("/v1/maintenance/init-schema", post(init_schema))
         // Feature APIs (stable, typed)
         .route(
@@ -119,13 +133,14 @@ pub fn router() -> Router<AppState> {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     if unsafe_enabled {
-        r = r
+        protected = protected
             .route("/v1/unsafe/queries", get(list_queries))
             .route("/v1/unsafe/execute/{key}", post(execute_query))
             .route("/v1/unsafe/query/{key}", post(query_rows));
     }
 
-    r
+    // Protect all /v1/** endpoints with S2S auth, keep /health open.
+    public.merge(protected.layer(middleware::from_fn(require_s2s)))
 }
 
 async fn health() -> impl IntoResponse {

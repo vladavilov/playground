@@ -31,6 +31,8 @@ class GraphState(TypedDict, total=False):
     project_id: str
     prompt_id: Optional[str]  # Optional parent workflow prompt_id for UI tracking
     retrieval_id: Any  # UUID
+    # Forwarded Authorization header to call neo4j-repository-service (S2S token from gateway).
+    repo_auth_header: Optional[str]
     qvec: list[float]
     communities: list[int]
     community_brief: list[Dict[str, Any]]

@@ -88,6 +88,26 @@ Key properties of this placement:
   - runs a Neo4j connectivity check
   - additionally runs `SHOW INDEXES ...` and returns an index health summary (vector index population is treated as “not OK” until 100%)
 
+---
+
+## Authentication (S2S)
+
+This service is an **internal** component. It should be called only by backend services.
+
+- **Public endpoints**:
+  - `GET /health`
+  - `GET /health/neo4j`
+- **Protected endpoints**:
+  - **all** `POST /v1/**` require `Authorization: Bearer <jwt>`
+
+The bearer token is the **gateway S2S token** minted by `authentication-service` and forwarded by backend services.
+
+- **signature**: HS256 with `LOCAL_JWT_SECRET`
+- **required claims**:
+  - `sub = "api-gateway"`
+  - `iss = "authentication-service"`
+  - `exp` must be valid (not expired)
+
 #### Code graph ingestion (project-centric isolated code graph)
 
 - `POST /v1/code-graph/merge-code-graph`

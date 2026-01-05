@@ -13,7 +13,7 @@ param localJwtSecret string
 @secure()
 param gitlabOAuthClientSecret string = ''
 
-@description('Secret required for the API Gateway control plane (gateway-control-plane-service) to mint S2S tokens via authentication-service.')
+@description('Secret required for internal token minting (used by authentication-service).')
 @secure()
 param apiGatewayMintSecret string
 

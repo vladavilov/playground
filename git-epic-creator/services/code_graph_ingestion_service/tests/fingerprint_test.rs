@@ -1,7 +1,6 @@
 use code_graph_ingestion_service::core::fingerprint::{
     fingerprint_for_git_head_commit, fingerprint_for_zip_bytes,
 };
-use sha2::{Digest, Sha256};
 
 fn make_zip(entries: Vec<(&str, &[u8])>) -> Vec<u8> {
     let mut buf = std::io::Cursor::new(Vec::new());
@@ -18,18 +17,15 @@ fn make_zip(entries: Vec<(&str, &[u8])>) -> Vec<u8> {
 }
 
 #[test]
-fn zip_entry_order_changes_fingerprint() {
+fn zip_entry_order_does_not_change_fingerprint() {
     let z1 = make_zip(vec![("b.txt", b"2"), ("a.txt", b"1"), ("dir/x.txt", b"3")]);
     let z2 = make_zip(vec![("dir/x.txt", b"3"), ("a.txt", b"1"), ("b.txt", b"2")]);
 
-    let f1 = fingerprint_for_zip_bytes(&z1);
-    let f2 = fingerprint_for_zip_bytes(&z2);
+    let f1 = fingerprint_for_zip_bytes(&z1).unwrap();
+    let f2 = fingerprint_for_zip_bytes(&z2).unwrap();
 
-    assert_ne!(f1.value, f2.value);
-    let sha1 = hex::encode(Sha256::digest(&z1));
-    let sha2 = hex::encode(Sha256::digest(&z2));
-    assert_eq!(f1.anchor, sha1);
-    assert_eq!(f2.anchor, sha2);
+    assert_eq!(f1.value, f2.value);
+    assert_eq!(f1.anchor, f2.anchor);
     assert_eq!(f1.value, format!("zip:{}", f1.anchor));
     assert_eq!(f2.value, format!("zip:{}", f2.anchor));
 }
@@ -47,8 +43,8 @@ fn zip_manifest_change_changes_fingerprint() {
         ("pyproject.toml", b"[project]\nname='b'\n"),
     ]);
 
-    let f1 = fingerprint_for_zip_bytes(&z1);
-    let f2 = fingerprint_for_zip_bytes(&z2);
+    let f1 = fingerprint_for_zip_bytes(&z1).unwrap();
+    let f2 = fingerprint_for_zip_bytes(&z2).unwrap();
 
     assert_ne!(f1.value, f2.value);
     assert!(f1.value.starts_with("zip:"));
@@ -65,5 +61,3 @@ fn git_manifest_change_changes_fingerprint_by_commit() {
     assert_eq!(fp2.value, format!("git:{}", fp2.anchor));
     assert_ne!(fp1.value, fp2.value);
 }
-
-

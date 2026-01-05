@@ -3,7 +3,7 @@ use crate::core::stable_ids::{snippet_hash, stable_node_id};
 use crate::core::types::{CodeLanguage, CodeRelType};
 use crate::plugins::base::{IngestionContext, LanguagePlugin};
 use crate::plugins::tsg;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
 const JS_EXTS: &[&str] = &[".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"];
@@ -40,7 +40,12 @@ impl LanguagePlugin for JavaScriptPlugin {
                 files.push(p.to_path_buf());
             }
         }
-        files.sort_by_key(|p| p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/"));
+        files.sort_by_key(|p| {
+            p.strip_prefix(&ctx.repo_root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        });
         Ok(files)
     }
 
@@ -49,16 +54,26 @@ impl LanguagePlugin for JavaScriptPlugin {
         ctx: &IngestionContext,
         files: &[PathBuf],
     ) -> anyhow::Result<(Vec<CodeNodeRecord>, Vec<EdgeRecord>, Value)> {
-        let mut nodes: std::collections::BTreeMap<String, CodeNodeRecord> = std::collections::BTreeMap::new();
+        let mut nodes: std::collections::BTreeMap<String, CodeNodeRecord> =
+            std::collections::BTreeMap::new();
         let mut edges: Vec<EdgeRecord> = Vec::new();
 
         let repo_files: std::collections::BTreeSet<String> = files
             .iter()
-            .map(|p| p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/"))
+            .map(|p| {
+                p.strip_prefix(&ctx.repo_root)
+                    .unwrap_or(p)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
             .collect();
 
         for p in files {
-            let rel = p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+            let rel = p
+                .strip_prefix(&ctx.repo_root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/");
             let bytes = std::fs::read(p)?;
             let mut text = String::from_utf8_lossy(&bytes).to_string();
             text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -115,7 +130,10 @@ impl LanguagePlugin for JavaScriptPlugin {
                 };
                 let mut md = serde_json::Map::new();
                 md.insert("kind".to_string(), Value::String(kind.to_string()));
-                md.insert("specifier".to_string(), Value::String(hit.specifier.clone()));
+                md.insert(
+                    "specifier".to_string(),
+                    Value::String(hit.specifier.clone()),
+                );
 
                 let spec = hit.specifier;
                 let target_id = stable_node_id([
@@ -166,7 +184,8 @@ fn resolve_js_import_edges(
     edges: &[EdgeRecord],
     repo_files: &std::collections::BTreeSet<String>,
 ) -> Vec<EdgeRecord> {
-    let mut module_by_file: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut module_by_file: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     for n in nodes.values() {
         if n.language == CodeLanguage::Javascript && n.kind == "module" {
             module_by_file.insert(n.file_path.clone(), n.node_id.clone());
@@ -191,8 +210,12 @@ fn resolve_js_import_edges(
             out.push(e.clone());
             continue;
         }
-        let importer_file_path = nodes.get(&e.src_node_id).map(|n| n.file_path.clone()).unwrap_or_default();
-        let resolved_file = resolve_js_specifier_to_file_path(&importer_file_path, &spec, repo_files);
+        let importer_file_path = nodes
+            .get(&e.src_node_id)
+            .map(|n| n.file_path.clone())
+            .unwrap_or_default();
+        let resolved_file =
+            resolve_js_specifier_to_file_path(&importer_file_path, &spec, repo_files);
         let Some(resolved_file) = resolved_file else {
             out.push(e.clone());
             continue;
@@ -204,8 +227,14 @@ fn resolve_js_import_edges(
 
         let mut md = e.metadata.clone();
         md.insert("resolved".to_string(), Value::Bool(true));
-        md.insert("strategy".to_string(), Value::String("import-specifier".to_string()));
-        md.insert("resolved_file_path".to_string(), Value::String(resolved_file));
+        md.insert(
+            "strategy".to_string(),
+            Value::String("import-specifier".to_string()),
+        );
+        md.insert(
+            "resolved_file_path".to_string(),
+            Value::String(resolved_file),
+        );
 
         let kind = md.get("kind").and_then(|v| v.as_str()).unwrap_or("");
         let mut new_conf = e.confidence;
@@ -231,12 +260,24 @@ fn resolve_js_import_edges(
         std::collections::BTreeMap::new();
     for e in out {
         let md_key = serde_json::to_string(&e.metadata).unwrap_or_default();
-        uniq.insert((e.rel_type, e.src_node_id.clone(), e.dst_node_id.clone(), md_key), e);
+        uniq.insert(
+            (
+                e.rel_type,
+                e.src_node_id.clone(),
+                e.dst_node_id.clone(),
+                md_key,
+            ),
+            e,
+        );
     }
     uniq.into_values().collect()
 }
 
-fn resolve_js_specifier_to_file_path(importer_file_path: &str, specifier: &str, repo_files: &std::collections::BTreeSet<String>) -> Option<String> {
+fn resolve_js_specifier_to_file_path(
+    importer_file_path: &str,
+    specifier: &str,
+    repo_files: &std::collections::BTreeSet<String>,
+) -> Option<String> {
     let spec = specifier.trim();
     if spec.is_empty() {
         return None;
@@ -278,7 +319,10 @@ fn resolve_js_specifier_to_file_path(importer_file_path: &str, specifier: &str, 
     None
 }
 
-fn pick_first_existing_js_candidate(base: &str, repo_files: &std::collections::BTreeSet<String>) -> Option<String> {
+fn pick_first_existing_js_candidate(
+    base: &str,
+    repo_files: &std::collections::BTreeSet<String>,
+) -> Option<String> {
     for cand in js_path_candidates(base) {
         if repo_files.contains(&cand) {
             return Some(cand);
@@ -317,4 +361,3 @@ fn normalize_posix_path(p: &str) -> String {
     }
     parts.join("/")
 }
-

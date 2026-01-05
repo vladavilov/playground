@@ -1,13 +1,15 @@
-use git2::{build::CheckoutBuilder, Repository};
-use std::io::{Cursor, Read};
+use git2::{Repository, build::CheckoutBuilder};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::Duration;
 
+use crate::core::zip_utils::{ZipPathError, normalized_zip_relpath};
+
 #[derive(Debug, thiserror::Error)]
 pub enum MaterializeError {
-    #[error("zip slip: {0}")]
-    ZipSlip(String),
+    #[error(transparent)]
+    ZipPath(#[from] ZipPathError),
     #[error("unsafe zip entry (symlink): {0}")]
     UnsafeZipEntry(String),
     #[error(transparent)]
@@ -32,51 +34,10 @@ fn rmtree_retry(path: &Path, attempts: usize, delay: Duration) -> std::io::Resul
     Err(last_err.unwrap_or_else(|| std::io::Error::other("failed to remove dir")))
 }
 
-fn normalized_zip_relpath(name: &str) -> Result<String, MaterializeError> {
-    // ZIP spec uses forward slashes, but Windows tools may emit backslashes.
-    let mut p = name.replace('\\', "/");
-
-    // Normalize path segments manually (POSIX semantics).
-    while p.starts_with("./") {
-        p = p[2..].to_string();
-    }
-
-    // Reject absolute paths and drive-letter-ish paths.
-    if p.starts_with('/') || p.starts_with('\\') {
-        return Err(MaterializeError::ZipSlip(format!(
-            "unsafe absolute path in zip entry: {name:?}"
-        )));
-    }
-    if let Some(first) = p.split('/').next() {
-        if first.contains(':') {
-            return Err(MaterializeError::ZipSlip(format!(
-                "unsafe absolute path in zip entry: {name:?}"
-            )));
-        }
-    }
-
-    let mut out_parts: Vec<&str> = Vec::new();
-    for part in p.split('/') {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        if part == ".." {
-            return Err(MaterializeError::ZipSlip(format!(
-                "unsafe parent traversal in zip entry: {name:?}"
-            )));
-        }
-        out_parts.push(part);
-    }
-
-    let rel = out_parts.join("/");
-    if rel.is_empty() || rel == "." {
-        Ok(String::new())
-    } else {
-        Ok(rel)
-    }
-}
-
-pub fn materialize_zip_bytes(zip_bytes: &[u8], dest_dir: &Path) -> Result<PathBuf, MaterializeError> {
+pub fn materialize_zip_bytes(
+    zip_bytes: &[u8],
+    dest_dir: &Path,
+) -> Result<PathBuf, MaterializeError> {
     // Deterministic: ensure the output directory is empty.
     if dest_dir.exists() {
         rmtree_retry(dest_dir, 30, Duration::from_millis(100))?;
@@ -105,7 +66,7 @@ pub fn materialize_zip_bytes(zip_bytes: &[u8], dest_dir: &Path) -> Result<PathBu
 
         ordered.push((rel, i));
     }
-    ordered.sort_by(|a, b| a.0.cmp(&b.0));
+    ordered.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
     for (rel, idx) in ordered {
         let mut f = archive.by_index(idx)?;
@@ -120,9 +81,8 @@ pub fn materialize_zip_bytes(zip_bytes: &[u8], dest_dir: &Path) -> Result<PathBu
         }
 
         let mut out = std::fs::File::create(&out_path)?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
-        std::io::Write::write_all(&mut out, &buf)?;
+        // Stream copy to avoid buffering the full file in memory.
+        std::io::copy(&mut f, &mut out)?;
     }
 
     Ok(dest_dir.to_path_buf())
@@ -134,7 +94,11 @@ pub struct GitMaterializationResult {
     pub head_commit: Option<String>,
 }
 
-pub fn materialize_git(git_url: &str, ref_name: Option<&str>, dest_dir: &Path) -> Result<GitMaterializationResult, MaterializeError> {
+pub fn materialize_git(
+    git_url: &str,
+    ref_name: Option<&str>,
+    dest_dir: &Path,
+) -> Result<GitMaterializationResult, MaterializeError> {
     // Deterministic: ensure the output directory is empty.
     if dest_dir.exists() {
         rmtree_retry(dest_dir, 30, Duration::from_millis(100))?;
@@ -162,5 +126,3 @@ pub fn materialize_git(git_url: &str, ref_name: Option<&str>, dest_dir: &Path) -
         head_commit,
     })
 }
-
-

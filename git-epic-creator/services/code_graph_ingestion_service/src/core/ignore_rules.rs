@@ -43,11 +43,16 @@ impl IgnoreRules {
     pub fn is_ignored(&self, repo_rel_posix_path: &str) -> bool {
         // The ignore crate expects forward slashes for gitignore semantics.
         // It returns (is_match, maybe_whitelist).
-        self.gitignore.matched(repo_rel_posix_path, false).is_ignore()
+        self.gitignore
+            .matched(repo_rel_posix_path, false)
+            .is_ignore()
     }
 }
 
-pub fn build_ignore_rules(repo_root: &Path, extra_patterns: Option<&[String]>) -> anyhow::Result<IgnoreRules> {
+pub fn build_ignore_rules(
+    repo_root: &Path,
+    extra_patterns: Option<&[String]>,
+) -> anyhow::Result<IgnoreRules> {
     let mut b = GitignoreBuilder::new(repo_root);
     for pat in DEFAULT_IGNORE_PATTERNS {
         b.add_line(None, pat)?;
@@ -67,9 +72,5 @@ pub fn build_ignore_rules(repo_root: &Path, extra_patterns: Option<&[String]>) -
     }
 
     let gi = b.build()?;
-    Ok(IgnoreRules {
-        gitignore: gi,
-    })
+    Ok(IgnoreRules { gitignore: gi })
 }
-
-

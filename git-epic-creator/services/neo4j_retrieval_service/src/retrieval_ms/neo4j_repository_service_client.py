@@ -36,16 +36,29 @@ def get_client() -> httpx.AsyncClient:
     return _CLIENT
 
 
-async def post_json(client: httpx.AsyncClient, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def post_json(
+    client: httpx.AsyncClient,
+    path: str,
+    payload: Dict[str, Any],
+    *,
+    auth_header: str | None = None,
+) -> Dict[str, Any]:
     """POST JSON payload and return parsed JSON body (or empty dict)."""
-    resp = await client.post(path, json=payload)
+    headers = {"Authorization": auth_header} if auth_header else None
+    resp = await client.post(path, json=payload, headers=headers)
     resp.raise_for_status()
     return resp.json() or {}
 
 
-async def get_json(client: httpx.AsyncClient, path: str) -> Dict[str, Any]:
+async def get_json(
+    client: httpx.AsyncClient,
+    path: str,
+    *,
+    auth_header: str | None = None,
+) -> Dict[str, Any]:
     """GET JSON and return parsed JSON body (or empty dict)."""
-    resp = await client.get(path)
+    headers = {"Authorization": auth_header} if auth_header else None
+    resp = await client.get(path, headers=headers)
     resp.raise_for_status()
     return resp.json() or {}
 

@@ -4,12 +4,16 @@ use tree_sitter::{Node, Parser};
 
 use super::regexes;
 
-pub(crate) fn parse_cobol_tree(preprocess: &PreprocessResult) -> Option<(String, tree_sitter::Tree)> {
+pub(crate) fn parse_cobol_tree(
+    preprocess: &PreprocessResult,
+) -> Option<(String, tree_sitter::Tree)> {
     let parse_stream = String::from_utf8_lossy(&preprocess.parse_bytes).to_string();
     let prepared = cobol_prepare_source(&parse_stream);
 
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_cobol::LANGUAGE.into()).ok()?;
+    parser
+        .set_language(&tree_sitter_cobol::LANGUAGE.into())
+        .ok()?;
     let tree = parser.parse(&prepared, None)?;
     Some((prepared, tree))
 }
@@ -122,5 +126,3 @@ pub(crate) fn extract_paragraphs_treesitter(
     }
     Some(out)
 }
-
-

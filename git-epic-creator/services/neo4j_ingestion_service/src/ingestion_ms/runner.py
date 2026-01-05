@@ -2,11 +2,9 @@ import structlog
 from pathlib import Path
 from typing import Any, Dict
 import shutil
-import graphrag.api as graphrag_api
 
 from config import get_graphrag_settings
 from .settings import configure_settings_for_json
-from graphrag.config.create_graphrag_config import create_graphrag_config
 from .parquet_reader import ParquetReader
 from .lancedb_reader import LanceDBReader
 from .neo4j_ingestor import Neo4jIngestor
@@ -30,6 +28,14 @@ async def _run(workspace: Path, cb: IngestionWorkflowCallbacks) -> Dict[str, Any
             'error': str (if failed)
         }
     """
+    try:
+        import graphrag.api as graphrag_api
+        from graphrag.config.create_graphrag_config import create_graphrag_config
+    except Exception as exc:
+        raise RuntimeError(
+            "graphrag is required to run the ingestion pipeline but is not installed in this environment."
+        ) from exc
+
     # Build config dict programmatically and create GraphRAG config without writing files
     settings_dict = configure_settings_for_json()
     
@@ -79,7 +85,7 @@ def ensure_workspace_initialized(workspace_root: Path, project_id: str) -> Path:
     return workspace
 
 
-async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
+async def run_graphrag_pipeline(project_id: str, *, repo_auth_header: str | None = None) -> Dict[str, Any]:
     if not isinstance(project_id, str) or not project_id.strip():
         raise ValueError("project_id must be a non-empty string")
 
@@ -165,7 +171,7 @@ async def run_graphrag_pipeline(project_id: str) -> Dict[str, Any]:
     repo_client = get_client()
     # Initialize readers and ingestor (HTTP -> neo4j-repository-service)
     pq = ParquetReader()
-    ingestor = Neo4jIngestor(client=repo_client, project_id=project_id)
+    ingestor = Neo4jIngestor(client=repo_client, project_id=project_id, repo_auth_header=repo_auth_header)
 
     # Read parquet records and ingest
     records = {

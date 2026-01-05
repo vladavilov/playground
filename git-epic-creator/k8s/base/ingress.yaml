@@ -76,6 +76,13 @@ spec:
                 name: envoy-gateway
                 port:
                   number: 80
+          - path: /retrieve
+            pathType: Prefix
+            backend:
+              service:
+                name: envoy-gateway
+                port:
+                  number: 80
 
           # UI is served by frontend-service
           - path: /

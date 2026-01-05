@@ -1,7 +1,7 @@
-use code_graph_ingestion_service::plugins::base::IngestionContext;
-use code_graph_ingestion_service::plugins::cobol::plugin::CobolPlugin;
-use code_graph_ingestion_service::plugins::base::LanguagePlugin;
 use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
+use code_graph_ingestion_service::plugins::base::IngestionContext;
+use code_graph_ingestion_service::plugins::base::LanguagePlugin;
+use code_graph_ingestion_service::plugins::cobol::plugin::CobolPlugin;
 
 #[test]
 fn cobol_plugin_emits_program_node_and_includes_edge() {
@@ -35,9 +35,15 @@ fn cobol_plugin_emits_program_node_and_includes_edge() {
     let (nodes, edges, facts) = plugin.ingest(&ctx, &files).unwrap();
 
     assert!(nodes.iter().any(|n| n.kind == "program"));
-    assert!(nodes.iter().any(|n| n.kind == "copybook"), "expected copybook unit node from COPY expansion provenance");
+    assert!(
+        nodes.iter().any(|n| n.kind == "copybook"),
+        "expected copybook unit node from COPY expansion provenance"
+    );
     assert!(edges.iter().any(|e| e.rel_type == CodeRelType::Includes));
-    assert_eq!(facts.get("includes_count").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(
+        facts.get("includes_count").and_then(|v| v.as_i64()),
+        Some(1)
+    );
 }
 
 #[test]
@@ -93,7 +99,8 @@ fn cobol_plugin_resolves_literal_calls_to_program_nodes() {
         })
         .collect();
 
-    assert!(!resolved_calls.is_empty(), "Expected literal CALL to be resolved to program node");
+    assert!(
+        !resolved_calls.is_empty(),
+        "Expected literal CALL to be resolved to program node"
+    );
 }
-
-

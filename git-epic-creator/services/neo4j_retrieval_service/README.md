@@ -217,6 +217,11 @@ NEO4J_PASSWORD=password
 
 NEO4J_REPOSITORY_SERVICE_URL=http://neo4j-repository-service:8080
 
+# Auth (S2S)
+# This service is called through Envoy. Envoy injects a gateway S2S token
+# (`Authorization: Bearer ...`) and neo4j-retrieval-service forwards that same
+# bearer header to `neo4j-repository-service` for all `/v1/**` calls.
+
 # Azure OpenAI (Required for Embeddings & Chat)
 OAI_BASE_URL=https://your-resource.openai.azure.com/
 OAI_KEY=your-key

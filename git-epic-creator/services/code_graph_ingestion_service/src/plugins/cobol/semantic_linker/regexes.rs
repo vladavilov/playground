@@ -84,21 +84,53 @@ pub(crate) fn re_exec_cics_program_arg() -> &'static Regex {
 }
 
 pub(crate) fn reserved_para_names() -> &'static std::collections::HashSet<&'static str> {
-    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> =
+        std::sync::OnceLock::new();
     SET.get_or_init(|| {
         [
-            "ACCEPT", "ADD", "CALL", "CANCEL", "CLOSE", "COMPUTE", "CONTINUE", "DELETE", "DIVIDE",
-            "DISPLAY", "ELSE", "END", "END-IF", "END-READ", "END-WRITE", "EVALUATE", "EXEC",
-            "EXIT", "GOBACK", "GO", "IF", "INITIALIZE", "INSPECT", "MERGE", "MOVE", "MULTIPLY",
-            "OPEN", "PERFORM", "READ", "RETURN", "REWRITE", "SEARCH", "SET", "SORT", "START",
-            "STOP", "STRING", "SUBTRACT", "UNSTRING", "WHEN", "WRITE",
+            "ACCEPT",
+            "ADD",
+            "CALL",
+            "CANCEL",
+            "CLOSE",
+            "COMPUTE",
+            "CONTINUE",
+            "DELETE",
+            "DIVIDE",
+            "DISPLAY",
+            "ELSE",
+            "END",
+            "END-IF",
+            "END-READ",
+            "END-WRITE",
+            "EVALUATE",
+            "EXEC",
+            "EXIT",
+            "GOBACK",
+            "GO",
+            "IF",
+            "INITIALIZE",
+            "INSPECT",
+            "MERGE",
+            "MOVE",
+            "MULTIPLY",
+            "OPEN",
+            "PERFORM",
+            "READ",
+            "RETURN",
+            "REWRITE",
+            "SEARCH",
+            "SET",
+            "SORT",
+            "START",
+            "STOP",
+            "STRING",
+            "SUBTRACT",
+            "UNSTRING",
+            "WHEN",
+            "WRITE",
         ]
         .into_iter()
         .collect()
     })
 }
-
-
-
-
-

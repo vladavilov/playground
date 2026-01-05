@@ -1,8 +1,9 @@
 """Authentication Service FastAPI application.
 
 Provides centralized authentication services:
-- Token exchange (Azure AD OAuth tokens → LOCAL JWT)
-- S2S token minting for service-to-service authentication
+- Azure AD login + session management (MSAL)
+- Envoy `ext_authz` for policy enforcement + S2S token injection
+- S2S token minting for internal callers that still use the `/auth/s2s/mint` contract
 """
 
 import structlog
@@ -23,7 +24,7 @@ logger = structlog.get_logger(__name__)
 
 app: FastAPI = FastAPIFactory.create_app(
     title="Authentication Service",
-    description="Centralized token exchange and S2S JWT minting for microservices",
+    description="Centralized auth (MSAL sessions, ext_authz) and S2S JWT minting for microservices",
     version="1.0.0",
     enable_cors=True,
     enable_postgres=False,

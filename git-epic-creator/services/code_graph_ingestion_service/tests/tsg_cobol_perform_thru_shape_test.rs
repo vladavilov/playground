@@ -37,7 +37,8 @@ fn cobol_perform_procedure_child_shape_includes_thru_token() {
         "           EXIT.\n",
     );
     let tree = parse_cobol(src);
-    let proc = find_first(tree.root_node(), "perform_procedure").expect("perform_procedure present");
+    let proc =
+        find_first(tree.root_node(), "perform_procedure").expect("perform_procedure present");
 
     let mut c = proc.walk();
     let kids: Vec<(String, bool)> = proc
@@ -61,5 +62,3 @@ fn cobol_perform_procedure_child_shape_includes_thru_token() {
         kids
     );
 }
-
-

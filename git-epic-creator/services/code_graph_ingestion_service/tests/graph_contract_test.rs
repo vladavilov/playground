@@ -6,17 +6,20 @@ use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
 #[test]
 fn graph_contract_rejects_includes_to_missing_file() {
     let repo_root = tempfile::tempdir().unwrap();
-    let files = vec![InventoryEntry {
-        path: "a.cpy".to_string(),
-        sha256: "x".to_string(),
-        language: CodeLanguage::Cobol,
-        line_count: 1,
-    }, InventoryEntry {
-        path: "a.cbl".to_string(),
-        sha256: "x".to_string(),
-        language: CodeLanguage::Cobol,
-        line_count: 1,
-    }];
+    let files = vec![
+        InventoryEntry {
+            path: "a.cpy".to_string(),
+            sha256: "x".to_string(),
+            language: CodeLanguage::Cobol,
+            line_count: 1,
+        },
+        InventoryEntry {
+            path: "a.cbl".to_string(),
+            sha256: "x".to_string(),
+            language: CodeLanguage::Cobol,
+            line_count: 1,
+        },
+    ];
     let nodes = vec![CodeNodeRecord {
         project_id: "p".to_string(),
         repo_fingerprint: "r".to_string(),
@@ -41,10 +44,12 @@ fn graph_contract_rejects_includes_to_missing_file() {
         metadata: serde_json::Map::new(),
     }];
 
-    let err = validate_graph_contract("p", "r", repo_root.path(), &files, &nodes, &edges).unwrap_err();
-    assert!(err
-        .to_string()
-        .contains("INCLUDES dst must exist in inventory or on disk"));
+    let err =
+        validate_graph_contract("p", "r", repo_root.path(), &files, &nodes, &edges).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("INCLUDES dst must exist in inventory or on disk")
+    );
 }
 
 #[test]
@@ -79,7 +84,8 @@ fn graph_contract_rejects_edge_with_missing_endpoint_node() {
         confidence: 0.5,
         metadata: serde_json::Map::new(),
     }];
-    let err = validate_graph_contract("p", "r", repo_root.path(), &files, &nodes, &edges).unwrap_err();
+    let err =
+        validate_graph_contract("p", "r", repo_root.path(), &files, &nodes, &edges).unwrap_err();
     assert!(err.to_string().contains("Edge dst_node_id not found"));
 }
 
@@ -107,8 +113,7 @@ fn graph_contract_rejects_node_span_out_of_bounds() {
         extra_labels: vec![],
     }];
     let edges: Vec<EdgeRecord> = vec![];
-    let err = validate_graph_contract("p", "r", repo_root.path(), &files, &nodes, &edges).unwrap_err();
+    let err =
+        validate_graph_contract("p", "r", repo_root.path(), &files, &nodes, &edges).unwrap_err();
     assert!(err.to_string().contains("Node end_line out of bounds"));
 }
-
-

@@ -13,5 +13,3 @@ fn workspace_paths_are_deterministic() {
     let g2 = ws.git_repo_dir("p", "https://example.com/repo.git", Some("main"));
     assert_eq!(g1, g2);
 }
-
-

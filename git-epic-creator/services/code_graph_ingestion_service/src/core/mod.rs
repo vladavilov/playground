@@ -1,14 +1,13 @@
-pub mod stable_ids;
+pub mod chunking;
 pub mod fingerprint;
-pub mod workspace;
+pub mod graph_contract;
 pub mod ignore_rules;
 pub mod inventory;
-pub mod repo_materializer;
-pub mod records;
-pub mod graph_contract;
-pub mod chunking;
-pub mod structure;
 pub mod orchestrator;
+pub mod records;
+pub mod repo_materializer;
+pub mod stable_ids;
+pub mod structure;
 pub mod types;
-
-
+pub mod workspace;
+pub mod zip_utils;

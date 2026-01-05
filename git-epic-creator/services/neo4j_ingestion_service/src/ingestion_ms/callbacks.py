@@ -1,10 +1,25 @@
 import asyncio
 import json
 from uuid import UUID
+from dataclasses import dataclass
 import structlog
 
-from graphrag.callbacks.workflow_callbacks import WorkflowCallbacks
-from graphrag.logger.progress import Progress
+try:
+    from graphrag.callbacks.workflow_callbacks import WorkflowCallbacks
+    from graphrag.logger.progress import Progress
+except Exception:
+    # Allow importing this service (and running unit tests) even when `graphrag` is not
+    # installed in the current Python environment (e.g., Python 3.13).
+    #
+    # Runtime ingestion still requires `graphrag` (see `ingestion_ms/runner.py`).
+    class WorkflowCallbacks:  # type: ignore[no-redef]
+        pass
+
+    @dataclass
+    class Progress:  # type: ignore[no-redef]
+        description: str | None = None
+        completed_items: float | None = None
+        total_items: float | None = None
 from utils.redis_client import get_redis_client
 from utils.unified_redis_messages import ProjectProgressMessage
 from constants import UI_CHANNEL_PREFIX, UI_PROJECT_PROGRESS_NAME

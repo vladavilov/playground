@@ -24,5 +24,3 @@ pub fn extract_class_attributes(xml_text: &str) -> XmlWiring {
     }
     XmlWiring { class_names: out }
 }
-
-

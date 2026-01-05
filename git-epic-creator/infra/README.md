@@ -64,7 +64,7 @@ Azure infrastructure provisioning using Bicep for the Git Epic Creator microserv
 | **Neo4j** | Graph database best run as container with persistence |
 | **Container Registry** | Uses corporate registry (cost savings, centralized) |
 | **Application Gateway** | NGINX Ingress in AKS is sufficient |
-| **API Management** | gateway-control-plane-service handles auth/proxying |
+| **API Management** | Envoy gateway handles routing; authentication-service handles authz; sse-bridge-service handles SSE |
 
 ## Prerequisites
 
@@ -154,7 +154,7 @@ az deployment sub show --name "agentic-ai-dev" --query "properties.outputs"
 |-----------|----------|------------|---------|
 | PostgreSQL | ~$52/month (Flexible B2s) | $0 (container) | $52 |
 | App Gateway | ~$150/month (Basic) | $0 (NGINX) | $150 |
-| APIM | ~$50/month (Developer) | $0 (gateway-control-plane-service) | $50 |
+| APIM | ~$50/month (Developer) | $0 (Envoy gateway + authentication-service + sse-bridge-service) | $50 |
 | ACR | ~$5-25/month | $0 (corporate) | $5-25 |
 | **Total Savings** | | | **~$260/month** |
 

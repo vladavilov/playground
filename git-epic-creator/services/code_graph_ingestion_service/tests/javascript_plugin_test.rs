@@ -1,6 +1,6 @@
+use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
 use code_graph_ingestion_service::plugins::base::{IngestionContext, LanguagePlugin};
 use code_graph_ingestion_service::plugins::javascript::plugin::JavaScriptPlugin;
-use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
 
 #[test]
 fn javascript_plugin_emits_imports_edges() {
@@ -29,8 +29,16 @@ fn javascript_plugin_emits_imports_edges() {
 
     assert!(edges.iter().any(|e| e.rel_type == CodeRelType::Imports));
     assert_eq!(facts.get("js_file_count").and_then(|v| v.as_i64()), Some(1));
-    assert!(nodes.iter().any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-x")));
-    assert!(nodes.iter().any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-y")));
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-x"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-y"))
+    );
 }
 
 #[test]
@@ -66,7 +74,8 @@ fn javascript_plugin_resolves_relative_import_to_module_node() {
         })
         .collect();
 
-    assert!(!resolved.is_empty(), "Expected relative import './b' to resolve to b.js module node");
+    assert!(
+        !resolved.is_empty(),
+        "Expected relative import './b' to resolve to b.js module node"
+    );
 }
-
-

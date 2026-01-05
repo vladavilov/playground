@@ -17,7 +17,8 @@ fn unitizer_produces_program_node_and_exec_block() {
 
     let prep = preprocess_cobol_bytes(&src);
     let res = unitize_cobol_file("p", "r", "x.cbl", &prep, &[], 0.02);
-    let kinds: std::collections::HashSet<String> = res.nodes.iter().map(|n| n.kind.clone()).collect();
+    let kinds: std::collections::HashSet<String> =
+        res.nodes.iter().map(|n| n.kind.clone()).collect();
     assert!(kinds.contains("program"));
     assert!(kinds.contains("exec_block"));
 }
@@ -30,5 +31,3 @@ fn unitizer_fallback_still_produces_program_node() {
     assert!(!res.nodes.is_empty());
     assert_eq!(res.nodes[0].kind, "program");
 }
-
-

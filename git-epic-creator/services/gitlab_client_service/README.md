@@ -118,7 +118,7 @@ This service uses two distinct URL concepts:
    - Used by `python-gitlab` client
 
 2. **`GITLAB_CLIENT_SERVICE_URL`**: The internal gitlab-client-service URL (e.g., `http://gitlab-client-service:8000`)
-   - Used by other services (gateway-control-plane-service, project-management-service) to communicate with this service
+   - Used by other services (authentication-service, project-management-service) to communicate with this service
    - **Not** used within gitlab-client-service itself
 
 > **Important:** Do not confuse these two URLs. `GITLAB_CLIENT_SERVICE_URL` is the URL of *this microservice*, not the GitLab instance.
@@ -240,7 +240,7 @@ All GitLab OAuth logic is handled by gitlab-client-service using a stateless app
 ```mermaid
 sequenceDiagram
     participant Browser
-    participant ControlPlane as gateway-control-plane-service<br/>(ext_authz)
+    participant ControlPlane as authentication-service<br/>(ext_authz)
     participant GCS as gitlab-client-service<br/>(stateless OAuth)
     participant GitLab
     participant Redis
@@ -935,7 +935,7 @@ Unified error response format:
 
 ```mermaid
 sequenceDiagram
-    participant ControlPlane as gateway-control-plane-service
+    participant ControlPlane as authentication-service
     participant GitLabClient as gitlab-client-service
     participant AITasks as ai-tasks-service
     participant GitLabAPI as GitLab API
@@ -1465,7 +1465,7 @@ await save_token(session_id, redis_client, token)
 
 ### Related Documentation
 
-- **Gateway Control Plane README** - [Gateway control plane + S2S authentication](../gateway_control_plane_service/README.md)
+- **SSE bridge README** - [SSE bridge service](../sse_bridge_service/README.md)
 - **Authlib Documentation** - [OAuth 2.0 Client](https://docs.authlib.org/en/latest/client/starlette.html)
 - **GitLab OAuth API** - [Official documentation](https://docs.gitlab.com/ee/api/oauth2.html)
 

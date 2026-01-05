@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
 use tree_sitter::Parser;
-use tree_sitter_graph::ast::File as TsgFile;
 use tree_sitter_graph::Match as TsgMatch;
+use tree_sitter_graph::ast::File as TsgFile;
 use tree_sitter_language::LanguageFn;
 
 /// COBOL language handle (re-exported for convenience across the service/tests).
@@ -165,13 +165,17 @@ const COBOL_DSL: &str = r#"
 
 fn js_file() -> &'static TsgFile {
     static FILE: OnceLock<TsgFile> = OnceLock::new();
-    FILE.get_or_init(|| TsgFile::from_str(tree_sitter_javascript::LANGUAGE.into(), JS_DSL).expect("tsg js dsl"))
+    FILE.get_or_init(|| {
+        TsgFile::from_str(tree_sitter_javascript::LANGUAGE.into(), JS_DSL)
+            .expect("valid tree-sitter-graph JS DSL")
+    })
 }
 
 fn ts_file() -> &'static TsgFile {
     static FILE: OnceLock<TsgFile> = OnceLock::new();
     FILE.get_or_init(|| {
-        TsgFile::from_str(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), JS_DSL).expect("tsg ts dsl")
+        TsgFile::from_str(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), JS_DSL)
+            .expect("tsg ts dsl")
     })
 }
 
@@ -184,24 +188,30 @@ fn tsx_file() -> &'static TsgFile {
 
 fn java_file() -> &'static TsgFile {
     static FILE: OnceLock<TsgFile> = OnceLock::new();
-    FILE.get_or_init(|| TsgFile::from_str(tree_sitter_java::LANGUAGE.into(), JAVA_DSL).expect("tsg java dsl"))
+    FILE.get_or_init(|| {
+        TsgFile::from_str(tree_sitter_java::LANGUAGE.into(), JAVA_DSL)
+            .expect("valid tree-sitter-graph Java DSL")
+    })
 }
 
 fn cobol_file() -> &'static TsgFile {
     static FILE: OnceLock<TsgFile> = OnceLock::new();
-    FILE.get_or_init(|| TsgFile::from_str(tree_sitter_cobol::LANGUAGE.into(), COBOL_DSL).expect("tsg cobol dsl"))
+    FILE.get_or_init(|| {
+        TsgFile::from_str(tree_sitter_cobol::LANGUAGE.into(), COBOL_DSL)
+            .expect("valid tree-sitter-graph COBOL DSL")
+    })
 }
 
-fn parse(language: tree_sitter::Language, source: &str) -> tree_sitter::Tree {
+fn parse(language: tree_sitter::Language, source: &str) -> anyhow::Result<tree_sitter::Tree> {
     let mut parser = Parser::new();
-    parser.set_language(&language).expect("set language");
-    parser.parse(source, None).expect("parse")
+    parser.set_language(&language)?;
+    parser
+        .parse(source, None)
+        .ok_or_else(|| anyhow::anyhow!("tree-sitter parse returned None"))
 }
 
 fn node_text(source: &str, n: tree_sitter::Node<'_>) -> String {
-    n.utf8_text(source.as_bytes())
-        .unwrap_or("")
-        .to_string()
+    n.utf8_text(source.as_bytes()).unwrap_or("").to_string()
 }
 
 fn normalize_string_literal(raw: &str) -> String {
@@ -236,9 +246,10 @@ fn js_match_to_import(source: &str, m: &TsgMatch<'_, '_>) -> Option<ImportHit> {
             kind: "export_from",
         });
     }
-    if let (Some((_qf, mut f_it)), Some((_qa, mut a_it))) =
-        (m.named_capture("js_call_func"), m.named_capture("js_call_arg"))
-    {
+    if let (Some((_qf, mut f_it)), Some((_qa, mut a_it))) = (
+        m.named_capture("js_call_func"),
+        m.named_capture("js_call_arg"),
+    ) {
         let func = node_text(source, f_it.next()?);
         let arg = normalize_string_literal(&node_text(source, a_it.next()?));
         if arg.is_empty() {
@@ -262,16 +273,28 @@ pub fn extract_js(source: &str) -> anyhow::Result<JsExtract> {
 }
 
 pub fn extract_ts(source: &str) -> anyhow::Result<JsExtract> {
-    extract_js_with(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), ts_file(), source)
+    extract_js_with(
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        ts_file(),
+        source,
+    )
 }
 
 pub fn extract_tsx(source: &str) -> anyhow::Result<JsExtract> {
-    extract_js_with(tree_sitter_typescript::LANGUAGE_TSX.into(), tsx_file(), source)
+    extract_js_with(
+        tree_sitter_typescript::LANGUAGE_TSX.into(),
+        tsx_file(),
+        source,
+    )
 }
 
-fn extract_js_with(language: tree_sitter::Language, file: &TsgFile, source: &str) -> anyhow::Result<JsExtract> {
+fn extract_js_with(
+    language: tree_sitter::Language,
+    file: &TsgFile,
+    source: &str,
+) -> anyhow::Result<JsExtract> {
     let source = source.replace("\r\n", "\n").replace('\r', "\n");
-    let tree = parse(language, &source);
+    let tree = parse(language, &source)?;
 
     let mut imports: Vec<ImportHit> = Vec::new();
     file.try_visit_matches(&tree, &source, false, |m| {
@@ -282,7 +305,11 @@ fn extract_js_with(language: tree_sitter::Language, file: &TsgFile, source: &str
     })?;
 
     // Deterministic de-dup + sort.
-    imports.sort_by(|a, b| a.kind.cmp(b.kind).then_with(|| a.specifier.cmp(&b.specifier)));
+    imports.sort_by(|a, b| {
+        a.kind
+            .cmp(b.kind)
+            .then_with(|| a.specifier.cmp(&b.specifier))
+    });
     imports.dedup();
 
     Ok(JsExtract { imports })
@@ -293,7 +320,10 @@ fn normalize_java_import_stmt(raw_stmt: &str) -> Option<String> {
     // - "import a.b.C;"
     // - "import static a.b.C.D;"
     // - "import a.b.*;"
-    let mut s = raw_stmt.replace("\r\n", " ").replace('\r', " ").replace('\n', " ");
+    let mut s = raw_stmt
+        .replace("\r\n", " ")
+        .replace('\r', " ")
+        .replace('\n', " ");
     s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     let s = s.trim().trim_end_matches(';').trim();
     if !s.starts_with("import ") {
@@ -318,7 +348,11 @@ fn normalize_java_import_stmt(raw_stmt: &str) -> Option<String> {
     Some(spec)
 }
 
-fn java_decl_from_capture(source: &str, name_node: tree_sitter::Node<'_>, full: tree_sitter::Node<'_>) -> Option<SpanDecl> {
+fn java_decl_from_capture(
+    source: &str,
+    name_node: tree_sitter::Node<'_>,
+    full: tree_sitter::Node<'_>,
+) -> Option<SpanDecl> {
     let name = node_text(source, name_node).trim().to_string();
     if name.is_empty() {
         return None;
@@ -334,7 +368,7 @@ fn java_decl_from_capture(source: &str, name_node: tree_sitter::Node<'_>, full: 
 
 pub fn extract_java(source: &str) -> anyhow::Result<JavaExtract> {
     let source = source.replace("\r\n", "\n").replace('\r', "\n");
-    let tree = parse(tree_sitter_java::LANGUAGE.into(), &source);
+    let tree = parse(tree_sitter_java::LANGUAGE.into(), &source)?;
 
     let mut package: Option<String> = None;
     let mut imports: Vec<String> = Vec::new();
@@ -345,16 +379,24 @@ pub fn extract_java(source: &str) -> anyhow::Result<JavaExtract> {
     java_file().try_visit_matches(&tree, &source, false, |m| {
         if package.is_none() {
             if let Some((_q, mut it)) = m.named_capture("java_package") {
-                let n = it.next().unwrap();
-                let p = node_text(&source, n).trim().trim_end_matches('.').to_string();
-                if !p.is_empty() {
-                    package = Some(p);
+                if let Some(n) = it.next() {
+                    let p = node_text(&source, n)
+                        .trim()
+                        .trim_end_matches('.')
+                        .to_string();
+                    if !p.is_empty() {
+                        package = Some(p);
+                    }
                 }
             } else if let Some((_q, mut it)) = m.named_capture("java_package_ident") {
-                let n = it.next().unwrap();
-                let p = node_text(&source, n).trim().trim_end_matches('.').to_string();
-                if !p.is_empty() {
-                    package = Some(p);
+                if let Some(n) = it.next() {
+                    let p = node_text(&source, n)
+                        .trim()
+                        .trim_end_matches('.')
+                        .to_string();
+                    if !p.is_empty() {
+                        package = Some(p);
+                    }
                 }
             }
         }
@@ -392,7 +434,10 @@ pub fn extract_java(source: &str) -> anyhow::Result<JavaExtract> {
                 let name = node_text(&source, name_node).trim().to_string();
                 if !name.is_empty() {
                     let line = (m.full_capture().start_position().row as i64) + 1;
-                    call_sites.push(CallSite { name, start_line: line });
+                    call_sites.push(CallSite {
+                        name,
+                        start_line: line,
+                    });
                 }
             }
         }
@@ -402,11 +447,27 @@ pub fn extract_java(source: &str) -> anyhow::Result<JavaExtract> {
 
     imports.sort();
     imports.dedup();
-    classes.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.start_line.cmp(&b.start_line)));
-    classes.dedup_by(|a, b| a.name == b.name && a.start_line == b.start_line && a.end_line == b.end_line);
-    methods.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.start_line.cmp(&b.start_line)));
-    methods.dedup_by(|a, b| a.name == b.name && a.start_line == b.start_line && a.end_line == b.end_line);
-    call_sites.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.start_line.cmp(&b.start_line)));
+    classes.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.start_line.cmp(&b.start_line))
+    });
+    classes.dedup_by(|a, b| {
+        a.name == b.name && a.start_line == b.start_line && a.end_line == b.end_line
+    });
+    methods.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.start_line.cmp(&b.start_line))
+    });
+    methods.dedup_by(|a, b| {
+        a.name == b.name && a.start_line == b.start_line && a.end_line == b.end_line
+    });
+    call_sites.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.start_line.cmp(&b.start_line))
+    });
     call_sites.dedup_by(|a, b| a.name == b.name && a.start_line == b.start_line);
 
     Ok(JavaExtract {
@@ -434,8 +495,8 @@ pub struct CobolPerformHit {
 
 #[derive(Debug, Clone)]
 pub struct CobolIoHit {
-    pub op: &'static str, // "READ" | "WRITE" | "REWRITE" | "DELETE"
-    pub target: String,   // file-name (READ/DELETE) or record-name (WRITE/REWRITE)
+    pub op: &'static str,   // "READ" | "WRITE" | "REWRITE" | "DELETE"
+    pub target: String,     // file-name (READ/DELETE) or record-name (WRITE/REWRITE)
     pub logical_row: usize, // 0-based line in parse stream
 }
 
@@ -460,10 +521,7 @@ fn strip_quotes(s: &str) -> String {
 }
 
 fn normalize_cobol_name(raw: &str) -> String {
-    raw.trim()
-        .trim_end_matches('.')
-        .trim()
-        .to_ascii_uppercase()
+    raw.trim().trim_end_matches('.').trim().to_ascii_uppercase()
 }
 
 pub(crate) fn cobol_prepare_source(parse_stream: &str) -> String {
@@ -474,7 +532,11 @@ pub(crate) fn cobol_prepare_source(parse_stream: &str) -> String {
     // - col 7: space (indicator)
     // - col 8+: the line content
     let mut out = String::new();
-    for line in parse_stream.replace("\r\n", "\n").replace('\r', "\n").split('\n') {
+    for line in parse_stream
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .split('\n')
+    {
         if line.is_empty() {
             out.push('\n');
             continue;
@@ -488,7 +550,7 @@ pub(crate) fn cobol_prepare_source(parse_stream: &str) -> String {
 
 pub fn extract_cobol(parse_stream: &str) -> anyhow::Result<CobolExtract> {
     let prepared = cobol_prepare_source(parse_stream);
-    let tree = parse(tree_sitter_cobol::LANGUAGE.into(), &prepared);
+    let tree = parse(tree_sitter_cobol::LANGUAGE.into(), &prepared)?;
 
     let mut calls: Vec<CobolCallHit> = Vec::new();
     let mut performs: Vec<CobolPerformHit> = Vec::new();
@@ -602,7 +664,9 @@ pub fn extract_cobol(parse_stream: &str) -> anyhow::Result<CobolExtract> {
                     let rest = it.next().unwrap_or("").trim();
                     if !rest.is_empty() {
                         let (raw, call_type) = if rest.starts_with('"') || rest.starts_with('\'') {
-                            let q = rest.chars().next().unwrap();
+                            let Some(q) = rest.chars().next() else {
+                                continue;
+                            };
                             let mut end = None;
                             for (i, ch) in rest.char_indices().skip(1) {
                                 if ch == q {
@@ -642,7 +706,8 @@ pub fn extract_cobol(parse_stream: &str) -> anyhow::Result<CobolExtract> {
                             .to_ascii_uppercase();
                         let mut thru: Option<String> = None;
                         let next = toks.next().unwrap_or("");
-                        if next.eq_ignore_ascii_case("THRU") || next.eq_ignore_ascii_case("THROUGH") {
+                        if next.eq_ignore_ascii_case("THRU") || next.eq_ignore_ascii_case("THROUGH")
+                        {
                             thru = toks
                                 .next()
                                 .map(|s| s.trim_end_matches('.').to_ascii_uppercase())
@@ -733,8 +798,14 @@ pub fn extract_cobol(parse_stream: &str) -> anyhow::Result<CobolExtract> {
         }
     }
 
-    calls.sort_by(|a, b| a.callee.cmp(&b.callee).then_with(|| a.logical_row.cmp(&b.logical_row)));
-    calls.dedup_by(|a, b| a.callee == b.callee && a.call_type == b.call_type && a.logical_row == b.logical_row);
+    calls.sort_by(|a, b| {
+        a.callee
+            .cmp(&b.callee)
+            .then_with(|| a.logical_row.cmp(&b.logical_row))
+    });
+    calls.dedup_by(|a, b| {
+        a.callee == b.callee && a.call_type == b.call_type && a.logical_row == b.logical_row
+    });
     // Deterministic ordering; prefer the richer THRU form if both patterns match the same PERFORM.
     performs.sort_by(|a, b| {
         a.logical_row
@@ -752,7 +823,9 @@ pub fn extract_cobol(parse_stream: &str) -> anyhow::Result<CobolExtract> {
     });
     io.dedup_by(|a, b| a.op == b.op && a.target == b.target && a.logical_row == b.logical_row);
 
-    Ok(CobolExtract { calls, performs, io })
+    Ok(CobolExtract {
+        calls,
+        performs,
+        io,
+    })
 }
-
-

@@ -8,8 +8,10 @@ pub(crate) fn build_label_indexes(
     std::collections::BTreeMap<String, Vec<String>>,
     std::collections::BTreeMap<String, Vec<String>>,
 ) {
-    let mut paragraph_index: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
-    let mut section_index: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    let mut paragraph_index: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    let mut section_index: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
     for n in nodes.values() {
         if n.kind == "paragraph" {
             if let Some(sym) = &n.symbol {
@@ -132,7 +134,10 @@ pub(crate) fn parse_perform_thru_from_logical_line(line: &str) -> Option<String>
     None
 }
 
-pub(crate) fn find_container_span_node_id(spans: &[(i64, i64, String)], line_no: i64) -> Option<String> {
+pub(crate) fn find_container_span_node_id(
+    spans: &[(i64, i64, String)],
+    line_no: i64,
+) -> Option<String> {
     let mut best: Option<(i64, i64, String)> = None;
     for (s, e, nid) in spans {
         if *s <= line_no && line_no <= *e {
@@ -173,8 +178,3 @@ pub(crate) fn unresolved_node(
         extra_labels: vec![extra_label.to_string()],
     }
 }
-
-
-
-
-

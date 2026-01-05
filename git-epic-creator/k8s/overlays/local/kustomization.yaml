@@ -1,0 +1,98 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: agentic-ai
+
+resources:
+  - ../../base
+  # Local-only dependencies (replace Azure-managed services)
+  - resources/redis.yaml
+  - resources/azurite.yaml
+  - resources/openai-mock-service.yaml
+  - resources/gitlab-mock-service.yaml
+  - resources/network-policy-local-deps.yaml
+  # Local secrets (replace KeyVault CSI)
+  - resources/agentic-ai-secrets.local.yaml
+
+# Ensure images are runnable from a local cluster (Docker Desktop / kind).
+# Base rewrites to PLACEHOLDER_ACR/*; local overlay pins back to local tags.
+images:
+  - name: db-init-service
+    newName: db-init-service
+    newTag: latest
+  - name: project-management-service
+    newName: project-management-service
+    newTag: latest
+  - name: neo4j-repository-service
+    newName: neo4j-repository-service
+    newTag: latest
+  - name: neo4j-ingestion-service
+    newName: neo4j-ingestion-service
+    newTag: latest
+  - name: neo4j-retrieval-service
+    newName: neo4j-retrieval-service
+    newTag: latest
+  - name: frontend-service
+    newName: frontend-service
+    newTag: latest
+  - name: sse-bridge-service
+    newName: sse-bridge-service
+    newTag: latest
+  - name: document-processing-service
+    newName: document-processing-service
+    newTag: latest
+  - name: ai-requirements-service
+    newName: ai-requirements-service
+    newTag: latest
+  - name: ai-tasks-service
+    newName: ai-tasks-service
+    newTag: latest
+  - name: gitlab-client-service
+    newName: gitlab-client-service
+    newTag: latest
+  - name: authentication-service
+    newName: authentication-service
+    newTag: latest
+  - name: code-graph-ingestion-service
+    newName: code-graph-ingestion-service
+    newTag: latest
+  - name: mock-auth-service
+    newName: mock-auth-service
+    newTag: latest
+  - name: neo4j-baked
+    newName: neo4j-baked
+    newTag: latest
+  - name: openai-mock-service
+    newName: openai-mock-service
+    newTag: latest
+  - name: gitlab-mock-service
+    newName: gitlab-mock-service
+    newTag: latest
+
+patches:
+  # Remove AKS-only SecretProviderClass (KeyVault CSI) and ingress (local uses port-forward).
+  - path: patches/delete-secret-providerclass.yaml
+  - path: patches/delete-ingress.yaml
+  # Remove workload identity decoration (harmless in AKS, but avoids placeholder annotations locally).
+  - path: patches/patch-serviceaccount-local.yaml
+  # Patch config to use local in-cluster dependencies.
+  - path: patches/patch-configmap-local.yaml
+  # Remove `secrets-store` CSI volume mounts across workloads (local uses normal Secret).
+  - path: patches/remove-secrets-store-authentication-service.yaml
+  - path: patches/remove-secrets-store-sse-bridge-service.yaml
+  - path: patches/remove-secrets-store-ai-requirements-service.yaml
+  - path: patches/remove-secrets-store-ai-tasks-service.yaml
+  - path: patches/remove-secrets-store-db-init-service.yaml
+  - path: patches/remove-secrets-store-document-processing-service.yaml
+  - path: patches/remove-secrets-store-gitlab-client-service.yaml
+  - path: patches/remove-secrets-store-mock-auth-service.yaml
+  - path: patches/remove-secrets-store-neo4j-ingestion-service.yaml
+  - path: patches/remove-secrets-store-neo4j-repository-service.yaml
+  - path: patches/remove-secrets-store-neo4j-retrieval-service.yaml
+  - path: patches/remove-secrets-store-project-management-service.yaml
+  - path: patches/remove-secrets-store-neo4j-statefulset.yaml
+  - path: patches/remove-secrets-store-postgresql-statefulset.yaml
+  - path: patches/remove-secrets-store-postgresdb-schema-init-job.yaml
+  - path: patches/remove-secrets-store-neo4j-schema-init-job.yaml
+
+

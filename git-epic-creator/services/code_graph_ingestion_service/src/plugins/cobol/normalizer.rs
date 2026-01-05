@@ -33,7 +33,10 @@ pub fn preprocess_cobol_bytes(raw: &[u8]) -> PreprocessResult {
     let mut cur_parts: Vec<String> = Vec::new();
     let mut cur_span: Option<(i64, i64)> = None;
 
-    let flush_current = |cur_parts: &mut Vec<String>, cur_span: &mut Option<(i64, i64)>, logical_lines: &mut Vec<String>, logical_spans: &mut Vec<(i64, i64)>| {
+    let flush_current = |cur_parts: &mut Vec<String>,
+                         cur_span: &mut Option<(i64, i64)>,
+                         logical_lines: &mut Vec<String>,
+                         logical_spans: &mut Vec<(i64, i64)>| {
         if cur_parts.is_empty() || cur_span.is_none() {
             cur_parts.clear();
             *cur_span = None;
@@ -58,7 +61,12 @@ pub fn preprocess_cobol_bytes(raw: &[u8]) -> PreprocessResult {
 
         let (kind, mut content, is_cont) = classify_and_extract(&mode, line);
         if kind == "comment" {
-            flush_current(&mut cur_parts, &mut cur_span, &mut logical_lines, &mut logical_spans);
+            flush_current(
+                &mut cur_parts,
+                &mut cur_span,
+                &mut logical_lines,
+                &mut logical_spans,
+            );
             logical_lines.push(String::new());
             logical_spans.push((line_no, line_no));
             mode = mode_next;
@@ -78,7 +86,12 @@ pub fn preprocess_cobol_bytes(raw: &[u8]) -> PreprocessResult {
                 cur_span = Some((line_no, line_no));
             }
         } else {
-            flush_current(&mut cur_parts, &mut cur_span, &mut logical_lines, &mut logical_spans);
+            flush_current(
+                &mut cur_parts,
+                &mut cur_span,
+                &mut logical_lines,
+                &mut logical_spans,
+            );
             cur_parts.push(content);
             cur_span = Some((line_no, line_no));
         }
@@ -86,7 +99,12 @@ pub fn preprocess_cobol_bytes(raw: &[u8]) -> PreprocessResult {
         mode = mode_next;
     }
 
-    flush_current(&mut cur_parts, &mut cur_span, &mut logical_lines, &mut logical_spans);
+    flush_current(
+        &mut cur_parts,
+        &mut cur_span,
+        &mut logical_lines,
+        &mut logical_spans,
+    );
 
     let (logical_lines, logical_spans) = collapse_exec_blocks(&logical_lines, &logical_spans);
     let parse_stream = logical_lines.join("\n") + "\n";
@@ -175,5 +193,3 @@ fn collapse_exec_blocks(
 
     (out_lines, out_spans)
 }
-
-

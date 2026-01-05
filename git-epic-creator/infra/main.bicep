@@ -45,7 +45,7 @@ param postgresPassword string
 @secure()
 param gitlabOAuthClientSecret string = ''
 
-@description('Secret used by gateway-control-plane-service to mint S2S tokens via authentication-service.')
+@description('Secret used by authentication-service to mint/verify internal service tokens.')
 @secure()
 param apiGatewayMintSecret string
 

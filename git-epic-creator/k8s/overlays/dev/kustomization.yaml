@@ -27,7 +27,7 @@ patches:
         value: 1
   - target:
       kind: Deployment
-      name: gateway-control-plane-service
+      name: sse-bridge-service
     patch: |-
       - op: replace
         path: /spec/replicas

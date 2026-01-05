@@ -6,6 +6,3 @@ pub(crate) fn slice_text(lines: &[String], start_line: i64, end_line: i64) -> St
     }
     lines[(s - 1) as usize..=(e - 1) as usize].join("\n") + "\n"
 }
-
-
-

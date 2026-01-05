@@ -102,9 +102,16 @@ def _to_jsonable(value: Any, *, path: str = "$") -> Any:
     raise TypeError(f"Object of type {type(value).__name__} at {path} is not JSON serializable")
 
 
-def post_json(client: httpx.Client, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_json(
+    client: httpx.Client,
+    path: str,
+    payload: Dict[str, Any],
+    *,
+    auth_header: str | None = None,
+) -> Dict[str, Any]:
     json_payload = _to_jsonable(payload, path="$")
-    resp = client.post(path, json=json_payload)
+    headers = {"Authorization": auth_header} if auth_header else None
+    resp = client.post(path, json=json_payload, headers=headers)
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, dict):

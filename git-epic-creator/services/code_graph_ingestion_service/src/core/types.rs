@@ -103,5 +103,3 @@ impl FromStr for CodeRelType {
         }
     }
 }
-
-

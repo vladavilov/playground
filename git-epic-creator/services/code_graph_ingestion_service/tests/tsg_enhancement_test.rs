@@ -1,7 +1,7 @@
+use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
 use code_graph_ingestion_service::plugins::base::{IngestionContext, LanguagePlugin};
 use code_graph_ingestion_service::plugins::java::plugin::JavaPlugin;
 use code_graph_ingestion_service::plugins::javascript::plugin::JavaScriptPlugin;
-use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
 
 #[test]
 fn javascript_tsg_extracts_export_from_and_dynamic_import() {
@@ -27,8 +27,16 @@ fn javascript_tsg_extracts_export_from_and_dynamic_import() {
     let files = plugin.iter_files(&ctx).unwrap();
     let (nodes, edges, _facts) = plugin.ingest(&ctx, &files).unwrap();
 
-    assert!(nodes.iter().any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-e")));
-    assert!(nodes.iter().any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-d")));
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-e"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("lib-d"))
+    );
 
     assert!(edges.iter().any(|e| {
         e.rel_type == CodeRelType::Imports
@@ -69,14 +77,18 @@ fn java_tsg_extracts_static_and_wildcard_imports() {
     let (nodes, edges, _facts) = plugin.ingest(&ctx, &files).unwrap();
 
     // Static import should drop trailing member, matching previous behavior.
-    assert!(nodes
-        .iter()
-        .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("p.B")));
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("p.B"))
+    );
 
     // Wildcard import should remain as-is.
-    assert!(nodes
-        .iter()
-        .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("p.util.*")));
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "unresolved" && n.symbol.as_deref() == Some("p.util.*"))
+    );
 
     assert!(edges.iter().any(|e| {
         e.rel_type == CodeRelType::Imports
@@ -87,5 +99,3 @@ fn java_tsg_extracts_static_and_wildcard_imports() {
             && e.metadata.get("import").and_then(|v| v.as_str()) == Some("p.util.*")
     }));
 }
-
-

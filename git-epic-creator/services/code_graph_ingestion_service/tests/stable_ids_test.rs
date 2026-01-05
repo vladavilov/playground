@@ -23,5 +23,3 @@ fn snippet_hash_changes_on_content_change() {
     let h2 = snippet_hash("a.cbl", 1, 1, "B\n");
     assert_ne!(h1, h2);
 }
-
-

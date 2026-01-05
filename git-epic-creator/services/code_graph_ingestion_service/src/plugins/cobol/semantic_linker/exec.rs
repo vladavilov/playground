@@ -59,7 +59,11 @@ fn extract_exec_sql_table_ops_regex(exec_text: &str) -> Vec<(String, String, Cod
         out.push(("MERGE".to_string(), t, CodeRelType::Writes));
     }
 
-    out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    out.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
     out.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
     out
 }
@@ -110,7 +114,11 @@ fn extract_exec_sql_table_ops_treesitter(exec_text: &str) -> Vec<(String, String
         }
     }
 
-    out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    out.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
     out.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
     out
 }
@@ -119,11 +127,7 @@ fn normalize_exec_sql_for_parsing(exec_text: &str) -> String {
     // Turn the COBOL physical span (with FIXED/FREE formatting and hostvars) into a best-effort SQL program.
     // We keep this conservative so we don't break parsing on real code.
     let mut sql_lines: Vec<String> = Vec::new();
-    for raw_line in exec_text
-        .replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .lines()
-    {
+    for raw_line in exec_text.replace("\r\n", "\n").replace('\r', "\n").lines() {
         let mut line = strip_cobol_fixed_prefix(raw_line);
         let up = line.trim_start().to_ascii_uppercase();
         if up.starts_with("EXEC SQL") {
@@ -214,11 +218,7 @@ fn sql_ident_text(source: &str, node: Node<'_>) -> Option<String> {
         .trim_matches('`')
         .trim()
         .to_string();
-    if t.is_empty() {
-        None
-    } else {
-        Some(t)
-    }
+    if t.is_empty() { None } else { Some(t) }
 }
 
 pub(crate) fn push_exec_cics_edges(
@@ -236,7 +236,14 @@ pub(crate) fn push_exec_cics_edges(
         if cmd.is_empty() {
             return;
         }
-        let unresolved_id = stable_node_id([project_id, repo_fingerprint, file_path, "unresolved", "cics_cmd", &cmd]);
+        let unresolved_id = stable_node_id([
+            project_id,
+            repo_fingerprint,
+            file_path,
+            "unresolved",
+            "cics_cmd",
+            &cmd,
+        ]);
         nodes.entry(unresolved_id.clone()).or_insert_with(|| {
             resolution::unresolved_node(
                 project_id,
@@ -280,7 +287,14 @@ pub(crate) fn push_exec_cics_edges(
                 } else {
                     "dynamic"
                 };
-                let prog_unresolved_id = stable_node_id([project_id, repo_fingerprint, file_path, "unresolved", "call", &prog]);
+                let prog_unresolved_id = stable_node_id([
+                    project_id,
+                    repo_fingerprint,
+                    file_path,
+                    "unresolved",
+                    "call",
+                    &prog,
+                ]);
                 nodes.entry(prog_unresolved_id.clone()).or_insert_with(|| {
                     resolution::unresolved_node(
                         project_id,
@@ -293,7 +307,10 @@ pub(crate) fn push_exec_cics_edges(
                 });
                 let mut md = serde_json::Map::new();
                 md.insert("callee".to_string(), Value::String(prog.clone()));
-                md.insert("call_type".to_string(), Value::String(call_type.to_string()));
+                md.insert(
+                    "call_type".to_string(),
+                    Value::String(call_type.to_string()),
+                );
                 md.insert("via".to_string(), Value::String("exec_cics".to_string()));
                 md.insert("command".to_string(), Value::String(cmd));
                 edges.push(EdgeRecord {
@@ -309,5 +326,3 @@ pub(crate) fn push_exec_cics_edges(
         }
     }
 }
-
-

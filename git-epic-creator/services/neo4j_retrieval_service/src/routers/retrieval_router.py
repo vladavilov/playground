@@ -76,12 +76,14 @@ async def retrieve(
             get_llm=create_llm, 
             get_embedder=create_embedder,
         )
+        repo_auth_header = f"Bearer {_caller.token}"
         result = await service.retrieve(
             req.query, 
             top_k=req.top_k, 
             project_id=req.project_id,
             prompt_id=req.prompt_id,
             publisher=publisher,
+            repo_auth_header=repo_auth_header,
         )
         
         # Check if result is empty (no data scenario)

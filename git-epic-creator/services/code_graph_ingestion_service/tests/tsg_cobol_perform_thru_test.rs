@@ -27,5 +27,3 @@ fn tsg_extract_cobol_captures_perform_thru() {
         .expect("perform target captured");
     assert_eq!(hit.thru.as_deref(), Some("3000-EXIT"));
 }
-
-

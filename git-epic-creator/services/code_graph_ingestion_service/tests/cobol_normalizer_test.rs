@@ -18,10 +18,7 @@ fn fixed_format_continuation_and_comment_handling() {
     assert_eq!(res.logical_lines[0], "");
     // Continuation merges into previous logical line span
     assert!(res.logical_lines.iter().any(|ln| ln.contains("PROGRAM-ID")));
-    assert!(res
-        .logical_spans
-        .iter()
-        .any(|(s, e)| *s <= 3 && *e >= 4));
+    assert!(res.logical_spans.iter().any(|(s, e)| *s <= 3 && *e >= 4));
 }
 
 #[test]
@@ -49,5 +46,3 @@ fn exec_block_is_collapsed() {
     assert!(s <= 4);
     assert!(e >= 6);
 }
-
-

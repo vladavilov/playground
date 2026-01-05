@@ -31,5 +31,3 @@ pub struct EdgeRecord {
     #[serde(default)]
     pub metadata: Map<String, Value>,
 }
-
-

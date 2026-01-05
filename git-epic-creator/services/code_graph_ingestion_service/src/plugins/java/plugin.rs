@@ -4,7 +4,7 @@ use crate::core::types::{CodeLanguage, CodeRelType};
 use crate::plugins::base::{IngestionContext, LanguagePlugin};
 use crate::plugins::tsg;
 use crate::plugins::xml::parser::extract_class_attributes;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
 #[derive(Debug, Default)]
@@ -39,7 +39,12 @@ impl LanguagePlugin for JavaPlugin {
                 files.push(p.to_path_buf());
             }
         }
-        files.sort_by_key(|p| p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/"));
+        files.sort_by_key(|p| {
+            p.strip_prefix(&ctx.repo_root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        });
         Ok(files)
     }
 
@@ -48,17 +53,37 @@ impl LanguagePlugin for JavaPlugin {
         ctx: &IngestionContext,
         files: &[PathBuf],
     ) -> anyhow::Result<(Vec<CodeNodeRecord>, Vec<EdgeRecord>, Value)> {
-        let mut nodes: std::collections::BTreeMap<String, CodeNodeRecord> = std::collections::BTreeMap::new();
+        let mut nodes: std::collections::BTreeMap<String, CodeNodeRecord> =
+            std::collections::BTreeMap::new();
         let mut edges: Vec<EdgeRecord> = Vec::new();
 
-        let java_files: Vec<PathBuf> = files.iter().filter(|p| p.extension().is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("java"))).cloned().collect();
-        let xml_files: Vec<PathBuf> = files.iter().filter(|p| p.extension().is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("xml"))).cloned().collect();
+        let java_files: Vec<PathBuf> = files
+            .iter()
+            .filter(|p| {
+                p.extension()
+                    .is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("java"))
+            })
+            .cloned()
+            .collect();
+        let xml_files: Vec<PathBuf> = files
+            .iter()
+            .filter(|p| {
+                p.extension()
+                    .is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("xml"))
+            })
+            .cloned()
+            .collect();
 
-        let mut package_by_file: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+        let mut package_by_file: std::collections::BTreeMap<String, String> =
+            std::collections::BTreeMap::new();
         let mut import_specs: Vec<(String, String, String)> = Vec::new(); // (importer_file, module_id, import_spec)
 
         for p in &java_files {
-            let rel = p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+            let rel = p
+                .strip_prefix(&ctx.repo_root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/");
             let bytes = std::fs::read(p)?;
             let mut text = String::from_utf8_lossy(&bytes).to_string();
             text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -69,8 +94,15 @@ impl LanguagePlugin for JavaPlugin {
             let end_line = (lines.len() as i64).max(1);
 
             // Module span (whole file).
-            let module_id =
-                stable_node_id([&ctx.project_id, &ctx.repo_fingerprint, &rel, "module", "", "1", &end_line.to_string()]);
+            let module_id = stable_node_id([
+                &ctx.project_id,
+                &ctx.repo_fingerprint,
+                &rel,
+                "module",
+                "",
+                "1",
+                &end_line.to_string(),
+            ]);
             let module_text = lines.join("\n") + "\n";
             let module_hash = snippet_hash(&rel, 1, end_line, &module_text);
             nodes.insert(
@@ -164,7 +196,8 @@ impl LanguagePlugin for JavaPlugin {
 
             // Optional: method invocation call sites -> unresolved call nodes.
             for call in extracted.call_sites {
-                let src_node_id = find_container_node_id(&method_spans, call.start_line).unwrap_or_else(|| module_id.clone());
+                let src_node_id = find_container_node_id(&method_spans, call.start_line)
+                    .unwrap_or_else(|| module_id.clone());
                 let unresolved_id = stable_node_id([
                     &ctx.project_id,
                     &ctx.repo_fingerprint,
@@ -172,23 +205,28 @@ impl LanguagePlugin for JavaPlugin {
                     "unresolved_java_call",
                     &call.name,
                 ]);
-                nodes.entry(unresolved_id.clone()).or_insert_with(|| CodeNodeRecord {
-                    project_id: ctx.project_id.clone(),
-                    repo_fingerprint: ctx.repo_fingerprint.clone(),
-                    node_id: unresolved_id.clone(),
-                    language: CodeLanguage::Java,
-                    kind: "unresolved".to_string(),
-                    symbol: Some(call.name.clone()),
-                    file_path: rel.clone(),
-                    start_line: 1,
-                    end_line,
-                    snippet_hash: snippet_hash(&rel, 1, 1, ""),
-                    text: String::new(),
-                    extra_labels: vec!["__UnresolvedCall__".to_string()],
-                });
+                nodes
+                    .entry(unresolved_id.clone())
+                    .or_insert_with(|| CodeNodeRecord {
+                        project_id: ctx.project_id.clone(),
+                        repo_fingerprint: ctx.repo_fingerprint.clone(),
+                        node_id: unresolved_id.clone(),
+                        language: CodeLanguage::Java,
+                        kind: "unresolved".to_string(),
+                        symbol: Some(call.name.clone()),
+                        file_path: rel.clone(),
+                        start_line: 1,
+                        end_line,
+                        snippet_hash: snippet_hash(&rel, 1, 1, ""),
+                        text: String::new(),
+                        extra_labels: vec!["__UnresolvedCall__".to_string()],
+                    });
                 let mut md = serde_json::Map::new();
                 md.insert("callee".to_string(), Value::String(call.name));
-                md.insert("kind".to_string(), Value::String("method_invocation".to_string()));
+                md.insert(
+                    "kind".to_string(),
+                    Value::String("method_invocation".to_string()),
+                );
                 edges.push(EdgeRecord {
                     project_id: ctx.project_id.clone(),
                     repo_fingerprint: ctx.repo_fingerprint.clone(),
@@ -247,7 +285,11 @@ impl LanguagePlugin for JavaPlugin {
 
         // XML wiring nodes + CONFIG_WIRES edges.
         for p in &xml_files {
-            let rel = p.strip_prefix(&ctx.repo_root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+            let rel = p
+                .strip_prefix(&ctx.repo_root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/");
             let mut xml_text = std::fs::read_to_string(p)?;
             xml_text = xml_text.replace("\r\n", "\n").replace('\r', "\n");
             let mut lines: Vec<String> = xml_text.split('\n').map(|s| s.to_string()).collect();
@@ -363,14 +405,18 @@ fn resolve_java_import_edges(
     edges: &[EdgeRecord],
     package_by_file: &std::collections::BTreeMap<String, String>,
 ) -> Vec<EdgeRecord> {
-    let mut fqn_index: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    let mut simple_index: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    let mut fqn_index: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    let mut simple_index: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
 
     for n in nodes.values() {
         if n.language != CodeLanguage::Java || n.kind != "class" {
             continue;
         }
-        let Some(simple) = n.symbol.as_ref().map(|s| s.trim().to_string()) else { continue };
+        let Some(simple) = n.symbol.as_ref().map(|s| s.trim().to_string()) else {
+            continue;
+        };
         if simple.is_empty() {
             continue;
         }
@@ -383,14 +429,19 @@ fn resolve_java_import_edges(
                 Some(existing) => {
                     let ex_node = nodes.get(existing);
                     if let Some(ex_node) = ex_node {
-                        if (n.file_path.clone(), n.node_id.clone()) < (ex_node.file_path.clone(), ex_node.node_id.clone()) {
+                        if (n.file_path.clone(), n.node_id.clone())
+                            < (ex_node.file_path.clone(), ex_node.node_id.clone())
+                        {
                             fqn_index.insert(fqn, n.node_id.clone());
                         }
                     }
                 }
             }
         }
-        simple_index.entry(simple).or_default().push(n.node_id.clone());
+        simple_index
+            .entry(simple)
+            .or_default()
+            .push(n.node_id.clone());
     }
     for v in simple_index.values_mut() {
         v.sort();
@@ -406,7 +457,12 @@ fn resolve_java_import_edges(
         let spec = nodes
             .get(&e.dst_node_id)
             .and_then(|n| n.symbol.clone())
-            .or_else(|| e.metadata.get("import").and_then(|v| v.as_str()).map(|s| s.to_string()));
+            .or_else(|| {
+                e.metadata
+                    .get("import")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
         let Some(mut spec) = spec else {
             out.push(e.clone());
             continue;
@@ -437,7 +493,10 @@ fn resolve_java_import_edges(
         };
         let mut md = e.metadata.clone();
         md.insert("resolved".to_string(), Value::Bool(true));
-        md.insert("strategy".to_string(), Value::String(strategy.unwrap().to_string()));
+        md.insert(
+            "strategy".to_string(),
+            Value::String(strategy.unwrap().to_string()),
+        );
         md.insert("import".to_string(), Value::String(spec));
         out.push(EdgeRecord {
             project_id: e.project_id.clone(),
@@ -455,9 +514,15 @@ fn resolve_java_import_edges(
         std::collections::BTreeMap::new();
     for e in out {
         let md_key = serde_json::to_string(&e.metadata).unwrap_or_default();
-        uniq.insert((e.rel_type, e.src_node_id.clone(), e.dst_node_id.clone(), md_key), e);
+        uniq.insert(
+            (
+                e.rel_type,
+                e.src_node_id.clone(),
+                e.dst_node_id.clone(),
+                md_key,
+            ),
+            e,
+        );
     }
     uniq.into_values().collect()
 }
-
-

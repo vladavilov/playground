@@ -285,7 +285,7 @@ relevant technical context, requirements, and citations from ingested documentat
 Authentication:
 - This server requires OAuth authentication via Azure AD
 - VS Code will automatically handle the OAuth flow
-- Your Azure AD token will be exchanged for a backend service token
+- Your Azure AD token will be forwarded to Envoy; Envoy `ext_authz` will validate it and inject S2S headers upstream
 """,
 )
 
@@ -569,7 +569,7 @@ async def userinfo_endpoint(request: Request) -> Response:
     
     Flow:
     1. Extracts Bearer token from Authorization header (Azure AD token)
-    2. Exchanges Azure AD token for LOCAL JWT via authentication service
+    2. Validates it via authentication-service (`/auth/azure/userinfo`)
     3. Returns user identity in OpenID Connect format
     
     Returns:
@@ -592,27 +592,17 @@ async def userinfo_endpoint(request: Request) -> Response:
     # Get auth handler and exchange token
     auth_handler = await get_auth_handler()
     
-    # Exchange Azure AD token for LOCAL JWT and get user context
-    _, auth_ctx = await auth_handler._exchange_token(None, azure_token)
-    
-    if not auth_ctx:
-        logger.warning("Token exchange failed in userinfo endpoint")
+    userinfo = await auth_handler.get_userinfo(azure_token)
+    if not userinfo:
+        logger.warning("Azure token validation failed in userinfo endpoint")
         return Response(
-            content='{"error": "invalid_token", "message": "Token exchange failed"}',
+            content='{"error": "invalid_token", "message": "Token validation failed"}',
             status_code=401,
             media_type="application/json",
             headers={"WWW-Authenticate": 'Bearer error="invalid_token"'}
         )
-    
-    # Return user info in OpenID Connect format
-    userinfo = {
-        "sub": auth_ctx.user_id,
-        "preferred_username": auth_ctx.username,
-        "email": auth_ctx.username,  # Username is typically email
-        "roles": auth_ctx.roles,
-    }
-    
-    logger.info("Userinfo returned", user_id=auth_ctx.user_id)
+
+    logger.info("Userinfo returned", user_id=userinfo.get("sub"))
     return JSONResponse(userinfo)
 
 

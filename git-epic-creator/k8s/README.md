@@ -4,98 +4,79 @@ Kubernetes deployment manifests using Kustomize for the Git Epic Creator platfor
 
 ## Architecture
 
-```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                              AKS Cluster                                     â”‚
-â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚                                                                              â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”â”‚
-â”‚  â”‚  NGINX Ingress Controller (LoadBalancer - Internal)                     â”‚â”‚
-â”‚  â”‚  â””â”€â”€ Routes traffic to envoy-gateway (and / â†’ frontend-service)         â”‚â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜â”‚
-â”‚                              â”‚                                               â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
-â”‚  â”‚                       envoy-gateway (Envoy)                             â”‚  â”‚
-â”‚  â”‚  â€¢ Routing / retries / timeouts                                         â”‚  â”‚
-â”‚  â”‚  â€¢ Calls gateway-control-plane-service /authz (ext_authz)               â”‚  â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
-â”‚                              â”‚                                               â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
-â”‚  â”‚                 gateway-control-plane-service                           â”‚  â”‚
-â”‚  â”‚  â€¢ Azure AD Authentication (MSAL)                                      â”‚  â”‚
-â”‚  â”‚  â€¢ Session management (Redis-backed)                                   â”‚  â”‚
-â”‚  â”‚  â€¢ /authz policy enforcement + S2S token minting                        â”‚  â”‚
-â”‚  â”‚  â€¢ /events                                                       â”‚  â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
-â”‚                              â”‚                                               â”‚
-â”‚         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                         â”‚
-â”‚         â”‚                    â”‚                    â”‚                         â”‚
-â”‚         â–¼                    â–¼                    â–¼                         â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                   â”‚
-â”‚  â”‚  project-   â”‚     â”‚    ai-      â”‚     â”‚   gitlab-   â”‚   ... 8 more     â”‚
-â”‚  â”‚  management â”‚     â”‚ requirementsâ”‚     â”‚   client    â”‚   services       â”‚
-â”‚  â”‚   service   â”‚     â”‚   service   â”‚     â”‚   service   â”‚                   â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                   â”‚
-â”‚         â”‚                    â”‚                                              â”‚
-â”‚         â–¼                    â–¼                                              â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”     â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                                       â”‚
-â”‚  â”‚ PostgreSQL  â”‚     â”‚    Neo4j    â”‚     (StatefulSets with PVC)          â”‚
-â”‚  â”‚(StatefulSet)â”‚     â”‚(StatefulSet)â”‚                                       â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                                       â”‚
-â”‚                                                                              â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```mermaid
+flowchart TB
+  Browser[Browser] -->|HTTPS| NGINX[NGINX Ingress]
+
+  NGINX -->|/auth, /project, /workflow, /tasks, /gitlab, /events, /code-graph| Envoy[envoy-gateway]
+  NGINX -->|/| FE[frontend-service]
+
+  Envoy -->|ext_authz: /authz - cookie or bearer| Auth[authentication-service]
+  Envoy -->|/auth/*| Auth
+  Envoy -->|/events| SSE[sse-bridge-service]
+
+  Envoy -->|/project/*| PMS[project-management-service]
+  Envoy -->|/workflow/*| Req[ai-requirements-service]
+  Envoy -->|/tasks/*| Tasks[ai-tasks-service]
+  Envoy -->|/gitlab/* and /auth/gitlab/*| GitLab[gitlab-client-service]
+  Envoy -->|/code-graph/*| CodeGraph[code-graph-ingestion-service]
+
+  PMS --> Postgres[(PostgreSQL)]
+  Req --> Redis[(Redis)]
+  Tasks --> Redis
+  SSE --> Redis
+  Req --> Neo4j[(Neo4j)]
+  CodeGraph --> Neo4j
 ```
 
 ## Structure
 
 ```
 k8s/
-â”œâ”€â”€ base/                           # Base manifests
-â”‚   â”œâ”€â”€ kustomization.yaml          # Base kustomization
-â”‚   â”œâ”€â”€ namespace.yaml              # Namespace definition
-â”‚   â”œâ”€â”€ service-account.yaml        # Workload identity service account
-â”‚   â”œâ”€â”€ configmap.yaml              # Application configuration
-â”‚   â”œâ”€â”€ secret-provider.yaml        # CSI secrets store provider
-â”‚   â”œâ”€â”€ network-policy.yaml         # Network isolation policies
-â”‚   â”œâ”€â”€ ingress.yaml                # NGINX Ingress (routes to envoy-gateway and frontend-service)
-â”‚   â”œâ”€â”€ services/                   # Service deployments (11 services)
-â”‚   â”‚   â”œâ”€â”€ db-init-service.yaml
-â”‚   â”‚   â”œâ”€â”€ project-management-service.yaml
-â”‚   â”‚   â”œâ”€â”€ neo4j-maintanance-service.yaml
-â”‚   â”‚   â”œâ”€â”€ neo4j-ingestion-service.yaml
-â”‚   â”‚   â”œâ”€â”€ neo4j-retrieval-service.yaml
-â”‚   â”‚   â”œâ”€â”€ gateway-control-plane-service.yaml
-â”‚   â”‚   â”œâ”€â”€ envoy-gateway.yaml
-â”‚   â”‚   â”œâ”€â”€ document-processing-service.yaml
-â”‚   â”‚   â”œâ”€â”€ ai-requirements-service.yaml
-â”‚   â”‚   â”œâ”€â”€ ai-tasks-service.yaml
-â”‚   â”‚   â”œâ”€â”€ gitlab-client-service.yaml
-â”‚   â”‚   â””â”€â”€ mock-auth-service.yaml
-â”‚   â”œâ”€â”€ statefulsets/               # Stateful databases
-â”‚   â”‚   â”œâ”€â”€ neo4j.yaml
-â”‚   â”‚   â””â”€â”€ postgresql.yaml
-â”‚   â””â”€â”€ jobs/                       # One-time init jobs
-â”‚       â”œâ”€â”€ postgresdb-schema-init.yaml
-â”‚       â””â”€â”€ neo4j-schema-init.yaml
-â””â”€â”€ overlays/
-    â”œâ”€â”€ dev/                        # Development (1 replica)
-    â””â”€â”€ prod/                       # Production (3 replicas)
+├── base/
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── service-account.yaml
+│   ├── configmap.yaml
+│   ├── envoy-configmap.yaml
+│   ├── secret-provider.yaml
+│   ├── network-policy.yaml
+│   ├── ingress.yaml
+│   ├── services/
+│   │   ├── authentication-service.yaml
+│   │   ├── sse-bridge-service.yaml
+│   │   ├── envoy-gateway.yaml
+│   │   ├── frontend-service.yaml
+│   │   └── ... other services
+│   ├── statefulsets/
+│   │   ├── neo4j.yaml
+│   │   └── postgresql.yaml
+│   └── jobs/
+│       ├── postgresdb-schema-init.yaml
+│       └── neo4j-schema-init.yaml
+└── overlays/
+    ├── dev/
+    ├── prod/
+    └── local/
 ```
 
 ## Services
 
 | Service | Replicas (Dev/Prod) | Purpose |
 |---------|---------------------|---------|
-| `gateway-control-plane-service` | 1/3 | **API Gateway control plane** (MSAL, sessions, `/authz`, `/events`, ``) |
+| `envoy-gateway` | 1/1 | **API Gateway** (routing, retries, timeouts, `ext_authz`) |
+| `authentication-service` | 1/3 | **Auth + ext_authz** (MSAL sessions + `/authz`, S2S token minting) |
+| `sse-bridge-service` | 1/3 | **SSE bridge** (`/events`, Redis → SSE) |
+| `frontend-service` | 1/3 | UI (React Router SSR) |
 | `project-management-service` | 1/3 | Project CRUD |
 | `ai-requirements-service` | 1/3 | AI requirement generation |
 | `ai-tasks-service` | 1/3 | AI task breakdown |
 | `neo4j-retrieval-service` | 1/3 | Knowledge graph queries |
 | `neo4j-ingestion-service` | 1/1 | GraphRAG ingestion |
-| `neo4j-maintanance-service` | 1/1 | Neo4j admin |
+| `neo4j-repository-service` | 1/1 | Neo4j repository API (schema init + typed Cypher registry) |
 | `document-processing-service` | 1/3 | Document parsing |
 | `gitlab-client-service` | 1/2 | GitLab integration |
-| `authentication-service` | 1/2 | Azure token exchange + gateway service-token minting |
+| `code-graph-ingestion-service` | 1/1 | Code graph ingestion (`/code-graph/*`) |
 | `db-init-service` | 1/1 | PostgreSQL schema |
 | `mock-auth-service` | 1/1 | Dev auth mock |
 | `postgresql` (StatefulSet) | 1/1 | Relational data |
@@ -103,21 +84,38 @@ k8s/
 
 ## Request Flow
 
-```
-Browser â†’ NGINX Ingress â†’ envoy-gateway (Envoy) â†’ Backend Services
-                               â”‚
-                               â”œâ”€â”€ ext_authz: gateway-control-plane-service /authz (session + RBAC â†’ injected headers)
-                               â”œâ”€â”€ /auth/*,  /events â†’ gateway-control-plane-service
-                               â”œâ”€â”€ /project/* â†’ project-management-service
-                               â”œâ”€â”€ /workflow/* â†’ ai-requirements-service
-                               â”œâ”€â”€ /tasks/* â†’ ai-tasks-service
-                               â”œâ”€â”€ /gitlab/* â†’ gitlab-client-service
-                               â””â”€â”€ /* â†’ Static UI files (frontend-service)
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant N as NGINX Ingress
+  participant E as envoy-gateway
+  participant A as authentication-service
+  participant S as sse-bridge-service
+  participant M as backend service (example)
+
+  B->>N: GET / (UI)
+  N-->>B: frontend-service response
+
+  B->>N: GET /project/...
+  N->>E: Forward /project/...
+  E->>A: ext_authz: POST /authz (cookie or bearer)
+  A-->>E: 200 + injected headers
+  E->>M: Forward request with injected headers
+  M-->>E: Response
+  E-->>B: Response
+
+  B->>N: GET /events (EventSource)
+  N->>E: Forward /events
+  E->>A: ext_authz: POST /authz
+  A-->>E: 200 (allowed)
+  E->>S: Forward /events (stream)
+  S-->>B: SSE stream (Redis → SSE)
 ```
 
-**Why Envoy + gateway control plane?**
-- Envoy owns routing/retries/timeouts and calls `gateway-control-plane-service /authz` (`ext_authz`) for centralized policy enforcement.
-- gateway-control-plane-service keeps Azure AD login (MSAL), session management, `/events`, and ``.
+**Why Envoy + authentication-service + SSE bridge?**
+- Envoy owns routing/retries/timeouts and calls `authentication-service /authz` (`ext_authz`) for centralized policy enforcement.
+- authentication-service keeps Azure AD login (MSAL) and session management.
+- sse-bridge-service provides `/events` (Redis → SSE); auth is enforced by Envoy.
 
 ## Prerequisites
 
@@ -170,8 +168,7 @@ cd k8s/overlays/dev
 
 # Set images
 kustomize edit set image \
-  gateway-control-plane-service=${CONTAINER_REGISTRY}/gateway-control-plane-service:${DOCKER_IMAGE_TAG} \
-  # ... other images
+  sse-bridge-service=${CONTAINER_REGISTRY}/sse-bridge-service:${DOCKER_IMAGE_TAG}
 
 # Apply with variable substitution
 kustomize build . | envsubst | kubectl apply -f -
@@ -215,9 +212,9 @@ kubectl -n agentic-ai port-forward svc/envoy-gateway 8000:80
 | `POSTGRES_PASSWORD` | `Postgres-Password` | PostgreSQL auth |
 | `NEO4J_PASSWORD` | `Neo4j-Password` | Neo4j auth |
 | `REDIS_PASSWORD` | `Redis-Password` | Azure Redis auth |
-| `SESSION_SECRET_KEY` | `Session-SecretKey` | UI sessions |
-| `LOCAL_JWT_SECRET` | `Local-JwtSecret` | S2S auth |
-| `API_GATEWAY_MINT_SECRET` | `Api-Gateway-MintSecret` | Gateway â†” auth-service mint authorization |
+| `SESSION_SECRET_KEY` | `Session-SecretKey` | Browser session signing (authentication-service) |
+| `LOCAL_JWT_SECRET` | `Local-JwtSecret` | S2S token signing (authentication-service) |
+| `API_GATEWAY_MINT_SECRET` | `Api-Gateway-MintSecret` | Legacy `/auth/s2s/mint` caller secret (still used by init jobs) |
 | `OAI_KEY` | `OpenAI-ApiKey` | Azure OpenAI |
 
 ## Storage
@@ -233,12 +230,11 @@ kubectl -n agentic-ai port-forward svc/envoy-gateway 8000:80
 | Policy | Description |
 |--------|-------------|
 | `default-deny-ingress` | Deny all ingress by default |
-| `allow-ingress-from-gateway` | NGINX â†’ envoy-gateway |
-| `allow-frontend-service-ingress-from-gateway` | NGINX â†’ frontend-service |
-| `allow-gateway-control-plane-service-ingress-from-envoy` | envoy-gateway â†’ gateway-control-plane-service |
-| `allow-authentication-service-ingress-from-gateway-control-plane` | gateway-control-plane-service â†’ authentication-service |
-| `allow-backend-communication` | envoy-gateway â†” backend tier + backend â†” backend |
-| `allow-data-tier-access` | Backend â†’ PostgreSQL/Neo4j |
+| `allow-ingress-from-gateway` | NGINX -> envoy-gateway |
+| `allow-frontend-service-ingress-from-gateway` | NGINX -> frontend-service |
+| `allow-sse-bridge-service-ingress-from-envoy` | envoy-gateway -> sse-bridge-service |
+| `allow-backend-communication` | envoy-gateway <-> backend tier + backend <-> backend |
+| `allow-data-tier-access` | Backend -> PostgreSQL/Neo4j |
 
 ## Troubleshooting
 
@@ -250,12 +246,12 @@ kubectl describe pod <pod-name> -n agentic-ai
 
 ### View logs
 ```bash
-kubectl logs -f deployment/gateway-control-plane-service -n agentic-ai
+kubectl logs -f deployment/sse-bridge-service -n agentic-ai
 ```
 
 ### Check secrets mounting
 ```bash
-kubectl exec -it deployment/gateway-control-plane-service -n agentic-ai -- ls /mnt/secrets-store
+kubectl exec -it deployment/sse-bridge-service -n agentic-ai -- ls /mnt/secrets-store
 ```
 
 ### Check NGINX Ingress

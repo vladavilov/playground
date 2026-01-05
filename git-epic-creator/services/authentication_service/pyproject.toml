@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "authentication-service"
 version = "1.0.0"
-description = "Centralized authentication service for token exchange and S2S JWT minting"
+description = "Centralized authentication service for MSAL sessions, Envoy ext_authz, and S2S JWT minting"
 authors = [
     { name = "Vladyslav Avilov", email = "vladyslav.avilov@email.com" }
 ]

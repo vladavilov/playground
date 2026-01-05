@@ -36,7 +36,7 @@ def test_run_graphrag_job_happy_path_minimal_contract(monkeypatch, tmp_path):
     )
     with patch("module_services.ingestion_service.get_blob_storage_client", return_value=blob_client):
         # Patch library pipeline to no-op
-        with patch("module_services.ingestion_service._run_ms_pipeline", new=AsyncMock(return_value={})):
+        with patch("module_services.ingestion_service.run_ms_pipeline", new=AsyncMock(return_value={})):
             res = asyncio.run(
                 _run_graphrag_job_async(
                     job_id="job-1",
@@ -94,7 +94,7 @@ def test_orchestration_blob_sync_runner_and_import(tmp_path, monkeypatch):
     blob_client.download_file.side_effect = mock_download_file
 
     with patch("module_services.ingestion_service.get_blob_storage_client", return_value=blob_client):
-        with patch("module_services.ingestion_service._run_ms_pipeline", new=AsyncMock(return_value={})):
+        with patch("module_services.ingestion_service.run_ms_pipeline", new=AsyncMock(return_value={})):
             res = asyncio.run(
                 _run_graphrag_job_async(
                     job_id="job-1",
@@ -121,7 +121,7 @@ def test_orchestration_passes_client_and_batchsize(tmp_path, monkeypatch):
     blob_client.list_files.return_value = MagicMock(success=True, file_list=[])
 
     with patch("module_services.ingestion_service.get_blob_storage_client", return_value=blob_client):
-        with patch("module_services.ingestion_service._run_ms_pipeline", new=AsyncMock(return_value={})):
+        with patch("module_services.ingestion_service.run_ms_pipeline", new=AsyncMock(return_value={})):
             res = asyncio.run(
                 _run_graphrag_job_async(
                     job_id="job-1",

@@ -130,7 +130,7 @@ graph TB
 - SSE Stream: `/events` (channels: `ui:project_progress`, `ui:ai_*_progress`)
 - Proxy Routes: `/project/*`, `/workflow/*`, `/tasks/*`
 
-**Documentation**: [services/gateway_control_plane_service/README.md](services/gateway_control_plane_service/README.md)
+**Documentation**: [services/sse_bridge_service/README.md](services/sse_bridge_service/README.md)
 
 ---
 
@@ -816,7 +816,7 @@ Cost Savings vs Traditional Setup: ~$260/month
 â€¢ No ACR (use corporate registry)
 â€¢ No PostgreSQL Flexible Server (containerized)
 â€¢ No Application Gateway (NGINX Ingress)
-â€¢ No API Management (gateway-control-plane-service handles proxying)
+â€¢ No API Management (Envoy gateway handles routing; authentication-service handles authz)
 ```
 
 ### Infrastructure Deployment (Azure)
@@ -844,7 +844,7 @@ cd infra
 
 See [k8s/README.md](k8s/README.md) for details.
 
-**Key Design Decision**: gateway-control-plane-service acts as the API Gateway
+**Key Design Decision**: Envoy acts as the API Gateway; authentication-service provides `ext_authz`; sse-bridge-service provides `/events`
 - Already handles Azure AD authentication (MSAL)
 - Already implements S2S JWT token minting
 - Already proxies all API requests
@@ -857,7 +857,7 @@ k8s/
 â”‚   â”œâ”€â”€ services/          # 11 service deployments
 â”‚   â”œâ”€â”€ statefulsets/      # PostgreSQL + Neo4j
 â”‚   â”œâ”€â”€ jobs/              # Schema initialization
-â”‚   â””â”€â”€ ingress.yaml       # NGINX â†’ gateway-control-plane-service
+â”‚   â””â”€â”€ ingress.yaml       # NGINX â†’ envoy-gateway
 â””â”€â”€ overlays/
     â”œâ”€â”€ dev/               # 1 replica
     â””â”€â”€ prod/              # 3 replicas
@@ -1040,11 +1040,11 @@ docker network inspect git_epic_creator_network
 ```bash
 # For Azure AD issues
 export MSAL_LOG_LEVEL=DEBUG
-docker-compose logs -f gateway-control-plane-service
+docker-compose logs -f sse-bridge-service
 
 # For S2S JWT issues
 # Verify LOCAL_JWT_SECRET matches across services
-docker-compose exec gateway-control-plane-service env | grep LOCAL_JWT_SECRET
+docker-compose exec authentication-service env | grep LOCAL_JWT_SECRET
 ```
 
 **3. Redis Pub/Sub Not Streaming**:
@@ -1065,7 +1065,7 @@ curl -N http://localhost:8000/events
 /git-epic-creator/
 â”œâ”€â”€ services/                         # Microservices
 â”‚   â”œâ”€â”€ shared/                       # Common library
-â”‚   â”œâ”€â”€ gateway_control_plane_service/                   # Frontend + SSE
+â”‚   â”œâ”€â”€ sse_bridge_service/                              # SSE bridge (/events)
 â”‚   â”œâ”€â”€ project_management_service/   # Project CRUD
 â”‚   â”œâ”€â”€ ai_requirements_service/      # Requirements generation
 â”‚   â”œâ”€â”€ ai_tasks_service/             # Task breakdown
@@ -1098,7 +1098,7 @@ curl -N http://localhost:8000/events
 
 | Service | Documentation |
 |---------|---------------|
-| UI Service | [services/gateway_control_plane_service/README.md](services/gateway_control_plane_service/README.md) |
+| SSE Bridge Service | [services/sse_bridge_service/README.md](services/sse_bridge_service/README.md) |
 | AI Requirements | [services/ai_requirements_service/README.md](services/ai_requirements_service/README.md) |
 | AI Tasks | [services/ai_tasks_service/README.md](services/ai_tasks_service/README.md) |
 | Neo4j Retrieval | [services/neo4j_retrieval_service/README.md](services/neo4j_retrieval_service/README.md) |

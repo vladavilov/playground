@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentic-ai-config
+  namespace: agentic-ai
+data:
+  # Environment
+  ENVIRONMENT: "local"
+
+  # App Configuration (not used locally; keep defined to satisfy shared config)
+  APP_CONFIG_ENDPOINT: "http://unused.local"
+
+  # Redis (in-cluster, no TLS)
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_SSL: "false"
+  CELERY_BROKER_URL: "redis://redis:6379/0"
+  CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+
+  # Azure AD (use in-cluster mock auth service; base authority only)
+  AZURE_AD_AUTHORITY: "http://mock-auth-service"
+  AZURE_AD_VERIFY_SSL: "false"
+
+  # OpenAI (use in-cluster mock service)
+  OAI_BASE_URL: "http://openai-mock-service:8000"
+
+  # GitLab (use in-cluster mock service)
+  GITLAB_BASE_URL: "http://gitlab-mock-service:8000"
+
+

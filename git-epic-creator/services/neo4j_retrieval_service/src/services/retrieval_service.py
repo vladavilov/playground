@@ -114,6 +114,7 @@ class Neo4jRetrievalService:
         project_id: str,
         prompt_id: Optional[str] = None,
         publisher: Optional[Any] = None,
+        repo_auth_header: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute DRIFT retrieval pipeline.
         
@@ -171,6 +172,8 @@ class Neo4jRetrievalService:
                     "project_id": project_id,
                     "prompt_id": prompt_id,
                     "retrieval_id": retrieval_id,
+                    # Auth header to forward to neo4j-repository-service (S2S token from gateway).
+                    "repo_auth_header": repo_auth_header,
                     # Per-request publisher (must not be stored on cached node instances).
                     "publisher": publisher,
                 },

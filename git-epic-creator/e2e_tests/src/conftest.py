@@ -103,7 +103,7 @@ def _create_local_jwt_token(oid: str = None, roles: list = None, username: str =
         "oid": oid or str(uuid.uuid4()),
         "preferred_username": username or "test.user@example.com",
         "roles": roles or ["Admin", "User"],
-        "iss": "gateway-control-plane-service",
+        "iss": "sse-bridge-service",
         "iat": now,
         "nbf": now,
         "exp": now + 3600,  # 1 hour validity

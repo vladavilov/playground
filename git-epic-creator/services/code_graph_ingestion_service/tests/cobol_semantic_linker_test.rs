@@ -1,6 +1,6 @@
+use code_graph_ingestion_service::core::types::CodeRelType;
 use code_graph_ingestion_service::plugins::cobol::normalizer::preprocess_cobol_bytes;
 use code_graph_ingestion_service::plugins::cobol::semantic_linker::link_cobol_semantics;
-use code_graph_ingestion_service::core::types::CodeRelType;
 
 #[test]
 fn semantic_linker_extracts_paragraphs_and_resolves_perform() {
@@ -30,10 +30,11 @@ fn semantic_linker_extracts_paragraphs_and_resolves_perform() {
     assert!(para_names.contains(&"1000-INIT".to_string()));
     assert!(para_names.contains(&"2000-WORK".to_string()));
 
-    assert!(res
-        .edges
-        .iter()
-        .any(|e| e.rel_type == CodeRelType::Performs && (e.confidence - 1.0).abs() < 1e-9));
+    assert!(
+        res.edges
+            .iter()
+            .any(|e| e.rel_type == CodeRelType::Performs && (e.confidence - 1.0).abs() < 1e-9)
+    );
 }
 
 #[test]
@@ -75,9 +76,15 @@ fn semantic_linker_resolves_perform_thru_metadata_when_unique() {
         "expected thru raw metadata, got: {:?}",
         performs.metadata
     );
-    assert_eq!(performs.metadata.get("thru_kind").and_then(|v| v.as_str()), Some("paragraph"));
     assert_eq!(
-        performs.metadata.get("thru_node_id").and_then(|v| v.as_str()),
+        performs.metadata.get("thru_kind").and_then(|v| v.as_str()),
+        Some("paragraph")
+    );
+    assert_eq!(
+        performs
+            .metadata
+            .get("thru_node_id")
+            .and_then(|v| v.as_str()),
         Some(thru_id.as_str())
     );
 }
@@ -110,10 +117,11 @@ fn semantic_linker_resolves_qualified_data_reference() {
                 .unwrap_or("")
                 .starts_with("WORKING-STORAGE:AMOUNT OF INVOICE OF REC")
     }));
-    assert!(res
-        .edges
-        .iter()
-        .any(|e| e.rel_type == CodeRelType::References && (e.confidence - 1.0).abs() < 1e-9));
+    assert!(
+        res.edges
+            .iter()
+            .any(|e| e.rel_type == CodeRelType::References && (e.confidence - 1.0).abs() < 1e-9)
+    );
 }
 
 #[test]
@@ -152,10 +160,15 @@ fn semantic_linker_extracts_reads_writes_and_exec_sql_cics_edges() {
     assert!(res.edges.iter().any(|e| e.rel_type == CodeRelType::Writes));
     assert!(res.edges.iter().any(|e| e.rel_type == CodeRelType::Calls));
 
-    assert!(res.nodes.iter().any(|n| n.kind == "sql_table"
-        && n.symbol.as_deref().unwrap_or("") == "CUSTOMER"));
-    assert!(res.nodes.iter().any(|n| n.kind == "unresolved"
-        && n.symbol.as_deref().unwrap_or("").starts_with("CICS:")));
+    assert!(
+        res.nodes
+            .iter()
+            .any(|n| n.kind == "sql_table" && n.symbol.as_deref().unwrap_or("") == "CUSTOMER")
+    );
+    assert!(
+        res.nodes
+            .iter()
+            .any(|n| n.kind == "unresolved"
+                && n.symbol.as_deref().unwrap_or("").starts_with("CICS:"))
+    );
 }
-
-

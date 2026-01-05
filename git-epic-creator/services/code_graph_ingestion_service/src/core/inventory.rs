@@ -1,4 +1,4 @@
-use crate::core::ignore_rules::{build_ignore_rules, IgnoreRules};
+use crate::core::ignore_rules::{IgnoreRules, build_ignore_rules};
 use crate::core::types::CodeLanguage;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -81,7 +81,10 @@ pub fn iter_repo_files(repo_root: &Path, ignore: &IgnoreRules) -> anyhow::Result
     Ok(files)
 }
 
-pub fn build_inventory(repo_root: &Path, ignore: Option<&IgnoreRules>) -> anyhow::Result<Vec<InventoryEntry>> {
+pub fn build_inventory(
+    repo_root: &Path,
+    ignore: Option<&IgnoreRules>,
+) -> anyhow::Result<Vec<InventoryEntry>> {
     let owned_ignore;
     let ignore = match ignore {
         Some(i) => i,
@@ -105,5 +108,3 @@ pub fn build_inventory(repo_root: &Path, ignore: Option<&IgnoreRules>) -> anyhow
     }
     Ok(out)
 }
-
-

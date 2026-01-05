@@ -70,8 +70,8 @@ async def test_service_retrieve_returns_aggregated_json(monkeypatch):
 
     calls: List[Dict[str, Any]] = []
 
-    async def fake_post_json(_client, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        calls.append({"path": path, "payload": payload})
+    async def fake_post_json(_client, path: str, payload: Dict[str, Any], *, auth_header: str | None = None) -> Dict[str, Any]:
+        calls.append({"path": path, "payload": payload, "auth_header": auth_header})
         if path == "/v1/retrieval/primer-context":
             return {
                 "communities": [1, 2],
@@ -106,6 +106,7 @@ async def test_service_retrieve_returns_aggregated_json(monkeypatch):
         question="what are the main components of the bridge?",
         top_k=2,
         project_id="test-project",
+        repo_auth_header="Bearer svc.jwt.token",
     )
 
     assert result.get("no_data_found") is not True
@@ -117,5 +118,6 @@ async def test_service_retrieve_returns_aggregated_json(monkeypatch):
     followup_calls = [c for c in calls if c["path"] == "/v1/retrieval/followup-context"]
     assert followup_calls, "Expected followup-context calls"
     assert followup_calls[0]["payload"]["community_ids"] == [1]
+    assert followup_calls[0]["auth_header"] == "Bearer svc.jwt.token"
 
 

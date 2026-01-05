@@ -139,9 +139,11 @@ Copilot will automatically:
 
 ## Authentication Flow
 
-### Unified Token Exchange
+### Azure Bearer via Envoy (no token exchange)
 
-MCP Server uses the **same authentication mechanism** as UI Service. Both exchange Azure AD tokens for LOCAL JWTs via the same `/auth/exchange` endpoint:
+MCP Server uses the **same authentication mechanism** as browser clients: it authenticates with **Azure AD** via a browser flow and then sends the resulting **Azure AD access token** as a Bearer token.
+
+Unlike the removed legacy design, the MCP server does **not** exchange Azure tokens for a LOCAL JWT. Instead, it calls upstream APIs via **Envoy**, which performs `ext_authz` and injects S2S credentials upstream.
 
 ```mermaid
 sequenceDiagram
@@ -157,17 +159,15 @@ sequenceDiagram
     VSCode->>MCP: MCP request + Authorization: Bearer {azure_token}
     
     Note over MCP: Extract token from Authorization header
-    MCP->>Auth: POST /auth/exchange<br/>{access_token: azure_token}
-    Auth->>Azure: Validate token (JWKS)
-    Auth->>Auth: Mint LOCAL JWT
-    Auth-->>MCP: {access_token: LOCAL_JWT, user_id, roles}
-    
-    MCP->>Backend: Request + Bearer {LOCAL_JWT}
+    MCP->>Envoy: Request + Authorization: Bearer {azure_token}
+    Envoy->>Auth: ext_authz: /authz (validates Azure token)
+    Auth-->>Envoy: 200 + injected headers (S2S token, x-user-id)
+    Envoy->>Backend: Request + injected S2S headers
     Backend-->>MCP: Response
     MCP-->>VSCode: MCP response
 ```
 
-This is the **SAME endpoint** used by UI Service. The same user authenticating via browser or VS Code gets the same LOCAL JWT format.
+The same user authenticating via browser or VS Code gets the same Azure AD token type; **Envoy** is responsible for converting it into an internal call contract (S2S token + headers).
 
 ### Token Extraction Priority
 
@@ -267,14 +267,14 @@ Authorization: Bearer {azure-ad-token}
 
 **Flow:**
 1. Extracts Bearer token from Authorization header (Azure AD token)
-2. Exchanges Azure AD token for LOCAL JWT via authentication service
+2. Validates Azure AD token via authentication-service (`/auth/azure/userinfo`)
 3. Returns user identity in OpenID Connect format
 
 **Error Response (401 Unauthorized):**
 ```json
 {
   "error": "invalid_token",
-  "message": "Token exchange failed"
+  "message": "Token validation failed"
 }
 ```
 
@@ -389,9 +389,10 @@ sequenceDiagram
     participant C as Copilot/VSCode
     participant M as MCP Server
     participant Azure as Azure AD
-    participant A as Auth Service
+    participant E as Envoy Gateway
+    participant A as Authentication Service
     participant P as Project Mgmt Service
-    participant R as Retrieval Service
+    participant R as Neo4j Retrieval Service
 
     U->>C: "How does auth work in billing?"
     C->>M: resolve_project("billing")
@@ -404,19 +405,23 @@ sequenceDiagram
         Azure-->>C: Access token
         C->>M: resolve_project("billing") + Bearer token
     end
-    
-    Note over M,A: Token exchange
-    M->>A: Exchange Azure token for LOCAL JWT
-    A-->>M: S2S JWT
-    
-    M->>P: GET /projects?search=billing + JWT
+
+    Note over M,E: Upstream calls go through Envoy with Bearer Azure token
+    M->>E: GET /projects?search=billing + Authorization: Bearer {azure_token}
+    E->>A: ext_authz /authz (validates Azure token)
+    A-->>E: 200 + injected headers (S2S + x-user-id)
+    E->>P: GET /projects?search=billing (S2S injected)
     
     alt Exactly 1 match
         P-->>M: [{id, name}]
         M-->>C: {success: true, project_id: "uuid"}
         C->>M: retrieve_context("How does auth work?", "uuid")
-        M->>R: POST /retrieve + JWT
-        R-->>M: {final_answer, key_facts}
+        M->>E: POST /retrieve + Authorization: Bearer {azure_token}
+        E->>A: ext_authz /authz
+        A-->>E: 200 + injected headers
+        E->>R: POST /retrieve (S2S injected)
+        R-->>E: {final_answer, key_facts}
+        E-->>M: {final_answer, key_facts}
         M-->>C: {final_answer, key_facts}
         C-->>U: "Auth uses JWT tokens..."
     else Multiple matches
@@ -444,8 +449,8 @@ MCP_SERVER_URL=http://localhost:8082  # Base URL for OAuth discovery
 AUTH_SERVICE_URL=http://authentication-service:8020
 
 # Upstream Services (from shared HTTPClientSettings)
-PROJECT_MANAGEMENT_SERVICE_URL=http://project-management-service:8000
-GRAPH_RAG_SERVICE_URL=http://neo4j-retrieval-service:8000
+PROJECT_MANAGEMENT_SERVICE_URL=http://envoy-gateway:8000
+GRAPH_RAG_SERVICE_URL=http://envoy-gateway:8000
 
 # HTTP Client Settings
 HTTP_CONNECTION_TIMEOUT=30.0
@@ -551,10 +556,9 @@ curl -v http://localhost:8082/userinfo \
 # Check authentication-service is running
 curl http://localhost:8020/health
 
-# Test token exchange (with a valid Azure token)
-curl -X POST http://localhost:8020/auth/exchange \
-  -H "Content-Type: application/json" \
-  -d '{"access_token": "your-azure-token"}'
+# Test Azure token validation (OIDC-like userinfo)
+curl -v http://localhost:8020/auth/azure/userinfo \
+  -H "Authorization: Bearer {your-azure-ad-token}"
 ```
 
 ### Connection Refused Errors
@@ -582,9 +586,10 @@ docker run --rm --network git_epic_creator_network curlimages/curl \
 ```
 src/
 ├── main.py               # FastMCP entrypoint with tools, OAuth discovery + userinfo endpoint
-├── adapter.py            # HTTP Clients for upstream services
+├── adapter.py            # HTTP clients for upstream services (call via Envoy)
 ├── config.py             # Settings (extends shared configurations) + OAuth metadata builder
-└── auth.py               # MCP authentication handler (token extraction, exchange, context)
+└── auth.py               # MCP authentication handler (extract Azure token, optional userinfo lookup)
+└── auth.py               # MCP authentication handler (token extraction, optional userinfo lookup)
 tests/
 ├── __init__.py
 └── test_mcp_tools.py     # Tool tests
@@ -628,8 +633,8 @@ docker run -p 8082:8082 \
   -e MCP_TRANSPORT=http \
   -e MCP_SERVER_URL=http://localhost:8082 \
   -e AUTH_SERVICE_URL=http://host.docker.internal:8020 \
-  -e PROJECT_MANAGEMENT_SERVICE_URL=http://host.docker.internal:8003 \
-  -e GRAPH_RAG_SERVICE_URL=http://host.docker.internal:8008 \
+  -e PROJECT_MANAGEMENT_SERVICE_URL=http://host.docker.internal:8007 \
+  -e GRAPH_RAG_SERVICE_URL=http://host.docker.internal:8007 \
   -e AZURE_TENANT_ID=your-tenant-id \
   -e AZURE_CLIENT_ID=your-client-id \
   neo4j_retrieval_mcp_server
@@ -640,8 +645,8 @@ docker run -p 8082:8082 \
 ```bash
 docker run -i --rm \
   -e AUTH_SERVICE_URL=http://host.docker.internal:8020 \
-  -e PROJECT_MANAGEMENT_SERVICE_URL=http://host.docker.internal:8003 \
-  -e GRAPH_RAG_SERVICE_URL=http://host.docker.internal:8008 \
+  -e PROJECT_MANAGEMENT_SERVICE_URL=http://host.docker.internal:8007 \
+  -e GRAPH_RAG_SERVICE_URL=http://host.docker.internal:8007 \
   neo4j_retrieval_mcp_server
 ```
 
@@ -674,8 +679,8 @@ curl http://localhost:8082/health
 ### Token Handling
 
 - OAuth tokens from VS Code are **never stored** by the MCP server
-- Tokens are exchanged immediately for LOCAL JWTs (1 hour TTL, same as other services)
-- LOCAL JWTs are cached in-memory for performance (with 60s buffer before expiry)
+- MCP forwards Azure AD access tokens to Envoy as Bearer tokens
+- Envoy performs `ext_authz` and injects S2S headers for backend calls
 - Azure AD authentication is REQUIRED - there is no service account fallback
 
 ### Production Checklist
@@ -685,4 +690,4 @@ curl http://localhost:8082/health
 - [ ] Set `MCP_SERVER_URL` to the actual production URL
 - [ ] Use HTTPS for MCP server (HTTP transport)
 - [ ] Restrict network access to authentication-service
-- [ ] Monitor token exchange logs for anomalies
+- [ ] Monitor authz logs for anomalies

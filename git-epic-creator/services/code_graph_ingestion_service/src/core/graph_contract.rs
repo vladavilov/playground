@@ -105,7 +105,10 @@ pub fn validate_graph_contract(
         }
         if !is_valid_repo_rel_posix_path(&n.file_path) {
             return Err(GraphContractViolation {
-                message: format!("Node file_path is not repo-relative POSIX path: {}", n.node_id),
+                message: format!(
+                    "Node file_path is not repo-relative POSIX path: {}",
+                    n.node_id
+                ),
             });
         }
         if !file_paths.contains(n.file_path.as_str()) {
@@ -175,16 +178,16 @@ pub fn validate_graph_contract(
         if e.rel_type == CodeRelType::Includes {
             if !node_by_id.contains_key(e.src_node_id.as_str()) {
                 return Err(GraphContractViolation {
-                    message: format!(
-                        "INCLUDES src_node_id must exist as node: {}",
-                        e.src_node_id
-                    ),
+                    message: format!("INCLUDES src_node_id must exist as node: {}", e.src_node_id),
                 });
             }
             // Convention: INCLUDES.dst_node_id is a repo-relative file path (not a node id).
             if !is_valid_repo_rel_posix_path(&e.dst_node_id) {
                 return Err(GraphContractViolation {
-                    message: format!("INCLUDES dst is not repo-relative POSIX path: {}", e.dst_node_id),
+                    message: format!(
+                        "INCLUDES dst is not repo-relative POSIX path: {}",
+                        e.dst_node_id
+                    ),
                 });
             }
             let in_inventory = file_paths.contains(e.dst_node_id.as_str());
@@ -223,7 +226,10 @@ pub fn validate_graph_contract(
                     || !(src.start_line <= dst.start_line && src.end_line >= dst.end_line)
                 {
                     return Err(GraphContractViolation {
-                        message: format!("CONTAINS span is not a proper container: {}", e.src_node_id),
+                        message: format!(
+                            "CONTAINS span is not a proper container: {}",
+                            e.src_node_id
+                        ),
                     });
                 }
             }
@@ -255,5 +261,3 @@ pub fn validate_graph_contract(
 
     Ok(())
 }
-
-

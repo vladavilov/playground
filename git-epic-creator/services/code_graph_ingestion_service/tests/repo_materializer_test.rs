@@ -1,4 +1,6 @@
-use code_graph_ingestion_service::core::repo_materializer::{materialize_git, materialize_zip_bytes, MaterializeError};
+use code_graph_ingestion_service::core::repo_materializer::{
+    MaterializeError, materialize_git, materialize_zip_bytes,
+};
 use git2::{Oid, Repository, Signature};
 use sha2::{Digest, Sha256};
 use std::io::Write;
@@ -17,7 +19,11 @@ fn tree_digest(root: &Path) -> String {
     files.sort_by_key(|p| p.to_string_lossy().to_string());
 
     for p in files {
-        let rel = p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+        let rel = p
+            .strip_prefix(root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         h.update(rel.as_bytes());
         h.update([0u8]);
         h.update(std::fs::read(&p).unwrap());
@@ -83,12 +89,16 @@ fn zip_slip_rejected() {
     let out = tmp.path().join("out");
 
     let err = materialize_zip_bytes(&zip_bytes, &out).unwrap_err();
-    assert!(matches!(err, MaterializeError::ZipSlip(_)));
+    assert!(matches!(err, MaterializeError::ZipPath(_)));
 }
 
 #[test]
 fn zip_extract_is_deterministic_for_identical_input() {
-    let zip_bytes = make_zip(vec![("b.txt", b"world"), ("a.txt", b"hello"), ("dir/sub.txt", b"sub")]);
+    let zip_bytes = make_zip(vec![
+        ("b.txt", b"world"),
+        ("a.txt", b"hello"),
+        ("dir/sub.txt", b"sub"),
+    ]);
     let tmp = tempfile::tempdir().unwrap();
 
     let out1 = tmp.path().join("out1");
@@ -116,9 +126,13 @@ fn git_clone_and_checkout_ref_is_deterministic() {
     let r1 = materialize_git(src_repo.to_string_lossy().as_ref(), Some(&ref1), &out1).unwrap();
     let r2 = materialize_git(src_repo.to_string_lossy().as_ref(), Some(&ref1), &out2).unwrap();
 
-    assert_eq!(std::fs::read_to_string(r1.repo_root.join("file.txt")).unwrap(), "v1");
-    assert_eq!(std::fs::read_to_string(r2.repo_root.join("file.txt")).unwrap(), "v1");
+    assert_eq!(
+        std::fs::read_to_string(r1.repo_root.join("file.txt")).unwrap(),
+        "v1"
+    );
+    assert_eq!(
+        std::fs::read_to_string(r2.repo_root.join("file.txt")).unwrap(),
+        "v1"
+    );
     assert_eq!(tree_digest(&r1.repo_root), tree_digest(&r2.repo_root));
 }
-
-

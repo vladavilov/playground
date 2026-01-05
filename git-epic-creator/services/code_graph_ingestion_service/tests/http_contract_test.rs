@@ -1,7 +1,7 @@
-use code_graph_ingestion_service::core::orchestrator::OrchestratorConfig;
-use code_graph_ingestion_service::web::server::{app, AppState};
-use git2::{Oid, Repository, Signature};
 use axum::http::{Request, StatusCode};
+use code_graph_ingestion_service::core::orchestrator::OrchestratorConfig;
+use code_graph_ingestion_service::web::server::{AppState, app};
+use git2::{Oid, Repository, Signature};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use std::io::Write;
@@ -23,11 +23,17 @@ fn make_zip(entries: Vec<(&str, &[u8])>) -> Vec<u8> {
     buf.into_inner()
 }
 
-fn multipart_body(boundary: &str, fields: Vec<(&str, &str)>, file_field: (&str, &str, &[u8], &str)) -> Vec<u8> {
+fn multipart_body(
+    boundary: &str,
+    fields: Vec<(&str, &str)>,
+    file_field: (&str, &str, &[u8], &str),
+) -> Vec<u8> {
     let mut out = Vec::new();
     for (name, value) in fields {
         out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        out.extend_from_slice(format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes());
+        out.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes(),
+        );
         out.extend_from_slice(value.as_bytes());
         out.extend_from_slice(b"\r\n");
     }
@@ -74,8 +80,15 @@ fn commit_file(repo: &Repository, rel: &Path, contents: &str, message: &str) -> 
         .collect();
     let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
 
-    repo.commit(Some("HEAD"), &sig, &sig, message, &tree, parent_refs.as_slice())
-        .unwrap()
+    repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        message,
+        &tree,
+        parent_refs.as_slice(),
+    )
+    .unwrap()
 }
 
 #[tokio::test]
@@ -89,7 +102,13 @@ async fn health_returns_required_keys() {
     let app = app(state);
 
     let resp = app
-        .oneshot(Request::builder().method("GET").uri("/health").body(axum::body::Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/health")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -178,7 +197,11 @@ async fn ingest_git_returns_contract_shape() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = json_body(resp).await;
     assert_eq!(body["project_id"], Value::String(pid.to_string()));
-    assert!(body["repo_fingerprint"].as_str().is_some_and(|s| !s.is_empty()));
+    assert!(
+        body["repo_fingerprint"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+    );
 }
 
 #[tokio::test]
@@ -204,7 +227,10 @@ async fn ingest_zip_requires_project_id_and_source_language() {
             Request::builder()
                 .method("POST")
                 .uri("/ingest/zip")
-                .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
                 .body(axum::body::Body::from(body))
                 .unwrap(),
         )
@@ -225,7 +251,10 @@ async fn ingest_zip_requires_project_id_and_source_language() {
             Request::builder()
                 .method("POST")
                 .uri("/ingest/zip")
-                .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
                 .body(axum::body::Body::from(body))
                 .unwrap(),
         )
@@ -249,7 +278,10 @@ async fn ingest_zip_returns_contract_shape() {
     let boundary = "XBOUNDARY3";
     let body = multipart_body(
         boundary,
-        vec![("project_id", &pid.to_string()), ("source_language", "javascript")],
+        vec![
+            ("project_id", &pid.to_string()),
+            ("source_language", "javascript"),
+        ],
         ("file", "repo.zip", &zip_bytes, "application/zip"),
     );
 
@@ -258,7 +290,10 @@ async fn ingest_zip_returns_contract_shape() {
             Request::builder()
                 .method("POST")
                 .uri("/ingest/zip")
-                .header("content-type", format!("multipart/form-data; boundary={boundary}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
                 .body(axum::body::Body::from(body))
                 .unwrap(),
         )
@@ -267,11 +302,15 @@ async fn ingest_zip_returns_contract_shape() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = json_body(resp).await;
     assert_eq!(body["project_id"], Value::String(pid.to_string()));
-    assert!(body["repo_fingerprint"].as_str().is_some_and(|s| !s.is_empty()));
+    assert!(
+        body["repo_fingerprint"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+    );
 }
 
 #[tokio::test]
-async fn zip_ingest_changes_across_entry_order() {
+async fn zip_ingest_is_deterministic_across_entry_order() {
     let tmp = tempfile::tempdir().unwrap();
     let state = AppState {
         orchestrator: OrchestratorConfig {
@@ -291,17 +330,26 @@ async fn zip_ingest_changes_across_entry_order() {
             Request::builder()
                 .method("POST")
                 .uri("/ingest/zip")
-                .header("content-type", format!("multipart/form-data; boundary={b1}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={b1}"),
+                )
                 .body(axum::body::Body::from(multipart_body(
                     b1,
-                    vec![("project_id", &pid.to_string()), ("source_language", "javascript")],
+                    vec![
+                        ("project_id", &pid.to_string()),
+                        ("source_language", "javascript"),
+                    ],
                     ("file", "repo.zip", &z1, "application/zip"),
                 )))
                 .unwrap(),
         )
         .await
         .unwrap();
-    let fp1 = json_body(r1).await["repo_fingerprint"].as_str().unwrap().to_string();
+    let fp1 = json_body(r1).await["repo_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let b2 = "B2";
     let r2 = app
@@ -309,19 +357,28 @@ async fn zip_ingest_changes_across_entry_order() {
             Request::builder()
                 .method("POST")
                 .uri("/ingest/zip")
-                .header("content-type", format!("multipart/form-data; boundary={b2}"))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={b2}"),
+                )
                 .body(axum::body::Body::from(multipart_body(
                     b2,
-                    vec![("project_id", &pid.to_string()), ("source_language", "javascript")],
+                    vec![
+                        ("project_id", &pid.to_string()),
+                        ("source_language", "javascript"),
+                    ],
                     ("file", "repo.zip", &z2, "application/zip"),
                 )))
                 .unwrap(),
         )
         .await
         .unwrap();
-    let fp2 = json_body(r2).await["repo_fingerprint"].as_str().unwrap().to_string();
+    let fp2 = json_body(r2).await["repo_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    assert_ne!(fp1, fp2);
+    assert_eq!(fp1, fp2);
 }
 
 #[tokio::test]
@@ -363,7 +420,10 @@ async fn git_ingest_is_deterministic_for_same_ref() {
         )
         .await
         .unwrap();
-    let fp1 = json_body(r1).await["repo_fingerprint"].as_str().unwrap().to_string();
+    let fp1 = json_body(r1).await["repo_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let r2 = app
         .oneshot(
@@ -384,9 +444,10 @@ async fn git_ingest_is_deterministic_for_same_ref() {
         )
         .await
         .unwrap();
-    let fp2 = json_body(r2).await["repo_fingerprint"].as_str().unwrap().to_string();
+    let fp2 = json_body(r2).await["repo_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     assert_eq!(fp1, fp2);
 }
-
-

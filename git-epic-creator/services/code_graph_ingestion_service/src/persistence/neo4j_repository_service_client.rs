@@ -2,31 +2,48 @@ use crate::core::inventory::InventoryEntry;
 use crate::core::records::{CodeNodeRecord, EdgeRecord};
 use crate::core::types::CodeRelType;
 use reqwest::blocking::Client;
+use reqwest::header::AUTHORIZATION;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
-fn base_url() -> String {
-    std::env::var("NEO4J_REPOSITORY_SERVICE_URL")
-        .unwrap_or_else(|_| "http://neo4j-repository-service:8080".to_string())
-        .trim_end_matches('/')
-        .to_string()
+fn base_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        std::env::var("NEO4J_REPOSITORY_SERVICE_URL").to_string())
+            .trim_end_matches('/')
+            .to_string()
+    })
 }
 
-fn client() -> Client {
-    Client::builder()
-        .timeout(std::time::Duration::from_secs(
-            std::env::var("NEO4J_REPOSITORY_TIMEOUT_S")
-                .ok()
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(60),
-        ))
-        .build()
-        .expect("reqwest client")
+fn client() -> anyhow::Result<&'static Client> {
+    static CLIENT: OnceLock<anyhow::Result<Client>> = OnceLock::new();
+    let res = CLIENT.get_or_init(|| {
+        let timeout_s = std::env::var("NEO4J_REPOSITORY_TIMEOUT_S")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(60);
+        Ok(Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_s))
+            .build()?)
+    });
+    match res {
+        Ok(c) => Ok(c),
+        Err(e) => Err(anyhow::anyhow!(e.to_string())),
+    }
 }
 
-fn post_json<T: Serialize>(path: &str, payload: &T) -> anyhow::Result<()> {
+fn post_json<T: Serialize>(
+    path: &str,
+    payload: &T,
+    auth_header: Option<&str>,
+) -> anyhow::Result<()> {
     let url = format!("{}{}", base_url(), path);
-    let resp = client().post(url).json(payload).send()?;
+    let mut req = client()?.post(url).json(payload);
+    if let Some(h) = auth_header {
+        req = req.header(AUTHORIZATION, h);
+    }
+    let resp = req.send()?;
     if !resp.status().is_success() {
         anyhow::bail!("neo4j-repository-service returned {}", resp.status());
     }
@@ -57,7 +74,7 @@ struct EdgeRow<'a> {
     src_node_id: &'a str,
     dst_node_id: &'a str,
     confidence: f64,
-    metadata: serde_json::Value,
+    metadata: &'a serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,7 +92,15 @@ pub fn persist_code_graph(
     files: &[InventoryEntry],
     nodes: &[CodeNodeRecord],
     edges: &[EdgeRecord],
+    auth_header: Option<&str>,
 ) -> anyhow::Result<()> {
+    let auth_header = auth_header
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Missing Authorization header for neo4j-repository-service call")
+        })?;
+
     let file_rows: Vec<FileRow<'_>> = files
         .iter()
         .map(|f| FileRow {
@@ -114,7 +139,7 @@ pub fn persist_code_graph(
             src_node_id: &e.src_node_id,
             dst_node_id: &e.dst_node_id,
             confidence: e.confidence,
-            metadata: serde_json::Value::Object(e.metadata.clone()),
+            metadata: &e.metadata,
         });
     }
 
@@ -127,9 +152,8 @@ pub fn persist_code_graph(
             nodes: node_rows,
             edges: edges_by_type,
         },
+        Some(auth_header),
     )?;
 
     Ok(())
 }
-
-

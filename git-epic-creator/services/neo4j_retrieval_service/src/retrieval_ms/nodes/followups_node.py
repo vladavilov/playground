@@ -93,6 +93,7 @@ class FollowupsNode(BaseNode):
             )
             return [], []
 
+        repo_auth_header = state.get("repo_auth_header")
         data = await post_json(
             client,
             "/v1/retrieval/followup-context",
@@ -104,6 +105,7 @@ class FollowupsNode(BaseNode):
                 "qvec": query_vec,
                 "max_chunk_len": int(settings.MAX_CHUNK_TEXT_LENGTH),
             },
+            auth_header=repo_auth_header,
         )
         chunk_ids = [str(x) for x in (data.get("chunk_ids") or []) if x is not None]
         neighborhoods = list(data.get("neighborhoods") or [])

@@ -33,6 +33,7 @@ class PrimerNode(BaseNode):
         k: int,
         qvec: List[float],
         project_id: str,
+        repo_auth_header: str | None,
     ) -> tuple[List[int], List[Dict[str, Any]]]:
         """Fetch primer context (communities + brief) in one backend call."""
         data = await post_json(
@@ -44,6 +45,7 @@ class PrimerNode(BaseNode):
                 "k": int(k),
                 "qvec": qvec,
             },
+            auth_header=repo_auth_header,
         )
         communities = [int(x) for x in (data.get("communities") or []) if x is not None]
         brief = list(data.get("community_brief") or [])
@@ -63,12 +65,14 @@ class PrimerNode(BaseNode):
         
         # Fetch communities and briefs
         client = self._get_repo()
+        repo_auth_header = state.get("repo_auth_header")
         communities, community_brief = await self._fetch_primer_context(
             client,
             settings.vector_index.COMMUNITY_VECTOR_INDEX_NAME,
             k,
             state["qvec"],
             state["project_id"],
+            repo_auth_header,
         )
 
         # Early exit: without communities, followup chunk retrieval cannot proceed.

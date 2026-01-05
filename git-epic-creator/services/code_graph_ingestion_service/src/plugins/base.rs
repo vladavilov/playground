@@ -28,5 +28,3 @@ pub trait LanguagePlugin: Send + Sync {
         true
     }
 }
-
-

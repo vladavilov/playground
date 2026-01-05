@@ -4,13 +4,19 @@ use super::regexes;
 
 /// Regex fallback for structure extraction, but operating on `logical_lines` (not physical lines),
 /// so FIXED-format sequence/indicator columns do not break recognition.
-pub(crate) fn extract_divisions_from_logical(preprocess: &PreprocessResult) -> Vec<(String, String, i64, i64)> {
+pub(crate) fn extract_divisions_from_logical(
+    preprocess: &PreprocessResult,
+) -> Vec<(String, String, i64, i64)> {
     let eof = (preprocess.physical_lines.len() as i64).max(1);
     let mut hits: Vec<(String, String, i64)> = Vec::new();
     for (idx, line) in preprocess.logical_lines.iter().enumerate() {
         if let Some(cap) = regexes::re_division().captures(line) {
             let sym = cap.get(1).unwrap().as_str().trim().to_ascii_uppercase();
-            let start = preprocess.logical_spans.get(idx).map(|(s, _e)| *s).unwrap_or(1);
+            let start = preprocess
+                .logical_spans
+                .get(idx)
+                .map(|(s, _e)| *s)
+                .unwrap_or(1);
             hits.push(("division".to_string(), sym, start));
         }
     }
@@ -29,7 +35,10 @@ pub(crate) fn extract_divisions_from_logical(preprocess: &PreprocessResult) -> V
     out
 }
 
-fn find_division_for_line(div_spans: &[(String, i64, i64)], line_no: i64) -> Option<(String, i64, i64)> {
+fn find_division_for_line(
+    div_spans: &[(String, i64, i64)],
+    line_no: i64,
+) -> Option<(String, i64, i64)> {
     for (sym, s, e) in div_spans {
         if *s <= line_no && line_no <= *e {
             return Some((sym.clone(), *s, *e));
@@ -43,7 +52,10 @@ pub(crate) fn extract_sections_from_logical(
     divisions: &[(String, String, i64, i64)],
 ) -> Vec<(String, String, i64, i64)> {
     let eof = (preprocess.physical_lines.len() as i64).max(1);
-    let div_spans: Vec<(String, i64, i64)> = divisions.iter().map(|(_, sym, s, e)| (sym.clone(), *s, *e)).collect();
+    let div_spans: Vec<(String, i64, i64)> = divisions
+        .iter()
+        .map(|(_, sym, s, e)| (sym.clone(), *s, *e))
+        .collect();
 
     let mut hits: Vec<(String, String, i64)> = Vec::new();
     for (idx, line) in preprocess.logical_lines.iter().enumerate() {
@@ -52,9 +64,15 @@ pub(crate) fn extract_sections_from_logical(
             if name.is_empty() {
                 continue;
             }
-            let start = preprocess.logical_spans.get(idx).map(|(s, _e)| *s).unwrap_or(1);
+            let start = preprocess
+                .logical_spans
+                .get(idx)
+                .map(|(s, _e)| *s)
+                .unwrap_or(1);
             let div = find_division_for_line(&div_spans, start);
-            let Some((div_name, _, _)) = div else { continue };
+            let Some((div_name, _, _)) = div else {
+                continue;
+            };
             if !matches!(div_name.as_str(), "DATA" | "PROCEDURE" | "ENVIRONMENT") {
                 continue;
             }
@@ -81,11 +99,17 @@ pub(crate) fn extract_paragraphs_from_logical(
     divisions: &[(String, String, i64, i64)],
 ) -> Vec<(String, String, i64, i64)> {
     let proc = divisions.iter().find(|(_, sym, _, _)| sym == "PROCEDURE");
-    let Some((_k, _sym, proc_start, proc_end)) = proc else { return vec![] };
+    let Some((_k, _sym, proc_start, proc_end)) = proc else {
+        return vec![];
+    };
 
     let mut hits: Vec<(String, String, i64)> = Vec::new();
     for (idx, line) in preprocess.logical_lines.iter().enumerate() {
-        let start = preprocess.logical_spans.get(idx).map(|(s, _e)| *s).unwrap_or(1);
+        let start = preprocess
+            .logical_spans
+            .get(idx)
+            .map(|(s, _e)| *s)
+            .unwrap_or(1);
         if start < *proc_start || start > *proc_end {
             continue;
         }
@@ -131,7 +155,10 @@ pub(crate) fn extract_paragraphs_from_logical(
 mod tests {
     use crate::plugins::cobol::normalizer::preprocess_cobol_bytes;
 
-    use super::{extract_divisions_from_logical, extract_paragraphs_from_logical, extract_sections_from_logical};
+    use super::{
+        extract_divisions_from_logical, extract_paragraphs_from_logical,
+        extract_sections_from_logical,
+    };
 
     #[test]
     fn logical_regex_fallback_handles_fixed_sequence_area() {
@@ -166,5 +193,3 @@ mod tests {
         assert!(paras.iter().any(|(_, sym, _, _)| sym == "2000-WORK"));
     }
 }
-
-

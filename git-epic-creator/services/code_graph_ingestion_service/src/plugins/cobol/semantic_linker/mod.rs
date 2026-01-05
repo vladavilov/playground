@@ -32,31 +32,28 @@ pub fn link_cobol_semantics(
     // Prefer tree-sitter-cobol for high-fidelity structure (divisions + paragraph headers),
     // but keep regex-based fallback to remain robust for partial / malformed inputs.
     let parsed = cobol_tree::parse_cobol_tree(preprocess);
-    let divisions_ts = parsed
-        .as_ref()
-        .and_then(|(_prepared, tree)| {
-            cobol_tree::extract_divisions_treesitter(preprocess, tree.root_node())
-        });
+    let divisions_ts = parsed.as_ref().and_then(|(_prepared, tree)| {
+        cobol_tree::extract_divisions_treesitter(preprocess, tree.root_node())
+    });
     let used_treesitter_divisions = divisions_ts.is_some();
-    let divisions = divisions_ts.unwrap_or_else(|| divisions::extract_divisions_from_logical(preprocess));
+    let divisions =
+        divisions_ts.unwrap_or_else(|| divisions::extract_divisions_from_logical(preprocess));
 
     // Sections are only used for data storage scoping; keep them in the same "logical regex" lane
     // so FIXED-format physical prefixes don't break recognition.
     let sections = divisions::extract_sections_from_logical(preprocess, &divisions);
 
-    let paragraphs_ts = parsed
-        .as_ref()
-        .and_then(|(prepared, tree)| {
-            cobol_tree::extract_paragraphs_treesitter(
-                preprocess,
-                tree.root_node(),
-                prepared,
-                &divisions,
-            )
-        });
+    let paragraphs_ts = parsed.as_ref().and_then(|(prepared, tree)| {
+        cobol_tree::extract_paragraphs_treesitter(
+            preprocess,
+            tree.root_node(),
+            prepared,
+            &divisions,
+        )
+    });
     let used_treesitter_paragraphs = paragraphs_ts.is_some();
-    let paragraphs =
-        paragraphs_ts.unwrap_or_else(|| divisions::extract_paragraphs_from_logical(preprocess, &divisions));
+    let paragraphs = paragraphs_ts
+        .unwrap_or_else(|| divisions::extract_paragraphs_from_logical(preprocess, &divisions));
 
     let structure_extraction = match (used_treesitter_divisions, used_treesitter_paragraphs) {
         (true, true) => "treesitter",
@@ -64,9 +61,13 @@ pub fn link_cobol_semantics(
         _ => "mixed",
     };
 
-    let mut nodes: std::collections::BTreeMap<String, CodeNodeRecord> = std::collections::BTreeMap::new();
+    let mut nodes: std::collections::BTreeMap<String, CodeNodeRecord> =
+        std::collections::BTreeMap::new();
 
-    for (kind, sym, start, end) in divisions.iter().chain(sections.iter()).chain(paragraphs.iter())
+    for (kind, sym, start, end) in divisions
+        .iter()
+        .chain(sections.iter())
+        .chain(paragraphs.iter())
     {
         let text = text::slice_text(physical_lines, *start, *end);
         let nid = stable_node_id([
@@ -97,8 +98,14 @@ pub fn link_cobol_semantics(
         );
     }
 
-    let (data_nodes, defs_by_name) =
-        data_defs::extract_data_defs(project_id, repo_fingerprint, file_path, physical_lines, &divisions, &sections);
+    let (data_nodes, defs_by_name) = data_defs::extract_data_defs(
+        project_id,
+        repo_fingerprint,
+        file_path,
+        physical_lines,
+        &divisions,
+        &sections,
+    );
     for n in data_nodes {
         nodes.insert(n.node_id.clone(), n);
     }
@@ -148,19 +155,19 @@ pub fn link_cobol_semantics(
             md.insert("target".to_string(), Value::String(p.target.clone()));
             md.insert(
                 "thru".to_string(),
-                thru_fallback.clone().map(Value::String).unwrap_or(Value::Null),
+                thru_fallback
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
             );
             md.insert("kind".to_string(), Value::String(dst_kind.to_string()));
 
             // Minimal fine-graining: if a THRU/THROUGH label exists, attempt to resolve it as well
             // and attach the resolved node id/kind for downstream consumers (no extra edges/nodes).
             if let Some(thru) = thru_fallback.as_deref() {
-                if let Some((tnid, tk)) = resolution::resolve_thru_target(
-                    thru,
-                    &paragraph_index,
-                    &section_index,
-                    &nodes,
-                ) {
+                if let Some((tnid, tk)) =
+                    resolution::resolve_thru_target(thru, &paragraph_index, &section_index, &nodes)
+                {
                     md.insert("thru_kind".to_string(), Value::String(tk.to_string()));
                     md.insert("thru_node_id".to_string(), Value::String(tnid));
                 }
@@ -197,16 +204,16 @@ pub fn link_cobol_semantics(
             md.insert("target".to_string(), Value::String(p.target.clone()));
             md.insert(
                 "thru".to_string(),
-                thru_fallback.clone().map(Value::String).unwrap_or(Value::Null),
+                thru_fallback
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
             );
             md.insert("kind".to_string(), Value::String("unknown".to_string()));
             if let Some(thru) = thru_fallback.as_deref() {
-                if let Some((tnid, tk)) = resolution::resolve_thru_target(
-                    thru,
-                    &paragraph_index,
-                    &section_index,
-                    &nodes,
-                ) {
+                if let Some((tnid, tk)) =
+                    resolution::resolve_thru_target(thru, &paragraph_index, &section_index, &nodes)
+                {
                     md.insert("thru_kind".to_string(), Value::String(tk.to_string()));
                     md.insert("thru_node_id".to_string(), Value::String(tnid));
                 }
@@ -253,7 +260,10 @@ pub fn link_cobol_semantics(
         });
         let mut md = serde_json::Map::new();
         md.insert("callee".to_string(), Value::String(c.callee.clone()));
-        md.insert("call_type".to_string(), Value::String(c.call_type.to_string()));
+        md.insert(
+            "call_type".to_string(),
+            Value::String(c.call_type.to_string()),
+        );
         edges.push(EdgeRecord {
             project_id: project_id.to_string(),
             repo_fingerprint: repo_fingerprint.to_string(),
@@ -334,8 +344,8 @@ pub fn link_cobol_semantics(
             continue;
         };
 
-        let src_node =
-            resolution::find_container_span_node_id(&para_spans, s).unwrap_or_else(|| program_node_id.to_string());
+        let src_node = resolution::find_container_span_node_id(&para_spans, s)
+            .unwrap_or_else(|| program_node_id.to_string());
 
         if kind == "SQL" {
             for (sql_op, table, access) in exec::extract_exec_sql_table_ops(&exec_text) {
@@ -416,7 +426,12 @@ pub fn link_cobol_semantics(
                 md.insert("name".to_string(), Value::String(ref_name.clone()));
                 md.insert(
                     "qualifiers".to_string(),
-                    Value::Array(qualifiers.iter().map(|q| Value::String(q.clone())).collect()),
+                    Value::Array(
+                        qualifiers
+                            .iter()
+                            .map(|q| Value::String(q.clone()))
+                            .collect(),
+                    ),
                 );
                 edges.push(EdgeRecord {
                     project_id: project_id.to_string(),
@@ -451,11 +466,18 @@ pub fn link_cobol_semantics(
                 md.insert("name".to_string(), Value::String(ref_name.clone()));
                 md.insert(
                     "qualifiers".to_string(),
-                    Value::Array(qualifiers.iter().map(|q| Value::String(q.clone())).collect()),
+                    Value::Array(
+                        qualifiers
+                            .iter()
+                            .map(|q| Value::String(q.clone()))
+                            .collect(),
+                    ),
                 );
                 md.insert(
                     "candidate_count".to_string(),
-                    Value::Number((data_defs::candidate_count(&ref_name, &defs_by_name) as i64).into()),
+                    Value::Number(
+                        (data_defs::candidate_count(&ref_name, &defs_by_name) as i64).into(),
+                    ),
                 );
                 edges.push(EdgeRecord {
                     project_id: project_id.to_string(),
@@ -471,11 +493,21 @@ pub fn link_cobol_semantics(
     }
 
     // De-dup deterministically.
-    let mut uniq_edges: std::collections::BTreeMap<(CodeRelType, String, String, String), EdgeRecord> =
-        std::collections::BTreeMap::new();
+    let mut uniq_edges: std::collections::BTreeMap<
+        (CodeRelType, String, String, String),
+        EdgeRecord,
+    > = std::collections::BTreeMap::new();
     for e in edges {
         let md_key = serde_json::to_string(&e.metadata).unwrap_or_default();
-        uniq_edges.insert((e.rel_type, e.src_node_id.clone(), e.dst_node_id.clone(), md_key), e);
+        uniq_edges.insert(
+            (
+                e.rel_type,
+                e.src_node_id.clone(),
+                e.dst_node_id.clone(),
+                md_key,
+            ),
+            e,
+        );
     }
 
     let mut facts = serde_json::Map::new();
@@ -485,9 +517,7 @@ pub fn link_cobol_semantics(
     );
     facts.insert(
         "paragraph_count".to_string(),
-        Value::Number(
-            (nodes.values().filter(|n| n.kind == "paragraph").count() as i64).into(),
-        ),
+        Value::Number((nodes.values().filter(|n| n.kind == "paragraph").count() as i64).into()),
     );
     facts.insert(
         "data_def_count".to_string(),
@@ -540,5 +570,3 @@ pub fn link_cobol_semantics(
         facts,
     }
 }
-
-

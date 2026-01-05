@@ -77,7 +77,7 @@ class TestUIRequirementsWorkflow:
         """
         Full user flow driven through UI service proxies.
         """
-        ui_base = service_urls["gateway_control_plane_service"]  # requires config addition
+        ui_base = service_urls["sse_bridge_service"]
 
         # Seed Neo4j graph for deterministic retrieval behavior (same as retrieval test)
         wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)
@@ -231,7 +231,7 @@ class TestUIRequirementsWorkflow:
         6. Monitor ai_tasks_progress pub/sub messages
         7. Assert final backlog bundle response
         """
-        ui_base = service_urls["gateway_control_plane_service"]
+        ui_base = service_urls["sse_bridge_service"]
 
         # Seed Neo4j graph for retrieval context
         wa.load_cypher_script(neo4j_driver, target_db_name, cyphers_path)

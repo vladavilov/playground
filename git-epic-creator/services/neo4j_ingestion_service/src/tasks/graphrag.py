@@ -116,7 +116,10 @@ async def _run_graphrag_job_async(
 
         # Run pipeline
         service = Neo4jIngestionService()
-        service_result = await service.run_graphrag_pipeline(project_id=project_id)
+        service_result = await service.run_graphrag_pipeline(
+            project_id=project_id,
+            repo_auth_header=authorization_header,
+        )
 
         result: Dict[str, Any] = {
             "job_id": job_id,

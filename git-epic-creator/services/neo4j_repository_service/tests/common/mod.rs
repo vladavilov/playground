@@ -2,6 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::Router;
 use serde_json::Value;
+use base64::Engine;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
 use neo4j_repository_service::{
     executor::{DynExecutor, Neo4jExecutor},
@@ -130,3 +133,34 @@ pub fn app(state: AppState) -> Router {
     http::router().with_state(state)
 }
 
+pub fn set_local_jwt_secret() {
+    // Rust 2024: mutating process env is `unsafe` because it can cause UB when other threads
+    // concurrently read env vars. Our tests are isolated and we set it before requests.
+    unsafe {
+        std::env::set_var("LOCAL_JWT_SECRET", "test-local-jwt-secret");
+    }
+}
+
+pub fn s2s_auth_header_value() -> String {
+    set_local_jwt_secret();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u64;
+
+    // Minimal HS256 JWT:
+    // header: {"alg":"HS256","typ":"JWT"}
+    // payload: {"sub":"api-gateway","iss":"authentication-service","exp":...}
+    let header_json = r#"{"alg":"HS256","typ":"JWT"}"#;
+    let payload_json = format!(
+        r#"{{"sub":"api-gateway","iss":"authentication-service","exp":{}}}"#,
+        now + 3600
+    );    let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header_json.as_bytes());
+    let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_json.as_bytes());
+    let signing_input = format!("{}.{}", header_b64, payload_b64);    let mut mac =
+        Hmac::<Sha256>::new_from_slice("test-local-jwt-secret".as_bytes()).unwrap();
+    mac.update(signing_input.as_bytes());
+    let sig = mac.finalize().into_bytes();
+    let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sig);    format!("Bearer {}.{}.{}", header_b64, payload_b64, sig_b64)
+}

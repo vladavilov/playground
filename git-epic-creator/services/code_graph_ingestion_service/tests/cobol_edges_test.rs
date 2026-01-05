@@ -1,5 +1,5 @@
-use code_graph_ingestion_service::plugins::cobol::edges::extract_cobol_edges;
 use code_graph_ingestion_service::core::types::CodeRelType;
+use code_graph_ingestion_service::plugins::cobol::edges::extract_cobol_edges;
 
 #[test]
 fn edges_extracts_literal_and_dynamic_calls_and_perform() {
@@ -20,28 +20,31 @@ fn edges_extracts_literal_and_dynamic_calls_and_perform() {
     ];
 
     let res = extract_cobol_edges("p", "r", "x.cbl", "prog", &lines);
-    let rels: std::collections::HashSet<CodeRelType> = res.edges.iter().map(|e| e.rel_type).collect();
+    let rels: std::collections::HashSet<CodeRelType> =
+        res.edges.iter().map(|e| e.rel_type).collect();
     assert!(rels.contains(&CodeRelType::Calls));
     assert!(rels.contains(&CodeRelType::Performs));
     assert!(rels.contains(&CodeRelType::Reads));
     assert!(rels.contains(&CodeRelType::Writes));
     assert!(res.nodes.iter().any(|n| n.kind == "unresolved"));
-    assert!(res
-        .nodes
-        .iter()
-        .any(|n| n.extra_labels.iter().any(|l| l == "__UnresolvedCall__")));
-    assert!(res
-        .nodes
-        .iter()
-        .any(|n| n.extra_labels.iter().any(|l| l == "__UnresolvedFile__")));
-    assert!(res
-        .nodes
-        .iter()
-        .any(|n| n.extra_labels.iter().any(|l| l == "__UnresolvedRecord__")));
-    assert!(res
-        .nodes
-        .iter()
-        .any(|n| n.extra_labels.iter().any(|l| l == "__ExecSqlTable__")));
+    assert!(
+        res.nodes
+            .iter()
+            .any(|n| n.extra_labels.iter().any(|l| l == "__UnresolvedCall__"))
+    );
+    assert!(
+        res.nodes
+            .iter()
+            .any(|n| n.extra_labels.iter().any(|l| l == "__UnresolvedFile__"))
+    );
+    assert!(
+        res.nodes
+            .iter()
+            .any(|n| n.extra_labels.iter().any(|l| l == "__UnresolvedRecord__"))
+    );
+    assert!(
+        res.nodes
+            .iter()
+            .any(|n| n.extra_labels.iter().any(|l| l == "__ExecSqlTable__"))
+    );
 }
-
-

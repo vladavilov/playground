@@ -39,5 +39,3 @@ pub fn snippet_hash(file_path: &str, start_line: i64, end_line: i64, text: &str)
     h.update(raw.as_bytes());
     hex::encode(h.finalize())
 }
-
-

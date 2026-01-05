@@ -1,5 +1,7 @@
 use code_graph_ingestion_service::plugins::cobol::copybooks::expand_copybooks;
-use code_graph_ingestion_service::plugins::cobol::normalizer::{preprocess_cobol_bytes, PreprocessResult};
+use code_graph_ingestion_service::plugins::cobol::normalizer::{
+    PreprocessResult, preprocess_cobol_bytes,
+};
 use code_graph_ingestion_service::plugins::cobol::unitizer::unitize_cobol_file;
 
 #[test]
@@ -29,7 +31,13 @@ fn unitizer_emits_sentence_statement_data_item_and_copybook_nodes() {
     let prep = preprocess_cobol_bytes(&src);
 
     // Simulate the plugin’s expand-copybooks step so unitizer can emit copybook nodes via provenance.
-    let expanded = expand_copybooks(&repo, &prep.logical_lines, &prep.logical_spans, Some(&[repo.clone()])).unwrap();
+    let expanded = expand_copybooks(
+        &repo,
+        &prep.logical_lines,
+        &prep.logical_spans,
+        Some(&[repo.clone()]),
+    )
+    .unwrap();
     let prep2 = PreprocessResult {
         physical_lines: prep.physical_lines,
         logical_lines: expanded.logical_lines.clone(),
@@ -42,10 +50,9 @@ fn unitizer_emits_sentence_statement_data_item_and_copybook_nodes() {
     assert!(res.nodes.iter().any(|n| n.kind == "statement"));
     assert!(res.nodes.iter().any(|n| n.kind == "sentence"));
     assert!(res.nodes.iter().any(|n| n.kind == "data_item"));
-    assert!(res.nodes.iter().any(|n| n.kind == "copybook" && n.symbol.as_deref() == Some("CB1.cpy")));
+    assert!(
+        res.nodes
+            .iter()
+            .any(|n| n.kind == "copybook" && n.symbol.as_deref() == Some("CB1.cpy"))
+    );
 }
-
-
-
-
-

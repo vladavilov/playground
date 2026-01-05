@@ -22,7 +22,10 @@ pub(crate) fn extract_data_defs(
         return (vec![], std::collections::BTreeMap::new());
     };
 
-    let sec_spans: Vec<(String, i64, i64)> = sections.iter().map(|(_, sym, s, e)| (sym.clone(), *s, *e)).collect();
+    let sec_spans: Vec<(String, i64, i64)> = sections
+        .iter()
+        .map(|(_, sym, s, e)| (sym.clone(), *s, *e))
+        .collect();
 
     let mut nodes: Vec<CodeNodeRecord> = Vec::new();
     let mut defs_by_name: std::collections::BTreeMap<String, Vec<serde_json::Map<String, Value>>> =
@@ -97,7 +100,12 @@ pub(crate) fn extract_data_defs(
         def.insert("name".to_string(), Value::String(up_name.clone()));
         def.insert(
             "qualifiers".to_string(),
-            Value::Array(parent_names.iter().map(|q| Value::String(q.clone())).collect()),
+            Value::Array(
+                parent_names
+                    .iter()
+                    .map(|q| Value::String(q.clone()))
+                    .collect(),
+            ),
         );
         def.insert("storage".to_string(), Value::String(storage.clone()));
         def.insert("node_id".to_string(), Value::String(nid.clone()));
@@ -112,8 +120,16 @@ pub(crate) fn extract_data_defs(
             let br = storage_rank(b.get("storage").and_then(|v| v.as_str()).unwrap_or(""));
             ar.cmp(&br)
                 .then_with(|| {
-                    let al = a.get("qualifiers").and_then(|v| v.as_array()).map(|x| x.len()).unwrap_or(0);
-                    let bl = b.get("qualifiers").and_then(|v| v.as_array()).map(|x| x.len()).unwrap_or(0);
+                    let al = a
+                        .get("qualifiers")
+                        .and_then(|v| v.as_array())
+                        .map(|x| x.len())
+                        .unwrap_or(0);
+                    let bl = b
+                        .get("qualifiers")
+                        .and_then(|v| v.as_array())
+                        .map(|x| x.len())
+                        .unwrap_or(0);
                     bl.cmp(&al)
                 })
                 .then_with(|| {
@@ -192,7 +208,11 @@ pub(crate) fn resolve_data_ref(
         let cand_q: Vec<String> = d
             .get("qualifiers")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_else(Vec::new);
         if cand_q.iter().take(q.len()).cloned().collect::<Vec<_>>() == q {
             filtered.push(d);
@@ -217,8 +237,3 @@ pub(crate) fn candidate_count(
         .map(|v| v.len())
         .unwrap_or(0)
 }
-
-
-
-
-

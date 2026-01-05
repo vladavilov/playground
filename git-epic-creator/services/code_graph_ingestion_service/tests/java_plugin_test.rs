@@ -1,6 +1,6 @@
+use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
 use code_graph_ingestion_service::plugins::base::{IngestionContext, LanguagePlugin};
 use code_graph_ingestion_service::plugins::java::plugin::JavaPlugin;
-use code_graph_ingestion_service::core::types::{CodeLanguage, CodeRelType};
 
 #[test]
 fn java_plugin_emits_class_and_method_and_config_wires() {
@@ -29,11 +29,25 @@ fn java_plugin_emits_class_and_method_and_config_wires() {
     let files = plugin.iter_files(&ctx).unwrap();
     let (nodes, edges, facts) = plugin.ingest(&ctx, &files).unwrap();
 
-    assert!(nodes.iter().any(|n| n.kind == "class" && n.symbol.as_deref() == Some("A")));
-    assert!(nodes.iter().any(|n| n.kind == "method" && n.symbol.as_deref() == Some("m")));
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "class" && n.symbol.as_deref() == Some("A"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.kind == "method" && n.symbol.as_deref() == Some("m"))
+    );
     assert!(edges.iter().any(|e| e.rel_type == CodeRelType::ConfigWires));
-    assert_eq!(facts.get("java_file_count").and_then(|v| v.as_i64()), Some(1));
-    assert_eq!(facts.get("xml_file_count").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(
+        facts.get("java_file_count").and_then(|v| v.as_i64()),
+        Some(1)
+    );
+    assert_eq!(
+        facts.get("xml_file_count").and_then(|v| v.as_i64()),
+        Some(1)
+    );
 }
 
 #[test]
@@ -79,7 +93,8 @@ fn java_plugin_resolves_imports_to_class_nodes() {
         })
         .collect();
 
-    assert!(!resolved_imports.is_empty(), "Expected import p.B to resolve to class B node");
+    assert!(
+        !resolved_imports.is_empty(),
+        "Expected import p.B to resolve to class B node"
+    );
 }
-
-

@@ -41,7 +41,7 @@ app.include_router(APIRouter(lifespan=_ui_lifespan))
 @app.get("/")
 async def root():
     """Gateway-only service. Root should be handled by the reverse proxy/frontend."""
-    return {"ok": True, "service": "gateway_control_plane_service", "mode": "sse-only"}
+    return {"ok": True, "service": "sse_bridge_service", "mode": "sse-only"}
 
 if __name__ == "__main__":
     settings = get_app_settings()

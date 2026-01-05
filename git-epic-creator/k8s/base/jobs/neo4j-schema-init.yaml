@@ -18,18 +18,18 @@ spec:
       serviceAccountName: agentic-ai-workload-identity
       restartPolicy: OnFailure
       initContainers:
-        - name: wait-for-neo4j-maintenance
+        - name: wait-for-neo4j-repository-service
           image: curlimages/curl:latest
           command:
             - /bin/sh
             - -c
             - |
-              echo "Waiting for neo4j-maintanance-service to be ready..."
-              until curl -sf http://neo4j-maintanance-service:80/health; do
+              echo "Waiting for neo4j-repository-service to be ready..."
+              until curl -sf http://neo4j-repository-service:80/health; do
                 echo "Waiting..."
                 sleep 5
               done
-              echo "neo4j-maintanance-service is ready"
+              echo "neo4j-repository-service is ready"
       containers:
         - name: schema-init
           image: python:3.13-slim
@@ -68,14 +68,17 @@ spec:
                   mint_body = json.loads(resp.read().decode("utf-8"))
               token = mint_body["access_token"]
 
-              # Initialize Neo4j schema via maintenance service
+              # Initialize Neo4j schema via neo4j-repository-service
               init_req = urllib.request.Request(
-                  "http://neo4j-maintanance-service:80/init-neo4j",
-                  data=b"",
+                  "http://neo4j-repository-service:80/v1/maintenance/init-schema",
+                  data=b"{}",
                   method="POST",
-                  headers={"Authorization": f"Bearer {token}"},
+                  headers={
+                      "Content-Type": "application/json",
+                      "Authorization": f"Bearer {token}",
+                  },
               )
-              print("POST /init-neo4j with gateway S2S Authorization header")
+              print("POST /v1/maintenance/init-schema with gateway S2S Authorization header")
               with urllib.request.urlopen(init_req, timeout=120) as resp:
                   print(resp.status, resp.read().decode("utf-8"))
       volumes:

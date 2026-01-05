@@ -25,8 +25,14 @@ fn chunking_splits_large_node_and_adds_pipe_edges() {
 
     let res = chunk_oversized_nodes(&[node], 1000, 250, 25);
     assert!(res.nodes.len() > 1);
-    assert!(res.edges.iter().all(|e| e.rel_type == CodeRelType::NextChunk));
-    assert!(res.edges.iter().all(|e| e.metadata.get("synthetic").and_then(|v| v.as_bool()) == Some(true)));
+    assert!(
+        res.edges
+            .iter()
+            .all(|e| e.rel_type == CodeRelType::NextChunk)
+    );
+    assert!(
+        res.edges
+            .iter()
+            .all(|e| e.metadata.get("synthetic").and_then(|v| v.as_bool()) == Some(true))
+    );
 }
-
-

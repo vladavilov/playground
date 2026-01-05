@@ -57,6 +57,7 @@ data:
   GITLAB_CLIENT_SERVICE_URL: "http://gitlab-client-service:80"
   NEO4J_RETRIEVAL_URL: "http://neo4j-retrieval-service:80"
   GRAPH_RAG_SERVICE_URL: "http://neo4j-retrieval-service:80"
+  NEO4J_REPOSITORY_SERVICE_URL: "http://neo4j-repository-service:80"
   HTTP_CONNECTION_TIMEOUT: "30.0"
   HTTP_READ_TIMEOUT: "180.0"
   

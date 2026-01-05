@@ -306,11 +306,13 @@ services:
     volumes:
       - ./envoy/envoy-compose.yaml:/etc/envoy/envoy.yaml:ro
     depends_on:
-      gateway-control-plane-service:
+      sse-bridge-service:
         condition: service_healthy
       authentication-service:
         condition: service_healthy
       project-management-service:
+        condition: service_healthy
+      neo4j-retrieval-service:
         condition: service_healthy
       gitlab-client-service:
         condition: service_healthy
@@ -329,13 +331,13 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  gateway-control-plane-service:
+  sse-bridge-service:
     <<: *service_defaults
     build:
       context: ./services
-      dockerfile: ./gateway_control_plane_service/Dockerfile
-    image: gateway-control-plane-service:latest
-    container_name: gateway_control_plane_service
+      dockerfile: ./sse_bridge_service/Dockerfile
+    image: sse-bridge-service:latest
+    container_name: sse_bridge_service
     environment:
       - API_PORT=8000
     env_file:
@@ -430,6 +432,12 @@ services:
       # MCP-specific settings (everything else from shared config via env_file)
       - PORT=8082
       - MCP_TRANSPORT=http
+      # IMPORTANT: MCP should send Azure Bearer tokens through Envoy (gateway), not call auth-service directly.
+      - AUTH_SERVICE_URL=http://envoy-gateway:8000
+      # IMPORTANT: MCP calls upstream APIs via Envoy so ext_authz can validate Azure Bearer
+      # and inject S2S auth headers upstream.
+      - PROJECT_MANAGEMENT_SERVICE_URL=http://envoy-gateway:8000
+      - GRAPH_RAG_SERVICE_URL=http://envoy-gateway:8000
     env_file:
       - docker-compose.env
     networks:
@@ -734,7 +742,7 @@ services:
       - AZURE_AD_AUTHORITY=https://host.docker.internal:8005
       - INIT_DB_SERVICE_URL=http://db-init-service:8000
       # E2E should target the gateway entrypoint (Envoy) for browser-like flows
-      - GATEWAY_CONTROL_PLANE_SERVICE_URL=http://envoy-gateway:8000
+      - SSE_BRIDGE_SERVICE_URL=http://envoy-gateway:8000
       - AI_REQUIREMENTS_SERVICE_URL=http://ai-requirements-service:8000
       - NEO4J_RETRIEVAL_URL=http://neo4j-retrieval-service:8000
       - OPENAI_MOCK_URL=http://openai-mock-service:8000

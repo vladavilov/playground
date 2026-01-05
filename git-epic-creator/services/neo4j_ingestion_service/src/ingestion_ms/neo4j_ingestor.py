@@ -25,9 +25,16 @@ class Neo4jIngestor:
     This replaces direct Neo4j driver usage end-to-end for this service.
     """
 
-    def __init__(self, client: httpx.Client, project_id: str | None = None) -> None:
+    def __init__(
+        self,
+        client: httpx.Client,
+        project_id: str | None = None,
+        *,
+        repo_auth_header: str | None = None,
+    ) -> None:
         self._client = client
         self._project_id = project_id
+        self._repo_auth_header = repo_auth_header
 
     # -----------------------
     # Generic batch HTTP runner
@@ -56,7 +63,7 @@ class Neo4jIngestor:
                 payload.update(extra_payload)
 
             batch_start = time.time()
-            data = post_json(self._client, path, payload)
+            data = post_json(self._client, path, payload, auth_header=self._repo_auth_header)
             batch_count = int(data.get(response_count_field, 0))
             total_count += batch_count
 
@@ -106,6 +113,7 @@ class Neo4jIngestor:
             self._client,
             "/v1/requirements-graph/merge/bundle",
             req.model_dump(mode="python"),
+            auth_header=self._repo_auth_header,
         )
 
         # Maintain a compatible "counts by dataset" result shape for downstream logging.
@@ -212,6 +220,7 @@ class Neo4jIngestor:
                 self._client,
                 "/v1/requirements-graph/backfill/entity-relationship-ids",
                 {"project_id": self._project_id},
+                auth_header=self._repo_auth_header,
             )
         except Exception as exc:
             ok = False
@@ -234,6 +243,7 @@ class Neo4jIngestor:
                 self._client,
                 "/v1/requirements-graph/backfill/community-membership",
                 {"project_id": self._project_id},
+                auth_header=self._repo_auth_header,
             )
         except Exception as exc:
             ok = False
@@ -249,7 +259,12 @@ class Neo4jIngestor:
         err: str | None = None
         count = 0
         try:
-            data = post_json(self._client, "/v1/requirements-graph/backfill/community-ids", {})
+            data = post_json(
+                self._client,
+                "/v1/requirements-graph/backfill/community-ids",
+                {},
+                auth_header=self._repo_auth_header,
+            )
             count = int(data.get("communities_updated", 0))
         except Exception as exc:
             ok = False
@@ -273,6 +288,7 @@ class Neo4jIngestor:
                 self._client,
                 "/v1/requirements-graph/backfill/community-hierarchy",
                 {"project_id": self._project_id},
+                auth_header=self._repo_auth_header,
             )
         except Exception as exc:
             ok = False
@@ -303,7 +319,12 @@ class Neo4jIngestor:
                 err = "No project_id set"
                 return result_dict
 
-            record = post_json(self._client, "/v1/requirements-graph/validate/embeddings", {"project_id": self._project_id})
+            record = post_json(
+                self._client,
+                "/v1/requirements-graph/validate/embeddings",
+                {"project_id": self._project_id},
+                auth_header=self._repo_auth_header,
+            )
             result_dict.update(record)
 
             communities_missing = int(record.get("communities_missing_embedding", 0))
@@ -339,7 +360,12 @@ class Neo4jIngestor:
     def validate_relationships(self) -> Dict[str, Any]:
         if not self._project_id:
             raise ValueError("project_id is required for relationship validation")
-        return post_json(self._client, "/v1/requirements-graph/validate/relationships", {"project_id": self._project_id})
+        return post_json(
+            self._client,
+            "/v1/requirements-graph/validate/relationships",
+            {"project_id": self._project_id},
+            auth_header=self._repo_auth_header,
+        )
 
     def cleanup_duplicate_relationships(self) -> int:
         if not self._project_id:
@@ -348,13 +374,19 @@ class Neo4jIngestor:
             self._client,
             "/v1/requirements-graph/cleanup/duplicate-relationships",
             {"project_id": self._project_id},
+            auth_header=self._repo_auth_header,
         )
         return int(data.get("total_duplicates_removed", 0))
 
     def detect_orphaned_nodes(self) -> Dict[str, Any]:
         if not self._project_id:
             raise ValueError("project_id is required for orphan detection")
-        return post_json(self._client, "/v1/requirements-graph/detect/orphaned-nodes", {"project_id": self._project_id})
+        return post_json(
+            self._client,
+            "/v1/requirements-graph/detect/orphaned-nodes",
+            {"project_id": self._project_id},
+            auth_header=self._repo_auth_header,
+        )
 
     def cleanup_orphaned_nodes(self, callbacks: IngestionWorkflowCallbacks) -> Dict[str, Any]:
         step = "cleanup_orphaned_nodes"
@@ -371,6 +403,7 @@ class Neo4jIngestor:
                 self._client,
                 "/v1/requirements-graph/cleanup/orphaned-nodes",
                 {"project_id": self._project_id},
+                auth_header=self._repo_auth_header,
             )
         except Exception as exc:
             ok = False
@@ -395,6 +428,7 @@ class Neo4jIngestor:
                 self._client,
                 "/v1/requirements-graph/sync/entity-relationship-ids",
                 {"project_id": self._project_id},
+                auth_header=self._repo_auth_header,
             )
             count = int(data.get("entities_updated", 0))
         except Exception as exc:

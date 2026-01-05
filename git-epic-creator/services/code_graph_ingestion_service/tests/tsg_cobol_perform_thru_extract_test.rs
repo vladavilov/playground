@@ -17,13 +17,10 @@ fn tsg_extracts_perform_thru_second_label() {
 
     let ex = extract_cobol(src).expect("extract");
     assert!(
-        ex.performs.iter().any(|p| p.target == "2000-WORK" && p.thru.as_deref() == Some("3000-EXIT")),
+        ex.performs
+            .iter()
+            .any(|p| p.target == "2000-WORK" && p.thru.as_deref() == Some("3000-EXIT")),
         "expected PERFORM THRU hit, got: {:?}",
         ex.performs
     );
 }
-
-
-
-
-

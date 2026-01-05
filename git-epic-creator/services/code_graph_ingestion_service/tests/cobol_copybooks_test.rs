@@ -7,7 +7,10 @@ fn copybook_expansion_inlines_content_and_records_includes() {
     std::fs::create_dir_all(&repo).unwrap();
     std::fs::write(repo.join("FOO.cpy"), "01 X PIC 9.\n").unwrap();
 
-    let logical = vec!["       COPY FOO.".to_string(), "       STOP RUN.".to_string()];
+    let logical = vec![
+        "       COPY FOO.".to_string(),
+        "       STOP RUN.".to_string(),
+    ];
     let spans = vec![(1, 1), (2, 2)];
     let res = expand_copybooks(&repo, &logical, &spans, None).unwrap();
 
@@ -34,5 +37,3 @@ fn copy_replacing_basic_substitution() {
     let joined = res.logical_lines.join("\n");
     assert!(joined.contains("MOVE X TO B."));
 }
-
-
