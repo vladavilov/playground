@@ -1,5 +1,10 @@
 use axum::Router;
-use tower_http::{compression::CompressionLayer, request_id::MakeRequestUuid, trace::TraceLayer};
+use tower_http::{
+    compression::CompressionLayer,
+    decompression::RequestDecompressionLayer,
+    request_id::MakeRequestUuid,
+    trace::TraceLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use std::sync::Arc;
@@ -31,11 +36,11 @@ async fn main() -> anyhow::Result<()> {
         .layer(tower_http::request_id::SetRequestIdLayer::x_request_id(
             MakeRequestUuid,
         ))
+        // Accept gzipped request bodies (important for large ingestion payloads).
+        .layer(RequestDecompressionLayer::new())
         .layer(CompressionLayer::new())
         // Safety: avoid accidental huge payloads (vectors, neighborhoods, etc.).
-        .layer(tower_http::limit::RequestBodyLimitLayer::new(
-            4 * 1024 * 1024,
-        ))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(cfg.http_body_limit_bytes))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(cfg.bind_addr).await?;

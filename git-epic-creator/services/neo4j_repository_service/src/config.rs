@@ -4,6 +4,7 @@ use std::{env, net::SocketAddr, time::Duration};
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub queries_dir: String,
+    pub http_body_limit_bytes: usize,
     pub neo4j_uri: String,
     pub neo4j_username: String,
     pub neo4j_password: String,
@@ -25,6 +26,11 @@ impl Config {
         // We do not support overriding this via environment variables.
         let queries_dir = "/app/queries".to_string();
 
+        let http_body_limit_bytes: usize = env::var("HTTP_BODY_LIMIT_BYTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4 * 1024 * 1024);
+
         let neo4j_uri = env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://neo4j:7687".to_string());
         let neo4j_username = env::var("NEO4J_USERNAME").unwrap_or_else(|_| "neo4j".to_string());
         let neo4j_password = env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "neo4j123".to_string());
@@ -44,6 +50,7 @@ impl Config {
         Ok(Self {
             bind_addr,
             queries_dir,
+            http_body_limit_bytes,
             neo4j_uri,
             neo4j_username,
             neo4j_password,

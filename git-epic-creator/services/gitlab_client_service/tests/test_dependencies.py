@@ -32,7 +32,7 @@ def test_get_gitlab_client_creates_client(monkeypatch):
     call_args = mock_gitlab_class.call_args
     
     assert call_args[1]["url"] == "http://test-gitlab.com"
-    assert call_args[1]["private_token"] == "test-token"
+    assert call_args[1]["oauth_token"] == "test-token"
     assert call_args[1]["timeout"] == 60.0
     assert call_args[1]["retry_transient_errors"] is True
     assert client == mock_gitlab_instance

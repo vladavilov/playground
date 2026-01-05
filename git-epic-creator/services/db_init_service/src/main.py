@@ -10,7 +10,7 @@ from models.project_db import Base, Project, ProjectMember
 
 from fastapi import Depends, APIRouter
 from sqlalchemy import inspect
-from utils.local_auth import get_local_user_verified, LocalUser
+from utils.local_auth import get_gateway_service_verified, LocalServiceCaller
 from utils.error_handler import ErrorHandler
 import structlog
 import uvicorn
@@ -35,10 +35,12 @@ ErrorHandler().register_exception_handlers(app)
 # Create API router for database operations
 db_router = APIRouter(prefix="/db", tags=["Database"])
 
+require_gateway_verified = get_gateway_service_verified()
+
 @db_router.post("/init")
 def init_db(
     postgres_client: PostgresClient = Depends(get_postgres_client),
-    current_user: LocalUser = Depends(get_local_user_verified),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
 ):
     """
     Initializes the database by dropping and recreating all tables defined in the imported models.

@@ -2,10 +2,10 @@
 
 import pytest
 from uuid import uuid4
-from models.backlog_models import SimilarMatch, Task, Epic
-from models.request_models import TasksChatRequest, GeneratedBacklogBundle, ClarificationQuestion
+from task_models.backlog_models import SimilarMatch, Task, Epic
+from task_models.request_models import TasksChatRequest, GeneratedBacklogBundle, ClarificationQuestion
 from models.progress_messages import BacklogProgressMessage, BacklogStatus
-from models.agent_models import RequirementsAnalysis, BacklogDraft
+from task_models.agent_models import RequirementsAnalysis, BacklogDraft
 
 
 def test_similar_match_model():
@@ -13,6 +13,9 @@ def test_similar_match_model():
     match = SimilarMatch(
         kind="epic",
         id="123",
+        iid="1",
+        title="Some Epic",
+        project_id="999",
         status="open",
         similarity=0.85,
         url="https://gitlab.com/epic/123",

@@ -23,6 +23,12 @@ class LocalUser:
     token: str
 
 
+@dataclass
+class LocalServiceCaller:
+    sub: str
+    token: str
+
+
 def _get_token_from_request(request: Request) -> str | None:
     return extract_bearer_token(request)
 
@@ -60,6 +66,41 @@ def get_local_user_allow_expired(token: str | None = Depends(_get_token_from_req
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     return _user_from_claims(claims, token)
+
+
+def get_gateway_service_verified(
+    expected_sub: str = "api-gateway",
+    expected_iss: str = "authentication-service",
+) -> Callable[[str | None], LocalServiceCaller]:
+    """
+    Verify that the caller is the API gateway using a service-bound JWT.
+
+    This dependency validates signature + exp and enforces the caller contract:
+    - claims["sub"] == expected_sub
+    - claims["iss"] == expected_iss (recommended)
+    """
+
+    def _dep(token: str | None = Depends(_get_token_from_request)) -> LocalServiceCaller:
+        if not token:
+            logger.warning("Authentication required: no token provided")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        try:
+            claims = verify_jwt(token, verify_exp=True)
+        except Exception as e:
+            logger.error("Token verification failed", error=str(e), error_type=type(e).__name__)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+        sub = str(claims.get("sub") or "").strip()
+        iss = str(claims.get("iss") or "").strip()
+
+        if sub != expected_sub:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: invalid caller")
+        if expected_iss and iss != expected_iss:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token: invalid issuer")
+
+        return LocalServiceCaller(sub=sub, token=token)
+
+    return _dep
 
 
 def require_roles_local(required_roles: List[str]) -> Callable[[LocalUser], LocalUser]:

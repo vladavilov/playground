@@ -34,11 +34,11 @@ spec:
         - name: schema-init
           image: python:3.13-slim
           env:
-            - name: LOCAL_JWT_SECRET
+            - name: API_GATEWAY_MINT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: agentic-ai-secrets
-                  key: LOCAL_JWT_SECRET
+                  key: API_GATEWAY_MINT_SECRET
           volumeMounts:
             - name: secrets-store
               mountPath: "/mnt/secrets-store"
@@ -47,19 +47,37 @@ spec:
             - python
             - -c
             - |
-              import os,time,json,hmac,hashlib,base64,urllib.request
-              secret=os.environ.get('LOCAL_JWT_SECRET','')
-              if not secret: raise SystemExit('LOCAL_JWT_SECRET not set')
-              header={'alg':'HS256','typ':'JWT'}
-              payload={'oid': 'system', 'preferred_username': 'system@azure', 'roles': [], 'iat': int(time.time()), 'exp': int(time.time())+600}
-              def b64url(d): return base64.urlsafe_b64encode(d).rstrip(b'=')
-              seg=b'.'.join([b64url(json.dumps(header,separators=(',',':')).encode()), b64url(json.dumps(payload,separators=(',',':')).encode())])
-              sig=b64url(hmac.new(secret.encode(), seg, hashlib.sha256).digest())
-              token=(seg+b'.'+sig).decode()
-              req=urllib.request.Request('http://db-init-service:80/db/init', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
-              print('POST /db/init with Authorization header')
-              with urllib.request.urlopen(req, timeout=60) as resp:
-                  print(resp.status, resp.read().decode())
+              import os,json,urllib.request
+
+              mint_secret = os.environ.get("API_GATEWAY_MINT_SECRET", "").strip()
+              if not mint_secret:
+                  raise SystemExit("API_GATEWAY_MINT_SECRET not set")
+
+              # Mint S2S token via authentication-service
+              mint_req = urllib.request.Request(
+                  "http://authentication-service:80/auth/s2s/mint",
+                  data=json.dumps({"aud": "internal-services"}).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "Content-Type": "application/json",
+                      "X-Api-Gateway-Secret": mint_secret,
+                  },
+              )
+              print("POST /auth/s2s/mint")
+              with urllib.request.urlopen(mint_req, timeout=60) as resp:
+                  mint_body = json.loads(resp.read().decode("utf-8"))
+              token = mint_body["access_token"]
+
+              # Initialize DB schema via db-init-service
+              init_req = urllib.request.Request(
+                  "http://db-init-service:80/db/init",
+                  data=b"",
+                  method="POST",
+                  headers={"Authorization": f"Bearer {token}"},
+              )
+              print("POST /db/init with gateway S2S Authorization header")
+              with urllib.request.urlopen(init_req, timeout=60) as resp:
+                  print(resp.status, resp.read().decode("utf-8"))
       volumes:
         - name: secrets-store
           csi:

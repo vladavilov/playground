@@ -140,13 +140,13 @@ class DoclingSettings(BaseSettings):
 
     # ===== RapidOCR Model Configuration =====
     RAPIDOCR_MODELS_PATH: str = Field(
-        default="/opt/rapidocr-models",
+        default="",
         description="Path to pre-downloaded RapidOCR ONNX model files for offline OCR operation"
     )
 
     # ===== Docling Layout Model Configuration =====
     DOCLING_ARTIFACTS_PATH: str = Field(
-        default="/opt/docling-models",
+        default="",
         description="Path to pre-downloaded Docling layout models (docling-layout-heron, etc.) for offline operation"
     )
 

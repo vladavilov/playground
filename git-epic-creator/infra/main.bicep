@@ -45,6 +45,10 @@ param postgresPassword string
 @secure()
 param gitlabOAuthClientSecret string = ''
 
+@description('Secret used by gateway-control-plane-service to mint S2S tokens via authentication-service.')
+@secure()
+param apiGatewayMintSecret string
+
 @description('Corporate container registry login server (e.g., myregistry.azurecr.io).')
 param containerRegistryLoginServer string
 
@@ -222,6 +226,7 @@ module secrets 'modules/secrets.bicep' = {
     neo4jPassword: neo4jPassword
     postgresPassword: postgresPassword
     gitlabOAuthClientSecret: gitlabOAuthClientSecret
+    apiGatewayMintSecret: apiGatewayMintSecret
   }
   dependsOn: [keyvault]
 }

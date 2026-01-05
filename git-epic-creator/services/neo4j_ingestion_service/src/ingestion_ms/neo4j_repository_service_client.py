@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Dict
+from uuid import UUID
 
 import httpx
 
@@ -38,8 +41,70 @@ def get_client() -> httpx.Client:
     return _CLIENT
 
 
+def _to_jsonable(value: Any, *, path: str = "$") -> Any:
+    """
+    Convert a Python object into a structure that the stdlib `json` module can serialize.
+
+    This is a defensive boundary for httpx's `json=...` parameter. It prevents runtime failures
+    when upstream data (e.g., pandas/pyarrow/numpy) introduces non-JSON-native types such as
+    numpy arrays or numpy scalars.
+
+    We intentionally keep this local to the transport layer so every outbound request benefits.
+    """
+    # Fast path for already-JSON-native scalars
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    # Common scalar wrappers
+    if isinstance(value, (UUID, Decimal)):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+
+    # Mapping types: ensure keys are strings for JSON
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for k, v in value.items():
+            key = k if isinstance(k, str) else str(k)
+            out[key] = _to_jsonable(v, path=f"{path}.{key}")
+        return out
+
+    # Sequence types
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(v, path=f"{path}[{i}]") for i, v in enumerate(value)]
+
+    # Sets are not JSON-serializable; represent as list (order not guaranteed)
+    if isinstance(value, set):
+        return [_to_jsonable(v, path=f"{path}[{i}]") for i, v in enumerate(value)]
+
+    # Bytes: best-effort decode to UTF-8 for logging/transport
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            return value.decode("utf-8")
+        except Exception:
+            return bytes(value).decode("utf-8", errors="replace")
+
+    # Numpy/pandas/pyarrow objects (or any array-like) often implement .tolist() / .item()
+    # We avoid importing numpy globally; rely on duck-typing and fall back to strict errors.
+    if hasattr(value, "tolist"):
+        try:
+            return _to_jsonable(value.tolist(), path=path)
+        except Exception:
+            # fall through to .item() or type error
+            pass
+
+    if hasattr(value, "item"):
+        try:
+            return _to_jsonable(value.item(), path=path)
+        except Exception:
+            pass
+
+    raise TypeError(f"Object of type {type(value).__name__} at {path} is not JSON serializable")
+
+
 def post_json(client: httpx.Client, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    resp = client.post(path, json=payload)
+    json_payload = _to_jsonable(payload, path="$")
+    resp = client.post(path, json=json_payload)
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, dict):

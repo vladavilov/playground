@@ -59,7 +59,7 @@ All GitLab interactions are delegated to gitlab-client-service via HTTP.
 
 #### 1. GitLab Repository URL (Source Code)
 - **Purpose**: Git clone URL for source code operations
-- **Storage**: Single text field `gitlab_repository_url`
+- **Storage**: Array field `gitlab_repository_urls`
 - **Resolution**: NOT resolved - stored as-is (SSH or HTTPS URL)
 - **Example**: `https://gitlab.com/group/project.git` or `git@gitlab.com:group/project.git`
 
@@ -97,7 +97,7 @@ sequenceDiagram
 ```python
 class Project(Base):
     # Repository (Source Code) - single URL, no resolution
-    gitlab_repository_url: Optional[str]  # Git clone URL (SSH/HTTPS)
+    gitlab_repository_urls: Optional[list[str]]  # Git clone refs (SSH/HTTPS)
     
     # Backlog Projects (Issues/Epics) - arrays, requires resolution
     gitlab_backlog_project_ids: Optional[List[str]]   # Resolved project IDs: ["123", "456"]

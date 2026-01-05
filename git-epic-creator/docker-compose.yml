@@ -146,19 +146,35 @@ services:
       - python
       - -c
       - |
-          import os,time,json,hmac,hashlib,base64,urllib.request
-          secret=os.environ.get('LOCAL_JWT_SECRET','')
-          if not secret: raise SystemExit('LOCAL_JWT_SECRET not set')
-          header={'alg':'HS256','typ':'JWT'}
-          payload={'oid': os.environ.get('DEV_USER_OID','system'), 'preferred_username': os.environ.get('DEV_USERNAME','system@local'), 'roles': [], 'iat': int(time.time()), 'exp': int(time.time())+600}
-          def b64url(d): return base64.urlsafe_b64encode(d).rstrip(b'=')
-          seg=b'.'.join([b64url(json.dumps(header,separators=(',',':')).encode()), b64url(json.dumps(payload,separators=(',',':')).encode())])
-          sig=b64url(hmac.new(secret.encode(), seg, hashlib.sha256).digest())
-          token=(seg+b'.'+sig).decode()
-          req=urllib.request.Request('http://db-init-service:8000/db/init', data=b'', method='POST', headers={'Authorization': f'Bearer {token}'})
-          print('POST /db/init with Authorization header')
-          with urllib.request.urlopen(req, timeout=60) as resp:
-              print(resp.status, resp.read().decode())
+          import os,json,urllib.request
+
+          mint_secret = os.environ.get("API_GATEWAY_MINT_SECRET", "").strip()
+          if not mint_secret:
+              raise SystemExit("API_GATEWAY_MINT_SECRET not set")
+
+          mint_req = urllib.request.Request(
+              "http://authentication-service:8020/auth/s2s/mint",
+              data=json.dumps({"aud": "internal-services"}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "X-Api-Gateway-Secret": mint_secret,
+              },
+          )
+          print("POST /auth/s2s/mint")
+          with urllib.request.urlopen(mint_req, timeout=60) as resp:
+              mint_body = json.loads(resp.read().decode("utf-8"))
+          token = mint_body["access_token"]
+
+          init_req = urllib.request.Request(
+              "http://db-init-service:8000/db/init",
+              data=b"",
+              method="POST",
+              headers={"Authorization": f"Bearer {token}"},
+          )
+          print("POST /db/init with gateway S2S Authorization header")
+          with urllib.request.urlopen(init_req, timeout=60) as resp:
+              print(resp.status, resp.read().decode("utf-8"))
     restart: "no"
 
   neo4j-schema-init:
@@ -177,11 +193,38 @@ services:
       - python
       - -c
       - |
-          import urllib.request
-          req=urllib.request.Request('http://neo4j-repository-service:8080/v1/maintenance/init-schema', data=b'{}', method='POST', headers={'Content-Type':'application/json'})
-          print('POST /v1/maintenance/init-schema')
-          with urllib.request.urlopen(req, timeout=120) as resp:
-              body = resp.read().decode()
+          import os,json,urllib.request
+
+          mint_secret = os.environ.get("API_GATEWAY_MINT_SECRET", "").strip()
+          if not mint_secret:
+              raise SystemExit("API_GATEWAY_MINT_SECRET not set")
+
+          mint_req = urllib.request.Request(
+              "http://authentication-service:8020/auth/s2s/mint",
+              data=json.dumps({"aud": "internal-services"}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "X-Api-Gateway-Secret": mint_secret,
+              },
+          )
+          print("POST /auth/s2s/mint")
+          with urllib.request.urlopen(mint_req, timeout=60) as resp:
+              mint_body = json.loads(resp.read().decode("utf-8"))
+          token = mint_body["access_token"]
+
+          init_req = urllib.request.Request(
+              "http://neo4j-repository-service:8080/v1/maintenance/init-schema",
+              data=b"{}",
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "Authorization": f"Bearer {token}",
+              },
+          )
+          print("POST /v1/maintenance/init-schema with gateway S2S Authorization header")
+          with urllib.request.urlopen(init_req, timeout=120) as resp:
+              body = resp.read().decode("utf-8")
               print(resp.status, body)
     restart: "no"
 
@@ -247,15 +290,52 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  ui-service:
+  envoy-gateway:
+    <<: *service_defaults
+    image: envoyproxy/envoy:v1.29.4
+    container_name: envoy_gateway
+    ports:
+      # Single entrypoint for browser traffic (matches GITLAB_OAUTH_REDIRECT_URI etc)
+      - "8007:8000"
+    command:
+      - /usr/local/bin/envoy
+      - "-c"
+      - "/etc/envoy/envoy.yaml"
+      - "--log-level"
+      - "info"
+    volumes:
+      - ./envoy/envoy-compose.yaml:/etc/envoy/envoy.yaml:ro
+    depends_on:
+      gateway-control-plane-service:
+        condition: service_healthy
+      authentication-service:
+        condition: service_healthy
+      project-management-service:
+        condition: service_healthy
+      gitlab-client-service:
+        condition: service_healthy
+      ai-requirements-service:
+        condition: service_healthy
+      ai-tasks-service:
+        condition: service_healthy
+    networks:
+      - microservices_network
+    healthcheck:
+      # /health is routed to authentication-service with ext_authz disabled
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  gateway-control-plane-service:
     <<: *service_defaults
     build:
       context: ./services
-      dockerfile: ./ui_service/Dockerfile
-    image: ui_service:latest
-    container_name: ui_service
-    ports:
-      - "8007:8000"
+      dockerfile: ./gateway_control_plane_service/Dockerfile
+    image: gateway-control-plane-service:latest
+    container_name: gateway_control_plane_service
     environment:
       - API_PORT=8000
     env_file:
@@ -264,12 +344,6 @@ services:
       python-base:
         condition: service_completed_successfully
       redis:
-        condition: service_healthy
-      project-management-service:
-        condition: service_healthy
-      mock-auth-service:
-        condition: service_healthy
-      authentication-service:
         condition: service_healthy
     networks:
       - microservices_network
@@ -659,7 +733,8 @@ services:
       - NEO4J_INGESTION_URL=http://neo4j-ingestion-service:8000
       - AZURE_AD_AUTHORITY=https://host.docker.internal:8005
       - INIT_DB_SERVICE_URL=http://db-init-service:8000
-      - UI_SERVICE_URL=http://ui-service:8000
+      # E2E should target the gateway entrypoint (Envoy) for browser-like flows
+      - GATEWAY_CONTROL_PLANE_SERVICE_URL=http://envoy-gateway:8000
       - AI_REQUIREMENTS_SERVICE_URL=http://ai-requirements-service:8000
       - NEO4J_RETRIEVAL_URL=http://neo4j-retrieval-service:8000
       - OPENAI_MOCK_URL=http://openai-mock-service:8000

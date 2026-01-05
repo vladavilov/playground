@@ -13,6 +13,10 @@ param localJwtSecret string
 @secure()
 param gitlabOAuthClientSecret string = ''
 
+@description('Secret required for the API Gateway control plane (gateway-control-plane-service) to mint S2S tokens via authentication-service.')
+@secure()
+param apiGatewayMintSecret string
+
 @description('Neo4j password.')
 @secure()
 param neo4jPassword string
@@ -49,6 +53,14 @@ resource gitlabOAuthSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (
   }
 }
 
+resource apiGatewayMintSecretSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'Api-Gateway-MintSecret'
+  properties: {
+    value: apiGatewayMintSecret
+  }
+}
+
 resource neo4jPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'Neo4j-Password'
@@ -68,6 +80,7 @@ resource postgresPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' =
 output sessionSecretKeyUri string = sessionSecretKeySecret.properties.secretUri
 output localJwtSecretUri string = localJwtSecretSecret.properties.secretUri
 output gitlabOAuthSecretUri string = !empty(gitlabOAuthClientSecret) ? gitlabOAuthSecret.properties.secretUri : ''
+output apiGatewayMintSecretUri string = apiGatewayMintSecretSecret.properties.secretUri
 output neo4jPasswordSecretUri string = neo4jPasswordSecret.properties.secretUri
 output postgresPasswordSecretUri string = !empty(postgresPassword) ? postgresPasswordSecret.properties.secretUri : ''
 

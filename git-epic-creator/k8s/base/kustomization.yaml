@@ -10,20 +10,24 @@ resources:
   - namespace.yaml
   - service-account.yaml
   - configmap.yaml
+  - envoy-configmap.yaml
   - secret-provider.yaml
   - network-policy.yaml
   - ingress.yaml
   # Services
   - services/db-init-service.yaml
   - services/project-management-service.yaml
-  - services/neo4j-maintanance-service.yaml
+  - services/neo4j-maintenance-service.yaml
   - services/neo4j-ingestion-service.yaml
   - services/neo4j-retrieval-service.yaml
-  - services/ui-service.yaml
+  - services/frontend-service.yaml
+  - services/gateway-control-plane-service.yaml
+  - services/envoy-gateway.yaml
   - services/document-processing-service.yaml
   - services/ai-requirements-service.yaml
   - services/ai-tasks-service.yaml
   - services/gitlab-client-service.yaml
+  - services/authentication-service.yaml
   - services/mock-auth-service.yaml
   # StatefulSets
   - statefulsets/neo4j.yaml
@@ -52,8 +56,11 @@ images:
   - name: neo4j-retrieval-service
     newName: PLACEHOLDER_ACR/neo4j-retrieval-service
     newTag: latest
-  - name: ui-service
-    newName: PLACEHOLDER_ACR/ui-service
+  - name: frontend-service
+    newName: PLACEHOLDER_ACR/frontend-service
+    newTag: latest
+  - name: gateway-control-plane-service
+    newName: PLACEHOLDER_ACR/gateway-control-plane-service
     newTag: latest
   - name: document-processing-service
     newName: PLACEHOLDER_ACR/document-processing-service
@@ -66,6 +73,9 @@ images:
     newTag: latest
   - name: gitlab-client-service
     newName: PLACEHOLDER_ACR/gitlab-client-service
+    newTag: latest
+  - name: authentication-service
+    newName: PLACEHOLDER_ACR/authentication-service
     newTag: latest
   - name: mock-auth-service
     newName: PLACEHOLDER_ACR/mock-auth-service

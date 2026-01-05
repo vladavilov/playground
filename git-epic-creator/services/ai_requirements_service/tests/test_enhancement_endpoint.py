@@ -6,17 +6,22 @@ from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from test_helpers import _FakeOpenAI, _FakeHTTPClient
+from types import SimpleNamespace
 
 
 def test_enhance_requirement_endpoint_returns_enhanced_requirement(monkeypatch):
     """Test that /workflow/enhance returns an enhanced requirement."""
     import main  # type: ignore
+    import routers.workflow_router as router_mod
 
     # Override Redis
     from utils.app_factory import get_redis_client_from_state
     mock_redis = AsyncMock()
     mock_redis.publish.return_value = 1
     main.app.dependency_overrides[get_redis_client_from_state] = lambda: mock_redis
+    main.app.dependency_overrides[router_mod.require_gateway_verified] = lambda: SimpleNamespace(
+        sub="api-gateway", token="svc.jwt.token"
+    )
 
     client = TestClient(main.app)
 
@@ -29,8 +34,8 @@ def test_enhance_requirement_endpoint_returns_enhanced_requirement(monkeypatch):
     # Mock LLM and HTTP client
     from test_helpers import make_fake_llm
     fake_llm = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.prompt_analyst.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
-    monkeypatch.setattr("utils.llm_client_factory.create_llm", lambda *args, **kwargs: fake_llm, raising=False)
+    monkeypatch.setattr("orchestrator.experts.prompt_analyst.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
+    monkeypatch.setattr("orchestrator.experts.requirement_enhancer.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
     monkeypatch.setattr("httpx.AsyncClient", _FakeHTTPClient, raising=True)
 
     project_id = str(uuid4())
@@ -67,12 +72,16 @@ def test_enhance_requirement_endpoint_returns_enhanced_requirement(monkeypatch):
 def test_enhance_requirement_validates_requirement_type(monkeypatch):
     """Test that /workflow/enhance validates requirement_type field."""
     import main  # type: ignore
+    import routers.workflow_router as router_mod
 
     # Override Redis
     from utils.app_factory import get_redis_client_from_state
     mock_redis = AsyncMock()
     mock_redis.publish.return_value = 1
     main.app.dependency_overrides[get_redis_client_from_state] = lambda: mock_redis
+    main.app.dependency_overrides[router_mod.require_gateway_verified] = lambda: SimpleNamespace(
+        sub="api-gateway", token="svc.jwt.token"
+    )
 
     client = TestClient(main.app)
 
@@ -105,12 +114,16 @@ def test_enhance_requirement_validates_requirement_type(monkeypatch):
 def test_enhance_functional_requirement(monkeypatch):
     """Test enhancement of a functional requirement."""
     import main  # type: ignore
+    import routers.workflow_router as router_mod
 
     # Override Redis
     from utils.app_factory import get_redis_client_from_state
     mock_redis = AsyncMock()
     mock_redis.publish.return_value = 1
     main.app.dependency_overrides[get_redis_client_from_state] = lambda: mock_redis
+    main.app.dependency_overrides[router_mod.require_gateway_verified] = lambda: SimpleNamespace(
+        sub="api-gateway", token="svc.jwt.token"
+    )
 
     client = TestClient(main.app)
 
@@ -123,8 +136,8 @@ def test_enhance_functional_requirement(monkeypatch):
     # Mock LLM and HTTP client
     from test_helpers import make_fake_llm
     fake_llm = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.prompt_analyst.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
-    monkeypatch.setattr("utils.llm_client_factory.create_llm", lambda *args, **kwargs: fake_llm, raising=False)
+    monkeypatch.setattr("orchestrator.experts.prompt_analyst.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
+    monkeypatch.setattr("orchestrator.experts.requirement_enhancer.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
     monkeypatch.setattr("httpx.AsyncClient", _FakeHTTPClient, raising=True)
 
     project_id = str(uuid4())

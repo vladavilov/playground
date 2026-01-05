@@ -1,6 +1,8 @@
 import pytest
+import asyncio
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.fixture(autouse=True)
@@ -16,7 +18,7 @@ def mute_pm_updates(monkeypatch):
 
 
 def test_run_graphrag_job_happy_path_minimal_contract(monkeypatch, tmp_path):
-    from tasks.graphrag import run_graphrag_job
+    from tasks.graphrag import _run_graphrag_job_async
 
     # Avoid any external IO by patching collaborators
     monkeypatch.setenv("RAG_WORKSPACE_ROOT", str(tmp_path / "graphrag"))
@@ -32,10 +34,18 @@ def test_run_graphrag_job_happy_path_minimal_contract(monkeypatch, tmp_path):
         list_files=_list_files,
         download_file=_download_file,
     )
-    with patch("services.ingestion_service.get_blob_storage_client", return_value=blob_client):
+    with patch("module_services.ingestion_service.get_blob_storage_client", return_value=blob_client):
         # Patch library pipeline to no-op
-        with patch("services.ingestion_service.run_documents", return_value=None):
-            res = run_graphrag_job.run("job-1", "proj-1", 0)
+        with patch("module_services.ingestion_service._run_ms_pipeline", new=AsyncMock(return_value={})):
+            res = asyncio.run(
+                _run_graphrag_job_async(
+                    job_id="job-1",
+                    project_id="proj-1",
+                    attempts=0,
+                    start_time=time.time(),
+                    authorization_header="Bearer test",
+                )
+            )
 
     assert isinstance(res, dict)
     for k in [
@@ -63,7 +73,7 @@ def test_run_graphrag_job_validation_errors_new_signature():
 
 
 def test_orchestration_blob_sync_runner_and_import(tmp_path, monkeypatch):
-    from tasks.graphrag import run_graphrag_job
+    from tasks.graphrag import _run_graphrag_job_async
 
     monkeypatch.setenv("RAG_WORKSPACE_ROOT", str(tmp_path / "graphrag"))
 
@@ -83,18 +93,26 @@ def test_orchestration_blob_sync_runner_and_import(tmp_path, monkeypatch):
     
     blob_client.download_file.side_effect = mock_download_file
 
-    with patch("services.ingestion_service.get_blob_storage_client", return_value=blob_client):
-        with patch("services.ingestion_service.run_documents", side_effect=[None, None]):
-            res = run_graphrag_job.run("job-1", "proj-1", 0)
+    with patch("module_services.ingestion_service.get_blob_storage_client", return_value=blob_client):
+        with patch("module_services.ingestion_service._run_ms_pipeline", new=AsyncMock(return_value={})):
+            res = asyncio.run(
+                _run_graphrag_job_async(
+                    job_id="job-1",
+                    project_id="proj-1",
+                    attempts=0,
+                    start_time=time.time(),
+                    authorization_header="Bearer test",
+                )
+            )
 
-            assert res["counts"]["documents"] == 2
-            assert res["project_id"] == "proj-1"
-            # Ensure list_files was called with project_id (None for non-UUID) and output/ prefix
-            blob_client.list_files.assert_any_call(None, "output/")
+        assert res["counts"]["documents"] == 2
+        assert res["project_id"] == "proj-1"
+        # Ensure list_files was called with project_id (None for non-UUID) and output/ prefix
+        blob_client.list_files.assert_any_call(None, "output/")
 
 
 def test_orchestration_passes_client_and_batchsize(tmp_path, monkeypatch):
-    from tasks.graphrag import run_graphrag_job
+    from tasks.graphrag import _run_graphrag_job_async
 
     monkeypatch.setenv("RAG_WORKSPACE_ROOT", str(tmp_path / "graphrag"))
     # batch size no longer used
@@ -102,18 +120,18 @@ def test_orchestration_passes_client_and_batchsize(tmp_path, monkeypatch):
     blob_client = MagicMock()
     blob_client.list_files.return_value = MagicMock(success=True, file_list=[])
 
-    captured = {}
+    with patch("module_services.ingestion_service.get_blob_storage_client", return_value=blob_client):
+        with patch("module_services.ingestion_service._run_ms_pipeline", new=AsyncMock(return_value={})):
+            res = asyncio.run(
+                _run_graphrag_job_async(
+                    job_id="job-1",
+                    project_id="proj-1",
+                    attempts=0,
+                    start_time=time.time(),
+                    authorization_header="Bearer test",
+                )
+            )
 
-    def _importer(workdir, client=None):
-        captured["client"] = client
-        return {k: 0 for k in [
-            "documents", "text_units", "entities", "relationships", "communities", "community_reports"
-        ]}
-
-    with patch("services.ingestion_service.get_blob_storage_client", return_value=blob_client):
-        with patch("services.ingestion_service.run_documents", side_effect=[None, None, None]):
-            res = run_graphrag_job.run("job-1", "proj-1", 0)
-
-            assert res["project_id"] == "proj-1"
+    assert res["project_id"] == "proj-1"
 
 

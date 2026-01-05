@@ -84,7 +84,7 @@ sequenceDiagram
 4) Validate extracted text content:
    - If text is empty or contains only whitespace, skip JSON creation and mark as empty document
    - Empty documents are tracked separately but not uploaded to output
-5) Filter metadata to required fields and upload structured JSON to `output/<stem>.json` for valid documents.
+5) Filter metadata to required fields and upload structured JSON to `output/<original_filename>.json` (e.g. `output/report.docx.json`) for valid documents.
 6) Send progress update to Project Management via HTTP after each file.
 7) Delete processed input blobs (including empty documents).
 8) Conditionally trigger Neo4j ingestion:
@@ -130,6 +130,7 @@ sequenceDiagram
 
 - **RapidOCR Offline Configuration**:
   - `RAPIDOCR_MODELS_PATH` (default `/opt/rapidocr-models`) - Path to RapidOCR ONNX models
+  - Python dependencies (required for OCR): `rapidocr`, `rapidocr-onnxruntime`, `onnxruntime`
   - The service uses three pre-existing OCR models (must be in `plugins/rapidocr-models/`):
     - Detection Model: `ch_PP-OCRv3_det_infer.onnx` (identifies text regions in images)
     - Recognition Model: `ch_PP-OCRv3_rec_infer.onnx` (recognizes text within detected regions)

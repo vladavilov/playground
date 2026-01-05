@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from utils.local_auth import get_local_user_verified, LocalUser
+from utils.local_auth import get_gateway_service_verified, LocalServiceCaller
 from utils.llm_client_factory import create_llm, create_embedder
 from pydantic import BaseModel
 import structlog
@@ -13,6 +13,9 @@ from retrieval_ms.neo4j_repository_service_client import get_client
 logger = structlog.get_logger(__name__)
 
 retrieval_router = APIRouter()
+
+# Stable dependency callable (so tests can override it reliably)
+require_gateway_verified = get_gateway_service_verified()
 
 
 class RetrievalRequest(BaseModel):
@@ -49,7 +52,7 @@ def _handle_infrastructure_error(exc: Exception, context: str, **log_context) ->
 async def retrieve(
     req: RetrievalRequest, 
     request: Request, 
-    current_user: LocalUser = Depends(get_local_user_verified)
+    _caller: LocalServiceCaller = Depends(require_gateway_verified)
 ) -> Dict[str, Any]:
     """Retrieve context from Neo4j graph.
     

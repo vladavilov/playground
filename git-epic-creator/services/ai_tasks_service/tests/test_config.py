@@ -9,9 +9,9 @@ def test_config_defaults():
     settings = AITasksSettings()
     
     assert settings.http.GRAPH_RAG_SERVICE_URL == "http://neo4j-retrieval-service:8000"
-    assert settings.http.GITLAB_CLIENT_SERVICE_URL == "http://gitlab-client-service:8000"
+    assert settings.http.GITLAB_CLIENT_SERVICE_URL == "http://localhost:8011"
     assert settings.CLARIFICATION_SCORE_TARGET == 0.75
-    assert settings.SIMILARITY_THRESHOLD == 0.83
+    assert settings.SIMILARITY_THRESHOLD == 0.6
     assert settings.MAX_AGENT_ITERS == 3
     assert settings.RETRIEVAL_TOP_K == 2
 

@@ -52,44 +52,12 @@ pub fn router() -> Router<AppState> {
         )
         // Ingestion APIs (stable, typed)
         .route(
-            "/v1/code-graph/merge-project",
-            post(crate::api::ingestion::merge_project),
-        )
-        .route(
-            "/v1/code-graph/merge-repo",
-            post(crate::api::ingestion::merge_repo),
-        )
-        .route(
-            "/v1/code-graph/merge-files",
-            post(crate::api::ingestion::merge_files),
-        )
-        .route(
             "/v1/code-graph/merge-code-graph",
             post(crate::api::ingestion::merge_code_graph),
         )
         .route(
-            "/v1/requirements-graph/merge/documents",
-            post(crate::api::ingestion::rg_merge_documents),
-        )
-        .route(
-            "/v1/requirements-graph/merge/chunks",
-            post(crate::api::ingestion::rg_merge_chunks),
-        )
-        .route(
-            "/v1/requirements-graph/merge/entities",
-            post(crate::api::ingestion::rg_merge_entities),
-        )
-        .route(
-            "/v1/requirements-graph/merge/relationships",
-            post(crate::api::ingestion::rg_merge_relationships),
-        )
-        .route(
-            "/v1/requirements-graph/merge/community-reports",
-            post(crate::api::ingestion::rg_merge_community_reports),
-        )
-        .route(
-            "/v1/requirements-graph/merge/communities",
-            post(crate::api::ingestion::rg_merge_communities),
+            "/v1/requirements-graph/merge/bundle",
+            post(crate::api::ingestion::rg_merge_bundle),
         )
         .route(
             "/v1/requirements-graph/embeddings/chunk-text",

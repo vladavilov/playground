@@ -6,7 +6,8 @@ external services (blob storage, Tika, and progress updates), avoiding
 framework and infrastructure mocking.
 """
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
+from tasks.document_core import process_project_documents_core
 
 
 class _Result:
@@ -87,7 +88,6 @@ def _progress_stub(_: str, __: int, ___: int) -> Dict[str, Any]:
 
 
 def test_success_single_file():
-    from tasks.document_core import process_project_documents_core
 
     blob = FakeBlobClient(list_success=True, file_list=["input/doc1.pdf"], download_success=True, delete_success=True)
 
@@ -122,7 +122,6 @@ def test_success_single_file():
 
 
 def test_list_failure_returns_false():
-    from tasks.document_core import process_project_documents_core
 
     blob = FakeBlobClient(list_success=False, list_error="Storage connection failed")
     tika = FakeTikaProcessor({})
@@ -139,7 +138,6 @@ def test_list_failure_returns_false():
 
 
 def test_partial_failure_two_files():
-    from tasks.document_core import process_project_documents_core
 
     blob = FakeBlobClient(list_success=True, file_list=["input/good.pdf", "input/bad.pdf"], download_success=True, delete_success=True)
 
@@ -184,7 +182,6 @@ def test_partial_failure_two_files():
 
 def test_empty_text_document_tracked_separately():
     """Test that documents with empty text are tracked separately and not uploaded."""
-    from tasks.document_core import process_project_documents_core
 
     blob = FakeBlobClient(
         list_success=True, 
@@ -222,7 +219,6 @@ def test_empty_text_document_tracked_separately():
 
 def test_empty_whitespace_only_text_tracked_as_empty():
     """Test that documents with only whitespace are treated as empty."""
-    from tasks.document_core import process_project_documents_core
 
     blob = FakeBlobClient(
         list_success=True, 
@@ -257,7 +253,6 @@ def test_empty_whitespace_only_text_tracked_as_empty():
 
 def test_mixed_empty_and_valid_documents():
     """Test processing mix of empty and valid documents."""
-    from tasks.document_core import process_project_documents_core
 
     blob = FakeBlobClient(
         list_success=True, 
@@ -314,7 +309,6 @@ def test_mixed_empty_and_valid_documents():
 
 def test_all_empty_documents_no_valid_content():
     """Test project with all documents having empty content."""
-    from tasks.document_core import process_project_documents_core
 
     blob = FakeBlobClient(
         list_success=True, 
@@ -348,5 +342,40 @@ def test_all_empty_documents_no_valid_content():
     assert len(blob.uploaded_blobs) == 0
     # documents_for_ingestion should be empty
     assert len(result["documents_for_ingestion"]) == 0
+
+
+def test_output_names_are_collision_proof_for_same_stem():
+    """Two inputs with the same stem but different extensions must not overwrite the same output JSON."""
+
+    blob = FakeBlobClient(
+        list_success=True,
+        file_list=["input/report.doc", "input/report.docx"],
+        download_success=True,
+        delete_success=True,
+    )
+
+    ok1 = _Result(True, extracted_text="Doc content", file_type="application/msword", page_count=1, metadata={})
+    ok2 = _Result(True, extracted_text="Docx content", file_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", page_count=1, metadata={})
+
+    call_count = {"n": 0}
+
+    def side_effect(_: str) -> _Result:
+        call_count["n"] += 1
+        return ok1 if call_count["n"] == 1 else ok2
+
+    tika = FakeTikaProcessor({})
+    tika.extract_text_with_result = side_effect  # type: ignore[assignment]
+
+    result = process_project_documents_core(
+        project_id="00000000-0000-0000-0000-000000000008",
+        blob_client=blob,
+        document_processor=tika,
+        send_progress_update=_progress_stub,
+    )
+
+    assert result["success"] is True
+    assert result["processed_documents"] == 2
+    assert "output/report.doc.json" in blob.uploaded_blobs
+    assert "output/report.docx.json" in blob.uploaded_blobs
 
 

@@ -124,15 +124,38 @@ class _SSEBroker:
                     except Exception:
                         parsed = {"raw": str(data_field)}
 
-                    # Map channel to SSE event name
+                    # Map redis channel + message content to SSE event name (frontend contract).
+                    #
+                    # SSE event contract:
+                    # - ai_generation_progress: ai requirements/tasks progress + retrieval progress that has prompt_id
+                    # - project_cache_backlog_progress: retrieval progress without prompt_id (project-level operation)
+                    # - project_document_upload_progress: project_progress that is NOT repo indexing
+                    # - project_repo_index_progress: project_progress that is repo indexing (status starts with "rag_")
                     if channel == UI_AI_REQUIREMENTS_PROGRESS_CHANNEL:
-                        event_name = "ai_requirements_progress"
+                        event_name = "ai_generation_progress"
                     elif channel == UI_AI_TASKS_PROGRESS_CHANNEL:
-                        event_name = "ai_tasks_progress"
-                    elif channel == UI_PROJECT_PROGRESS_CHANNEL:
-                        event_name = "project_progress"
+                        event_name = "ai_generation_progress"
                     elif channel == UI_RETRIEVAL_PROGRESS_CHANNEL:
-                        event_name = "retrieval_progress"
+                        prompt_id = None
+                        if isinstance(parsed, dict):
+                            prompt_id = parsed.get("prompt_id")
+                        event_name = (
+                            "ai_generation_progress"
+                            if prompt_id
+                            else "project_cache_backlog_progress"
+                        )
+                    elif channel == UI_PROJECT_PROGRESS_CHANNEL:
+                        status = None
+                        process_step = None
+                        if isinstance(parsed, dict):
+                            status = parsed.get("status")
+                            process_step = parsed.get("process_step")
+                        if isinstance(status, str) and status.startswith("rag_"):
+                            event_name = "project_repo_index_progress"
+                        elif isinstance(process_step, str) and process_step.startswith("Caching embeddings"):
+                            event_name = "project_cache_backlog_progress"
+                        else:
+                            event_name = "project_document_upload_progress"
                     else:
                         event_name = "unknown"
                     
@@ -181,6 +204,8 @@ async def _redis_event_stream(request: Request) -> AsyncIterator[str]:
 
 @router.get("/events")
 async def sse_events(request: Request):
+    # SSE authentication is enforced by Envoy ext_authz.
+    # This service remains intentionally thin and does not manage sessions.
     return StreamingResponse(
         _redis_event_stream(request),
         media_type="text/event-stream",

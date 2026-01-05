@@ -40,8 +40,12 @@ class ProjectService:
     ) -> Project:
         logger.info("Creating new project", project_name=project_data.name, user_id=user_id)
 
-        # Handle GitLab Repository URL (no resolution needed)
-        gitlab_repository_url = str(project_data.gitlab_repository_url) if project_data.gitlab_repository_url else None
+        # Handle GitLab Repository URLs (no resolution needed)
+        gitlab_repository_urls = (
+            [str(u) for u in (project_data.gitlab_repository_urls or [])]
+            if project_data.gitlab_repository_urls
+            else []
+        )
         
         # Resolve multiple GitLab backlog project URLs if provided
         gitlab_backlog_project_ids = []
@@ -84,7 +88,7 @@ class ProjectService:
                 project = Project(
                     name=project_data.name,
                     description=project_data.description,
-                    gitlab_repository_url=gitlab_repository_url,
+                    gitlab_repository_urls=gitlab_repository_urls,
                     gitlab_backlog_project_ids=gitlab_backlog_project_ids or [],
                     gitlab_backlog_project_urls=gitlab_backlog_project_urls or [],
                     status=ProjectStatus.ACTIVE.value,
@@ -104,7 +108,7 @@ class ProjectService:
                 project_id=str(project.id), 
                 project_name=project.name,
                 gitlab_backlog_project_count=len(gitlab_backlog_project_ids),
-                has_repository_url=bool(gitlab_repository_url)
+                has_repository_urls=bool(gitlab_repository_urls)
             )
             return project
 
@@ -122,24 +126,26 @@ class ProjectService:
     # Removed get_projects_by_user as redundant with RBAC-aware method
 
     def get_projects_by_user_and_roles(self, user_id: str, user_roles: List[str]) -> List[Project]:
-        """RBAC-aware projects listing."""
-        logger.info("Retrieving projects for user with roles", user_id=user_id, roles=user_roles)
+        """Projects listing.
+        
+        Role-based branching is deprecated in favor of gateway-enforced authorization.
+        This method still keeps a narrow 'Admin => all projects' behavior if roles are provided,
+        but default behavior is visibility-based (creator or member).
+        """
+        logger.info("Retrieving projects for user", user_id=user_id, roles=user_roles)
 
         with self.postgres_client.get_sync_session() as session:
-            if "Admin" in user_roles:
+            if "Admin" in (user_roles or []):
                 projects = session.query(Project).all()
                 logger.info("Admin user - returning all projects", user_id=user_id, project_count=len(projects))
-            elif "Project Manager" in user_roles or "Contributor" in user_roles:
-                owned_projects = session.query(Project).filter(Project.created_by == user_id)
-                member_projects = session.query(Project).join(ProjectMember).filter(
-                    ProjectMember.user_id == user_id
-                )
-                projects = owned_projects.union(member_projects).all()
-                logger.info("Non-admin - returning owned and member projects", user_id=user_id, project_count=len(projects))
-            else:
-                projects = []
-                logger.warning("User has no recognized roles - no project access", user_id=user_id, roles=user_roles)
+                return projects
 
+            owned_projects = session.query(Project).filter(Project.created_by == user_id)
+            member_projects = session.query(Project).join(ProjectMember).filter(
+                ProjectMember.user_id == user_id
+            )
+            projects = owned_projects.union(member_projects).all()
+            logger.info("Returning owned and member projects", user_id=user_id, project_count=len(projects))
             return projects
 
     def search_projects_by_name(self, search_term: str) -> List[Project]:
@@ -238,9 +244,8 @@ class ProjectService:
                     if field == 'gitlab_backlog_project_urls':
                         # Already handled above
                         continue
-                    elif field == 'gitlab_repository_url':
-                        # Repository URL is stored as-is, no resolution
-                        project.gitlab_repository_url = str(value) if value else None
+                    elif field == 'gitlab_repository_urls':
+                        project.gitlab_repository_urls = [str(x) for x in (value or [])]
                     elif field == 'status':
                         setattr(project, field, value if isinstance(value, str) else value.value)
                     elif field == 'description':
@@ -336,14 +341,10 @@ class ProjectService:
             logger.info("Project member removed", project_id=str(project_id), member_id=member_id)
             return True
 
-    def check_user_project_access(self, project_id: UUID, user_id: str, user_roles: List[str]) -> bool:
-        logger.info("Checking user project access", project_id=str(project_id), user_id=user_id, roles=user_roles)
+    def check_user_project_access(self, project_id: UUID, user_id: str) -> bool:
+        logger.info("Checking user project access", project_id=str(project_id), user_id=user_id)
 
         with self.postgres_client.get_sync_session() as session:
-            if "Admin" in user_roles:
-                logger.info("Admin user - access granted", project_id=str(project_id), user_id=user_id)
-                return True
-
             project = session.query(Project).filter(Project.id == project_id).first()
             if project and project.created_by == user_id:
                 logger.info("Project creator - access granted", project_id=str(project_id), user_id=user_id)

@@ -13,6 +13,9 @@ import sys
 import time
 from pathlib import Path
 
+from module_services.docling_processor import DoclingProcessor
+from service_configuration.docling_config import DoclingSettings
+
 logger = structlog.get_logger(__name__)
 
 
@@ -38,9 +41,6 @@ def main() -> int:
     try:
         _print_progress("Starting docling plugin pre-load...")
         
-        # Import here to ensure all dependencies are available
-        from services.docling_processor import DoclingProcessor
-        from service_configuration.docling_config import DoclingSettings
         
         logger.info("build_init_started", step="docling_plugin_preload")
         _print_progress("Imports successful, creating processor...")

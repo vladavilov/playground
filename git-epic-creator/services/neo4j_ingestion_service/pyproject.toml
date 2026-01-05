@@ -46,7 +46,7 @@ where = ["src"]
 exclude = ["tests*"] 
 
 [tool.pytest.ini_options]
-pythonpath = ["src"] 
+pythonpath = ["src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

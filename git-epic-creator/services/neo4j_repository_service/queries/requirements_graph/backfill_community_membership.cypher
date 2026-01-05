@@ -49,7 +49,7 @@ WITH c, p,
 // This runs BEFORE entity filtering to ensure chunks without entities are linked
 WITH c, p, effective_entities
 UNWIND coalesce(c.text_unit_ids, []) AS chunk_id
-OPTIONAL MATCH (ch:__Chunk__ {id: chunk_id})-[:IN_PROJECT]->(p)
+        OPTIONAL MATCH (ch:__Chunk__ {project_id: $project_id, id: chunk_id})-[:IN_PROJECT]->(p)
 FOREACH (ignored IN CASE WHEN ch IS NOT NULL THEN [1] ELSE [] END |
   MERGE (ch)-[:IN_COMMUNITY]->(c)
 )

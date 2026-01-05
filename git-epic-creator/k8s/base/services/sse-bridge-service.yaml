@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ui-service
+  name: gateway-control-plane-service
   namespace: agentic-ai
   labels:
-    app: ui-service
+    app: gateway-control-plane-service
     component: frontend
     tier: frontend
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: ui-service
+      app: gateway-control-plane-service
   template:
     metadata:
       labels:
-        app: ui-service
+        app: gateway-control-plane-service
         azure.workload.identity/use: "true"
     spec:
       serviceAccountName: agentic-ai-workload-identity
       containers:
-        - name: ui-service
-          image: ui-service:latest
+        - name: gateway-control-plane-service
+          image: gateway-control-plane-service:latest
           ports:
             - containerPort: 8000
               name: http
@@ -31,16 +31,6 @@ spec:
           env:
             - name: API_PORT
               value: "8000"
-            - name: SESSION_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: agentic-ai-secrets
-                  key: SESSION_SECRET_KEY
-            - name: LOCAL_JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: agentic-ai-secrets
-                  key: LOCAL_JWT_SECRET
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -88,11 +78,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ui-service
+  name: gateway-control-plane-service
   namespace: agentic-ai
 spec:
   selector:
-    app: ui-service
+    app: gateway-control-plane-service
   ports:
     - port: 80
       targetPort: 8000

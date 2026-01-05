@@ -16,14 +16,77 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      tier: frontend
+      app: envoy-gateway
   policyTypes:
     - Ingress
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: kube-system
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-service-ingress-from-gateway
+  namespace: agentic-ai
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-control-plane-service-ingress-from-envoy
+  namespace: agentic-ai
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway-control-plane-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: envoy-gateway
+      ports:
+        - protocol: TCP
+          port: 8000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-authentication-service-ingress-from-gateway-control-plane
+  namespace: agentic-ai
+spec:
+  podSelector:
+    matchLabels:
+      app: authentication-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway-control-plane-service
       ports:
         - protocol: TCP
           port: 8000
@@ -43,7 +106,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              tier: frontend
+              app: envoy-gateway
         - podSelector:
             matchLabels:
               tier: backend

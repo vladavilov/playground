@@ -1,4 +1,4 @@
-# Agentic AI Requirements Engineering System
+﻿# Agentic AI Requirements Engineering System
 
 **Cloud-native microservices platform that transforms high-level feature descriptions into structured requirements and actionable task breakdowns using orchestrated AI experts and GraphRAG capabilities.**
 
@@ -22,7 +22,7 @@ The Agentic AI Requirements Engineering System is designed for enterprise deploy
 
 ### Business Value
 
-- **80% reduction** in requirements analysis time (weeks → hours)
+- **80% reduction** in requirements analysis time (weeks â†’ hours)
 - **Context-aware generation** using project-specific knowledge graphs
 - **Seamless workflow integration** with GitLab for epic/task management
 - **Expert knowledge orchestration** simulating multiple domain specialists
@@ -130,7 +130,7 @@ graph TB
 - SSE Stream: `/events` (channels: `ui:project_progress`, `ui:ai_*_progress`)
 - Proxy Routes: `/project/*`, `/workflow/*`, `/tasks/*`
 
-**Documentation**: [services/ui_service/README.md](services/ui_service/README.md)
+**Documentation**: [services/gateway_control_plane_service/README.md](services/gateway_control_plane_service/README.md)
 
 ---
 
@@ -141,7 +141,7 @@ graph TB
 **Technology**: Python (FastAPI) + LangGraph + Azure OpenAI  
 **Port**: 8002  
 **Key Features**:
-- **Ensemble-of-Experts Pattern**: PromptAnalyst → ContextRetriever → RequirementEngineer → ConsistencyAuditor → Evaluator → QuestionStrategist
+- **Ensemble-of-Experts Pattern**: PromptAnalyst â†’ ContextRetriever â†’ RequirementEngineer â†’ ConsistencyAuditor â†’ Evaluator â†’ QuestionStrategist
 - **GraphRAG Integration**: Context retrieval via Neo4j Retrieval Service HTTP API
 - **Iterative Refinement**: LangGraph state machine with reflection and checkpointing
 - **Scoring Rubric**: Precision (30%), Grounding (30%), Relevancy (20%), Completeness (20%) using DeepEval metrics
@@ -203,7 +203,7 @@ graph TB
 **Technology**: Python (FastAPI) + Neo4j driver + async Cypher  
 **Port**: 8004  
 **Key Features**:
-- **DRIFT Search Implementation**: HyDE expansion → Community retrieval → Follow-up execution → Aggregation
+- **DRIFT Search Implementation**: HyDE expansion â†’ Community retrieval â†’ Follow-up execution â†’ Aggregation
 - **Vector Similarity Search**: 3072-dimensional embeddings with cosine similarity (indexes: `graphrag_chunk_index`, `graphrag_comm_index`)
 - **Requirement-Centric Retrieval**: All evidence and entities accessed via requirements for optimized queries
 - **Hierarchical Community Traversal**: Leiden algorithm-based communities with multi-level navigation
@@ -236,10 +236,10 @@ graph TB
 - **Vector Embeddings**: OpenAI ada-002 (3072 dims) for chunks, entities, and communities
 
 **Processing Pipeline**:
-1. Download `output/*.json` from Azure Blob → local workspace
-2. Run GraphRAG pipeline: chunk → extract entities → extract relationships → detect communities → generate embeddings
+1. Download `output/*.json` from Azure Blob â†’ local workspace
+2. Run GraphRAG pipeline: chunk â†’ extract entities â†’ extract relationships â†’ detect communities â†’ generate embeddings
 3. Write to Neo4j: batch processing (1000 rows/batch)
-4. Update Project Management Service: `rag_processing` → `rag_ready` | `rag_failed`
+4. Update Project Management Service: `rag_processing` â†’ `rag_ready` | `rag_failed`
 5. Cleanup workspace and release lock
 
 **Redis Streams**:
@@ -263,13 +263,13 @@ graph TB
 **Key Features**:
 - **Apache Tika Integration**: Text extraction from PDF, DOCX, XLSX, TXT with OCR support
 - **Celery Background Processing**: Async task execution with Redis Streams subscriber
-- **Blob Storage Layout**: `input/` (source files) → `output/*.json` (structured JSONs)
+- **Blob Storage Layout**: `input/` (source files) â†’ `output/*.json` (structured JSONs)
 - **Progress Updates**: Real-time status updates to Project Management Service via HTTP
 - **Ingestion Trigger Publishing**: Publishes to `ingestion.trigger` stream after processing
 
 **Processing Steps**:
 1. List project container with prefix `input/`
-2. Download → Tika extraction → metadata normalization
+2. Download â†’ Tika extraction â†’ metadata normalization
 3. Upload structured JSON to `output/<stem>.json`
 4. Update project progress after each file
 5. Delete processed input blobs
@@ -340,7 +340,7 @@ CREATE TABLE projects (
 
 ### 8. GitLab Client Service
 
-**Purpose**: Thin, reliable REST façade over GitLab API with normalized responses, Redis-backed embedding cache, and idempotent backlog application.
+**Purpose**: Thin, reliable REST faÃ§ade over GitLab API with normalized responses, Redis-backed embedding cache, and idempotent backlog application.
 
 **Technology**: Python (FastAPI) + python-gitlab + Redis + Azure OpenAI  
 **Port**: 8011  
@@ -538,11 +538,11 @@ with postgres_client.get_sync_session() as session:
 ```
 
 **Key Features**:
-- ✅ **Automatic Commit**: Transactions commit on successful completion
-- ✅ **Automatic Rollback**: Exceptions trigger rollback (no inconsistent state)
-- ✅ **Race Condition Prevention**: Pessimistic locking (`with_for_update()`) on concurrent updates
-- ✅ **Retry Logic**: Exponential backoff for transient deadlocks (3 attempts)
-- ✅ **Guaranteed Cleanup**: Sessions always closed, preventing connection leaks
+- âœ… **Automatic Commit**: Transactions commit on successful completion
+- âœ… **Automatic Rollback**: Exceptions trigger rollback (no inconsistent state)
+- âœ… **Race Condition Prevention**: Pessimistic locking (`with_for_update()`) on concurrent updates
+- âœ… **Retry Logic**: Exponential backoff for transient deadlocks (3 attempts)
+- âœ… **Guaranteed Cleanup**: Sessions always closed, preventing connection leaks
 
 **Performance**: 99.7% reduction in concurrent update errors (404s) with minimal latency impact (+5ms P95).
 
@@ -573,7 +573,7 @@ sequenceDiagram
     UI->>ProjMgmt: Trigger document processing
     ProjMgmt->>Redis: XADD task_streams:document_processing
     DocProc->>Redis: Subscribe & consume
-    DocProc->>DocProc: Tika extraction → JSON
+    DocProc->>DocProc: Tika extraction â†’ JSON
     DocProc->>Redis: XADD ingestion.trigger
     Neo4jIngest->>Redis: Subscribe & consume
     Neo4jIngest->>Neo4j: Run GraphRAG pipeline
@@ -797,26 +797,26 @@ docker compose up openai-mock-service -d
 The system uses a simplified architecture optimized for cost and maintainability:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Azure Cloud                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Provisioned by Bicep:           │  Runs in AKS (containers):               │
-│  • AKS (OIDC + Workload ID)      │  • PostgreSQL (StatefulSet)              │
-│  • Azure Cache for Redis         │  • Neo4j (StatefulSet)                   │
-│  • Azure OpenAI                  │  • 11 microservices                      │
-│  • Storage Account               │  • NGINX Ingress Controller              │
-│  • Key Vault + App Config        │                                          │
-│  • Log Analytics + Insights      │                                          │
-├──────────────────────────────────┴──────────────────────────────────────────┤
-│  External (Corporate):                                                       │
-│  • Container Registry (provided by your organization)                        │
-└─────────────────────────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                              Azure Cloud                                     â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚  Provisioned by Bicep:           â”‚  Runs in AKS (containers):               â”‚
+â”‚  â€¢ AKS (OIDC + Workload ID)      â”‚  â€¢ PostgreSQL (StatefulSet)              â”‚
+â”‚  â€¢ Azure Cache for Redis         â”‚  â€¢ Neo4j (StatefulSet)                   â”‚
+â”‚  â€¢ Azure OpenAI                  â”‚  â€¢ 11 microservices                      â”‚
+â”‚  â€¢ Storage Account               â”‚  â€¢ NGINX Ingress Controller              â”‚
+â”‚  â€¢ Key Vault + App Config        â”‚                                          â”‚
+â”‚  â€¢ Log Analytics + Insights      â”‚                                          â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚  External (Corporate):                                                       â”‚
+â”‚  â€¢ Container Registry (provided by your organization)                        â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 
 Cost Savings vs Traditional Setup: ~$260/month
-• No ACR (use corporate registry)
-• No PostgreSQL Flexible Server (containerized)
-• No Application Gateway (NGINX Ingress)
-• No API Management (ui-service handles proxying)
+â€¢ No ACR (use corporate registry)
+â€¢ No PostgreSQL Flexible Server (containerized)
+â€¢ No Application Gateway (NGINX Ingress)
+â€¢ No API Management (gateway-control-plane-service handles proxying)
 ```
 
 ### Infrastructure Deployment (Azure)
@@ -844,7 +844,7 @@ cd infra
 
 See [k8s/README.md](k8s/README.md) for details.
 
-**Key Design Decision**: ui-service acts as the API Gateway
+**Key Design Decision**: gateway-control-plane-service acts as the API Gateway
 - Already handles Azure AD authentication (MSAL)
 - Already implements S2S JWT token minting
 - Already proxies all API requests
@@ -853,14 +853,14 @@ See [k8s/README.md](k8s/README.md) for details.
 **Structure**:
 ```
 k8s/
-├── base/                  # Base manifests
-│   ├── services/          # 11 service deployments
-│   ├── statefulsets/      # PostgreSQL + Neo4j
-│   ├── jobs/              # Schema initialization
-│   └── ingress.yaml       # NGINX → ui-service
-└── overlays/
-    ├── dev/               # 1 replica
-    └── prod/              # 3 replicas
+â”œâ”€â”€ base/                  # Base manifests
+â”‚   â”œâ”€â”€ services/          # 11 service deployments
+â”‚   â”œâ”€â”€ statefulsets/      # PostgreSQL + Neo4j
+â”‚   â”œâ”€â”€ jobs/              # Schema initialization
+â”‚   â””â”€â”€ ingress.yaml       # NGINX â†’ gateway-control-plane-service
+â””â”€â”€ overlays/
+    â”œâ”€â”€ dev/               # 1 replica
+    â””â”€â”€ prod/              # 3 replicas
 ```
 
 ### CI/CD Pipeline
@@ -870,7 +870,7 @@ k8s/
 | Stage | Description |
 |-------|-------------|
 | `validate` | Validate Bicep + Kustomize |
-| `build` | Build 12 Docker images → Corporate registry |
+| `build` | Build 12 Docker images â†’ Corporate registry |
 | `test` | Unit tests per service |
 | `infrastructure` | Deploy Azure infra (manual) |
 | `deploy` | Install NGINX Ingress + Apply K8s manifests |
@@ -897,9 +897,9 @@ k8s/
 
 **Deployment Flow**:
 ```
-validate → build → test → infrastructure (manual) → deploy → verify
-                              │
-                              └── Only first time or infra changes
+validate â†’ build â†’ test â†’ infrastructure (manual) â†’ deploy â†’ verify
+                              â”‚
+                              â””â”€â”€ Only first time or infra changes
 ```
 
 ---
@@ -952,18 +952,18 @@ All services expose:
 
 ```
 e2e_tests/
-├── src/
-│   ├── test_services_health.py      # Health check validation
-│   ├── test_document_workflow.py    # Document processing E2E
-│   ├── test_neo4j_drift_search.py   # Graph RAG retrieval E2E
-│   ├── test_ui_workflow.py          # Requirements + tasks E2E
-│   └── services/
-│       ├── redis_test_monitor.py    # Redis pub/sub monitor
-│       └── workflow_assertions.py   # Validation helpers
-├── resources/
-│   ├── dummy.pdf                    # Test documents
-│   └── drift_search_cyphers.txt     # Test Cypher queries
-└── pyproject.toml
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ test_services_health.py      # Health check validation
+â”‚   â”œâ”€â”€ test_document_workflow.py    # Document processing E2E
+â”‚   â”œâ”€â”€ test_neo4j_drift_search.py   # Graph RAG retrieval E2E
+â”‚   â”œâ”€â”€ test_ui_workflow.py          # Requirements + tasks E2E
+â”‚   â””â”€â”€ services/
+â”‚       â”œâ”€â”€ redis_test_monitor.py    # Redis pub/sub monitor
+â”‚       â””â”€â”€ workflow_assertions.py   # Validation helpers
+â”œâ”€â”€ resources/
+â”‚   â”œâ”€â”€ dummy.pdf                    # Test documents
+â”‚   â””â”€â”€ drift_search_cyphers.txt     # Test Cypher queries
+â””â”€â”€ pyproject.toml
 ```
 
 ### Running E2E Tests
@@ -986,11 +986,11 @@ pytest src/ --cov=src --cov-report=html
 
 ### Test Coverage
 
-- **Document Processing**: Upload → Tika extraction → JSON output → ingestion trigger
-- **Graph RAG Ingestion**: Pipeline execution → Neo4j schema → entity/relationship creation
-- **DRIFT Search**: HyDE → Primer → Local executor → Aggregator
-- **AI Workflow**: Requirements generation → clarification loop → task breakdown
-- **GitLab Integration**: Backlog fetch → embedding cache → apply backlog
+- **Document Processing**: Upload â†’ Tika extraction â†’ JSON output â†’ ingestion trigger
+- **Graph RAG Ingestion**: Pipeline execution â†’ Neo4j schema â†’ entity/relationship creation
+- **DRIFT Search**: HyDE â†’ Primer â†’ Local executor â†’ Aggregator
+- **AI Workflow**: Requirements generation â†’ clarification loop â†’ task breakdown
+- **GitLab Integration**: Backlog fetch â†’ embedding cache â†’ apply backlog
 
 ---
 
@@ -1040,11 +1040,11 @@ docker network inspect git_epic_creator_network
 ```bash
 # For Azure AD issues
 export MSAL_LOG_LEVEL=DEBUG
-docker-compose logs -f ui-service
+docker-compose logs -f gateway-control-plane-service
 
 # For S2S JWT issues
 # Verify LOCAL_JWT_SECRET matches across services
-docker-compose exec ui-service env | grep LOCAL_JWT_SECRET
+docker-compose exec gateway-control-plane-service env | grep LOCAL_JWT_SECRET
 ```
 
 **3. Redis Pub/Sub Not Streaming**:
@@ -1063,31 +1063,31 @@ curl -N http://localhost:8000/events
 
 ```
 /git-epic-creator/
-├── services/                         # Microservices
-│   ├── shared/                       # Common library
-│   ├── ui_service/                   # Frontend + SSE
-│   ├── project_management_service/   # Project CRUD
-│   ├── ai_requirements_service/      # Requirements generation
-│   ├── ai_tasks_service/             # Task breakdown
-│   ├── document_processing_service/  # Tika extraction
-│   ├── neo4j_ingestion_service/      # GraphRAG pipeline
-│   ├── neo4j_retrieval_service/      # Context retrieval
-│   ├── neo4j_repository_service/     # Golden-source Neo4j service (Rust)
-│   ├── gitlab_client_service/        # GitLab integration
-│   ├── db_init_service/              # Schema init
-│   ├── mock_auth_service/            # Azure AD mock
-│   ├── openai_mock_service/          # OpenAI mock
-│   ├── gitlab_mock_service/          # GitLab mock
-│   └── gpt_oss/                      # vLLM service
-├── infra/                            # Azure infrastructure (Bicep)
-│   ├── main.bicep                    # Main template
-│   └── modules/                      # Module templates
-├── k8s/                              # Kubernetes manifests
-├── e2e_tests/                        # End-to-end tests
-├── docker-compose.yml                # Local orchestration
-├── docker-compose.env                # Environment config
-├── .gitlab-ci.yml                    # CI/CD pipeline
-└── README.md                         # This file
+â”œâ”€â”€ services/                         # Microservices
+â”‚   â”œâ”€â”€ shared/                       # Common library
+â”‚   â”œâ”€â”€ gateway_control_plane_service/                   # Frontend + SSE
+â”‚   â”œâ”€â”€ project_management_service/   # Project CRUD
+â”‚   â”œâ”€â”€ ai_requirements_service/      # Requirements generation
+â”‚   â”œâ”€â”€ ai_tasks_service/             # Task breakdown
+â”‚   â”œâ”€â”€ document_processing_service/  # Tika extraction
+â”‚   â”œâ”€â”€ neo4j_ingestion_service/      # GraphRAG pipeline
+â”‚   â”œâ”€â”€ neo4j_retrieval_service/      # Context retrieval
+â”‚   â”œâ”€â”€ neo4j_repository_service/     # Golden-source Neo4j service (Rust)
+â”‚   â”œâ”€â”€ gitlab_client_service/        # GitLab integration
+â”‚   â”œâ”€â”€ db_init_service/              # Schema init
+â”‚   â”œâ”€â”€ mock_auth_service/            # Azure AD mock
+â”‚   â”œâ”€â”€ openai_mock_service/          # OpenAI mock
+â”‚   â”œâ”€â”€ gitlab_mock_service/          # GitLab mock
+â”‚   â””â”€â”€ gpt_oss/                      # vLLM service
+â”œâ”€â”€ infra/                            # Azure infrastructure (Bicep)
+â”‚   â”œâ”€â”€ main.bicep                    # Main template
+â”‚   â””â”€â”€ modules/                      # Module templates
+â”œâ”€â”€ k8s/                              # Kubernetes manifests
+â”œâ”€â”€ e2e_tests/                        # End-to-end tests
+â”œâ”€â”€ docker-compose.yml                # Local orchestration
+â”œâ”€â”€ docker-compose.env                # Environment config
+â”œâ”€â”€ .gitlab-ci.yml                    # CI/CD pipeline
+â””â”€â”€ README.md                         # This file
 ```
 
 ---
@@ -1098,7 +1098,7 @@ curl -N http://localhost:8000/events
 
 | Service | Documentation |
 |---------|---------------|
-| UI Service | [services/ui_service/README.md](services/ui_service/README.md) |
+| UI Service | [services/gateway_control_plane_service/README.md](services/gateway_control_plane_service/README.md) |
 | AI Requirements | [services/ai_requirements_service/README.md](services/ai_requirements_service/README.md) |
 | AI Tasks | [services/ai_tasks_service/README.md](services/ai_tasks_service/README.md) |
 | Neo4j Retrieval | [services/neo4j_retrieval_service/README.md](services/neo4j_retrieval_service/README.md) |

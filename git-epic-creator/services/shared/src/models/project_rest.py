@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, AnyUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, AnyUrl, TypeAdapter, field_validator, model_validator
 
 
 class ProjectStatus(str, Enum):
@@ -46,11 +46,33 @@ class ProjectSet(BaseModel):
         description="Optional project description"
     )
     
-    # GitLab Repository (Source Code) - single URL for git clone
-    gitlab_repository_url: Optional[AnyUrl] = Field(
+    # GitLab Repositories (Source Code) - multiple clone refs (SSH or HTTPS)
+    gitlab_repository_urls: Optional[List[str]] = Field(
         default=None,
-        description="GitLab repository clone URL (SSH or HTTPS) - NOT resolved to project ID"
+        description="List of GitLab repository clone refs (SSH or HTTPS). Stored as-is; not resolved to project ID."
     )
+
+    @field_validator("gitlab_repository_urls")
+    @classmethod
+    def validate_repository_urls(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return v
+        cleaned = [str(x).strip() for x in v if str(x).strip()]
+        # Unique
+        if len(cleaned) != len(set(cleaned)):
+            raise ValueError("GitLab repository URLs must be unique")
+        # Basic validation: allow SSH refs and http(s) URLs with at least group/project path.
+        url_adapter = TypeAdapter(AnyUrl)
+        for raw in cleaned:
+            if raw.startswith("git@") or raw.startswith("ssh://"):
+                continue
+            try:
+                parsed = url_adapter.validate_python(raw)
+            except Exception as e:
+                raise ValueError(f"Invalid repository URL: {raw}") from e
+            if getattr(parsed, "scheme", None) not in ("http", "https"):
+                raise ValueError(f"Invalid repository URL scheme: {raw}")
+        return cleaned
     
     # GitLab Backlog Projects (Issues/Epics) - multiple projects for backlog management
     gitlab_backlog_project_urls: Optional[List[AnyUrl]] = Field(
@@ -79,10 +101,10 @@ class ProjectResponse(BaseModel):
     name: str = Field(description="Project name")
     description: Optional[str] = Field(description="Project description")
     
-    # GitLab Repository (Source Code)
-    gitlab_repository_url: Optional[str] = Field(
-        default=None,
-        description="GitLab repository clone URL (SSH/HTTPS)"
+    # GitLab Repositories (Source Code)
+    gitlab_repository_urls: List[str] = Field(
+        default_factory=list,
+        description="List of GitLab repository clone refs (SSH/HTTPS)"
     )
     
     # GitLab Backlog Projects (Issues/Epics)

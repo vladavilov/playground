@@ -34,25 +34,7 @@ fn post_json<T: Serialize>(path: &str, payload: &T) -> anyhow::Result<()> {
 }
 
 #[derive(Debug, Serialize)]
-struct MergeProjectRequest<'a> {
-    project_id: &'a str,
-}
-
-#[derive(Debug, Serialize)]
-struct MergeRepoRequest<'a> {
-    project_id: &'a str,
-    repo_fingerprint: &'a str,
-}
-
-#[derive(Debug, Serialize)]
-struct MergeRowsRequest<T> {
-    rows: Vec<T>,
-}
-
-#[derive(Debug, Serialize)]
 struct FileRow<'a> {
-    project_id: &'a str,
-    repo_fingerprint: &'a str,
     file_path: &'a str,
     sha256: &'a str,
     language: &'a str,
@@ -80,6 +62,9 @@ struct EdgeRow<'a> {
 
 #[derive(Debug, Serialize)]
 struct MergeCodeGraphRequest<'a> {
+    project_id: &'a str,
+    repo_fingerprint: &'a str,
+    files: Vec<FileRow<'a>>,
     nodes: Vec<CodeNodeRow<'a>>,
     edges: BTreeMap<CodeRelType, Vec<EdgeRow<'a>>>,
 }
@@ -91,27 +76,15 @@ pub fn persist_code_graph(
     nodes: &[CodeNodeRecord],
     edges: &[EdgeRecord],
 ) -> anyhow::Result<()> {
-    post_json("/v1/code-graph/merge-project", &MergeProjectRequest { project_id })?;
-    post_json(
-        "/v1/code-graph/merge-repo",
-        &MergeRepoRequest {
-            project_id,
-            repo_fingerprint,
-        },
-    )?;
-
     let file_rows: Vec<FileRow<'_>> = files
         .iter()
         .map(|f| FileRow {
-            project_id,
-            repo_fingerprint,
             file_path: &f.path,
             sha256: &f.sha256,
             language: f.language.as_str(),
             line_count: f.line_count,
         })
         .collect();
-    post_json("/v1/code-graph/merge-files", &MergeRowsRequest { rows: file_rows })?;
 
     let node_rows: Vec<CodeNodeRow<'_>> = nodes
         .iter()
@@ -148,6 +121,9 @@ pub fn persist_code_graph(
     post_json(
         "/v1/code-graph/merge-code-graph",
         &MergeCodeGraphRequest {
+            project_id,
+            repo_fingerprint,
+            files: file_rows,
             nodes: node_rows,
             edges: edges_by_type,
         },

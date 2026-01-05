@@ -3,65 +3,23 @@
 import structlog
 import gitlab
 import redis.asyncio as redis
-from fastapi import Request, HTTPException, status, Depends
+from fastapi import Request, HTTPException, status, Depends, Header
 
 from services.gitlab_token_manager import get_token, clear_token, is_token_expired, exchange_token_for_user
 from utils.redis_client import get_redis_client
-from utils.jwt_utils import verify_jwt
 from config import GitLabClientSettings, get_gitlab_client_settings
+from utils.local_auth import get_gateway_service_verified, LocalServiceCaller
 
 logger = structlog.get_logger(__name__)
 
+require_gateway_verified = get_gateway_service_verified()
 
 
-def get_session_id_from_jwt(request: Request) -> str:
-    """
-    Extract user_id (oid) from S2S JWT token.
-    
-    Expects JWT in Authorization header with 'oid' claim (Azure AD user object ID).
-    This enables user-based authentication where GitLab tokens are stored
-    in Redis and looked up by user ID.
-    
-    Args:
-        request: FastAPI request object
-        
-    Returns:
-        User ID (oid) extracted from JWT claims
-        
-    Raises:
-        HTTPException: If JWT is invalid or missing oid claim
-    """
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        logger.warning("Missing or invalid Authorization header")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header"
-        )
-    
-    token = auth_header.replace("Bearer ", "")
-    
-    try:
-        claims = verify_jwt(token, verify_exp=True)
-        user_id = claims.get("oid")
-        
-        if not user_id:
-            logger.warning("JWT missing oid claim", claims=list(claims.keys()))
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="JWT missing oid claim (user ID)"
-            )
-        
-        logger.debug("Extracted user_id from JWT", user_id=user_id)
-        return user_id
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("JWT verification failed", error=str(e), exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid JWT token"
-        )
+def get_x_user_id(x_user_id: str = Header(..., alias="x-user-id")) -> str:
+    """Extract user identity propagated by the gateway."""
+    if not x_user_id or not str(x_user_id).strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing x-user-id header")
+    return str(x_user_id)
 
 
 def get_gitlab_client(
@@ -118,7 +76,8 @@ def get_redis_client_dep() -> redis.Redis:
 
 async def get_gitlab_client_dep(
     request: Request,
-    user_id: str = Depends(get_session_id_from_jwt),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    user_id: str = Depends(get_x_user_id),
     settings: GitLabClientSettings = Depends(get_gitlab_client_settings),
     redis_client: redis.Redis = Depends(get_redis_client_dep)
 ) -> gitlab.Gitlab:

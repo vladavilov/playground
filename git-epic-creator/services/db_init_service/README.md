@@ -29,7 +29,7 @@ The service creates the following tables:
   - `id` (UUID, primary key)
   - `name` (String 255, required)
   - `description` (Text, optional)
-  - `gitlab_repository_url` (Text, optional) - Single GitLab repository URL for source code
+  - `gitlab_repository_urls` (Text[], optional) - GitLab repository clone refs for source code
   - `gitlab_backlog_project_ids` (ARRAY[String], optional) - Resolved GitLab project IDs for backlog
   - `gitlab_backlog_project_urls` (ARRAY[Text], optional) - GitLab project URLs for backlog
   - `status` (String 50, default: 'active')
@@ -59,7 +59,7 @@ The service creates the following tables:
 
 ## Authentication
 
-All endpoints require local authentication via `get_local_user_verified` dependency.
+All endpoints require a **gateway service token** via `get_gateway_service_verified` dependency.
 
 ## Usage
 

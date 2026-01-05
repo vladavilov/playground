@@ -43,7 +43,9 @@ class LanceDBReader:
                 results[key] = []
                 callbacks.vectors_read_end(table_name, 0)
                 continue
-            rows = self._build_rows(df, dims=dims, text_col="text", vector_col="vector")
+            # Prefer stable IDs if present so downstream embedding upserts are deterministic.
+            id_col = "id" if "id" in df.columns else None
+            rows = self._build_rows(df, dims=dims, text_col="text", vector_col="vector", id_col=id_col)
             results[key] = rows
             callbacks.vectors_read_end(table_name, len(rows))
         return results
@@ -66,15 +68,27 @@ class LanceDBReader:
         dims: int,
         text_col: str = "text",
         vector_col: str = "vector",
+        id_col: str | None = None,
     ) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
-        for text, vector in df[[text_col, vector_col]].itertuples(index=False, name=None):
+        cols: list[str] = [text_col, vector_col]
+        if id_col and id_col in df.columns:
+            cols = [id_col] + cols
+        for tup in df[cols].itertuples(index=False, name=None):
+            if id_col and id_col in df.columns:
+                row_id, text, vector = tup
+            else:
+                row_id = None
+                text, vector = tup
             vec = self._to_list_1d(vector)
             if len(vec) < dims:
                 continue
             if len(vec) > dims:
                 vec = vec[:dims]
-            rows.append({"text": str(text), "embedding": vec})
+            row: Dict[str, Any] = {"text": str(text), "embedding": vec}
+            if row_id is not None:
+                row["id"] = str(row_id)
+            rows.append(row)
         return rows
 
 

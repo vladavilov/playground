@@ -2,7 +2,7 @@
 import os
 import pytest
 from unittest.mock import patch, MagicMock
-from test_helpers import make_fake_llm
+from test_helpers import make_fake_llm, stub_valuation_axes
 
 from workflow_models.agent_models import DraftRequirements, RetrievedContext, Requirement
 
@@ -10,6 +10,7 @@ from workflow_models.agent_models import DraftRequirements, RetrievedContext, Re
 @pytest.fixture(autouse=True)
 def setup_env():
     os.environ.setdefault("OAI_API_KEY", "test-key")
+    os.environ.setdefault("OAI_KEY", "test-key")
     os.environ.setdefault("OAI_BASE_URL", "http://localhost:9999")
     os.environ.setdefault("OAI_MODEL", "test-model")
 
@@ -37,7 +38,13 @@ def sample_context():
     return RetrievedContext(
         context_answer="File storage is available",
         key_facts=["Storage supports 100MB files"],
-        citations=["doc:123"],
+        citations=[
+            {
+                "chunk_id": "c1",
+                "text_preview": "File storage is available",
+                "document_name": "doc:123",
+            }
+        ],
     )
 
 
@@ -45,7 +52,16 @@ def sample_context():
 async def test_audit_logs_before_deepeval_execution(sample_draft, sample_context, monkeypatch):
     """Verify that audit logs before attempting DeepEval metric execution."""
     fake_llm = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
+
+    def _fake_build_metrics_config(_has_real_context: bool):
+        return {"metrics": ["stub"]}
+
+    async def _fake_evaluate_with_metrics(_test_case, _metrics_config):
+        return {"faithfulness": 0.8, "groundedness": 0.7, "response_relevancy": 0.9, "completeness": 0.85}
+
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.build_metrics_config", _fake_build_metrics_config, raising=True)
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.evaluate_with_metrics", _fake_evaluate_with_metrics, raising=True)
     
     from orchestrator.experts.consistency_auditor import ConsistencyAuditor
     
@@ -57,15 +73,14 @@ async def test_audit_logs_before_deepeval_execution(sample_draft, sample_context
     
     # Verify logger was called with deepeval-related messages
     log_calls = [str(call) for call in mock_logger.info.call_args_list]
-    assert any("deepeval" in str(call).lower() or "evaluating" in str(call).lower() for call in log_calls), \
-        "Expected logging before DeepEval execution"
+    assert any("deepeval" in str(call).lower() for call in log_calls), "Expected deepeval logging"
 
 
 @pytest.mark.asyncio
 async def test_audit_logs_metric_scores_on_success(sample_draft, sample_context, monkeypatch):
     """Verify that successful metric execution logs the scores."""
     fake_llm = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
     
     from orchestrator.experts.consistency_auditor import ConsistencyAuditor
     
@@ -96,7 +111,7 @@ async def test_audit_logs_metric_scores_on_success(sample_draft, sample_context,
 async def test_audit_raises_exception_when_deepeval_fails(sample_draft, sample_context, monkeypatch):
     """Verify that DeepEval failures raise exceptions instead of being silently swallowed."""
     fake_llm = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
     
     from orchestrator.experts.consistency_auditor import ConsistencyAuditor
     
@@ -117,7 +132,7 @@ async def test_audit_raises_exception_when_deepeval_fails(sample_draft, sample_c
 async def test_audit_logs_exception_details_before_raising(sample_draft, sample_context, monkeypatch):
     """Verify that exceptions are logged with context before being raised."""
     fake_llm = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
     
     from orchestrator.experts.consistency_auditor import ConsistencyAuditor
     
@@ -144,43 +159,29 @@ async def test_audit_logs_exception_details_before_raising(sample_draft, sample_
 
 @pytest.mark.asyncio
 async def test_audit_configures_custom_azure_openai_model_for_deepeval(sample_draft, sample_context, monkeypatch):
-    """Verify that ConsistencyAuditor creates LiteLLMModel for Azure OpenAI with correct configuration."""
+    """Verify that DeepEval metric config is built and executed with the correct context flag."""
     fake_llm = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
-    
-    # Set environment variables for Azure OpenAI mock
-    os.environ["OAI_KEY"] = "KEY"
-    os.environ["OAI_BASE_URL"] = "http://openai-mock-service:8000"
-    os.environ["OAI_MODEL"] = "gpt-4.1"
-    os.environ["OAI_API_VERSION"] = "2024-02-15-preview"
-    
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake_llm, raising=True)
+
+    called = {"has_real_context": None}
+
+    def _fake_build_metrics_config(has_real_context: bool):
+        called["has_real_context"] = bool(has_real_context)
+        return {"metrics": ["stub"]}
+
+    async def _fake_evaluate_with_metrics(_test_case, _metrics_config):
+        return {"faithfulness": 0.8, "groundedness": 0.7, "response_relevancy": 0.9, "completeness": 0.85}
+
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.build_metrics_config", _fake_build_metrics_config, raising=True)
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.evaluate_with_metrics", _fake_evaluate_with_metrics, raising=True)
+
     from orchestrator.experts.consistency_auditor import ConsistencyAuditor
-    
-    # Mock LiteLLMModel to verify it's instantiated with correct args
-    mock_litellm_model = MagicMock()
-    mock_model_instance = MagicMock()
-    mock_litellm_model.return_value = mock_model_instance
-    
-    # Mock DeepEval metrics to capture the model parameter
-    mock_faithfulness = MagicMock()
-    mock_geval = MagicMock()
-    mock_relevancy = MagicMock()
-    
-    with patch("orchestrator.experts.consistency_auditor.LiteLLMModel", mock_litellm_model):
-        with patch("orchestrator.experts.consistency_auditor.FaithfulnessMetric", return_value=mock_faithfulness):
-            with patch("orchestrator.experts.consistency_auditor.GEval", return_value=mock_geval):
-                with patch("orchestrator.experts.consistency_auditor.AnswerRelevancyMetric", return_value=mock_relevancy):
-                    auditor = ConsistencyAuditor()
-                    await auditor.audit(sample_draft, sample_context, "test prompt")
-    
-    # Verify LiteLLMModel was instantiated with Azure OpenAI configuration
-    mock_litellm_model.assert_called_once()
-    call_kwargs = mock_litellm_model.call_args[1]
-    
-    assert call_kwargs["model"] == "azure/gpt-4.1", "Model should be prefixed with 'azure/'"
-    assert call_kwargs["api_key"] == "KEY", "API key should match OAI_KEY"
-    assert call_kwargs["api_base"] == "http://openai-mock-service:8000", "API base should match OAI_BASE_URL"
-    assert call_kwargs["api_version"] == "2024-02-15-preview", "API version should match OAI_API_VERSION"
+
+    auditor = ConsistencyAuditor()
+    findings = await auditor.audit(sample_draft, sample_context, "test prompt")
+
+    assert called["has_real_context"] is True
+    assert findings.component_scores["faithfulness"] == 0.8
 
 
 @pytest.mark.asyncio

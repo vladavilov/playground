@@ -296,7 +296,7 @@ Tests support environment variable configuration matching `docker-compose.env`:
 PROJECT_MANAGEMENT_SERVICE_URL=http://localhost:8003
 DOCUMENT_PROCESSING_URL=http://localhost:8004
 NEO4J_INGESTION_URL=http://localhost:8006
-UI_SERVICE_URL=http://localhost:8007
+GATEWAY_CONTROL_PLANE_SERVICE_URL=http://localhost:8007
 AI_REQUIREMENTS_SERVICE_URL=http://localhost:8009
 AI_TASKS_SERVICE_URL=http://localhost:8013
 NEO4J_RETRIEVAL_URL=http://localhost:8008
@@ -398,7 +398,7 @@ def _create_local_jwt_token(oid: str = None, roles: list = None, username: str =
         "oid": oid or str(uuid.uuid4()),
         "preferred_username": username or "test.user@example.com",
         "roles": roles or ["Admin", "User"],
-        "iss": "ui-service",
+        "iss": "gateway-control-plane-service",
         "iat": now,
         "exp": now + 3600,
     }
@@ -443,7 +443,7 @@ Export environment variables before running tests:
 ```bash
 export AZURE_AD_AUTHORITY=https://localhost:8005
 export AZURE_AD_VERIFY_SSL=false
-export UI_SERVICE_URL=http://localhost:8007
+export GATEWAY_CONTROL_PLANE_SERVICE_URL=http://localhost:8007
 # ... set other variables as needed
 ```
 

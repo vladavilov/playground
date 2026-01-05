@@ -12,7 +12,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "vllm==0.10.1.1",
+    "vllm==0.10.2",
     "fastapi==0.121.0",
     "uvicorn==0.38.0",
     "pydantic==2.12.3",
@@ -25,6 +25,8 @@ dependencies = [
     "requests==2.32.5",
     "tenacity==9.1.2",
     "docling[vlm]==2.58.0",
+    "rapidocr==3.4.5",
+    "rapidocr-onnxruntime==1.2.3",
     "onnxruntime==1.23.2",  # Required by rapidocr-onnxruntime for OCR model inference
     "shared @ file:../shared"
 ]

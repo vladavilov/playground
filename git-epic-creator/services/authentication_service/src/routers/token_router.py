@@ -8,6 +8,8 @@ Provides endpoints for:
 Both UI Service (browser) and MCP Server (VS Code Copilot) use the same mechanism.
 """
 
+import os
+
 from fastapi import APIRouter, HTTPException, Header, status
 from pydantic import BaseModel, Field
 import structlog
@@ -61,6 +63,40 @@ class UserInfoResponse(BaseModel):
     username: str | None = Field(None, description="Username (preferred_username)")
     roles: list[str] = Field(default_factory=list, description="User roles")
     tenant_id: str | None = Field(None, description="Azure AD tenant ID")
+
+
+class S2STokenMintRequest(BaseModel):
+    aud: str = Field(default="internal-services", description="Target audience for the service token")
+
+
+class S2STokenMintResponse(BaseModel):
+    access_token: str = Field(..., description="Service-bound JWT for internal service calls")
+    token_type: str = Field(default="Bearer", description="Token type")
+    expires_in: int = Field(..., description="Token TTL in seconds")
+
+
+@router.post("/s2s/mint", response_model=S2STokenMintResponse)
+async def mint_s2s_token(
+    request: S2STokenMintRequest,
+    x_api_gateway_secret: str | None = Header(None, alias="X-Api-Gateway-Secret"),
+) -> S2STokenMintResponse:
+    """
+    Mint a service-bound JWT for the API gateway (POC caller auth via shared secret).
+    """
+    expected = (os.getenv("API_GATEWAY_MINT_SECRET") or "").strip()
+    provided = (x_api_gateway_secret or "").strip()
+
+    if not expected or not provided or provided != expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    service = get_token_service()
+    result = service.mint_gateway_service_token(aud=request.aud)
+
+    return S2STokenMintResponse(
+        access_token=result["access_token"],
+        token_type="Bearer",
+        expires_in=result["expires_in"],
+    )
 
 
 @router.post("/exchange", response_model=TokenExchangeResponse)

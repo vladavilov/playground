@@ -12,10 +12,10 @@ Stateless OAuth Implementation:
 - All OAuth state encoded in URL parameters, not server-side sessions
 
 Authentication Patterns:
-- /authorize: Query parameters (session_id) - browser redirects can't carry headers
+- /authorize: Gateway-injected S2S token + x-user-id header
 - /callback: No auth required - standard OAuth callback from GitLab
-- /status: S2S JWT - secure token in Authorization header
-- /disconnect: S2S JWT - secure token in Authorization header
+- /status: Gateway-injected S2S token + x-user-id header
+- /disconnect: Gateway-injected S2S token + x-user-id header
 
 This approach balances security (JWT for API calls, custom CSRF validation) with
 OAuth standards (query params for browser redirects) while maintaining stateless design.
@@ -34,16 +34,18 @@ import secrets
 import base64
 import json
 from typing import Optional
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends, Header
 from fastapi.responses import JSONResponse, RedirectResponse
 from urllib.parse import urlencode
 
 from utils.redis_client import get_redis_client
 from services.gitlab_token_manager import get_token, clear_token, exchange_token_for_user
-from dependencies import get_session_id_from_jwt
+from utils.local_auth import get_gateway_service_verified, LocalServiceCaller
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/auth/gitlab", tags=["gitlab-auth"])
+
+require_gateway_verified = get_gateway_service_verified()
 
 
 def _encode_gitlab_state(user_id: str, redirect_uri: str, csrf_token: str) -> str:
@@ -105,8 +107,9 @@ def _decode_gitlab_state(state: str) -> tuple[Optional[str], Optional[str], Opti
 @router.get("/authorize")
 async def gitlab_authorize(
     request: Request,
-    user_id: str,
-    redirect_uri: str
+    redirect_uri: str,
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
 ):
     """
     Initiate GitLab OAuth authorization flow.
@@ -116,14 +119,13 @@ async def gitlab_authorize(
     
     Args:
         request: FastAPI request object
-        user_id: Azure AD user object ID (oid) from ui-service (query param)
         redirect_uri: Application URL to redirect to after OAuth completes (query param)
         
     Returns:
         Redirect to GitLab authorization page
         
     Example:
-        GET /auth/gitlab/authorize?user_id=abc123&redirect_uri=http://localhost:3000/projects
+        GET /auth/gitlab/authorize?redirect_uri=http://localhost:3000/projects
     """
     try:
         oauth = getattr(request.app.state, "oauth", None)
@@ -144,11 +146,11 @@ async def gitlab_authorize(
         
         # Generate CSRF token and encode state with all necessary data
         csrf_token = secrets.token_urlsafe(32)
-        state = _encode_gitlab_state(user_id, redirect_uri, csrf_token)
+        state = _encode_gitlab_state(x_user_id, redirect_uri, csrf_token)
         
         logger.info(
             "Initiating GitLab OAuth flow",
-            user_id=user_id,
+            user_id=x_user_id,
             redirect_uri=redirect_uri,
             callback_uri=callback_uri
         )
@@ -291,7 +293,11 @@ async def gitlab_callback(request: Request):
 
 
 @router.get("/status")
-async def gitlab_status(request: Request):
+async def gitlab_status(
+    request: Request,
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
+):
     """
     Get GitLab connection status for a user.
     
@@ -327,20 +333,17 @@ async def gitlab_status(request: Request):
     # Check if user has valid GitLab token
     connected = False
     try:
-        # Extract user_id (oid) from S2S JWT
-        user_id = get_session_id_from_jwt(request)
-        
         redis_client = getattr(request.app.state, "redis_client", None)
         if not redis_client:
             from utils.redis_client import get_redis_client
             redis_client = get_redis_client()
         
-        token = await get_token(user_id, redis_client)
+        token = await get_token(x_user_id, redis_client)
         connected = bool(token and token.get("access_token"))
         
         logger.debug(
             "GitLab status check",
-            user_id=user_id,
+            user_id=x_user_id,
             connected=connected
         )
     except Exception as e:
@@ -356,7 +359,11 @@ async def gitlab_status(request: Request):
 
 
 @router.post("/disconnect")
-async def gitlab_disconnect(request: Request):
+async def gitlab_disconnect(
+    request: Request,
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
+):
     """
     Disconnect GitLab integration.
     
@@ -374,18 +381,15 @@ async def gitlab_disconnect(request: Request):
     """
     
     try:
-        # Extract user_id (oid) from S2S JWT
-        user_id = get_session_id_from_jwt(request)
-        
         redis_client = getattr(request.app.state, "redis_client", None)
         if not redis_client:
             from utils.redis_client import get_redis_client
             redis_client = get_redis_client()
         
         # Clear token from Redis
-        await clear_token(user_id, redis_client)
+        await clear_token(x_user_id, redis_client)
         
-        logger.info("GitLab disconnected", user_id=user_id)
+        logger.info("GitLab disconnected", user_id=x_user_id)
         
         return JSONResponse({"disconnected": True})
         

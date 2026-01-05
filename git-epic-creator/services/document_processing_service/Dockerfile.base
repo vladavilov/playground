@@ -211,7 +211,10 @@ RUN set -e; \
     echo "  - preprocessor_config.json"
 
 # Install heavy Python dependencies directly (cached layer for faster service builds)
-RUN pip install --no-cache-dir "docling[vlm]==2.58.0" "onnxruntime==1.32.2"
+# NOTE: onnxruntime wheels are Python-version/platform specific. We pin to a version
+# that is available on PyPI for our base image (python-service-base).
+ARG ONNXRUNTIME_VERSION=1.23.2
+RUN pip install --no-cache-dir "docling[vlm]==2.58.0" "onnxruntime==${ONNXRUNTIME_VERSION}"
 
 # Hugging Face caches (only create directories for local VLM mode)
 ENV HF_HOME=/opt/hf-cache \

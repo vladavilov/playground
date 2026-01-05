@@ -20,7 +20,14 @@ patches:
         value: 1
   - target:
       kind: Deployment
-      name: ui-service
+      name: frontend-service
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: gateway-control-plane-service
     patch: |-
       - op: replace
         path: /spec/replicas

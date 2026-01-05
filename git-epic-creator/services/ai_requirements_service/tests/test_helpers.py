@@ -95,16 +95,33 @@ class _FakeOpenAI:
 
 class _FakeHTTPResp:
     def json(self):
-        return {"citations": ["ctx:1"], "snippets": [], "provenance": []}
+        # Mimic retrieval service contract enough for shared parsers:
+        # - final_answer: str
+        # - key_facts: [{fact: str, citations: [...]}, ...]
+        # - citations: [str|{chunk_id, span, document_name}, ...]
+        return {
+            "final_answer": "Relevant context...",
+            "key_facts": [
+                {
+                    "fact": "Storage supports 100MB files",
+                    "citations": [
+                        {"chunk_id": "c1", "span": "Storage supports 100MB files", "document_name": "doc:123"}
+                    ],
+                }
+            ],
+            "citations": [{"chunk_id": "c1", "span": "Storage supports 100MB files", "document_name": "doc:123"}],
+        }
 
 
 class _FakeHTTPClient:
+    def __init__(self, *args, **kwargs):  # noqa: D401, ARG002
+        pass
     async def __aenter__(self):
         return self
     async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
         return False
-    async def post(self, url, json):  # noqa: A002 - shadow builtin ok in tests
-        del url, json
+    async def post(self, url, json, **kwargs):  # noqa: A002 - shadow builtin ok in tests
+        del url, json, kwargs
         return _FakeHTTPResp()
 
 
@@ -191,6 +208,39 @@ class _FakeLangChainLLM:
                         "options": None,
                     }]
                     return self._model_cls(questions=q)  # type: ignore
+                # RequirementEnhancer EnhancedOut
+                if {"id", "title", "description", "acceptance_criteria"}.issubset(field_names):
+                    rid = "REQ-1"
+                    if isinstance(payload, dict):
+                        cur = str(payload.get("current_requirement", ""))
+                        m = _re.search(r"^\\s*ID:\\s*(.+)$", cur, flags=_re.MULTILINE)
+                        if m:
+                            rid = m.group(1).strip()
+                        else:
+                            m2 = _re.search(r"\\b[BF]R-\\d+\\b", cur)
+                            if m2:
+                                rid = m2.group(0)
+                    else:
+                        try:
+                            messages = getattr(payload, "messages", [])
+                            text = "".join(str(getattr(m, "content", "")) for m in messages)
+                            m = _re.search(r"^\\s*ID:\\s*(.+)$", text, flags=_re.MULTILINE)
+                            if m:
+                                rid = m.group(1).strip()
+                            else:
+                                m2 = _re.search(r"\\b[BF]R-\\d+\\b", text)
+                                if m2:
+                                    rid = m2.group(0)
+                        except Exception:
+                            pass
+                    return self._model_cls(
+                        id=rid,
+                        title=f"Enhanced: {rid}",
+                        description="Enhanced description",
+                        rationale="",
+                        acceptance_criteria=["Given X When Y Then Z"],
+                        priority="Must",
+                    )  # type: ignore
                 # Default: return instance without fields
                 return self._model_cls()  # type: ignore
 

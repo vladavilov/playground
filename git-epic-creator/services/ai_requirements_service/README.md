@@ -1,14 +1,14 @@
-AI Requirements Service — Agentic Requirements Generation (Design and Requirements)
+﻿AI Requirements Service â€” Agentic Requirements Generation (Design and Requirements)
 
 Overview
 
-The AI Requirements Service orchestrates an agentic, high‑precision pipeline that converts a user prompt into structured business and functional requirements. It augments context via a GraphRAG Retrieval microservice (separate service, out of scope here) backed by Neo4j and uses an ensemble‑of‑experts (EoE) strategy. The workflow performs self‑evaluation; if confidence (score) < 0.70, it generates targeted clarification questions so that user answers are expected to raise the score ≥ 0.70. The service publishes stepwise workflow updates to the UI via Redis Pub/Sub on the same channel convention used by project_management_service → ui_service.
+The AI Requirements Service orchestrates an agentic, highâ€‘precision pipeline that converts a user prompt into structured business and functional requirements. It augments context via a GraphRAG Retrieval microservice (separate service, out of scope here) backed by Neo4j and uses an ensembleâ€‘ofâ€‘experts (EoE) strategy. The workflow performs selfâ€‘evaluation; if confidence (score) < 0.70, it generates targeted clarification questions so that user answers are expected to raise the score â‰¥ 0.70. The service publishes stepwise workflow updates to the UI via Redis Pub/Sub on the same channel convention used by project_management_service â†’ gateway_control_plane_service.
 
-Non‑Goals
+Nonâ€‘Goals
 
 - GraphRAG Retrieval service implementation (assumed to exist and expose HTTP APIs)
-- UI and SSE bridge implementation (already handled by ui_service)
-- Long‑term memory/store beyond the project context handled by GraphRAG
+- UI and SSE bridge implementation (already handled by gateway_control_plane_service)
+- Longâ€‘term memory/store beyond the project context handled by GraphRAG
 
 Key Requirements (ingestible by coding agent)
 
@@ -21,7 +21,7 @@ Interfaces
     - Behavior: kicks off the agentic pipeline synchronously, but publishes progress updates over Redis during execution.
   - POST /workflow/answers
     - Request: { project_id: UUID, prompt_id: UUID, answers: QuestionAnswer[] }
-    - Response: RequirementsBundle; re‑runs the pipeline with the provided answers to attempt to reach score ≥ 0.70.
+    - Response: RequirementsBundle; reâ€‘runs the pipeline with the provided answers to attempt to reach score â‰¥ 0.70.
   - POST /workflow/enhance
     - Request: { project_id: UUID, requirement_id: string, requirement_type: "business"|"functional", current_content: dict }
     - Response: Requirement (enhanced version, see Schemas)
@@ -96,7 +96,7 @@ Data Models (local Pydantic)
   - id: string (matches ClarificationQuestion.id)
   - answer: string
 
-Agentic Pipeline (expanded, requirements‑focused)
+Agentic Pipeline (expanded, requirementsâ€‘focused)
 
 0) Session Init
    - Normalize input, create prompt_id, resolve project context keys.
@@ -130,45 +130,45 @@ Agentic Pipeline (expanded, requirements‑focused)
    - Logs warnings for legacy string citation format (no document name or span)
    - Deduplicates citations by chunk_id while preserving order
 
-3) Requirement Synthesis (RequirementEngineer) — iterative agentic loop
+3) Requirement Synthesis (RequirementEngineer) â€” iterative agentic loop
    - Approach: iterative refinement with reflection, guided by prompt + RetrievedContext + prior iteration output.
-   - Orchestration: LangGraph state machine with nodes [synthesize → audit → supervisor] and checkpointing; optional human‑in‑the‑loop via interrupts.
+   - Orchestration: LangGraph state machine with nodes [synthesize â†’ audit â†’ supervisor] and checkpointing; optional humanâ€‘inâ€‘theâ€‘loop via interrupts.
    - Iteration i:
      1) Synthesize: produce BR/FR and ACs grounded in RetrievedContext with citations.
         * **Iterative Behavior**: First iteration generates initial requirements; subsequent iterations MUST apply findings.issues (fix defects) and findings.suggestions (incorporate improvements) from the prior audit. The LLM is explicitly instructed to preserve valid content and avoid regeneration from scratch.
-     2) Audit (ConsistencyAuditor): detect conflicts, gaps, duplicates, non‑testable ACs, compliance issues; produce AuditFindings with issues, suggestions, severity score, and component/axis scores.
+     2) Audit (ConsistencyAuditor): detect conflicts, gaps, duplicates, nonâ€‘testable ACs, compliance issues; produce AuditFindings with issues, suggestions, severity score, and component/axis scores.
      3) Supervisor: compute evaluation score, check against target threshold, and route to finalize/clarify/synthesize based on score and iteration count.
-   - Stop when: score ≥ threshold, or max_iters reached, or workflow timeout threshold exceeded.
+   - Stop when: score â‰¥ threshold, or max_iters reached, or workflow timeout threshold exceeded.
    - Libraries: langgraph for iteration/checkpointing; prompts enforce citation, Given/When/Then ACs, and explicit iterative refinement. Publish WorkflowProgressMessage on each iteration (status: drafting_requirements, stage: "draft_requirements", iteration).
 
 4) Consistency, Constraints, and Compliance (ConsistencyAuditor)
    - Checks: contradiction detection, duplicate/overlap clustering, constraint coverage, AC testability (Given/When/Then presence), NFRs mapping, regulatory mapping.
-   - Methods: rule‑based validators + LLM critique prompts with citations back to RetrievedContext.
-   - Links: requirement ↔ constraints ↔ entities; surface missing links as gaps.
+   - Methods: ruleâ€‘based validators + LLM critique prompts with citations back to RetrievedContext.
+   - Links: requirement â†” constraints â†” entities; surface missing links as gaps.
    - Output: ValidatedRequirements + risks + assumptions. Publish WorkflowProgressMessage (status: evaluating).
 
 5) Traceability Enrichment
-   - Build bidirectional trace: requirement ↔ evidence (graph ids, doc ids), requirement ↔ constraint, FR ↔ ACs; capture source spans.
+   - Build bidirectional trace: requirement â†” evidence (graph ids, doc ids), requirement â†” constraint, FR â†” ACs; capture source spans.
    - Generate citation map for each requirement pointing to RetrievedContext.citations.
-   - Produce machine‑readable trace tables to support downstream tooling (e.g., Git epics/stories).
+   - Produce machineâ€‘readable trace tables to support downstream tooling (e.g., Git epics/stories).
    - Output: EnrichedRequirements. Publish WorkflowProgressMessage (status: evaluating, stage: "traceability").
 
 6) Evaluation and Scoring (Evaluator)
    - Compute metrics: precision/faithfulness, grounding, response_relevancy, completeness.
    - Apply severity penalty from ConsistencyAuditor to all component scores:
-     * severity 0.0-0.3 (minor issues) → minimal penalty (multiplier 0.7-1.0)
-     * severity 0.4-0.6 (moderate issues) → medium penalty (multiplier 0.4-0.6)
-     * severity 0.7-1.0 (critical issues) → severe penalty (multiplier 0.0-0.3)
-   - Aggregate penalized scores to s ∈ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, score) summarizing rubric axes.
+     * severity 0.0-0.3 (minor issues) â†’ minimal penalty (multiplier 0.7-1.0)
+     * severity 0.4-0.6 (moderate issues) â†’ medium penalty (multiplier 0.4-0.6)
+     * severity 0.7-1.0 (critical issues) â†’ severe penalty (multiplier 0.0-0.3)
+   - Aggregate penalized scores to s âˆˆ [0,1] (see rubric below). Publish WorkflowProgressMessage (status: evaluating, score) summarizing rubric axes.
 
-7a) If s ≥ 0.70 → Finalize
+7a) If s â‰¥ 0.70 â†’ Finalize
    - Return RequirementsBundle. Publish WorkflowProgressMessage (status: completed, score).
 
-7b) If s < 0.70 → Clarification Loop (QuestionStrategist)
+7b) If s < 0.70 â†’ Clarification Loop (QuestionStrategist)
    - Identify weakest rubric axes and missing evidence/constraints.
    - Generate targeted clarification_questions with expected_impact descriptions.
    - Publish WorkflowProgressMessage (status: needs_clarification, score).
-   - On POST /workflow/answers: augment DecompositionGraph/RetrievedContext, repeat steps 2–6 until s ≥ 0.70 or question budget exhausted.
+   - On POST /workflow/answers: augment DecompositionGraph/RetrievedContext, repeat steps 2â€“6 until s â‰¥ 0.70 or question budget exhausted.
 
 Single-Item Enhancement Pipeline (Streamlined, No Evaluation)
 
@@ -209,12 +209,12 @@ Key Differences from Full Workflow:
 Evaluation Rubric (configurable) and Technical Implementation
 
 - Weights (defaults):
-  - precision_weight: 0.30 — faithfulness vs. retrieved evidence
-  - grounding_weight: 0.30 — explicit citations and support
-  - response_relevancy_weight: 0.20 — topical relevance to the prompt/project
-  - completeness_weight: 0.20 — covers intents, constraints, ACs, and traceability
+  - precision_weight: 0.30 â€” faithfulness vs. retrieved evidence
+  - grounding_weight: 0.30 â€” explicit citations and support
+  - response_relevancy_weight: 0.20 â€” topical relevance to the prompt/project
+  - completeness_weight: 0.20 â€” covers intents, constraints, ACs, and traceability
 
-- Implementation (DeepEval‑based evaluators):
+- Implementation (DeepEvalâ€‘based evaluators):
   - Faithfulness: `deepeval.metrics.FaithfulnessMetric`
   - Grounding: `deepeval.metrics.GEval` (criteria enforces citation/derivation from provided context; params: ACTUAL_OUTPUT + CONTEXT)
   - ResponseRelevancy: `deepeval.metrics.AnswerRelevancyMetric`
@@ -230,7 +230,7 @@ Input/Output Contracts
   - project_id: UUID
   - prompt: string (free-form)
 
-- Output (score ≥ 0.70):
+- Output (score â‰¥ 0.70):
   - RequirementsBundle plus markdown_text: string (requirements in markdown with headings/ACs)
 
 - Output (score < 0.70):
@@ -333,8 +333,8 @@ Testing Strategy
 
 - Unit tests per expert with golden prompts and fixtures
 - Orchestrator tests cover:
-  - happy path (score ≥ 0.70)
-  - low score → clarification loop → improved score
+  - happy path (score â‰¥ 0.70)
+  - low score â†’ clarification loop â†’ improved score
   - GraphRAG partial failures with fallbacks
 - Contract tests for Redis publishing (mocked) and GraphRAG client (HTTP mock)
 
@@ -342,8 +342,8 @@ Implementation Notes
 
 - Keep expert classes stateless and deterministic where possible.
 - Use clear typed dataclasses/Pydantic models for all boundaries.
-- Log and publish non‑PII status only.
-- Respect existing channel naming and message schema used by ui_service/project_management_service.
+- Log and publish nonâ€‘PII status only.
+- Respect existing channel naming and message schema used by gateway_control_plane_service/project_management_service.
 
 Prompt Decomposition Details (brief)
 
@@ -370,6 +370,6 @@ Acceptance Criteria
 - Publishes Redis updates compatible with UI SSE listener on ui:ai_requirements_progress
 - Produces RequirementsBundle with scoring (no step traces)
 - Enters clarification loop when score < 0.70 and returns questions that target rubric deficiencies
-- Configuration‑driven thresholds/weights
+- Configurationâ€‘driven thresholds/weights
 
 

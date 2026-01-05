@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 
 # Default TTL for S2S tokens (matches jwt_utils.sign_jwt default)
 DEFAULT_S2S_TOKEN_TTL_SECONDS = 3600  # 1 hour
+GATEWAY_SERVICE_TOKEN_TTL_SECONDS = 600  # 10 minutes
 
 
 class TokenService:
@@ -29,10 +30,17 @@ class TokenService:
     """
     
     def __init__(self):
-        self._azure_settings = get_azure_auth_settings()
+        # Lazy-load Azure settings so callers that only mint S2S tokens (e.g., Envoy ext_authz
+        # in cookie-session mode) don't require Azure env vars.
+        self._azure_settings = None
         self._jwks_cache: dict[str, Any] | None = None
         self._jwks_cache_time: float = 0
         self._jwks_cache_ttl: float = 300  # 5 minutes
+
+    def _get_azure_settings(self):
+        if self._azure_settings is None:
+            self._azure_settings = get_azure_auth_settings()
+        return self._azure_settings
     
     async def exchange_azure_token(self, token: str) -> dict[str, Any]:
         """
@@ -87,6 +95,15 @@ class TokenService:
             "username": username,
             "roles": roles
         }
+
+    async def validate_azure_access_token(self, token: str) -> dict[str, Any]:
+        """
+        Validate an Azure AD access token and return its claims.
+
+        This is used by Envoy `ext_authz` for non-browser callers (e.g., MCP via Envoy)
+        that authenticate with a Bearer Azure AD token instead of a cookie session.
+        """
+        return await self._validate_azure_ad_token(token)
     
     def validate_local_jwt(self, token: str) -> dict[str, Any]:
         """
@@ -106,6 +123,25 @@ class TokenService:
             return claims
         except Exception as e:
             raise ValueError(f"Invalid LOCAL JWT: {e}")
+
+    def mint_gateway_service_token(self, aud: str = "internal-services") -> dict[str, Any]:
+        """
+        Mint a service-bound JWT for the API gateway to call internal services.
+
+        Contract:
+        - sub: "api-gateway"
+        - iss: "authentication-service"
+        - aud: caller-provided audience (default: "internal-services")
+        - iat/exp: set by jwt_utils.sign_jwt()
+        - no user claims (oid/roles/etc.)
+        """
+        claims = {
+            "sub": "api-gateway",
+            "iss": "authentication-service",
+            "aud": aud,
+        }
+        token = sign_jwt(claims, expires_in_seconds=GATEWAY_SERVICE_TOKEN_TTL_SECONDS)
+        return {"access_token": token, "expires_in": GATEWAY_SERVICE_TOKEN_TTL_SECONDS}
     
     def _mint_local_jwt(
         self,
@@ -227,14 +263,12 @@ class TokenService:
             return self._jwks_cache
         
         # Build JWKS URL
-        jwks_url = (
-            f"{self._azure_settings.AZURE_AD_AUTHORITY}/"
-            f"{self._azure_settings.AZURE_TENANT_ID}/discovery/v2.0/keys"
-        )
+        azure = self._get_azure_settings()
+        jwks_url = f"{azure.AZURE_AD_AUTHORITY}/{azure.AZURE_TENANT_ID}/discovery/v2.0/keys"
         
         # Fetch JWKS
         try:
-            async with httpx.AsyncClient(verify=self._azure_settings.AZURE_AD_VERIFY_SSL) as client:
+            async with httpx.AsyncClient(verify=azure.AZURE_AD_VERIFY_SSL) as client:
                 response = await client.get(jwks_url, timeout=10.0)
                 response.raise_for_status()
                 

@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 
 from worker.celery_app import celery_app
 from tasks.retry import schedule_ingestion_retry
-from services.ingestion_service import Neo4jIngestionService
+from module_services.ingestion_service import Neo4jIngestionService
 from utils.retry_policy import compute_retry_decision
 from clients.project_management_client import ProjectManagementClient
 from utils.celery_helpers import extract_auth_header

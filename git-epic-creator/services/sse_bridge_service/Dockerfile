@@ -2,17 +2,17 @@ FROM python-service-base:latest
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/ui_service/src
+    PYTHONPATH=/app/gateway_control_plane_service/src
 
 WORKDIR /app
 
 COPY ./shared/ ./shared/
-COPY ./ui_service/ ./ui_service/
+COPY ./gateway_control_plane_service/ ./gateway_control_plane_service/
 
 WORKDIR /app/shared
 RUN pip install --no-cache-dir .
 
-WORKDIR /app/ui_service
+WORKDIR /app/gateway_control_plane_service
 RUN pip install --no-cache-dir .
 
 WORKDIR /app

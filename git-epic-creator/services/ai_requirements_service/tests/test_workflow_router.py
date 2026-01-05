@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from test_helpers import _FakeOpenAI, _FakeHTTPClient, stub_valuation_axes
 
+from types import SimpleNamespace
+
 
 class TestWorkflowRouter:
     def setup_method(self):
@@ -28,8 +30,12 @@ class TestWorkflowRouter:
 
     def test_requirements_endpoint_returns_bundle_and_publishes_progress(self, monkeypatch):
         import main  # type: ignore
+        import routers.workflow_router as router_mod
 
         mock_redis = self._override_redis(main.app)
+        main.app.dependency_overrides[router_mod.require_gateway_verified] = lambda: SimpleNamespace(
+            sub="api-gateway", token="svc.jwt.token"
+        )
         client = TestClient(main.app)
 
         self._set_min_env()
@@ -37,10 +43,10 @@ class TestWorkflowRouter:
         # Mock only external dependencies (LLM via orchestrator.llm)
         from test_helpers import make_fake_llm
         fake = make_fake_llm()
-        monkeypatch.setattr("orchestrator.experts.prompt_analyst.get_llm", lambda *args, **kwargs: fake, raising=False)
-        monkeypatch.setattr("orchestrator.experts.requirements_engineer.get_llm", lambda *args, **kwargs: fake, raising=False)
-        monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake, raising=False)
-        monkeypatch.setattr("orchestrator.experts.question_strategist.get_llm", lambda *args, **kwargs: fake, raising=False)
+        monkeypatch.setattr("orchestrator.experts.prompt_analyst.create_llm", lambda *args, **kwargs: fake, raising=True)
+        monkeypatch.setattr("orchestrator.experts.requirements_engineer.create_llm", lambda *args, **kwargs: fake, raising=True)
+        monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake, raising=True)
+        monkeypatch.setattr("orchestrator.experts.question_strategist.create_llm", lambda *args, **kwargs: fake, raising=True)
         monkeypatch.setattr("httpx.AsyncClient", _FakeHTTPClient, raising=True)
         stub_valuation_axes(monkeypatch, 0.8)
 
@@ -67,8 +73,12 @@ class TestWorkflowRouter:
 
     def test_answers_endpoint_returns_bundle_and_publishes_progress(self, monkeypatch):
         import main  # type: ignore
+        import routers.workflow_router as router_mod
 
         mock_redis = self._override_redis(main.app)
+        main.app.dependency_overrides[router_mod.require_gateway_verified] = lambda: SimpleNamespace(
+            sub="api-gateway", token="svc.jwt.token"
+        )
         client = TestClient(main.app)
 
         self._set_min_env()
@@ -76,10 +86,10 @@ class TestWorkflowRouter:
         # Mock only external dependencies (LLM via orchestrator.llm)
         from test_helpers import make_fake_llm
         fake = make_fake_llm()
-        monkeypatch.setattr("orchestrator.experts.prompt_analyst.get_llm", lambda *args, **kwargs: fake, raising=False)
-        monkeypatch.setattr("orchestrator.experts.requirements_engineer.get_llm", lambda *args, **kwargs: fake, raising=False)
-        monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake, raising=False)
-        monkeypatch.setattr("orchestrator.experts.question_strategist.get_llm", lambda *args, **kwargs: fake, raising=False)
+        monkeypatch.setattr("orchestrator.experts.prompt_analyst.create_llm", lambda *args, **kwargs: fake, raising=True)
+        monkeypatch.setattr("orchestrator.experts.requirements_engineer.create_llm", lambda *args, **kwargs: fake, raising=True)
+        monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake, raising=True)
+        monkeypatch.setattr("orchestrator.experts.question_strategist.create_llm", lambda *args, **kwargs: fake, raising=True)
         monkeypatch.setattr("httpx.AsyncClient", _FakeHTTPClient, raising=True)
         stub_valuation_axes(monkeypatch, 0.4)
 

@@ -4,7 +4,7 @@ import pytest
 
 
 def test_requirements_bundle_serialization_and_validation():
-    from workflow_models.workflow_models import (
+    from workflow_models.requirements_models import (
         Requirement,
         ClarificationQuestion,
         QuestionAnswer,
@@ -81,7 +81,7 @@ def test_requirements_bundle_serialization_and_validation():
 
 
 def test_workflow_progress_message_defaults_and_validation():
-    from workflow_models.progress_messages import WorkflowProgressMessage
+    from models.progress_messages import WorkflowProgressMessage
 
     project_id = uuid4()
     msg = WorkflowProgressMessage(

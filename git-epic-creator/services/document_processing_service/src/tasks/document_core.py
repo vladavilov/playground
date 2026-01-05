@@ -14,9 +14,27 @@ from uuid import UUID
 import os
 import tempfile
 import structlog
+import re
 
 
 Logger = structlog.stdlib.BoundLogger
+
+
+def _coerce_content_type(value: Any, default: str = "application/octet-stream") -> str:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                return item
+        return default
+    try:
+        as_str = str(value)
+    except Exception:
+        return default
+    return as_str if as_str else default
 
 
 def _extract_filtered_metadata(raw_metadata: dict[str, Any], filename: str) -> dict[str, Any]:
@@ -34,21 +52,28 @@ def _extract_filtered_metadata(raw_metadata: dict[str, Any], filename: str) -> d
         return {}
     
     # Extract content type and determine file type
-    content_type = raw_metadata.get("Content-Type", "application/octet-stream")
+    content_type = _coerce_content_type(raw_metadata.get("Content-Type"))
+    content_type_lower = content_type.lower()
     file_extension = Path(filename).suffix.lower().lstrip(".")
     
     # Map common content types to file types if extension is not reliable
-    if file_extension in ["pdf", "docx", "xlsx", "pptx", "txt", "md"]:
+    if file_extension in ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md"]:
         file_type = file_extension
-    elif "pdf" in content_type.lower():
+    elif "pdf" in content_type_lower:
         file_type = "pdf"
-    elif "wordprocessingml" in content_type.lower():
+    elif "application/msword" in content_type_lower:
+        file_type = "doc"
+    elif "wordprocessingml" in content_type_lower:
         file_type = "docx"
-    elif "spreadsheetml" in content_type.lower():
+    elif "application/vnd.ms-excel" in content_type_lower:
+        file_type = "xls"
+    elif "spreadsheetml" in content_type_lower:
         file_type = "xlsx"
-    elif "presentationml" in content_type.lower():
+    elif "application/vnd.ms-powerpoint" in content_type_lower:
+        file_type = "ppt"
+    elif "presentationml" in content_type_lower:
         file_type = "pptx"
-    elif "text" in content_type.lower():
+    elif "text" in content_type_lower:
         file_type = "txt"
     else:
         file_type = file_extension or "unknown"
@@ -185,112 +210,117 @@ def process_project_documents_core(
                 error_msg = f"{blob_name}: Download failed - {getattr(download_result, 'error_message', 'unknown error')}"
                 error_messages.append(error_msg)
                 log.error("Failed to download file", blob_name=blob_name, error=getattr(download_result, "error_message", None))
-                continue
+                return_to_loop = True
+            else:
+                return_to_loop = False
 
-            # Defensive logging: Start document processing
-            log.info(
-                "DOCUMENT_PROCESSING_START",
-                blob_name=blob_name,
-                temp_file_path=temp_file_path,
-                file_size_bytes=os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0,
-                project_id=project_id
-            )
-            
-            # Explicit exception handling to prevent silent failures
-            try:
-                processing_result = document_processor.extract_text_with_result(temp_file_path)
-            except Exception as proc_exc:
-                # Catch ANY exception from the processor to prevent silent task loss
-                failed_documents += 1
-                error_msg = f"{blob_name}: {type(proc_exc).__name__}: {str(proc_exc)}"
-                error_messages.append(error_msg)
-                log.error(
-                    "DOCUMENT_PROCESSING_EXCEPTION",
+            if not return_to_loop:
+                # Defensive logging: Start document processing
+                log.info(
+                    "DOCUMENT_PROCESSING_START",
                     blob_name=blob_name,
                     temp_file_path=temp_file_path,
-                    error=str(proc_exc),
-                    error_type=type(proc_exc).__name__,
-                    project_id=project_id,
-                    exc_info=True
+                    file_size_bytes=os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0,
+                    project_id=project_id
                 )
-                # Create a failed result to continue processing other documents
-                from dataclasses import dataclass
-                @dataclass
-                class FailedResult:
-                    success: bool = False
-                    error_message: str = ""
-                    extracted_text: str = ""
-                    metadata: dict = None
-                
-                processing_result = FailedResult(
-                    success=False,
-                    error_message=f"Processor exception: {type(proc_exc).__name__}: {str(proc_exc)}"
-                )
-                continue
-            
-            # Defensive logging: Processing completed (success or failure)
-            log.info(
-                "DOCUMENT_PROCESSING_COMPLETED",
-                blob_name=blob_name,
-                success=getattr(processing_result, "success", False),
-                has_text=bool(getattr(processing_result, "extracted_text", None)),
-                text_length=len(getattr(processing_result, "extracted_text", "") or ""),
-                error_message=getattr(processing_result, "error_message", None)
-            )
-            
-            if getattr(processing_result, "success", False):
-                extracted_text = getattr(processing_result, "extracted_text", None) or ""
-                
-                # Check if extracted text is empty or only whitespace
-                if not extracted_text.strip():
-                    empty_documents += 1
-                    log.warning(
-                        "Document has empty or whitespace-only text content - skipping upload",
-                        blob_name=blob_name,
-                        text_length=len(extracted_text)
-                    )
-                    # Skip JSON creation and upload for empty documents
-                    continue
-                
-                # Map to ingestion document schema fields (creation_date unknown upstream)
-                documents_for_ingestion.append({
-                    "id": None,
-                    "title": os.path.basename(blob_name),
-                    "text": extracted_text,
-                    "creation_date": None,
-                    "metadata": getattr(processing_result, "metadata", None),
-                })
-                processed_documents += 1
 
-                # Write structured JSON and upload to output/
+                # Explicit exception handling to prevent silent failures
                 try:
-                    raw_metadata = getattr(processing_result, "metadata", None) or {}
-                    
-                    # Extract and filter relevant metadata for GraphRAG
-                    filtered_metadata = _extract_filtered_metadata(raw_metadata, os.path.basename(blob_name))
+                    processing_result = document_processor.extract_text_with_result(temp_file_path)
+                except Exception as proc_exc:
+                    # Catch ANY exception from the processor to prevent silent task loss
+                    failed_documents += 1
+                    error_msg = f"{blob_name}: {type(proc_exc).__name__}: {str(proc_exc)}"
+                    error_messages.append(error_msg)
+                    log.error(
+                        "DOCUMENT_PROCESSING_EXCEPTION",
+                        blob_name=blob_name,
+                        temp_file_path=temp_file_path,
+                        error=str(proc_exc),
+                        error_type=type(proc_exc).__name__,
+                        project_id=project_id,
+                        exc_info=True
+                    )
+                    processing_result = None
 
-                    output_payload = {
-                        "title": os.path.basename(blob_name),
-                        "text": extracted_text,
-                        "metadata": filtered_metadata
-                    }
-                    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as json_tmp:
-                        json.dump(output_payload, json_tmp)
-                        json_tmp.flush()
-                        json_tmp_path = json_tmp.name
-                    output_name = f"output/{Path(os.path.basename(blob_name)).stem}.json"
-                    upload_result = blob_client.upload_file(json_tmp_path, output_name, project_id=project_uuid)
-                    if not getattr(upload_result, "success", False):
-                        log.warning("Failed to upload output JSON", blob_name=output_name, error=getattr(upload_result, "error_message", None))
-                except Exception as upload_exc:  # pragma: no cover - side-effect logging only
-                    log.error("Exception while uploading output JSON", error=str(upload_exc))
-            else:
-                failed_documents += 1
-                error_msg = f"{blob_name}: {getattr(processing_result, 'error_message', 'Processing failed')}"
-                error_messages.append(error_msg)
-                log.error("Document processing failed", blob_name=blob_name, error=getattr(processing_result, "error_message", None))
+                # Defensive logging: Processing completed (success or failure)
+                log.info(
+                    "DOCUMENT_PROCESSING_COMPLETED",
+                    blob_name=blob_name,
+                    success=getattr(processing_result, "success", False),
+                    has_text=bool(getattr(processing_result, "extracted_text", None)),
+                    text_length=len(getattr(processing_result, "extracted_text", "") or ""),
+                    error_message=getattr(processing_result, "error_message", None)
+                )
 
-            # Progress update
+                if getattr(processing_result, "success", False):
+                    extracted_text = getattr(processing_result, "extracted_text", None) or ""
+
+                    # Treat control-char-only strings as empty (common for some binary formats)
+                    cleaned = extracted_text.replace("\x00", "")
+                    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", cleaned)
+
+                    # Check if extracted text is empty or only whitespace
+                    if not cleaned.strip():
+                        empty_documents += 1
+                        log.warning(
+                            "Document has empty or whitespace-only text content - skipping upload",
+                            blob_name=blob_name,
+                            text_length=len(extracted_text)
+                        )
+                    else:
+                        # Write structured JSON and upload to output/.
+                        # Only count as processed if upload succeeded to avoid triggering ingestion on missing outputs.
+                        try:
+                            raw_metadata = getattr(processing_result, "metadata", None) or {}
+
+                            # Extract and filter relevant metadata for GraphRAG
+                            filtered_metadata = _extract_filtered_metadata(raw_metadata, os.path.basename(blob_name))
+
+                            output_payload = {
+                                "title": os.path.basename(blob_name),
+                                "text": extracted_text,
+                                "metadata": filtered_metadata
+                            }
+                            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json", encoding="utf-8") as json_tmp:
+                                json.dump(output_payload, json_tmp)
+                                json_tmp.flush()
+                                json_tmp_path = json_tmp.name
+
+                            # Collision-proof output name: include original extension (e.g., foo.doc.json, foo.png.json).
+                            output_name = f"output/{os.path.basename(blob_name)}.json"
+                            upload_result = blob_client.upload_file(json_tmp_path, output_name, project_id=project_uuid)
+                            if not getattr(upload_result, "success", False):
+                                failed_documents += 1
+                                error_msg = f"{blob_name}: Upload failed - {getattr(upload_result, 'error_message', 'unknown error')}"
+                                error_messages.append(error_msg)
+                                log.warning(
+                                    "Failed to upload output JSON",
+                                    blob_name=output_name,
+                                    error=getattr(upload_result, "error_message", None),
+                                )
+                            else:
+                                # Map to ingestion document schema fields (creation_date unknown upstream)
+                                documents_for_ingestion.append({
+                                    "id": None,
+                                    "title": os.path.basename(blob_name),
+                                    "text": extracted_text,
+                                    "creation_date": None,
+                                    "metadata": getattr(processing_result, "metadata", None),
+                                })
+                                processed_documents += 1
+                        except Exception as upload_exc:
+                            failed_documents += 1
+                            error_msg = f"{blob_name}: Upload exception - {type(upload_exc).__name__}: {str(upload_exc)}"
+                            error_messages.append(error_msg)
+                            log.error("Exception while uploading output JSON", error=str(upload_exc), exc_info=True)
+                else:
+                    failed_documents += 1
+                    error_msg = f"{blob_name}: {getattr(processing_result, 'error_message', 'Processing failed')}"
+                    error_messages.append(error_msg)
+                    log.error("Document processing failed", blob_name=blob_name, error=getattr(processing_result, "error_message", None))
+        finally:
+            # Progress update (always attempt, even for empty docs / download failures)
             try:
                 progress_result = send_progress_update(
                     project_id,
@@ -309,7 +339,7 @@ def process_project_documents_core(
                     project_id=project_id,
                     error=str(progress_error),
                 )
-        finally:
+
             if temp_file_path and os.path.exists(temp_file_path):
                 try:
                     os.unlink(temp_file_path)

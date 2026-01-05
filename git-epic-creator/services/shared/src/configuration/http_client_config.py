@@ -32,6 +32,11 @@ class HTTPClientSettings(BaseSettings):
         description="URL for the GitLab client service",
     )
 
+    CODE_GRAPH_INGESTION_SERVICE_URL: str = Field(
+        default="http://localhost:8015",
+        description="URL for the code graph ingestion service",
+    )
+
     GRAPH_RAG_SERVICE_URL: str = Field(
         default="http://neo4j-retrieval-service:8000",
         description="URL for the GraphRAG retrieval service",
@@ -86,6 +91,7 @@ class HTTPClientSettings(BaseSettings):
         'AI_REQUIREMENTS_SERVICE_URL',
         'AI_TASKS_SERVICE_URL',
         'GITLAB_CLIENT_SERVICE_URL',
+        'CODE_GRAPH_INGESTION_SERVICE_URL',
         'GRAPH_RAG_SERVICE_URL',
         'AUTH_SERVICE_URL',
     )

@@ -14,8 +14,8 @@ import structlog
 from datetime import datetime, timezone
 from utils.celery_factory import get_celery_app
 from constants import APP_NAME_DOCUMENT_PROCESSING, EXPECTED_TASKS_DOCUMENT
-from services.docling_processor import DoclingProcessor
-from services.tika_processor import TikaProcessor
+from module_services.docling_processor import DoclingProcessor
+from module_services.tika_processor import TikaProcessor
 from utils.asyncio_runner import PersistentEventLoopRunner
 from celery import signals
 

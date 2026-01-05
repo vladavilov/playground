@@ -45,7 +45,7 @@ class ProjectClient:
             - name (str)
             - gitlab_backlog_project_ids (Optional[List[str]]) - array of numeric GitLab project IDs
             - gitlab_backlog_project_urls (Optional[List[str]])
-            - gitlab_repository_url (Optional[str])
+            - gitlab_repository_urls (List[str])
             - status (str)
             
         Raises:

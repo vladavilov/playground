@@ -16,9 +16,8 @@ from utils.workflow_gating import gate_and_enqueue_sync, cleanup_after_run_sync
 from utils.asyncio_runner import run_async
 from utils.celery_helpers import extract_auth_header
 
-if TYPE_CHECKING:
-    from services.docling_processor import DoclingProcessor
-    from services.tika_processor import TikaProcessor
+from module_services.docling_processor import DoclingProcessor
+from module_services.tika_processor import TikaProcessor
 
 logger = structlog.get_logger(__name__)
 

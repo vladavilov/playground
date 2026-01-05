@@ -1,9 +1,11 @@
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 import structlog
 from auth import require_authentication
 from configuration.common_config import get_app_settings
 from handlers.base import HandlerRegistry
+from handlers.base import AmbiguousHandlerMatch
 from handlers.drift_search import (
     DriftHydeHandler, 
     DriftPrimerHandler, 
@@ -32,12 +34,16 @@ from handlers.tasks import (
 )
 from handlers.search import ExtractClaimsHandler, GlobalSearchHandler, BasicSearchHandler, QuestionGenerationHandler, SummarizeDescriptionsHandler
 from handlers.fallback import FallbackGraphHandler
+from handlers.docling_vlm import DoclingVlmHandler
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 # Initialize handler registry with handlers in priority order (most specific first)
 handler_registry = HandlerRegistry()
+
+# Docling remote VLM handler (document_processing_service vision/picture descriptions)
+handler_registry.register(DoclingVlmHandler())
 
 # DRIFT-search handlers (highest priority - complete DRIFT workflow)
 handler_registry.register(DriftHydeHandler())                # HyDE embeddings phase
@@ -141,17 +147,27 @@ async def chat_completions(body: Dict[str, Any]) -> Dict[str, Any]:
         all_text = "\n".join([str(m.get("content", "")) for m in messages if isinstance(m, dict)])
         lower_all = all_text.lower()
         
-        # Find appropriate handler
-        handler = handler_registry.find_handler(messages, all_text, lower_all)
-        
-        if handler is None:
-            # This should never happen since FallbackGraphHandler always matches
-            logger.warning("no_handler_found_using_default")
-            generated = '{\n  "nodes": [],\n  "relationships": []\n}'
-        else:
-            handler_name = type(handler).__name__
-            logger.info("handler_matched", handler=handler_name, message_preview=all_text[:200])
-            generated = handler.generate_response(messages, all_text, model)
+        # Select exactly one handler (0 -> fallback, 1 -> match, >1 -> 409)
+        handler = handler_registry.select_handler(messages, all_text, lower_all)
+        handler_name = type(handler).__name__
+        logger.info("handler_selected", handler=handler_name, message_preview=all_text[:200])
+        generated = handler.generate_response(messages, all_text, model)
+
+    except AmbiguousHandlerMatch as exc:
+        # IMPORTANT: shared ErrorHandler stringifies HTTPException.detail.
+        # Return JSONResponse directly so callers (and tests) get structured data.
+        matches = list(exc.matches)
+        logger.error("ambiguous_handler_match", matches=matches, message_preview=all_text[:500])
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "error",
+                "detail": {
+                    "error": "Ambiguous handler match",
+                    "matches": matches,
+                },
+            },
+        )
     
     except Exception as exc:
         logger.warning("chat_generation_failed", error=str(exc))

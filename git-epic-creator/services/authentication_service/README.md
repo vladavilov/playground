@@ -1,6 +1,9 @@
 # Authentication Service
 
-Centralized authentication service for exchanging Azure AD tokens for LOCAL JWTs. Both UI Service (browser) and MCP Server (VS Code Copilot) use the **same unified endpoint**.
+Centralized authentication service that owns:
+
+- **Browser login + session** (`/auth/login`, `/auth/callback`, `/auth/me`, `/auth/logout`)
+- **Token operations** (currently includes legacy token exchange + S2S minting)
 
 ## Architecture
 
@@ -52,6 +55,13 @@ flowchart TB
 **Key Design Principle:** There is ONE authentication mechanism. Both browser users (UI Service) and VS Code Copilot users (MCP Server) authenticate to the **same Azure AD**, receive the **same type of token**, and exchange it via the **same endpoint**. Azure AD authentication is REQUIRED - there is no service account fallback.
 
 ## Endpoints
+
+### Browser session endpoints (MSAL)
+
+- `GET /auth/login`: start Azure AD login flow (redirect)
+- `GET /auth/callback`: OAuth callback (sets session cookie, redirects to app)
+- `GET /auth/me`: session status
+- `POST /auth/logout`: clear session
 
 ### POST /auth/exchange
 
@@ -119,6 +129,31 @@ Low-level validation of a LOCAL JWT token. For user info, prefer `GET /auth/user
 }
 ```
 
+### POST /auth/s2s/mint
+
+Mint a **service-bound** token for the API gateway to call internal services.
+
+**Request Headers:**
+```
+X-Api-Gateway-Secret: <secret>
+```
+
+**Request Body:**
+```json
+{
+  "aud": "internal-services"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "access_token": "<jwt>",
+  "token_type": "Bearer",
+  "expires_in": 600
+}
+```
+
 ## Unified Authentication Flow
 
 Both UI Service and MCP Server follow the **same authentication flow**:
@@ -164,6 +199,7 @@ sequenceDiagram
 | `AZURE_CLIENT_ID` | - | Azure AD client ID |
 | `AZURE_AD_VERIFY_SSL` | `true` | SSL verification (false for mock auth in dev) |
 | `LOCAL_JWT_SECRET` | - | **Required**: Shared secret for LOCAL JWT signing |
+| `API_GATEWAY_MINT_SECRET` | - | **Required**: Shared secret used to authorize `POST /auth/s2s/mint` |
 
 ### Token TTL
 

@@ -66,8 +66,6 @@ class TestMain:
                 title="Document Processing Service",
                 description="A microservice for processing documents with Celery tasks",
                 version="1.0.0",
-                enable_azure_auth=False,
-                enable_docs_auth=False,
                 enable_cors=True
             )
             
@@ -125,6 +123,8 @@ class TestMain:
         
         with patch('celery_worker_app.celery_app') as mock_celery_app, \
              patch('celery_worker_app.get_task_validation_status') as mock_get_task_validation, \
+             patch('celery_worker_app.get_initialization_status') as mock_get_init_status, \
+             patch('celery_worker_app.get_processors_health') as mock_get_processors_health, \
              patch('configuration.logging_config.configure_logging'), \
              patch('structlog.get_logger') as mock_get_logger, \
              patch('utils.app_factory.FastAPIFactory.create_app') as mock_create_app, \
@@ -155,20 +155,10 @@ class TestMain:
             mock_celery_app.conf.result_serializer = "json"
             mock_celery_app.main = "document_processing_service"
 
+            # CeleryHealthChecker returns additional details, but main.py only uses the healthy flag.
             expected_health_data = {
                 "healthy": True,
                 "active_workers_count": 2,
-                "broker_url": "redis://localhost:6379/0",
-                "backend_url": "redis://localhost:6379/1",
-                "service": "Document Processing Service",
-                "celery_app_name": "document_processing_service",
-                "active_tasks": ["celery.chord_unlock", "celery.backend_cleanup", "tasks.document_tasks.process_project_documents_task"],
-                "registered_tasks_count": 3,
-                "result_backend": "redis://localhost:6379/1",
-                "task_routes": {},
-                "worker_queues": ["document_processing"],
-                "task_serializer": "json",
-                "result_serializer": "json"
             }
             
             expected_task_validation = {
@@ -182,6 +172,15 @@ class TestMain:
             mock_create_app.return_value = mock_fastapi_app
             mock_get_settings.return_value = mock_settings
             mock_get_task_validation.return_value = expected_task_validation
+            mock_get_init_status.return_value = {
+                "healthy": True,
+                "docling": {"healthy": True, "initialized": True},
+                "tika": {"healthy": True, "initialized": True},
+            }
+            mock_get_processors_health.return_value = {
+                "docling": {"healthy": True},
+                "tika": {"healthy": True},
+            }
             
             # Configure mock health checker instance
             mock_health_checker_instance = Mock()
@@ -198,15 +197,19 @@ class TestMain:
             # Assert
             assert response.status_code == 200
             response_data = response.json()
-            
-            # Check that the original health data is included
-            for key, value in expected_health_data.items():
-                assert response_data[key] == value, f"Expected {key}={value}, got {response_data.get(key)}"
-            
-            # Check that task validation data is included
-            assert 'task_validation_status' in response_data
-            assert response_data['task_validation_status'] == expected_task_validation
-            
+
+            # Overall response should be healthy because we patched processors + init status.
+            assert response_data["healthy"] is True
+            assert response_data["service"] == "Document Processing Service"
+            assert "components" in response_data
+            assert response_data["components"]["celery"]["healthy"] is True
+            assert response_data["components"]["celery"]["task_validation_status"] == expected_task_validation
+            assert response_data["components"]["celery"]["registered_tasks_count"] == 3
+            assert response_data["components"]["celery"]["broker_url"] == "redis://localhost:6379/0"
+            assert response_data["components"]["celery"]["result_backend"] == "redis://localhost:6379/1"
+            assert response_data["components"]["docling"]["healthy"] is True
+            assert response_data["components"]["tika"]["healthy"] is True
+
             # Verify that the health checker was instantiated and called correctly
             mock_health_checker_class.assert_called_once()
             mock_health_checker_instance.check_health_with_details.assert_called_once_with(mock_celery_app)

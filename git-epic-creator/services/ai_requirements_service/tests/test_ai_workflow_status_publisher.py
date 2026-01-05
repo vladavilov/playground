@@ -23,7 +23,7 @@ class TestAiWorkflowStatusPublisher:
 
         assert publisher is not None
         assert hasattr(publisher, "prefix")
-        assert hasattr(publisher, "default_name")
+        assert hasattr(publisher, "default_channel_name")
         assert hasattr(publisher, "_channel")
 
     def test_default_channel_name(self):
@@ -32,7 +32,7 @@ class TestAiWorkflowStatusPublisher:
         from services.ai_workflow_status_publisher import AiWorkflowStatusPublisher  # type: ignore
 
         publisher = AiWorkflowStatusPublisher(mock_redis_client)
-        channel = publisher._channel(publisher.default_name)
+        channel = publisher._channel()
         assert channel == "ui:ai_requirements_progress"
 
     @pytest.mark.asyncio

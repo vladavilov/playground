@@ -35,7 +35,9 @@ class TestConfig:
             "init_db_service": os.getenv("INIT_DB_SERVICE_URL", "http://localhost:8001"),
             # Neo4j schema/init is handled by neo4j_repository_service (Rust).
             "neo4j_repository": os.getenv("NEO4J_REPOSITORY_SERVICE_URL", "http://localhost:8080"),
-            "ui_service": os.getenv("UI_SERVICE_URL", "http://localhost:8007"),
+            "gateway_control_plane_service": os.getenv(
+                "GATEWAY_CONTROL_PLANE_SERVICE_URL", "http://localhost:8007"
+            ),
             "ai_requirements": os.getenv("AI_REQUIREMENTS_SERVICE_URL", "http://localhost:8009"),
             "ai_tasks": os.getenv("AI_TASKS_SERVICE_URL", "http://localhost:8012"),
             "neo4j_retrieval": os.getenv("NEO4J_RETRIEVAL_URL", "http://localhost:8008"),

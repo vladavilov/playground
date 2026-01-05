@@ -835,7 +835,7 @@ sequenceDiagram
   "name": "My Project",
   "gitlab_backlog_project_ids": ["123", "456"],
   "gitlab_backlog_project_urls": ["https://gitlab.com/group/project1", "https://gitlab.com/group/project2"],
-  "gitlab_repository_url": "https://gitlab.com/group/repo.git",
+  "gitlab_repository_urls": ["https://gitlab.com/group/repo.git"],
   "status": "active"
 }
 ```

@@ -6,7 +6,6 @@ and included in the output JSON for GraphRAG ingestion.
 """
 
 import json
-from pathlib import Path
 from typing import Any, Dict
 
 from tasks.document_core import process_project_documents_core
@@ -98,7 +97,7 @@ def test_metadata_includes_required_fields():
     # Verify that output JSON was uploaded
     assert len(blob_client.uploaded_blobs) == 1
     uploaded_blob_name = blob_client.uploaded_blobs[0]
-    assert uploaded_blob_name == "output/test_document.json"
+    assert uploaded_blob_name == "output/test_document.pdf.json"
 
     # Verify the uploaded JSON content
     uploaded_content = blob_client.uploaded_contents[uploaded_blob_name]
@@ -161,7 +160,7 @@ def test_metadata_filters_irrelevant_fields():
     assert result["success"] is True
 
     # Get uploaded content
-    uploaded_content = blob_client.uploaded_contents["output/test_document.json"]
+    uploaded_content = blob_client.uploaded_contents["output/test_document.pdf.json"]
     uploaded_data = json.loads(uploaded_content)
     metadata = uploaded_data["metadata"]
 
@@ -201,7 +200,7 @@ def test_metadata_handles_missing_dates():
 
     assert result["success"] is True
 
-    uploaded_content = blob_client.uploaded_contents["output/test_document.json"]
+    uploaded_content = blob_client.uploaded_contents["output/test_document.pdf.json"]
     uploaded_data = json.loads(uploaded_content)
     metadata = uploaded_data["metadata"]
 
@@ -218,8 +217,11 @@ def test_metadata_handles_different_file_types():
     """Test that metadata correctly identifies different file types."""
     test_cases = [
         ("document.pdf", "application/pdf", "pdf"),
+        ("legacy.doc", "application/msword", "doc"),
         ("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"),
+        ("legacy.xls", "application/vnd.ms-excel", "xls"),
         ("data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
+        ("legacy.ppt", "application/vnd.ms-powerpoint", "ppt"),
         ("image.jpg", "image/jpeg", "jpg"),
         ("unknown.xyz", "application/octet-stream", "xyz")
     ]
@@ -245,13 +247,45 @@ def test_metadata_handles_different_file_types():
 
         assert result["success"] is True
 
-        uploaded_content = blob_client.uploaded_contents[f"output/{Path(filename).stem}.json"]
+        uploaded_content = blob_client.uploaded_contents[f"output/{filename}.json"]
         uploaded_data = json.loads(uploaded_content)
         metadata = uploaded_data["metadata"]
 
         assert metadata["file_name"] == filename
         assert metadata["file_type"] == expected_file_type
         assert metadata["content_type"] == content_type
+
+
+def test_metadata_handles_list_content_type():
+    """Test that metadata handles list-valued Content-Type gracefully (seen for some legacy Office files)."""
+    filename = "legacy.doc"
+    sample_metadata = {
+        "Content-Type": ["application/msword", "charset=binary"]
+    }
+
+    blob_client = FakeBlobClient(
+        list_success=True,
+        file_list=[f"input/{filename}"]
+    )
+
+    document_processor = FakeTikaProcessor(sample_metadata)
+
+    result = process_project_documents_core(
+        project_id="123e4567-e89b-12d3-a456-426614174000",
+        blob_client=blob_client,
+        document_processor=document_processor,
+        send_progress_update=_progress_stub
+    )
+
+    assert result["success"] is True
+
+    uploaded_content = blob_client.uploaded_contents[f"output/{filename}.json"]
+    uploaded_data = json.loads(uploaded_content)
+    metadata = uploaded_data["metadata"]
+
+    assert metadata["file_name"] == filename
+    assert metadata["file_type"] == "doc"
+    assert metadata["content_type"] == "application/msword"
 
 
 def test_metadata_preserves_original_text_content():
@@ -277,7 +311,7 @@ def test_metadata_preserves_original_text_content():
 
     assert result["success"] is True
 
-    uploaded_content = blob_client.uploaded_contents["output/test_document.json"]
+    uploaded_content = blob_client.uploaded_contents["output/test_document.pdf.json"]
     uploaded_data = json.loads(uploaded_content)
 
     # Text content should be preserved exactly as extracted

@@ -23,8 +23,8 @@ class Project(BaseModel):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     
-    # GitLab Repository (Source Code) - single URL, no resolution needed
-    gitlab_repository_url = Column(Text, nullable=True)  # Git clone URL (SSH/HTTPS)
+    # GitLab Repositories (Source Code) - multiple clone refs (SSH/HTTPS), stored as-is
+    gitlab_repository_urls = Column(ARRAY(Text), nullable=True, default=list)
     
     # GitLab Backlog Projects (Issues/Epics) - multiple projects, requires resolution
     gitlab_backlog_project_ids = Column(ARRAY(String(255)), nullable=True, default=list)  # Resolved project IDs

@@ -3,7 +3,7 @@ from uuid import UUID
 
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends, HTTPException
-from utils.local_auth import get_local_user_verified, LocalUser
+from utils.local_auth import get_gateway_service_verified, LocalServiceCaller
 from pydantic import BaseModel, Field
 import structlog
 
@@ -26,6 +26,9 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
+# Stable dependency callable (so tests can override it reliably)
+require_gateway_verified = get_gateway_service_verified()
+
 
 class RequirementsRequest(BaseModel):
     project_id: UUID = Field(..., description="Project identifier")
@@ -44,7 +47,7 @@ class AnswersRequest(BaseModel):
 async def create_requirements_bundle(
     request: RequirementsRequest,
     redis_client: redis.Redis = Depends(get_redis_client_from_state),
-    current_user: LocalUser = Depends(get_local_user_verified),
+    caller: LocalServiceCaller = Depends(require_gateway_verified),
 ) -> RequirementsBundle:
     try:
         publisher = AiWorkflowStatusPublisher(redis_client)
@@ -53,7 +56,7 @@ async def create_requirements_bundle(
             prompt=request.prompt,
             publisher=publisher,
             prompt_id_opt=request.prompt_id,
-            auth_header=(f"Bearer {current_user.token}"),
+            auth_header=(f"Bearer {caller.token}"),
         )
         return bundle
     except RuntimeError as e:
@@ -65,7 +68,7 @@ async def create_requirements_bundle(
 async def answer_clarifications(
     request: AnswersRequest,
     redis_client: redis.Redis = Depends(get_redis_client_from_state),
-    current_user: LocalUser = Depends(get_local_user_verified),
+    caller: LocalServiceCaller = Depends(require_gateway_verified),
 ) -> RequirementsBundle:
     try:
         publisher = AiWorkflowStatusPublisher(redis_client)
@@ -75,7 +78,7 @@ async def answer_clarifications(
             prompt=request.prompt,
             answers=request.answers,
             publisher=publisher,
-            auth_header=(f"Bearer {current_user.token}"),
+            auth_header=(f"Bearer {caller.token}"),
         )
         return bundle
     except RuntimeError as e:
@@ -87,7 +90,7 @@ async def answer_clarifications(
 async def enhance_requirement(
     request: EnhanceRequirementRequest,
     redis_client: redis.Redis = Depends(get_redis_client_from_state),
-    current_user: LocalUser = Depends(get_local_user_verified),
+    caller: LocalServiceCaller = Depends(require_gateway_verified),
 ) -> Requirement:
     """Enhance a single requirement with AI-generated expansions.
     
@@ -116,7 +119,7 @@ async def enhance_requirement(
             requirement_type=request.requirement_type,
             current_content=request.current_content,
             publisher=publisher,
-            auth_header=(f"Bearer {current_user.token}"),
+            auth_header=(f"Bearer {caller.token}"),
         )
         return Requirement(**enhanced_dict)
     except RuntimeError as e:

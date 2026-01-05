@@ -65,7 +65,7 @@ class TestDocumentUploadService:
         ]
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, test_files)
+        result = await service.bulk_upload_documents(self.project_id, test_files, authorization_header="Bearer test")
         
         # Assert
         assert isinstance(result, BulkUploadResponse)
@@ -84,7 +84,10 @@ class TestDocumentUploadService:
         
         # Verify task was submitted via TaskRequestPublisher
         mock_task_publisher_class.assert_called_once()
-        mock_task_publisher_instance.request_document_processing.assert_called_once_with(self.project_id)
+        mock_task_publisher_instance.request_document_processing.assert_called_once_with(
+            self.project_id,
+            authorization_header="Bearer test",
+        )
 
     @patch('services.document_upload_service.TaskRequestPublisher')
     @patch('services.document_upload_service.BlobStorageClient')
@@ -126,7 +129,7 @@ class TestDocumentUploadService:
         ]
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, test_files)
+        result = await service.bulk_upload_documents(self.project_id, test_files, authorization_header="Bearer test")
         
         # Assert
         assert isinstance(result, BulkUploadResponse)
@@ -142,7 +145,10 @@ class TestDocumentUploadService:
         
         # Verify task was still submitted (since some files succeeded)
         mock_task_publisher_class.assert_called_once()
-        mock_task_publisher_instance.request_document_processing.assert_called_once_with(self.project_id)
+        mock_task_publisher_instance.request_document_processing.assert_called_once_with(
+            self.project_id,
+            authorization_header="Bearer test",
+        )
 
     @patch('services.document_upload_service.TaskRequestPublisher')
     @patch('services.document_upload_service.BlobStorageClient')
@@ -174,7 +180,7 @@ class TestDocumentUploadService:
         ]
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, test_files)
+        result = await service.bulk_upload_documents(self.project_id, test_files, authorization_header="Bearer test")
         
         # Assert that upload_file was called with blob_name prefixed by "input/"
         mock_blob_instance.upload_file.assert_called_once()
@@ -225,7 +231,7 @@ class TestDocumentUploadService:
         ]
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, test_files)
+        result = await service.bulk_upload_documents(self.project_id, test_files, authorization_header="Bearer test")
         
         # Assert
         assert isinstance(result, BulkUploadResponse)
@@ -255,7 +261,7 @@ class TestDocumentUploadService:
         service = DocumentUploadService(mock_blob_instance)
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, [])
+        result = await service.bulk_upload_documents(self.project_id, [], authorization_header="Bearer test")
         
         # Assert
         assert isinstance(result, BulkUploadResponse)
@@ -298,7 +304,7 @@ class TestDocumentUploadService:
         ]
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, test_files)
+        result = await service.bulk_upload_documents(self.project_id, test_files, authorization_header="Bearer test")
         
         # Assert
         assert isinstance(result, BulkUploadResponse)
@@ -310,7 +316,10 @@ class TestDocumentUploadService:
         
         # Verify TaskRequestPublisher was created and used
         mock_task_publisher_class.assert_called_once()
-        mock_task_publisher_instance.request_document_processing.assert_called_once_with(self.project_id)
+        mock_task_publisher_instance.request_document_processing.assert_called_once_with(
+            self.project_id,
+            authorization_header="Bearer test",
+        )
 
     @patch('services.document_upload_service.TaskRequestPublisher')
     @patch('services.document_upload_service.BlobStorageClient')
@@ -342,7 +351,7 @@ class TestDocumentUploadService:
         ]
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, test_files)
+        result = await service.bulk_upload_documents(self.project_id, test_files, authorization_header="Bearer test")
         
         # Assert - upload should still succeed even if task publishing fails
         assert isinstance(result, BulkUploadResponse)
@@ -354,7 +363,10 @@ class TestDocumentUploadService:
         
         # Verify TaskRequestPublisher was attempted
         mock_task_publisher_class.assert_called_once()
-        mock_task_publisher_instance.request_document_processing.assert_called_once_with(self.project_id)
+        mock_task_publisher_instance.request_document_processing.assert_called_once_with(
+            self.project_id,
+            authorization_header="Bearer test",
+        )
 
     @patch('services.document_upload_service.TaskRequestPublisher')
     @patch('services.document_upload_service.BlobStorageClient')
@@ -386,7 +398,7 @@ class TestDocumentUploadService:
         ]
         
         # Act
-        result = await service.bulk_upload_documents(self.project_id, test_files)
+        result = await service.bulk_upload_documents(self.project_id, test_files, authorization_header="Bearer test")
         
         # Assert
         assert isinstance(result, BulkUploadResponse)

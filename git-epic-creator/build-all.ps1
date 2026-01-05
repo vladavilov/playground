@@ -10,7 +10,7 @@
 #   .\build-all.ps1                                    # Build all with local VLM
 #   .\build-all.ps1 -VlmMode remote                    # Build all with remote VLM
 #   .\build-all.ps1 -SkipDocumentProcessingBase        # Skip base, rebuild service only
-#   .\build-all.ps1 -Services "ui-service", "neo4j"    # Build specific services
+#   .\build-all.ps1 -Services "gateway-control-plane-service", "neo4j"    # Build specific services
 
 param(
     [Parameter(Mandatory=$false)]

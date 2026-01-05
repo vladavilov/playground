@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from services.tika_processor import TikaProcessor, DocumentProcessingError
+from module_services.tika_processor import TikaProcessor, DocumentProcessingError
 
 
 class TestTikaProcessor:
@@ -45,7 +45,7 @@ class TestTikaProcessor:
         assert hasattr(tika_processor, 'extract_metadata')
         assert hasattr(tika_processor, 'process_document')
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_extract_text_from_pdf(self, mock_parser, tika_processor, sample_pdf_content):
         """Test text extraction from PDF file."""
         # Mock Tika parser response
@@ -72,7 +72,7 @@ class TestTikaProcessor:
             except (OSError, PermissionError):
                 pass  # Ignore cleanup errors on Windows
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_extract_text_from_txt(self, mock_parser, tika_processor, sample_text_content):
         """Test text extraction from TXT file."""
         # Mock Tika parser response
@@ -98,7 +98,7 @@ class TestTikaProcessor:
             except (OSError, PermissionError):
                 pass  # Ignore cleanup errors on Windows
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_extract_metadata(self, mock_parser, tika_processor, sample_pdf_content):
         """Test metadata extraction from document."""
         # Mock Tika parser response with metadata
@@ -134,7 +134,7 @@ class TestTikaProcessor:
             except (OSError, PermissionError):
                 pass  # Ignore cleanup errors on Windows
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_process_document_structured_output(self, mock_parser, tika_processor, sample_pdf_content):
         """Test complete document processing with structured JSON output."""
         # Mock Tika parser response
@@ -192,7 +192,7 @@ class TestTikaProcessor:
         
         assert 'File not found' in str(exc_info.value)
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_extract_text_tika_error(self, mock_parser, tika_processor, sample_pdf_content):
         """Test error handling when Tika fails."""
         # Mock Tika parser to raise an exception
@@ -215,7 +215,7 @@ class TestTikaProcessor:
             except (OSError, PermissionError):
                 pass  # Ignore cleanup errors on Windows
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_supported_file_formats(self, mock_parser, tika_processor):
         """Test that processor supports multiple file formats."""
         supported_formats = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt']
@@ -242,7 +242,7 @@ class TestTikaProcessor:
                 except (OSError, PermissionError):
                     pass  # Ignore cleanup errors on Windows
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_empty_document_handling(self, mock_parser, tika_processor):
         """Test handling of empty documents."""
         # Mock Tika parser response for empty document
@@ -268,7 +268,7 @@ class TestTikaProcessor:
             except (OSError, PermissionError):
                 pass  # Ignore cleanup errors on Windows
 
-    @patch('services.tika_processor.parser')
+    @patch('module_services.tika_processor.parser')
     def test_large_document_handling(self, mock_parser, tika_processor):
         """Test handling of large documents."""
         # Mock Tika parser response for large document

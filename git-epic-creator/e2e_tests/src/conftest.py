@@ -86,7 +86,7 @@ def _create_local_jwt_token(oid: str = None, roles: list = None, username: str =
     Create LOCAL JWT token for backend service authentication.
     
     Backend services validate tokens using LOCAL_JWT_SECRET (shared secret),
-    NOT Azure AD tokens. This mimics what UI service does when minting S2S tokens.
+    NOT Azure AD tokens. This mimics what the gateway control plane does when minting tokens.
     
     Args:
         oid: User object ID (defaults to test user)
@@ -103,7 +103,7 @@ def _create_local_jwt_token(oid: str = None, roles: list = None, username: str =
         "oid": oid or str(uuid.uuid4()),
         "preferred_username": username or "test.user@example.com",
         "roles": roles or ["Admin", "User"],
-        "iss": "ui-service",
+        "iss": "gateway-control-plane-service",
         "iat": now,
         "nbf": now,
         "exp": now + 3600,  # 1 hour validity

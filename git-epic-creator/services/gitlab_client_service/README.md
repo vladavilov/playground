@@ -118,7 +118,7 @@ This service uses two distinct URL concepts:
    - Used by `python-gitlab` client
 
 2. **`GITLAB_CLIENT_SERVICE_URL`**: The internal gitlab-client-service URL (e.g., `http://gitlab-client-service:8000`)
-   - Used by other services (ui-service, project-management-service) to communicate with this service
+   - Used by other services (gateway-control-plane-service, project-management-service) to communicate with this service
    - **Not** used within gitlab-client-service itself
 
 > **Important:** Do not confuse these two URLs. `GITLAB_CLIENT_SERVICE_URL` is the URL of *this microservice*, not the GitLab instance.
@@ -181,11 +181,11 @@ OAI_EMBED_DEPLOYMENT_NAME="text-embedding-3-small"
 ```env
 GITLAB_OAUTH_CLIENT_ID=""               # GitLab OAuth application client ID
 GITLAB_OAUTH_CLIENT_SECRET=""           # GitLab OAuth application client secret
-GITLAB_OAUTH_REDIRECT_URI=""            # OAuth callback URI (points to ui-service which proxies to this service)
+GITLAB_OAUTH_REDIRECT_URI=""            # OAuth callback URI (points to the gateway host; Envoy routes /auth/gitlab/* to this service)
 GITLAB_OAUTH_SCOPES="read_api api"      # OAuth scopes (space-separated)
 ```
 
-> **Important:** `GITLAB_OAUTH_REDIRECT_URI` should point to ui-service (e.g., `http://localhost:8007/auth/gitlab/callback`), not directly to gitlab-client-service. ui-service acts as a transparent proxy, forwarding all OAuth requests and responses between the browser and gitlab-client-service.
+> **Important:** `GITLAB_OAUTH_REDIRECT_URI` should point to the **gateway host** (e.g., `http://localhost:8007/auth/gitlab/callback`), not directly to gitlab-client-service. Envoy routes `/auth/gitlab/*` and `/gitlab/*` to this service, with auth enforced via `ext_authz`.
 
 > **Note:** OAuth URLs are constructed using `GITLAB_BASE_URL`. There is no alternate client URL variable—`GITLAB_CLIENT_SERVICE_URL` covers all internal requests.
 
@@ -230,17 +230,17 @@ gitlab-client-service implements a **fully stateless** GitLab OAuth flow optimiz
 **Stateless Design Benefits:**
 - Horizontally scalable (any instance can handle any request)
 - No server-side session storage (all state in URLs or Redis)
-- Proxy-friendly (works through ui-service without cookie forwarding)
+- Gateway-friendly (works through Envoy routing without cookie forwarding)
 - Survives service restarts (no in-memory state)
 
 ### OAuth Flow
 
-ui-service acts as a transparent proxy for all GitLab OAuth endpoints. All OAuth logic is handled by gitlab-client-service using a stateless approach.
+All GitLab OAuth logic is handled by gitlab-client-service using a stateless approach. Requests are routed via the gateway (Envoy).
 
 ```mermaid
 sequenceDiagram
     participant Browser
-    participant UI as ui-service<br/>(transparent proxy)
+    participant ControlPlane as gateway-control-plane-service<br/>(ext_authz)
     participant GCS as gitlab-client-service<br/>(stateless OAuth)
     participant GitLab
     participant Redis
@@ -281,14 +281,14 @@ sequenceDiagram
 
 ### OAuth Endpoints
 
-All GitLab OAuth endpoints are accessed through ui-service proxy, which forwards requests with S2S JWT authentication.
+All GitLab OAuth endpoints are accessed through the gateway, which routes requests to gitlab-client-service with S2S JWT authentication.
 
 #### GET /auth/gitlab/authorize
 
 Initiate stateless GitLab OAuth flow.
 
 **Query Parameters:**
-- `session_id` (required): User session ID from ui-service (added by proxy)
+- `x-user-id` (required): User ID provided by the gateway (injected by `ext_authz`)
 - `redirect_uri` (required): Application URL to redirect to after OAuth completes
 
 **Response:** 302 Redirect to GitLab authorization page
@@ -333,7 +333,7 @@ OAuth callback handler (called by GitLab after user authorization).
 ```python
 # Decode state from URL parameter
 state_data = json.loads(base64.urlsafe_b64decode(state))
-session_id = state_data["sid"]
+user_id = state_data["uid"]
 redirect_uri = state_data["redirect"]
 csrf_token = state_data["csrf"]
 
@@ -346,8 +346,8 @@ token = await oauth.gitlab.fetch_access_token(
     redirect_uri=settings.GITLAB_OAUTH_REDIRECT_URI,
 )
 
-# Store token in Redis
-await save_token(session_id, redis_client, token)
+# Store token in Redis (keyed by user_id / x-user-id)
+await save_token(user_id, redis_client, token)
 
 # Redirect to application
 return RedirectResponse(redirect_uri)
@@ -357,7 +357,7 @@ return RedirectResponse(redirect_uri)
 
 Check GitLab connection status for a session.
 
-**Authentication:** S2S JWT in Authorization header (extracts session_id from `oid` claim)
+**Authentication:** Gateway-injected S2S token + `x-user-id` header
 
 **Response:**
 ```json
@@ -371,15 +371,16 @@ Check GitLab connection status for a session.
 ```http
 GET /auth/gitlab/status
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+X-User-Id: abc-123
 ```
 
 **Implementation:**
 ```python
-# Extract session_id from JWT (not from session)
-session_id = get_session_id_from_jwt(request)
+# Read user_id from gateway header
+user_id = request.headers["x-user-id"]
 
 # Check Redis for token
-token = await get_token(session_id, redis_client)
+token = await get_token(user_id, redis_client)
 connected = bool(token and token.get("access_token"))
 ```
 
@@ -387,7 +388,7 @@ connected = bool(token and token.get("access_token"))
 
 Disconnect GitLab integration for a session.
 
-**Authentication:** S2S JWT in Authorization header (extracts session_id from `oid` claim)
+**Authentication:** Gateway-injected S2S token + `x-user-id` header
 
 **Response:**
 ```json
@@ -400,15 +401,16 @@ Disconnect GitLab integration for a session.
 ```http
 POST /auth/gitlab/disconnect
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+X-User-Id: abc-123
 ```
 
 **Implementation:**
 ```python
-# Extract session_id from JWT
-session_id = get_session_id_from_jwt(request)
+# Read user_id from gateway header
+user_id = request.headers["x-user-id"]
 
 # Clear token from Redis
-await clear_token(session_id, redis_client)
+await clear_token(user_id, redis_client)
 ```
 
 ### Token Management
@@ -482,9 +484,9 @@ This approach follows SOLID/DRY principles by:
 
 All GitLab API endpoints use session-based authentication:
 
-1. Client sends S2S JWT with `session_id` in claims (oid field)
-2. gitlab-client-service extracts session_id from JWT
-3. Looks up GitLab token from Redis
+1. Gateway injects a service-bound S2S token (Authorization header)
+2. Gateway propagates browser user identity via `x-user-id`
+3. gitlab-client-service uses `x-user-id` to look up the user's GitLab token in Redis
 4. Uses token to call GitLab API
 
 **Example Request:**
@@ -493,14 +495,11 @@ GET /gitlab/projects/123/backlog
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-**JWT Claims:**
-```json
-{
-  "oid": "abc-123-session-id",
-  "iss": "ui-service",
-  "aud": "gitlab-service",
-  "exp": 1234567890
-}
+**Required headers:**
+
+```http
+Authorization: Bearer <gateway-s2s-jwt>
+X-User-Id: <azure-ad-oid>
 ```
 
 ### Project Resolution Endpoint
@@ -936,7 +935,7 @@ Unified error response format:
 
 ```mermaid
 sequenceDiagram
-    participant UI as ui-service
+    participant ControlPlane as gateway-control-plane-service
     participant GitLabClient as gitlab-client-service
     participant AITasks as ai-tasks-service
     participant GitLabAPI as GitLab API
@@ -1045,7 +1044,7 @@ GITLAB_BASE_URL=https://gitlab.com
 GITLAB_VERIFY_SSL=true
 
 # GitLab OAuth Configuration
-# Note: Redirect URI points to ui-service (port 8007) which proxies to gitlab-client-service (port 8012)
+# Note: Redirect URI points to the gateway host (port 8007) which routes to gitlab-client-service (port 8012 in docker-compose)
 GITLAB_OAUTH_CLIENT_ID=your-gitlab-oauth-client-id
 GITLAB_OAUTH_CLIENT_SECRET=your-gitlab-oauth-client-secret
 GITLAB_OAUTH_REDIRECT_URI=http://localhost:8007/auth/gitlab/callback
@@ -1466,7 +1465,7 @@ await save_token(session_id, redis_client, token)
 
 ### Related Documentation
 
-- **UI Service README** - [Proxy architecture and S2S authentication](../ui_service/README.md#gitlab-integration-proxied)
+- **Gateway Control Plane README** - [Gateway control plane + S2S authentication](../gateway_control_plane_service/README.md)
 - **Authlib Documentation** - [OAuth 2.0 Client](https://docs.authlib.org/en/latest/client/starlette.html)
 - **GitLab OAuth API** - [Official documentation](https://docs.gitlab.com/ee/api/oauth2.html)
 

@@ -28,6 +28,7 @@ async fn neo4j_healthcheck_smoke() {
     let cfg = Config {
         bind_addr: "127.0.0.1:0".parse().unwrap(),
         queries_dir: "queries".to_string(),
+        http_body_limit_bytes: 4 * 1024 * 1024,
         neo4j_uri: uri,
         neo4j_username: username,
         neo4j_password: password,

@@ -111,6 +111,7 @@ pub fn state_with_queries(
         cfg: neo4j_repository_service::config::Config {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
             queries_dir: "unused".to_string(),
+            http_body_limit_bytes: 4 * 1024 * 1024,
             neo4j_uri: "".to_string(),
             neo4j_username: "".to_string(),
             neo4j_password: "".to_string(),

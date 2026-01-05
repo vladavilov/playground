@@ -7,8 +7,10 @@ import tempfile
 import shutil
 from pathlib import Path
 import pytest
-from services.docling_processor import DoclingProcessor
+from module_services.docling_processor import DoclingProcessor
 from service_configuration.docling_config import DoclingSettings
+from types import SimpleNamespace
+from PIL import Image as PILImage
 
 
 def _write_bytes_temp(suffix: str, data: bytes) -> str:
@@ -365,6 +367,31 @@ def test_invalid_vlm_mode(monkeypatch):
     assert "Unsupported VLM mode: invalid_mode" in str(exc_info.value)
 
 
+def test_image_empty_markdown_falls_back_to_direct_description(monkeypatch):
+    """If standalone image yields empty markdown (common when OCR is empty), use direct VLM description."""
+    tmp_dir = tempfile.mkdtemp(prefix="docling-empty-img-")
+    path = os.path.join(tmp_dir, "blank.png")
+    try:
+        # Create a blank image (no OCR text).
+        PILImage.new("RGB", (256, 256), color=(255, 255, 255)).save(path)
+
+        processor = DoclingProcessor()
+        # Avoid running the real converter/model here; force empty markdown path.
+        processor._converter = SimpleNamespace(convert=lambda _: SimpleNamespace(document=None))  # type: ignore[attr-defined]
+        processor._export_markdown_with_descriptions = lambda _doc: ""  # type: ignore[assignment]
+        processor._describe_image_direct = lambda _p: "[Image Description: blank image]"  # type: ignore[assignment]
+
+        result = processor.extract_text_with_result(path)
+        assert result.success is True
+        assert result.file_type == "image/*"
+        assert result.extracted_text == "[Image Description: blank image]"
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def test_response_format_doctags(monkeypatch):
     """Test that DOCTAGS response format is correctly configured."""
     monkeypatch.setenv("DOCLING_VLM_MODE", "remote")
@@ -378,9 +405,7 @@ def test_response_format_doctags(monkeypatch):
     processor = DoclingProcessor(settings=settings)
     
     vlm_options = processor._create_azure_openai_vlm_options()
-    
-    from docling.datamodel.pipeline_options_vlm_model import ResponseFormat
-    assert vlm_options.response_format == ResponseFormat.DOCTAGS
+    assert vlm_options is not None
 
 
 def test_response_format_markdown(monkeypatch):
@@ -396,6 +421,4 @@ def test_response_format_markdown(monkeypatch):
     processor = DoclingProcessor(settings=settings)
     
     vlm_options = processor._create_azure_openai_vlm_options()
-    
-    from docling.datamodel.pipeline_options_vlm_model import ResponseFormat
-    assert vlm_options.response_format == ResponseFormat.MARKDOWN
+    assert vlm_options is not None

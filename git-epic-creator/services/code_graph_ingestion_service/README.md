@@ -288,9 +288,6 @@ Facts:
 Enabled when `NEO4J_REPOSITORY_SERVICE_URL` is set.
 
 The service calls the repository-service’s idempotent merge endpoints:
-- `POST /v1/code-graph/merge-project`
-- `POST /v1/code-graph/merge-repo`
-- `POST /v1/code-graph/merge-files`
 - `POST /v1/code-graph/merge-code-graph`
 
 Timeout:

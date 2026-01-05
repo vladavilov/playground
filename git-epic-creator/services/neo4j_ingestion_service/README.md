@@ -10,7 +10,7 @@ This service orchestrates project-scoped knowledge graph ingestion using the **M
   - Relationship extraction and community detection (Leiden algorithm)
   - Vector embeddings (dimension configurable via `VECTOR_INDEX_DIMENSIONS`, default: 3072)
 - Ingest nodes/relationships into Neo4j by calling `neo4j-repository-service` endpoints:
-  - merge parquet: documents, chunks, entities, relationships, community_reports, communities
+  - merge parquet (transactional bundle): documents, chunks, entities, relationships, community_reports, communities
   - ingest embeddings from LanceDB tables (chunk/entity/community)
   - run backfills to populate membership + hierarchy edges
 - Update Project Management Service: `rag_processing` → `rag_ready` | `rag_failed`
@@ -36,7 +36,7 @@ sequenceDiagram
     W->>C: apply_async run_graphrag_job(job_id, project_id, attempts)
     C->>B: List prefix "output/" and download *.json into RAG_WORKSPACE_ROOT/{project_id}/input/
     C->>G: build_index(workspace) → output/*.parquet + output/lancedb
-    C->>R: POST merge/* (parquet) + embeddings/* (vectors)
+    C->>R: POST merge/bundle (parquet) + embeddings/* (vectors)
     R->>N: Bolt writes (Cypher registry)
     C->>P: PUT /projects/{project_id}/status: rag_processing → rag_ready | rag_failed
     W-->>Q: XACK message

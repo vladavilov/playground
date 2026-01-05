@@ -16,12 +16,17 @@ dependencies = [
     "uvicorn==0.38.0",
     "pydantic==2.12.3",
     "structlog==25.5.0",
+    "pydantic-settings>=2.7.0,<2.12.0",
+    "python-dotenv==1.2.1",
     "orjson==3.11.4",
     "shared @ file:../shared"
 ]
 
 [project.optional-dependencies]
 dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
 ]
 
 [tool.pytest.ini_options]

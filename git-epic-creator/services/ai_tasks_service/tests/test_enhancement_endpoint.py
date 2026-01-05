@@ -2,6 +2,7 @@
 from uuid import uuid4
 
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -12,9 +13,13 @@ def test_enhance_epic_endpoint_returns_enhanced_item(monkeypatch):
 
     # Override Redis
     from utils.app_factory import get_redis_client_from_state
+    import routers.tasks_router as router_mod
     mock_redis = AsyncMock()
     mock_redis.publish.return_value = 1
     main.app.dependency_overrides[get_redis_client_from_state] = lambda: mock_redis
+    main.app.dependency_overrides[router_mod.require_gateway_verified] = lambda: SimpleNamespace(
+        sub="api-gateway", token="svc.jwt.token"
+    )
 
     client = TestClient(main.app)
 
@@ -24,48 +29,25 @@ def test_enhance_epic_endpoint_returns_enhanced_item(monkeypatch):
     os.environ.setdefault("OAI_BASE_URL", "http://localhost:9999")
     os.environ.setdefault("OAI_MODEL", "test-model")
 
-    # Mock LLM and HTTP client
-    from unittest.mock import MagicMock
-    from pydantic import BaseModel, Field
-    from typing import List
-
-    class EnhancedOut(BaseModel):
-        id: str = Field(..., description="Item ID")
-        title: str = Field(..., description="Enhanced title")
-        description: str = Field(..., description="Enhanced description")
-        acceptance_criteria: List[str] = Field(default_factory=list)
-        dependencies: List[str] = Field(default_factory=list)
-
-    fake_output = EnhancedOut(
-        id="EPIC-001",
-        title="Enhanced: User Management System",
-        description="## Objective\nBuild comprehensive user management...",
-        acceptance_criteria=["Given admin user When creating user Then user is created with ID"],
-        dependencies=[]
-    )
-
-    fake_llm = MagicMock()
-    fake_chain = MagicMock()
-    fake_chain.ainvoke = AsyncMock(return_value=fake_output)
-    fake_llm.with_structured_output.return_value = fake_chain
-
-    # Mock GraphRAG client
-    fake_http_client = MagicMock()
-    fake_http_response = MagicMock()
-    fake_http_response.status_code = 200
-    fake_http_response.json.return_value = {
-        "result": {
-            "context": "Relevant context...",
-            "key_facts": ["Fact 1"],
-            "citations": []
+    # Mock enhancement orchestration (avoid LangGraph/LLM in unit tests)
+    async def _fake_run_single_task_enhancement(*args, **kwargs):  # noqa: ANN001, ARG002
+        publisher = kwargs.get("publisher")
+        if publisher:
+            await publisher.publish_enhancement_progress(
+                project_id=kwargs["project_id"],
+                item_id=kwargs["item_id"],
+                status="enhancing_item",
+                thought_summary="Enhancing item...",
+            )
+        return {
+            "item_id": "EPIC-001",
+            "title": "Enhanced: User Management System",
+            "description": "## Objective\nBuild comprehensive user management...",
+            "acceptance_criteria": ["Given admin user When creating user Then user is created with ID"],
+            "dependencies": [],
         }
-    }
-    fake_http_client.post = AsyncMock(return_value=fake_http_response)
-    fake_http_client.__aenter__ = AsyncMock(return_value=fake_http_client)
-    fake_http_client.__aexit__ = AsyncMock(return_value=None)
 
-    monkeypatch.setattr("orchestrator.experts.clients.llm.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
-    monkeypatch.setattr("httpx.AsyncClient", lambda *args, **kwargs: fake_http_client, raising=True)
+    monkeypatch.setattr("routers.tasks_router.run_single_task_enhancement", _fake_run_single_task_enhancement, raising=True)
 
     project_id = str(uuid4())
     req = {
@@ -105,9 +87,13 @@ def test_enhance_task_endpoint_with_parent_epic(monkeypatch):
 
     # Override Redis
     from utils.app_factory import get_redis_client_from_state
+    import routers.tasks_router as router_mod
     mock_redis = AsyncMock()
     mock_redis.publish.return_value = 1
     main.app.dependency_overrides[get_redis_client_from_state] = lambda: mock_redis
+    main.app.dependency_overrides[router_mod.require_gateway_verified] = lambda: SimpleNamespace(
+        sub="api-gateway", token="svc.jwt.token"
+    )
 
     client = TestClient(main.app)
 
@@ -117,51 +103,27 @@ def test_enhance_task_endpoint_with_parent_epic(monkeypatch):
     os.environ.setdefault("OAI_BASE_URL", "http://localhost:9999")
     os.environ.setdefault("OAI_MODEL", "test-model")
 
-    # Mock LLM and HTTP client
-    from unittest.mock import MagicMock
-    from pydantic import BaseModel, Field
-    from typing import List
-
-    class EnhancedOut(BaseModel):
-        id: str = Field(..., description="Item ID")
-        title: str = Field(..., description="Enhanced title")
-        description: str = Field(..., description="Enhanced description")
-        acceptance_criteria: List[str] = Field(default_factory=list)
-        dependencies: List[str] = Field(default_factory=list)
-
-    fake_output = EnhancedOut(
-        id="TASK-001",
-        title="Enhanced: Implement User Login API",
-        description="## Technical Context\nDevelop REST API for user authentication...",
-        acceptance_criteria=[
-            "Given valid credentials When POST /api/login Then return 200 with JWT token",
-            "Given invalid credentials When POST /api/login Then return 401"
-        ],
-        dependencies=["TASK-000"]
-    )
-
-    fake_llm = MagicMock()
-    fake_chain = MagicMock()
-    fake_chain.ainvoke = AsyncMock(return_value=fake_output)
-    fake_llm.with_structured_output.return_value = fake_chain
-
-    # Mock GraphRAG client
-    fake_http_client = MagicMock()
-    fake_http_response = MagicMock()
-    fake_http_response.status_code = 200
-    fake_http_response.json.return_value = {
-        "result": {
-            "context": "Technical context...",
-            "key_facts": ["Use JWT for tokens"],
-            "citations": []
+    async def _fake_run_single_task_enhancement(*args, **kwargs):  # noqa: ANN001, ARG002
+        publisher = kwargs.get("publisher")
+        if publisher:
+            await publisher.publish_enhancement_progress(
+                project_id=kwargs["project_id"],
+                item_id=kwargs["item_id"],
+                status="enhancing_item",
+                thought_summary="Enhancing item...",
+            )
+        return {
+            "item_id": "TASK-001",
+            "title": "Enhanced: Implement User Login API",
+            "description": "## Technical Context\nDevelop REST API for user authentication...",
+            "acceptance_criteria": [
+                "Given valid credentials When POST /api/login Then return 200 with JWT token",
+                "Given invalid credentials When POST /api/login Then return 401",
+            ],
+            "dependencies": ["TASK-000"],
         }
-    }
-    fake_http_client.post = AsyncMock(return_value=fake_http_response)
-    fake_http_client.__aenter__ = AsyncMock(return_value=fake_http_client)
-    fake_http_client.__aexit__ = AsyncMock(return_value=None)
 
-    monkeypatch.setattr("orchestrator.experts.clients.llm.get_llm", lambda *args, **kwargs: fake_llm, raising=False)
-    monkeypatch.setattr("httpx.AsyncClient", lambda *args, **kwargs: fake_http_client, raising=True)
+    monkeypatch.setattr("routers.tasks_router.run_single_task_enhancement", _fake_run_single_task_enhancement, raising=True)
 
     project_id = str(uuid4())
     req = {

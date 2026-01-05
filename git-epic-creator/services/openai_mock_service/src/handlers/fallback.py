@@ -16,6 +16,9 @@ class FallbackGraphHandler(BaseHandler):
         # This handler always returns True as it's the fallback
         return True
 
+    def is_fallback(self) -> bool:
+        return True
+
     def generate_response(self, messages: List[Dict[str, Any]], combined_text: str, model: str) -> str:
         logger.warning("fallback_handler_used", 
                       message_preview=combined_text[:500] if combined_text else "",

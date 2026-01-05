@@ -7,6 +7,12 @@ import httpx
 import structlog
 
 from .callbacks import IngestionWorkflowCallbacks
+from .dtos import (
+    ChunkEmbeddingRow,
+    CommunityEmbeddingRow,
+    EntityEmbeddingRow,
+    RequirementsGraphBundleRequest,
+)
 from .neo4j_repository_service_client import post_json
 
 logger = structlog.get_logger(__name__)
@@ -66,51 +72,71 @@ class Neo4jIngestor:
 
         return (total_count, total_input)
 
-    # -----------------------
-    # Parquet ingestions
-    # -----------------------
-    def ingest_documents(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
-        return self._batched_post_rows(path="/v1/requirements-graph/merge/documents", rows=rows, batch_size=batch_size)
+    def ingest_all_parquet(self, records: Dict[str, List[dict]], batch_size: int = 1000) -> Dict[str, Any]:
+        """
+        Collect all parquet-derived rows first and send them in one transactional request.
 
-    def ingest_chunks(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
-        return self._batched_post_rows(path="/v1/requirements-graph/merge/chunks", rows=rows, batch_size=batch_size)
+        Note: this is "option A" bundling of STRUCTURE ingestion only (documents/chunks/entities/relationships/communities).
+        Vectors/backfills/cleanup remain separate endpoints.
+        """
+        if not self._project_id:
+            raise ValueError("project_id is required for parquet bundle ingestion")
 
-    def ingest_entities(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
-        return self._batched_post_rows(path="/v1/requirements-graph/merge/entities", rows=rows, batch_size=batch_size)
+        documents = records.get("documents", [])
+        chunks = records.get("chunks", [])
+        entities = records.get("entities", [])
+        entity_relationships = records.get("entity_relationships", [])
+        community_reports = records.get("community_reports", [])
+        communities = records.get("communities", [])
 
-    def ingest_entity_relationships(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
-        return self._batched_post_rows(path="/v1/requirements-graph/merge/relationships", rows=rows, batch_size=batch_size)
-
-    def ingest_community_reports(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
-        return self._batched_post_rows(
-            path="/v1/requirements-graph/merge/community-reports", rows=rows, batch_size=batch_size
+        # Normalize/validate all outgoing rows to a stable contract.
+        # Unknown parquet columns are intentionally dropped.
+        req = RequirementsGraphBundleRequest.model_validate(
+            {
+                "project_id": self._project_id,
+                "documents": documents,
+                "chunks": chunks,
+                "entities": entities,
+                "relationships": entity_relationships,
+                "community_reports": community_reports,
+                "communities": communities,
+            }
+        )
+        data = post_json(
+            self._client,
+            "/v1/requirements-graph/merge/bundle",
+            req.model_dump(mode="python"),
         )
 
-    def ingest_communities(self, rows: List[dict], batch_size: int = 1000) -> tuple[int, int]:
-        return self._batched_post_rows(path="/v1/requirements-graph/merge/communities", rows=rows, batch_size=batch_size)
-
-    def ingest_all_parquet(self, records: Dict[str, List[dict]], batch_size: int = 1000) -> Dict[str, Any]:
-        result: Dict[str, Any] = {}
-        total_created = 0
-        total_input = 0
-
-        def _run(name: str, fn, rows: List[dict]) -> None:
-            nonlocal total_created, total_input
-            created, inp = fn(rows, batch_size=batch_size)
-            result[name] = {"created": created, "input": inp}
-            total_created += created
-            total_input += inp
-
-        _run("documents", self.ingest_documents, records.get("documents", []))
-        _run("chunks", self.ingest_chunks, records.get("chunks", []))
-        _run("entities", self.ingest_entities, records.get("entities", []))
-        _run("entity_relationships", self.ingest_entity_relationships, records.get("entity_relationships", []))
-        _run("community_reports", self.ingest_community_reports, records.get("community_reports", []))
-        _run("communities", self.ingest_communities, records.get("communities", []))
-
+        # Maintain a compatible "counts by dataset" result shape for downstream logging.
+        result: Dict[str, Any] = {
+            "documents": {"created": int(data.get("documents_created", 0)), "input": len(documents)},
+            "chunks": {"created": int(data.get("chunks_created", 0)), "input": len(chunks)},
+            "entities": {"created": int(data.get("entities_created", 0)), "input": len(entities)},
+            "entity_relationships": {"created": int(data.get("relationships_processed", 0)), "input": len(entity_relationships)},
+            "community_reports": {"created": int(data.get("community_reports_created", 0)), "input": len(community_reports)},
+            "communities": {"created": int(data.get("communities_created", 0)), "input": len(communities)},
+            "bundle": {
+                "documents_created": int(data.get("documents_created", 0)),
+                "chunks_created": int(data.get("chunks_created", 0)),
+                "entities_created": int(data.get("entities_created", 0)),
+                "relationships_processed": int(data.get("relationships_processed", 0)),
+                "community_reports_created": int(data.get("community_reports_created", 0)),
+                "communities_created": int(data.get("communities_created", 0)),
+            },
+        }
+        total_input = sum([len(documents), len(chunks), len(entities), len(entity_relationships), len(community_reports), len(communities)])
+        total_created = sum([
+            result["documents"]["created"],
+            result["chunks"]["created"],
+            result["entities"]["created"],
+            result["entity_relationships"]["created"],
+            result["community_reports"]["created"],
+            result["communities"]["created"],
+        ])
         success_rate = (total_created / total_input * 100.0) if total_input > 0 else 0.0
         logger.info(
-            "parquet_ingestion_completed",
+            "parquet_bundle_ingestion_completed",
             total_created=total_created,
             total_input=total_input,
             success_rate=round(success_rate, 2),
@@ -136,9 +162,28 @@ class Neo4jIngestor:
             "chunk_text": ("/v1/requirements-graph/embeddings/chunk-text", "updated"),
         }
 
+        def _normalize_embedding_rows(key: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            # Build a predictable payload shape per endpoint.
+            # If a row cannot be validated, drop it (and rely on downstream validation).
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                try:
+                    if key == "chunk_text":
+                        m = ChunkEmbeddingRow.model_validate(r)
+                    elif key == "entity_description":
+                        m = EntityEmbeddingRow.model_validate(r)
+                    elif key == "community_summary":
+                        m = CommunityEmbeddingRow.model_validate(r)
+                    else:
+                        continue
+                    out.append(m.model_dump(mode="python"))
+                except Exception:
+                    continue
+            return out
+
         out: Dict[str, int] = {}
         for key, (path, count_field) in mapping.items():
-            rows = vectors.get(key, [])
+            rows = _normalize_embedding_rows(key, vectors.get(key, []))
             callbacks.vectors_ingest_start(key, "text", len(rows))
             updated, _ = self._batched_post_rows(
                 path=path,

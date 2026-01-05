@@ -104,9 +104,12 @@ Priority: {requirement_content.get('priority', 'Must')}
             "retrieved_context": context_str
         })
         
+        # Enforce stable identifier: never allow the LLM to rewrite the requirement id.
+        resolved_id = str(current_content.get("id") or requirement_id)
+        
         # Return enhanced requirement as dict
         return {
-            "id": enhanced.id,
+            "id": resolved_id,
             "title": enhanced.title,
             "description": enhanced.description,
             "acceptance_criteria": enhanced.acceptance_criteria,

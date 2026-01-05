@@ -2,7 +2,7 @@ UNWIND $chunkIds AS cid
 MATCH (p:__Project__ {id: $projectId})
 MATCH (ch:__Chunk__)-[:IN_PROJECT]->(p) WHERE ch.id = cid
 // Get document information for the chunk
-OPTIONAL MATCH (d:__Document__)-[:HAS_CHUNK]->(ch)
+OPTIONAL MATCH (d:__Document__)-[:HAS_CHUNK]->(ch)-[:IN_PROJECT]->(p)
 // Get entities from current chunk
 OPTIONAL MATCH (ch)-[:HAS_ENTITY]->(e:__Entity__)-[:IN_PROJECT]->(p)
 // Get related entities and their relationships

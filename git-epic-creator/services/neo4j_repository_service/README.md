@@ -69,7 +69,8 @@ Key properties of this placement:
 - **`Neo4rsExecutor`** (`src/executor.rs` + `src/neo4j.rs`): `neo4rs::Graph` backed implementation.
 - **HTTP router** (`src/http.rs`): wires endpoints to typed handlers. Also:
   - includes `TraceLayer` + request id + gzip compression
-  - enforces a **4 MiB** request body limit (vectors/neighborhoods can be large)
+  - accepts gzipped request bodies
+  - enforces a request body limit via `HTTP_BODY_LIMIT_BYTES` (default **4 MiB**)
 - **Handler helpers** (`src/api/cypher.rs`): shared wrappers for “query rows”, “first row”, “count”, and “exec write”.
 
 ### Feature/API surface (by endpoint family)
@@ -89,11 +90,8 @@ Key properties of this placement:
 
 #### Code graph ingestion (project-centric isolated code graph)
 
-- `POST /v1/code-graph/merge-project`
-- `POST /v1/code-graph/merge-repo`
-- `POST /v1/code-graph/merge-files`
 - `POST /v1/code-graph/merge-code-graph`
-  - accepts a single payload containing both `nodes` and `edges`
+  - accepts a single payload containing `project_id`, `repo_fingerprint`, `files`, `nodes`, and `edges`
   - edges are grouped by `rel_type` (validated by `CodeRelType`):
     `calls|performs|references|imports|includes|reads|writes|config_wires|contains|next_chunk`
 
@@ -103,12 +101,8 @@ These endpoints are built to accept **bulk rows** and rely on `UNWIND $rows ...`
 
 Merge:
 
-- `POST /v1/requirements-graph/merge/documents`
-- `POST /v1/requirements-graph/merge/chunks`
-- `POST /v1/requirements-graph/merge/entities`
-- `POST /v1/requirements-graph/merge/relationships`
-- `POST /v1/requirements-graph/merge/community-reports`
-- `POST /v1/requirements-graph/merge/communities`
+- `POST /v1/requirements-graph/merge/bundle`
+  - transactional “structure ingest” for GraphRAG parquet outputs (documents/chunks/entities/relationships/community_reports/communities) in a single Cypher flow
 
 Embeddings:
 
@@ -209,7 +203,7 @@ flowchart LR
 
 Notes:
 
-- `merge_code_nodes_apoc.cypher` dynamically adds extra labels via `apoc.create.addLabels(n, row.extra_labels)`. This allows modeling language-specific node kinds without changing the base label (`__CodeNode__`).
+- `code_graph/merge_code_graph_full_apoc.cypher` dynamically adds extra labels via `apoc.create.addLabels(n, row.extra_labels)`. This allows modeling language-specific node kinds without changing the base label (`__CodeNode__`).
 - Indexes are optimized for scoped lookups (`project_id`, `repo_fingerprint`) + one discriminator field (`symbol`, `kind`, `file_path`, `snippet_hash`).
 
 ### Requirements/GraphRAG graph (project-centric isolated requirements graph)

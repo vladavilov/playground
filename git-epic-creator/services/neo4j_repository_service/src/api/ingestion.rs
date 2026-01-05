@@ -13,23 +13,11 @@ use crate::{AppState, api::cypher, http::AppError};
 use crate::domain::code_graph::CodeRelType;
 
 #[derive(Debug, Deserialize)]
-pub struct MergeProjectRequest {
-    pub project_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MergeRepoRequest {
+pub struct MergeCodeGraphRequest {
     pub project_id: String,
     pub repo_fingerprint: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RowsRequest {
-    pub rows: Vec<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MergeCodeGraphRequest {
+    #[serde(default)]
+    pub files: Vec<Value>,
     #[serde(default)]
     pub nodes: Vec<Value>,
     /// Map of rel_type -> edge rows.
@@ -39,75 +27,32 @@ pub struct MergeCodeGraphRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct RequirementsGraphBundleRequest {
+    pub project_id: String,
+    #[serde(default)]
+    pub documents: Vec<Value>,
+    #[serde(default)]
+    pub chunks: Vec<Value>,
+    #[serde(default)]
+    pub entities: Vec<Value>,
+    #[serde(default)]
+    pub relationships: Vec<Value>,
+    #[serde(default)]
+    pub community_reports: Vec<Value>,
+    #[serde(default)]
+    pub communities: Vec<Value>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct EmbeddingsRequest {
     pub project_id: String,
     pub rows: Vec<Value>,
-}
-
-pub async fn merge_project(
-    State(state): State<AppState>,
-    Json(req): Json<MergeProjectRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let row = cypher::first_row(
-        &state,
-        "code_graph/merge_project",
-        HashMap::from([("project_id".to_string(), json!(req.project_id))]),
-        &["id"],
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(row)))
-}
-
-pub async fn merge_repo(
-    State(state): State<AppState>,
-    Json(req): Json<MergeRepoRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let row = cypher::first_row(
-        &state,
-        "code_graph/merge_repo",
-        HashMap::from([
-            ("project_id".to_string(), json!(req.project_id)),
-            ("repo_fingerprint".to_string(), json!(req.repo_fingerprint)),
-        ]),
-        &["repo_fingerprint"],
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(row)))
-}
-
-pub async fn merge_files(
-    State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
-        &state,
-        "code_graph/merge_files",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "n",
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
 }
 
 pub async fn merge_code_graph(
     State(state): State<AppState>,
     Json(req): Json<MergeCodeGraphRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Nodes and edges are persisted in a single HTTP call to avoid split-brain ingestion
-    // across concurrent writers/retries.
-    let processed_nodes = if req.nodes.is_empty() {
-        0
-    } else {
-        cypher::count(
-            &state,
-            "code_graph/merge_code_nodes_apoc",
-            HashMap::from([("rows".to_string(), Value::Array(req.nodes))]),
-            "n",
-        )
-        .await?
-    };
-
-    let mut processed_edges_total: i64 = 0;
     let mut edge_rows: Vec<Value> = Vec::new();
     for (rel_type_raw, rows) in req.edges {
         if rows.is_empty() {
@@ -127,119 +72,52 @@ pub async fn merge_code_graph(
         }
     }
 
-    let mut processed_edges_by_type = serde_json::Map::new();
-    if !edge_rows.is_empty() {
-        // Returns rows of shape: { t: "<RELTYPE>", n: <count> }
-        let rows = cypher::query_rows(
-            &state,
-            "code_graph/merge_edges_apoc",
-            HashMap::from([("rows".to_string(), Value::Array(edge_rows))]),
-            &["t", "n"],
-            50,
-        )
-        .await?;
-        for r in rows {
-            let t = r.get("t").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let n = r.get("n").and_then(|v| v.as_i64()).unwrap_or(0);
-            if !t.is_empty() {
-                processed_edges_total += n;
-                processed_edges_by_type.insert(t, json!(n));
-            }
-        }
-    }
-
-    Ok((
-        StatusCode::OK,
-        Json(json!({
-            "processed_nodes": processed_nodes,
-            "processed_edges_total": processed_edges_total,
-            "processed_edges_by_type": Value::Object(processed_edges_by_type),
-        })),
-    ))
-}
-
-pub async fn rg_merge_documents(
-    State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
+    let row = cypher::first_row(
         &state,
-        "requirements_graph/merge_document",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "documents_created",
+        "code_graph/merge_code_graph_full_apoc",
+        HashMap::from([
+            ("project_id".to_string(), json!(req.project_id)),
+            ("repo_fingerprint".to_string(), json!(req.repo_fingerprint)),
+            ("files".to_string(), Value::Array(req.files)),
+            ("nodes".to_string(), Value::Array(req.nodes)),
+            ("edges".to_string(), Value::Array(edge_rows)),
+        ]),
+        &["files_processed", "nodes_processed", "edges_processed_total", "edges_by_type"],
     )
     .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
+    Ok((StatusCode::OK, Json(row)))
 }
 
-pub async fn rg_merge_chunks(
+pub async fn rg_merge_bundle(
     State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
+    Json(req): Json<RequirementsGraphBundleRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
+    let row = cypher::first_row(
         &state,
-        "requirements_graph/merge_chunk",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "chunks_created",
+        "requirements_graph/merge_bundle_full",
+        HashMap::from([
+            ("project_id".to_string(), json!(req.project_id)),
+            ("documents".to_string(), Value::Array(req.documents)),
+            ("chunks".to_string(), Value::Array(req.chunks)),
+            ("entities".to_string(), Value::Array(req.entities)),
+            ("relationships".to_string(), Value::Array(req.relationships)),
+            (
+                "community_reports".to_string(),
+                Value::Array(req.community_reports),
+            ),
+            ("communities".to_string(), Value::Array(req.communities)),
+        ]),
+        &[
+            "documents_created",
+            "chunks_created",
+            "entities_created",
+            "relationships_processed",
+            "community_reports_created",
+            "communities_created",
+        ],
     )
     .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
-}
-
-pub async fn rg_merge_entities(
-    State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
-        &state,
-        "requirements_graph/merge_entity",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "entities_created",
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
-}
-
-pub async fn rg_merge_relationships(
-    State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
-        &state,
-        "requirements_graph/merge_relationship",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "relationships_processed",
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
-}
-
-pub async fn rg_merge_community_reports(
-    State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
-        &state,
-        "requirements_graph/merge_community_report",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "community_reports_created",
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
-}
-
-pub async fn rg_merge_communities(
-    State(state): State<AppState>,
-    Json(req): Json<RowsRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let processed = cypher::count(
-        &state,
-        "requirements_graph/merge_community",
-        HashMap::from([("rows".to_string(), Value::Array(req.rows))]),
-        "communities_created",
-    )
-    .await?;
-    Ok((StatusCode::OK, Json(json!({ "processed": processed }))))
+    Ok((StatusCode::OK, Json(row)))
 }
 
 pub async fn rg_embeddings_chunk_text(

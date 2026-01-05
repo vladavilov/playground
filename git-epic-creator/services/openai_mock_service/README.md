@@ -72,9 +72,17 @@ src/
 - `can_handle(messages, combined_text, lower_text) -> bool`
 - `generate_response(messages, combined_text, model) -> str`
 
-**Registry:** Handlers registered in priority order (most specific first). First matching handler processes request.
+**Registry:** Handlers are registered in priority order (most specific first).
 
-**28 Handlers (1-1 mapping guaranteed):**
+**Deterministic routing (1 request → 1 handler):**
+
+- If **exactly one** non-fallback handler matches → it is used.
+- If **none** match → fallback handler is used.
+- If **more than one** matches → request fails with **HTTP 409** and a structured payload listing the matching handlers (this forces matchers to be non-overlapping).
+
+**Docling VLM support:** `document_processing_service` (Docling remote vision) is handled by `DoclingVlmHandler`, which matches Docling prompt markers (e.g. "docling format") and returns Docling-ish text instead of GraphRAG/workflow JSON.
+
+**29 Handlers (1-1 mapping enforced):**
 
 | Group | Count | Handlers |
 |-------|-------|----------|
@@ -84,6 +92,7 @@ src/
 | **AI Tasks Service** | 5 | RequirementsAnalyst, BacklogEngineer, ConsistencyAuditor, Evaluator, ClarificationStrategist |
 | **AI Workflow** | 4 | Analyst, Engineer, Auditor, Strategist |
 | **Search/Summarization** | 5 | ExtractClaims, GlobalSearch, BasicSearch, QuestionGen, SummarizeDescriptions |
+| **Docling VLM** | 1 | DoclingVlm |
 | **Fallback** | 1 | Default graph generator |
 
 **Detection Examples:**
@@ -94,7 +103,7 @@ src/
 - `AnalystHandler`: `"senior requirements analyst" + "intents" schema`
 - `EngineerHandler`: `"requirements engineer" + BR/FR schema`
 
-**No Overlaps:** Each handler has mutually exclusive detection pattern.
+**No silent overlaps:** If a request accidentally matches multiple handlers, the service returns HTTP 409 with the match list so the overlap can be fixed.
 
 ---
 

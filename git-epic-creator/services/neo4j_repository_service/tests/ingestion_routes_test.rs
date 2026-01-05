@@ -24,6 +24,9 @@ async fn merge_code_graph_rejects_unknown_rel_type() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
+                        "project_id": "p1",
+                        "repo_fingerprint": "r1",
+                        "files": [],
                         "nodes": [],
                         "edges": {
                             "unknown": []
@@ -47,6 +50,9 @@ async fn merge_code_graph_rejects_unknown_rel_type() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
+                        "project_id": "p1",
+                        "repo_fingerprint": "r1",
+                        "files": [],
                         "nodes": [],
                         "edges": {
                             "unknown": [ {"a": 1} ]
@@ -68,13 +74,14 @@ async fn merge_code_graph_returns_processed_counts() {
         queries,
         vec![
             (
-                "code_graph/merge_code_nodes_apoc",
-                vec![common::Row::from([("n".to_string(), json!(2))])],
-            ),
-            (
-                "code_graph/merge_edges_apoc",
+                "code_graph/merge_code_graph_full_apoc",
                 vec![
-                    common::Row::from([("t".to_string(), json!("CALLS")), ("n".to_string(), json!(3))]),
+                    common::Row::from([
+                        ("files_processed".to_string(), json!(1)),
+                        ("nodes_processed".to_string(), json!(2)),
+                        ("edges_processed_total".to_string(), json!(3)),
+                        ("edges_by_type".to_string(), json!({"CALLS": 3})),
+                    ]),
                 ],
             ),
         ],
@@ -89,6 +96,9 @@ async fn merge_code_graph_returns_processed_counts() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
+                        "project_id": "p1",
+                        "repo_fingerprint": "r1",
+                        "files": [ {"file_path": "a.cbl", "sha256": "x", "language": "cobol", "line_count": 1} ],
                         "nodes": [ {"a": 1} ],
                         "edges": {
                             "calls": [ {"a": 1} ]
@@ -104,9 +114,10 @@ async fn merge_code_graph_returns_processed_counts() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(v["processed_nodes"], json!(2));
-    assert_eq!(v["processed_edges_total"], json!(3));
-    assert_eq!(v["processed_edges_by_type"]["CALLS"], json!(3));
+    assert_eq!(v["files_processed"], json!(1));
+    assert_eq!(v["nodes_processed"], json!(2));
+    assert_eq!(v["edges_processed_total"], json!(3));
+    assert_eq!(v["edges_by_type"]["CALLS"], json!(3));
 }
 
 #[tokio::test]

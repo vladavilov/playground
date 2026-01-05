@@ -2,12 +2,10 @@
 
 from typing import List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File, Header
 from utils.local_auth import (
-    get_local_user_verified,
-    get_local_user_allow_expired,
-    LocalUser,
-    require_roles_local,
+    get_gateway_service_verified,
+    LocalServiceCaller,
 )
 import structlog
 from configuration.common_config import get_app_settings
@@ -30,6 +28,9 @@ from services.gitlab_client_adapter import GitLabClientAdapter
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
+
+# Stable dependency callables (so tests can override them reliably)
+require_gateway_verified = get_gateway_service_verified()
 
 def get_project_service(request: Request) -> ProjectService:
     settings = get_app_settings()
@@ -56,21 +57,22 @@ def get_project_status_publisher() -> ProjectStatusPublisher:
 async def create_project(
     project: ProjectSet,
     request: Request,
-    current_user: LocalUser = Depends(require_roles_local(["Admin"])),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
     """Create a project (Admin only)."""
     logger.info(
         "Creating project via API",
         project_name=project.name,
-        user_id=current_user.oid
+        user_id=x_user_id
     )
 
     s2s_token = request.headers.get("Authorization", "").replace("Bearer ", "")
 
     created_project = await project_service.create_project(
         project,
-        current_user.oid,
+        x_user_id,
         s2s_token=s2s_token
     )
     return ProjectResponse.model_validate(created_project)
@@ -79,7 +81,8 @@ async def create_project(
 @router.get("", response_model=List[ProjectResponse])
 async def list_projects(
     search: str | None = None,
-    current_user: LocalUser = Depends(get_local_user_verified),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> List[ProjectResponse]:
     """
@@ -91,12 +94,17 @@ async def list_projects(
                 Used by MCP server for resolve_project tool.
     """
     if search:
-        logger.info("Searching projects by name via API", search_term=search, user_id=current_user.oid)
-        projects = project_service.search_projects_by_name(search)
+        logger.info("Searching projects by name via API", search_term=search, user_id=x_user_id)
+        # Enforce visibility: filter search results to projects the user can access
+        candidates = project_service.search_projects_by_name(search)
+        projects = [
+            p for p in candidates
+            if project_service.check_user_project_access(p.id, user_id=x_user_id)
+        ]
     else:
-        logger.info("Listing projects via API", user_id=current_user.oid)
+        logger.info("Listing projects via API", user_id=x_user_id)
         projects = project_service.get_projects_by_user_and_roles(
-            current_user.oid, current_user.roles
+            x_user_id, []
         )
     return [ProjectResponse.model_validate(project) for project in projects]
 
@@ -104,22 +112,23 @@ async def list_projects(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: UUID,
-    current_user: LocalUser = Depends(get_local_user_verified),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
     """Get project by ID."""
     logger.info(
         "Getting project via API",
         project_id=str(project_id),
-        user_id=current_user.oid
+        user_id=x_user_id
     )
 
     project = project_service.get_project_by_id(project_id)
-    if not project:
+    if not project or not project_service.check_user_project_access(project_id, user_id=x_user_id):
         logger.warning(
-            "Project not found",
+            "Project not found or access denied",
             project_id=str(project_id),
-            user_id=current_user.oid
+            user_id=x_user_id
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -134,17 +143,22 @@ async def update_project(
     project_id: UUID,
     project: ProjectSet,
     request: Request,
-    current_user: LocalUser = Depends(get_local_user_verified),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectResponse:
     """Update a project."""
     logger.info(
         "Updating project via API",
         project_id=str(project_id),
-        user_id=current_user.oid
+        user_id=x_user_id
     )
 
     s2s_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+
+    if not project_service.check_user_project_access(project_id, user_id=x_user_id):
+        logger.warning("Project not found or access denied for update", project_id=str(project_id), user_id=x_user_id)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     updated_project = await project_service.update_project(
         project_id,
@@ -155,7 +169,7 @@ async def update_project(
         logger.warning(
             "Project not found for update",
             project_id=str(project_id),
-            user_id=current_user.oid
+            user_id=x_user_id
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -168,14 +182,15 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: UUID,
-    current_user: LocalUser = Depends(require_roles_local(["Admin"])),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> None:
     """Delete a project (Admin only)."""
     logger.info(
         "Deleting project via API",
         project_id=str(project_id),
-        user_id=current_user.oid
+        user_id=x_user_id
     )
 
     success = project_service.delete_project(project_id)
@@ -198,46 +213,22 @@ async def delete_project(
 async def add_project_member(
     project_id: UUID,
     member_data: ProjectMemberSet,
-    current_user: LocalUser = Depends(get_local_user_verified),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> ProjectMemberResponse:
-    """Add a member (Admin or PM for own projects)."""
+    """Add a member (authorization enforced by gateway; service enforces project visibility where applicable)."""
     logger.info(
         "Adding project member via API",
         project_id=str(project_id),
         user_id=member_data.user_id,
         role=member_data.role.value,
-        added_by=current_user.oid
+        added_by=x_user_id
     )
-
-    # Admin can add to any project; PM only to own
-    if "Admin" not in current_user.roles:
-        if "Project Manager" not in current_user.roles:
-            logger.warning(
-                "Insufficient permissions to add project member",
-                user_id=current_user.oid,
-                roles=current_user.roles
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions to add project members"
-            )
-
-        project = project_service.get_project_by_id(project_id)
-        if not project or project.created_by != current_user.oid:
-            logger.warning(
-                "Project Manager can only add members to own projects",
-                user_id=current_user.oid,
-                project_id=str(project_id)
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Project Managers can only add members to their own projects"
-            )
 
     try:
         project_member = project_service.add_project_member(
-            project_id, member_data, current_user.oid
+            project_id, member_data, x_user_id
         )
         return ProjectMemberResponse.model_validate(project_member)
     except ValueError as e:
@@ -245,7 +236,7 @@ async def add_project_member(
             "Failed to add project member",
             error=str(e),
             project_id=str(project_id),
-            user_id=current_user.oid
+            user_id=x_user_id
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -256,23 +247,24 @@ async def add_project_member(
 @router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])
 async def list_project_members(
     project_id: UUID,
-    current_user: LocalUser = Depends(get_local_user_verified),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> List[ProjectMemberResponse]:
     """List project members (requires access)."""
     logger.info(
         "Listing project members via API",
         project_id=str(project_id),
-        user_id=current_user.oid
+        user_id=x_user_id
     )
 
     has_access = project_service.check_user_project_access(
-        project_id, current_user.oid, current_user.roles
+        project_id, user_id=x_user_id
     )
     if not has_access:
         logger.warning(
             "User does not have access to project",
-            user_id=current_user.oid,
+            user_id=x_user_id,
             project_id=str(project_id)
         )
         raise HTTPException(
@@ -291,7 +283,8 @@ async def list_project_members(
 async def remove_project_member(
     project_id: UUID,
     member_id: str,
-    current_user: LocalUser = Depends(require_roles_local(["Admin"])),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service)
 ) -> None:
     """Remove a member (Admin only)."""
@@ -299,7 +292,7 @@ async def remove_project_member(
         "Removing project member via API",
         project_id=str(project_id),
         member_id=member_id,
-        removed_by=current_user.oid
+        removed_by=x_user_id
     )
 
     success = project_service.remove_project_member(project_id, member_id)
@@ -308,7 +301,7 @@ async def remove_project_member(
             "Project member not found for removal",
             project_id=str(project_id),
             member_id=member_id,
-            user_id=current_user.oid
+            user_id=x_user_id
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -320,7 +313,8 @@ async def remove_project_member(
 async def update_project_status(
     project_id: UUID,
     update_request: ProjectProgressUpdateRequest,
-    current_user: LocalUser = Depends(get_local_user_allow_expired),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str | None = Header(None, alias="x-user-id"),
     project_service: ProjectService = Depends(get_project_service),
     project_status_publisher: ProjectStatusPublisher = Depends(get_project_status_publisher)
 ) -> ProjectResponse:
@@ -331,7 +325,7 @@ async def update_project_status(
         project_id_type=type(project_id).__name__,
         project_id_repr=repr(project_id),
         status=update_request.status,
-        user_id=current_user.oid
+        user_id=x_user_id
     )
 
     project = project_service.update_project_progress(
@@ -346,7 +340,7 @@ async def update_project_status(
         logger.warning(
             "Project not found for status update",
             project_id=str(project_id),
-            user_id=current_user.oid
+            user_id=x_user_id
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -394,8 +388,10 @@ async def update_project_status(
 @router.post("/{project_id}/documents/upload", response_model=BulkUploadResponse)
 async def bulk_upload_documents(
     project_id: UUID,
+    request: Request,
     files: List[UploadFile] = File(...),
-    current_user: LocalUser = Depends(get_local_user_verified),
+    _caller: LocalServiceCaller = Depends(require_gateway_verified),
+    x_user_id: str = Header(..., alias="x-user-id"),
     document_upload_service: DocumentUploadService = Depends(get_document_upload_service),
     project_service: ProjectService = Depends(get_project_service)
 ) -> BulkUploadResponse:
@@ -415,15 +411,15 @@ async def bulk_upload_documents(
     logger.info("Bulk document upload requested",
                 project_id=str(project_id),
                 file_count=len(files),
-                user_id=current_user.oid)
+                user_id=x_user_id)
 
     # Check if project exists before processing upload
     project = project_service.get_project_by_id(project_id)
-    if not project:
+    if not project or not project_service.check_user_project_access(project_id, user_id=x_user_id):
         logger.warning(
-            "Project not found for document upload",
+            "Project not found or access denied for document upload",
             project_id=str(project_id),
-            user_id=current_user.oid
+            user_id=x_user_id
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -431,16 +427,18 @@ async def bulk_upload_documents(
         )
 
     try:
-        result = await document_upload_service.bulk_upload_documents(project_id, files, authorization_header=current_user.token)
+        # Forward the gateway-injected S2S auth header to background processing tasks.
+        auth_header = request.headers.get("authorization", "")
+        result = await document_upload_service.bulk_upload_documents(project_id, files, authorization_header=auth_header)
         logger.info("Bulk document upload successful",
                    project_id=str(project_id),
                    file_count=len(files),
-                   user_id=current_user.oid)
+                   user_id=x_user_id)
         return result
     except Exception as e:  # Let tests assert specific error message
         logger.error("Bulk document upload failed",
                     project_id=str(project_id),
                     file_count=len(files),
-                    user_id=current_user.oid,
+                    user_id=x_user_id,
                     error=str(e))
         raise HTTPException(status_code=500, detail=f"Bulk document upload failed: {str(e)}") from e

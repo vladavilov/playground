@@ -21,10 +21,10 @@ def setup_env():
 def mock_external(monkeypatch):
     # Stub LLM used by all experts by patching the imported symbol in each module
     fake = make_fake_llm()
-    monkeypatch.setattr("orchestrator.experts.prompt_analyst.get_llm", lambda *args, **kwargs: fake, raising=False)
-    monkeypatch.setattr("orchestrator.experts.requirements_engineer.get_llm", lambda *args, **kwargs: fake, raising=False)
-    monkeypatch.setattr("orchestrator.experts.consistency_auditor.get_llm", lambda *args, **kwargs: fake, raising=False)
-    monkeypatch.setattr("orchestrator.experts.question_strategist.get_llm", lambda *args, **kwargs: fake, raising=False)
+    monkeypatch.setattr("orchestrator.experts.prompt_analyst.create_llm", lambda *args, **kwargs: fake, raising=True)
+    monkeypatch.setattr("orchestrator.experts.requirements_engineer.create_llm", lambda *args, **kwargs: fake, raising=True)
+    monkeypatch.setattr("orchestrator.experts.consistency_auditor.create_llm", lambda *args, **kwargs: fake, raising=True)
+    monkeypatch.setattr("orchestrator.experts.question_strategist.create_llm", lambda *args, **kwargs: fake, raising=True)
     # Stub HTTP client for retrieval
     monkeypatch.setattr("httpx.AsyncClient", _FakeHTTPClient, raising=True)
 
@@ -50,6 +50,7 @@ async def test_loop_terminates_on_threshold_and_publishes_iterations(mock_extern
         project_id=project_id,
         prompt=prompt,
         publisher=publisher,
+        auth_header="Bearer svc.jwt.token",
     )
 
     assert 0.0 <= bundle.score <= 1.0
@@ -87,6 +88,7 @@ async def test_max_iters_caps_iterations_if_threshold_not_met(mock_external, mon
         project_id=uuid4(),
         prompt="Feature X",
         publisher=publisher,
+        auth_header="Bearer svc.jwt.token",
     )
 
     settings = get_ai_requirements_settings()
@@ -95,5 +97,9 @@ async def test_max_iters_caps_iterations_if_threshold_not_met(mock_external, mon
     assert bundle.clarification_questions is not None
 
     serialized = [call.args[1] for call in mock_redis.publish.await_args_list]
-    drafted = [json.loads(s) for s in serialized if json.loads(s).get("stage") == "draft_requirements"]
+    drafted = [
+        json.loads(s)
+        for s in serialized
+        if json.loads(s).get("status") == "drafting_requirements"
+    ]
     assert len(drafted) == int(os.environ["MAX_AGENT_ITERS"])

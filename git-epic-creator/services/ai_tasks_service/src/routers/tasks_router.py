@@ -3,7 +3,7 @@
 from typing import Optional
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends, Header
-from utils.local_auth import get_local_user_verified, LocalUser
+from utils.local_auth import get_gateway_service_verified, LocalServiceCaller
 from utils.app_factory import get_redis_client_from_state
 
 from task_models.request_models import (
@@ -18,12 +18,15 @@ from orchestrator.orchestrator import run_backlog_workflow, run_single_task_enha
 
 router = APIRouter()
 
+# Stable dependency callable (so tests can override it reliably)
+require_gateway_verified = get_gateway_service_verified()
+
 
 @router.post("/generate", response_model=GeneratedBacklogBundle)
 async def generate_backlog(
     request: TasksChatRequest,
     redis_client: redis.Redis = Depends(get_redis_client_from_state),
-    current_user: LocalUser = Depends(get_local_user_verified),
+    caller: LocalServiceCaller = Depends(require_gateway_verified),
     x_gitlab_access_token: Optional[str] = Header(None, alias="X-GitLab-Access-Token"),
 ) -> GeneratedBacklogBundle:
     """Generate or refine backlog (epics and tasks) from requirements.
@@ -48,7 +51,7 @@ async def generate_backlog(
         requirements=request.message,
         publisher=publisher,
         prompt_id_opt=request.prompt_id,
-        auth_header=f"Bearer {current_user.token}",
+        auth_header=f"Bearer {caller.token}",
         gitlab_token=x_gitlab_access_token,
     )
     
@@ -59,7 +62,7 @@ async def generate_backlog(
 async def enhance_task(
     request: EnhanceTaskRequest,
     redis_client: redis.Redis = Depends(get_redis_client_from_state),
-    current_user: LocalUser = Depends(get_local_user_verified),
+    caller: LocalServiceCaller = Depends(require_gateway_verified),
     x_gitlab_access_token: Optional[str] = Header(None, alias="X-GitLab-Access-Token"),
 ) -> EnhancedTask:
     """Enhance a single epic/task with AI-generated expansions.
@@ -91,7 +94,7 @@ async def enhance_task(
         current_content=request.current_content,
         publisher=publisher,
         parent_epic_content=request.parent_epic_content,
-        auth_header=f"Bearer {current_user.token}",
+        auth_header=f"Bearer {caller.token}",
     )
     return EnhancedTask(**enhanced_dict)
 

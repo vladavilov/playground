@@ -203,7 +203,7 @@ def test_retrieve_returns_aggregated_json(monkeypatch):
 
     app = mount_app(mod)
     # Disable auth in test
-    app.dependency_overrides[mod.get_local_user_verified] = lambda: None
+    app.dependency_overrides[mod.require_gateway_verified] = lambda: None
     client = TestClient(app)
 
     resp = client.post("/retrieve", json={"query": "what are the main components of the bridge?", "top_k": 2, "project_id": "test-project"})

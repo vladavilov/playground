@@ -195,7 +195,7 @@ class Neo4jValidators:
     @staticmethod
     def verify_constraints_minimal(fixtures: WorkflowTestFixtures) -> None:
         """
-        Verify minimal required constraints exist.
+        Verify required GraphRAG constraints exist.
         
         Args:
             fixtures: Test fixtures with neo4j_driver
@@ -203,16 +203,43 @@ class Neo4jValidators:
         with fixtures.neo4j_driver.session() as session:
             constraints = list(session.run(Neo4jQueries.SHOW_CONSTRAINTS))
             
-            def has_node_unique(label: str) -> bool:
+            def has_node_unique(label: str, props: list[str]) -> bool:
                 for rec in constraints:
+                    rec_props = rec.get("properties") or []
                     if (rec.get("entityType") == "NODE"
                         and label in (rec.get("labelsOrTypes") or [])
-                        and "id" in (rec.get("properties") or [])
+                        and all(p in rec_props for p in props)
+                        and "UNIQUENESS" in (rec.get("type") or "")):
+                        return True
+                return False
+
+            def has_rel_unique(rel_type: str, props: list[str]) -> bool:
+                for rec in constraints:
+                    rec_props = rec.get("properties") or []
+                    if (rec.get("entityType") == "RELATIONSHIP"
+                        and rel_type in (rec.get("labelsOrTypes") or [])
+                        and all(p in rec_props for p in props)
                         and "UNIQUENESS" in (rec.get("type") or "")):
                         return True
                 return False
             
-            assert has_node_unique("__Entity__"), "Missing unique constraint on __Entity__(id)"
+            # GraphRAG schema: ids are unique per project (project_id, id).
+            assert has_node_unique("__Project__", ["id"]), "Missing unique constraint on __Project__(id)"
+            assert has_node_unique("__Document__", ["project_id", "id"]), (
+                "Missing unique constraint on __Document__(project_id, id)"
+            )
+            assert has_node_unique("__Chunk__", ["project_id", "id"]), (
+                "Missing unique constraint on __Chunk__(project_id, id)"
+            )
+            assert has_node_unique("__Entity__", ["project_id", "id"]), (
+                "Missing unique constraint on __Entity__(project_id, id)"
+            )
+            # Communities are unique by composite key (project_id, community).
+            assert has_node_unique("__Community__", ["project_id", "community"]), (
+                "Missing unique constraint on __Community__(project_id, community)"
+            )
+            # Relationship id is globally unique (we prefix with project_id in ingestion).
+            assert has_rel_unique("RELATED", ["id"]), "Missing unique constraint on :RELATED(id)"
     
     @staticmethod
     def verify_vector_index(fixtures: WorkflowTestFixtures) -> None:

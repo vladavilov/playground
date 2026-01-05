@@ -115,7 +115,7 @@ data:
   LLM_TEMPERATURE: "0.2"
   
   # Azure AD
-  AZURE_AD_AUTHORITY: "https://login.microsoftonline.com/${AZURE_TENANT_ID}"
+  AZURE_AD_AUTHORITY: "https://login.microsoftonline.com"
   AZURE_TENANT_ID: "${AZURE_TENANT_ID}"
   AZURE_CLIENT_ID: "${AZURE_CLIENT_ID}"
   AZURE_AD_VERIFY_SSL: "true"
