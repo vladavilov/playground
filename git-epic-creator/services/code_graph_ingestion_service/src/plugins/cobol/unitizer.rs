@@ -539,9 +539,7 @@ fn extract_data_items_fallback(
         });
     }
     out
-}
-
-fn is_paragraph_header_candidate(line: &str) -> bool {
+}fn is_paragraph_header_candidate(line: &str) -> bool {
     let stripped = line.trim();
     if !stripped.ends_with('.') {
         return false;
