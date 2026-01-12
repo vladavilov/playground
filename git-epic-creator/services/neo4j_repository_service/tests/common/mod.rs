@@ -147,9 +147,7 @@ pub fn s2s_auth_header_value() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as u64;
-
-    // Minimal HS256 JWT:
+        .as_secs() as u64;    // Minimal HS256 JWT:
     // header: {"alg":"HS256","typ":"JWT"}
     // payload: {"sub":"api-gateway","iss":"authentication-service","exp":...}
     let header_json = r#"{"alg":"HS256","typ":"JWT"}"#;
